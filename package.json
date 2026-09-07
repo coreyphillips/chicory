@@ -1,0 +1,89 @@
+{
+	"name": "chicory",
+	"version": "0.1.0",
+	"description": "Client for beignet JIT inbound liquidity, direct-funding payments and reverse swaps from supported wallets and Lightning applications.",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/coreyphillips/chicory.git"
+	},
+	"homepage": "https://github.com/coreyphillips/chicory#readme",
+	"bugs": {
+		"url": "https://github.com/coreyphillips/chicory/issues"
+	},
+	"files": [
+		"dist/",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"tsc:check": "tsc -p tsconfig.json --noEmit",
+		"tsc:check:tests": "tsc -p tsconfig.test.json --noEmit",
+		"lint": "eslint . --ext .ts",
+		"test": "TS_NODE_TRANSPILE_ONLY=1 mocha --exit --timeout 60000 -r ts-node/register 'tests/**/*.test.ts'",
+		"test:unit": "TS_NODE_TRANSPILE_ONLY=1 mocha --exit --timeout 20000 -r ts-node/register 'tests/unit/**/*.test.ts'",
+		"test:wire": "TS_NODE_TRANSPILE_ONLY=1 mocha --exit --timeout 60000 -r ts-node/register 'tests/wire/**/*.test.ts'",
+		"example:lnd-jit": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/lnd-jit-invoice.ts",
+		"example:ldk-jit": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/ldk-jit-invoice.ts",
+		"example:ldk-pay": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/ldk-pay-request.ts",
+		"example:pay": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/bare-coin-pay-request.ts",
+		"test:funding:live": "TS_NODE_TRANSPILE_ONLY=1 mocha --exit --timeout 180000 -r ts-node/register tests/wire/cln-funding-live.test.ts",
+		"test:live": "TS_NODE_TRANSPILE_ONLY=1 mocha --exit --timeout 120000 -r ts-node/register 'tests/wire/lnd-jit-live.test.ts' 'tests/wire/lnd-pay-live.test.ts' 'tests/wire/cln-pay-live.test.ts'",
+		"example:lnd-pay": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/lnd-pay-request.ts",
+		"example:cln-pay": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/cln-pay-request.ts",
+		"example:lnd-reverse-swap": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/lnd-reverse-swap.ts",
+		"example:cln-reverse-swap": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/cln-reverse-swap.ts",
+		"test:swap:live": "TS_NODE_TRANSPILE_ONLY=1 mocha --exit --timeout 600000 -r ts-node/register 'tests/wire/lnd-reverse-swap-live.test.ts' 'tests/wire/cln-reverse-swap-live.test.ts'",
+		"link:beignet": "npm link ../synonym/beignet"
+	},
+	"keywords": [
+		"beignet",
+		"lightning",
+		"lightning-network",
+		"liquidity",
+		"lsp",
+		"jit-channel",
+		"direct-funding",
+		"bolt8",
+		"swap",
+		"reverse-swap",
+		"submarine-swap"
+	],
+	"author": "coreyphillips",
+	"license": "MIT",
+	"engines": {
+		"node": ">=18.0.0"
+	},
+	"dependencies": {
+		"@bitcoinerlab/secp256k1": "1.0.5",
+		"beignet": "^0.15.0",
+		"bitcoinjs-lib": "6.1.4"
+	},
+	"peerDependencies": {
+		"ws": ">=8"
+	},
+	"peerDependenciesMeta": {
+		"ws": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@types/chai": "4.3.0",
+		"@types/mocha": "9.0.0",
+		"@types/node": "20.4.10",
+		"@types/ws": "8.5.10",
+		"@typescript-eslint/eslint-plugin": "5.62.0",
+		"@typescript-eslint/parser": "5.62.0",
+		"chai": "4.3.4",
+		"eslint": "8.57.1",
+		"eslint-config-prettier": "9.0.0",
+		"eslint-plugin-prettier": "5.0.0",
+		"mocha": "10.8.2",
+		"prettier": "3.0.2",
+		"ts-node": "10.9.0",
+		"typescript": "5.4.5",
+		"ws": "8.17.0"
+	}
+}

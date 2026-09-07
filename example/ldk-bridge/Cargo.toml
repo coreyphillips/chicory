@@ -1,0 +1,10 @@
+[package]
+name = "chicory-ldk-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Reference CustomMessageHandler that lets chicory speak the beignet peer protocol through a rust-lightning node"
+publish = false
+
+[dependencies]
+lightning = "0.2"
+bitcoin = "0.32"
