@@ -69,6 +69,7 @@ describe('Direct funding against a real beignet receiver over TCP', function () 
 			});
 			// A request minted for another chain is refused by name.
 			const mainnetClient = new BeignetClient({
+				allowEphemeralStorage: true,
 				link: payer.link,
 				network: 'mainnet',
 				wallet: payer.wallet

@@ -40,6 +40,7 @@ import { ReverseSwapStore } from './store';
 import { claimFeeForRate, bumpedFeeRate, replacementFloor } from './fees';
 import { isRefundWitness, verifyFundingOutput } from './verify';
 import {
+	IReverseSwapChange,
 	IReverseSwapRecord,
 	ISwapChain,
 	ISwapClientPolicy,
@@ -56,6 +57,8 @@ export interface IReverseSwapDeps {
 	store: ReverseSwapStore;
 	policy: ISwapClientPolicy;
 	log: ChicoryLog;
+	/** Told after every persisted state change. */
+	notify?: (change: IReverseSwapChange) => void;
 }
 
 export interface IReverseSwapStatus {
@@ -94,7 +97,23 @@ export class ReverseSwap {
 	}
 
 	private persist(patch: Partial<IReverseSwapRecord>): void {
+		const from = this.rec.state;
 		this.rec = this.deps.store.upsert({ ...this.rec, ...patch });
+		if (this.rec.state !== from && this.deps.notify) {
+			try {
+				this.deps.notify({
+					swapIdHex: this.rec.swapIdHex,
+					from,
+					to: this.rec.state,
+					record: this.record()
+				});
+			} catch (err) {
+				this.deps.log('swap_listener_failed', {
+					swapId: this.rec.swapIdHex,
+					error: String(err)
+				});
+			}
+		}
 	}
 
 	private htlc(): swaps.ISwapHtlc {
@@ -838,8 +857,18 @@ export class ReverseSwap {
 		this.wake?.();
 	}
 
-	stop(): void {
+	/**
+	 * Park the swap: no further ticks, and the promise resolves once the
+	 * pass in flight (if any) has finished writing. The record is durable
+	 * at every step, so `resume()` after a restart, or `run()` again in
+	 * this process, continues from exactly where it stopped. A payment
+	 * already handed to the node keeps going in the node; a claim already
+	 * broadcast keeps confirming; nothing is cancelled by stopping.
+	 */
+	async stop(): Promise<void> {
 		this.stopped = true;
 		this.wake?.();
+		if (this.ticking) await this.ticking.catch(() => undefined);
+		if (this.running) await this.running.catch(() => undefined);
 	}
 }

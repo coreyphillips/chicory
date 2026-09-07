@@ -23,8 +23,14 @@ export interface IWalletDataStorage {
 	loadWalletData(key: string): string | null;
 }
 
-/** Records that live only as long as the process. */
+/**
+ * Records that live only as long as the process. Fine for quotes, tests and
+ * a deliberate choice; refused by default for anything that moves funds,
+ * since a crash would forget a payment record or a swap's claim key (see
+ * `allowEphemeralStorage` on BeignetClient).
+ */
 export class MemoryStorage implements IWalletDataStorage {
+	readonly ephemeral = true as const;
 	private readonly rows = new Map<string, string>();
 
 	saveWalletData(key: string, value: string): void {
@@ -75,5 +81,25 @@ export class FileStorage implements IWalletDataStorage {
 
 	loadWalletData(key: string): string | null {
 		return this.load()[key] ?? null;
+	}
+}
+
+/** True for storage that forgets everything when the process exits. */
+export function isEphemeralStorage(storage: IWalletDataStorage): boolean {
+	return (storage as { ephemeral?: boolean }).ephemeral === true;
+}
+
+/**
+ * Thrown before any wire traffic when an operation that moves funds would
+ * record its state in ephemeral storage it was never told to accept.
+ */
+export class EphemeralStorageError extends Error {
+	constructor(what: string) {
+		super(
+			`${what} needs durable storage: pass \`storage\` (FileStorage, or your ` +
+				"wallet's own) to BeignetClient, or set `allowEphemeralStorage: true` " +
+				'to accept that a crash forgets in-flight records'
+		);
+		this.name = 'EphemeralStorageError';
 	}
 }

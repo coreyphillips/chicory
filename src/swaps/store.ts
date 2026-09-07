@@ -11,7 +11,7 @@
  */
 
 import { IWalletDataStorage } from '../storage';
-import { IReverseSwapRecord } from './types';
+import { IReverseSwapRecord, SwapError } from './types';
 
 export const REVERSE_SWAP_STORAGE_KEY = 'swaps:reverse';
 
@@ -25,10 +25,18 @@ export class ReverseSwapStore {
 
 	constructor(private readonly storage: IWalletDataStorage) {}
 
+	/**
+	 * Read the document. A damaged one (not JSON, or not this shape) is
+	 * NEVER treated as empty: it may hold the only copy of a claim key, and
+	 * starting fresh would let the next write bury it. The bytes are kept
+	 * under a dated `swaps:reverse.damaged.<time>` key and the error names
+	 * that key, so an operator can recover the records by hand.
+	 */
 	restore(): IReverseSwapRecord[] {
 		const raw = this.storage.loadWalletData(REVERSE_SWAP_STORAGE_KEY);
 		let doc: IDocument = { version: 1, swaps: {} };
 		if (raw) {
+			let problem: string | null = null;
 			try {
 				const parsed = JSON.parse(raw) as Partial<IDocument>;
 				if (
@@ -38,10 +46,24 @@ export class ReverseSwapStore {
 					typeof parsed.swaps === 'object'
 				) {
 					doc = { version: 1, swaps: parsed.swaps };
+				} else {
+					problem = 'not a version 1 swap document';
 				}
-			} catch {
-				// A corrupt document is treated as empty rather than fatal; the
-				// host's storage is the authority and a fresh write repairs it.
+			} catch (err) {
+				problem = err instanceof Error ? err.message : String(err);
+			}
+			if (problem) {
+				const kept = `${REVERSE_SWAP_STORAGE_KEY}.damaged.${Date.now()}`;
+				try {
+					this.storage.saveWalletData(kept, raw);
+				} catch {
+					/* the original stays where it is */
+				}
+				throw new SwapError(
+					`reverse swap store is damaged (${problem}); the bytes were kept ` +
+						`under "${kept}" and nothing was overwritten`,
+					'storage'
+				);
 			}
 		}
 		this.doc = doc;

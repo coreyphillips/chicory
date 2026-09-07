@@ -44,6 +44,14 @@ The claim path remains valid after the refund height; that height enables the pr
 
 `resume()` reconciles unresolved swaps from storage and reports records needing payment or errors. An ambiguous payment transport failure remains unknown until the node's payment status establishes an outcome. Bitcoin Core recovery uses stored transaction heights to search older blocks when txindex is unavailable.
 
+### Storage, progress and shutdown
+
+Anything that moves funds needs durable storage. A `BeignetClient` built without `storage` keeps records in memory, and `directFunding.pay` and `swaps.reverse.create` then refuse to start with `EphemeralStorageError`, before any wire traffic, unless `allowEphemeralStorage: true` says the loss on a crash is accepted. Storage you pass is yours to judge, `MemoryStorage` included. A damaged swap document is never read as empty: `restore()` keeps the bytes under a dated `swaps:reverse.damaged.<time>` key, throws a `SwapError` with code `storage` naming it, and overwrites nothing. The swap record still holds the claim key and preimage in the clear; a key-deriving seam so nothing secret is written is tracked as a follow-up.
+
+`client.swaps.reverse.onChange(cb)` reports every persisted state change (`{ swapIdHex, from, to, record }`) across the swaps the client drives, and returns the unsubscribe. `await client.close()` parks every live swap (the pass in flight finishes writing first), stops the direct-funding engine and closes the link. Nothing is cancelled by closing: a payment already handed to the node, a witness already released and a claim already broadcast continue in the node and on the chain, and `resume()` after a restart continues from the persisted state.
+
+`createLndClient({ host, port, macaroonHex, network, storage, chain? })` and `createClnClient({ host, port, rune, network, storage, chain? })` build a client whose link, wallet and Lightning payer are one node; `import ... from 'chicory/lnd'` or `'chicory/cln'` gives the adapters without the rest, and `'chicory/ldk'` the bridge link.
+
 ## Choose the link for your node identity
 
 The beignet node serves whoever is on the other end of the Noise connection. Where that identity lives decides which link you use:
@@ -212,7 +220,9 @@ An LSP running beignet older than PR #734 declines a hop-mode intent when it cha
 ## API
 
 ```
-BeignetClient({ link, network, wallet?, storage?, jit?, sender?, swaps?, log? })
+createLndClient({ host, port, macaroonHex, network, storage, chain?, ... })   from 'chicory/lnd'
+createClnClient({ host, port, rune, network, storage, chain?, ... })          from 'chicory/cln'
+BeignetClient({ link, network, wallet?, storage?, allowEphemeralStorage?, jit?, sender?, swaps?, log? })
   .connect(uri) -> { pubkeyHex, host, port }     .open()  .close()  .nodeIdHex()  .isConnected(pubkey)
   .jit.quote(lsp, { maxAmountSat?, targetRemainingInboundSat?, timeoutMs? })
   .jit.authorize(lsp, { maxAmountSat, expectedTotalSat?, paymentHash?, expirySeconds?, acceptsSkimmedFee?, maxFlatFeeSat?, maxFeePpm? })
@@ -220,8 +230,8 @@ BeignetClient({ link, network, wallet?, storage?, jit?, sender?, swaps?, log? })
   .directFunding.payments()  .reconcile()  .start()  .stop()
   .swaps.quote(provider, { direction: 'reverse', amountSat? })
   .swaps.reverse.create(provider, { amountSat, maxTotalFeeSat?, claimKey?, preimage?, destinationScript? }) -> ReverseSwap
-  .swaps.reverse.run(provider, params)  .list()  .get(swapId)  .resume({ pay?, run? })
-  ReverseSwap: .record()  .status()  .pay()  .tick()  .run()  .claim()  .bumpClaim()  .stop()
+  .swaps.reverse.run(provider, params)  .list()  .get(swapId)  .resume({ pay?, run? })  .onChange(cb)  .stop()
+  ReverseSwap: .record()  .status()  .pay()  .tick()  .run()  .claim()  .bumpClaim()  .stop() (awaitable)
 
 Swap seams: LndPayer({ host, port, macaroonHex, network })     ClnPayer({ host, port, rune, network })
             BitcoinCoreChain({ host, port, user, pass, wallet? })  ElectrumChain(beignet IChainBackend)
@@ -234,7 +244,7 @@ Links:      NoisePeerLink({ network, privateKey?, createSocket? })
 Wallet:     KeyedUtxoWallet({ network, coins, changeAddress | changeScript, getTransaction, blockHeight? })
             LndWallet({ host, port, macaroonHex, network, ca? | rejectUnauthorized?, minConfs? })
             ClnWallet({ host, port, rune, network, getTransaction?, reserveBlocks? })
-Storage:    MemoryStorage(), FileStorage(path)
+Storage:    MemoryStorage(), FileStorage(path)          also 'chicory/storage'; fund-moving calls need one you chose
 ```
 
 `log` is a `(action, data) => void` sink; `consoleLog()` prints to stderr. Amounts are satoshis, `number` or `bigint` in, `bigint` out.

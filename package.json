@@ -4,6 +4,29 @@
 	"description": "Client for beignet JIT inbound liquidity, direct-funding payments and reverse swaps from supported wallets and Lightning applications.",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./lnd": {
+			"types": "./dist/lnd.d.ts",
+			"default": "./dist/lnd.js"
+		},
+		"./cln": {
+			"types": "./dist/cln.d.ts",
+			"default": "./dist/cln.js"
+		},
+		"./ldk": {
+			"types": "./dist/ldk.d.ts",
+			"default": "./dist/ldk.js"
+		},
+		"./storage": {
+			"types": "./dist/storage.d.ts",
+			"default": "./dist/storage.js"
+		},
+		"./package.json": "./package.json"
+	},
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/coreyphillips/chicory.git"

@@ -26,8 +26,17 @@ export { consoleLog, noopLog, toBeignetNetwork } from './types';
 export { formatNodeUri, parseNodeUri } from './uri';
 export type { INodeUri } from './uri';
 
-export { FileStorage, MemoryStorage } from './storage';
+export {
+	EphemeralStorageError,
+	FileStorage,
+	MemoryStorage,
+	isEphemeralStorage
+} from './storage';
 export type { IWalletDataStorage } from './storage';
+export { createLndClient } from './lnd';
+export type { ILndClientOptions } from './lnd';
+export { createClnClient } from './cln';
+export type { IClnClientOptions } from './cln';
 
 export { deliverIsolated } from './link/types';
 export type { ICustomMessage, IPeerLink } from './link/types';
@@ -125,6 +134,7 @@ export {
 } from './swaps/types';
 export type {
 	IReverseSwapClaimAttempt,
+	IReverseSwapChange,
 	IReverseSwapRecord,
 	ISwapChain,
 	ISwapChainOutput,

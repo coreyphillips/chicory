@@ -9,7 +9,11 @@ import { IPeerLink } from './link/types';
 import { INodeUri, parseNodeUri } from './uri';
 import { IJitClientOptions, JitClient } from './jit/client';
 import { DirectFundingClient } from './direct-funding/client';
-import { IWalletDataStorage } from './storage';
+import {
+	IWalletDataStorage,
+	MemoryStorage,
+	isEphemeralStorage
+} from './storage';
 import { webSocketSocketFactory, NoisePeerLink } from './link/noise-link';
 import { ISwapClientOptions, SwapClient } from './swaps/client';
 
@@ -18,8 +22,16 @@ export interface IBeignetClientOptions {
 	network: ChicoryNetwork;
 	/** Coins to pay direct-funding requests with. Omit for JIT only. */
 	wallet?: directFunding.IDfSenderWallet;
-	/** Durable home for direct-funding payment records. */
+	/**
+	 * Durable home for direct-funding payment records and swap records (a
+	 * swap record holds its claim key and preimage: treat the storage as a
+	 * wallet file). Omitted, records live in this process only and every
+	 * operation that moves funds refuses to start, unless
+	 * `allowEphemeralStorage` says that is intended.
+	 */
 	storage?: IWalletDataStorage;
+	/** Let fund-moving operations run on defaulted, in-process storage. */
+	allowEphemeralStorage?: boolean;
 	jit?: Pick<IJitClientOptions, 'maxFlatFeeSat' | 'maxFeePpm'>;
 	sender?: directFunding.IDfSenderConfig;
 	/**
@@ -39,9 +51,18 @@ export class BeignetClient {
 	private df: DirectFundingClient | null = null;
 	private swapClient: SwapClient | null = null;
 	private readonly log: ChicoryLog;
+	private readonly storage: IWalletDataStorage;
+	private readonly refuseEphemeralStorage: boolean;
 
 	constructor(private readonly options: IBeignetClientOptions) {
 		this.log = options.log ?? noopLog;
+		this.storage = options.storage ?? new MemoryStorage();
+		// Storage the caller chose is theirs to judge, MemoryStorage included;
+		// storage nobody chose must not silently hold a claim key.
+		this.refuseEphemeralStorage =
+			!options.storage &&
+			isEphemeralStorage(this.storage) &&
+			!options.allowEphemeralStorage;
 		this.jit = new JitClient({
 			link: options.link,
 			...options.jit,
@@ -62,7 +83,8 @@ export class BeignetClient {
 				link: this.options.link,
 				network: this.options.network,
 				wallet: this.options.wallet,
-				storage: this.options.storage,
+				storage: this.storage,
+				refuseEphemeralStorage: this.refuseEphemeralStorage,
 				sender: this.options.sender,
 				log: this.log
 			});
@@ -76,7 +98,8 @@ export class BeignetClient {
 			this.swapClient = new SwapClient({
 				link: this.options.link,
 				network: this.options.network,
-				storage: this.options.storage,
+				storage: this.storage,
+				refuseEphemeralStorage: this.refuseEphemeralStorage,
 				...this.options.swaps,
 				log: this.log
 			});
@@ -129,9 +152,17 @@ export class BeignetClient {
 		return this.options.link.isPeerConnected(pubkeyHex);
 	}
 
+	/**
+	 * Shut down in order: park every live swap (their passes in flight
+	 * finish writing first), stop the direct-funding engine, close the
+	 * link. Nothing is cancelled: a payment already handed to the node, a
+	 * witness already released, a claim already broadcast all continue in
+	 * the node and on the chain, and `resume()` after a restart picks the
+	 * records up from where they stopped. Resolves once all of that is done.
+	 */
 	async close(): Promise<void> {
+		await this.swapClient?.stop();
 		this.df?.stop();
-		this.swapClient?.stop();
 		await this.options.link.close();
 	}
 }

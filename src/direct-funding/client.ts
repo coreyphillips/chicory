@@ -41,7 +41,11 @@ import {
 	toSats
 } from '../types';
 import { IPeerLink } from '../link/types';
-import { IWalletDataStorage, MemoryStorage } from '../storage';
+import {
+	EphemeralStorageError,
+	IWalletDataStorage,
+	MemoryStorage
+} from '../storage';
 
 export type DirectFundingError = directFunding.DirectFundingError;
 export const DirectFundingErrorCode = directFunding.DirectFundingErrorCode;
@@ -54,6 +58,11 @@ export interface IDirectFundingClientOptions {
 	wallet: directFunding.IDfSenderWallet;
 	/** Where payment records live (default: this process only). */
 	storage?: IWalletDataStorage;
+	/**
+	 * Refuse to pay when the payment record would live in ephemeral storage
+	 * (BeignetClient sets this when `storage` was defaulted and not allowed).
+	 */
+	refuseEphemeralStorage?: boolean;
 	/** Engine tuning: fee ceiling default, resend schedule, timeouts. */
 	sender?: directFunding.IDfSenderConfig;
 	log?: ChicoryLog;
@@ -110,7 +119,9 @@ export class DirectFundingClient {
 
 	private readonly wallet: directFunding.IDfSenderWallet;
 
+	private readonly refuseEphemeralStorage: boolean;
 	constructor(options: IDirectFundingClientOptions) {
+		this.refuseEphemeralStorage = options.refuseEphemeralStorage === true;
 		this.log = options.log ?? noopLog;
 		this.wallet = options.wallet;
 		this.chainHash = directFunding.chainHashForNetwork(
@@ -210,6 +221,9 @@ export class DirectFundingClient {
 		requestOrUri: string,
 		opts: IPayRequestOptions = {}
 	): Promise<IDirectFundingResult> {
+		if (this.refuseEphemeralStorage) {
+			throw new EphemeralStorageError('a direct-funding payment (its record)');
+		}
 		await this.refreshWallet();
 		this.start();
 		return this.sender.send(extractRequest(requestOrUri), sendOptions(opts));

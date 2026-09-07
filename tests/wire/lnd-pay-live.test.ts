@@ -211,6 +211,7 @@ describe('A real LND node pays a beignet direct-funding request (docker)', funct
 			}
 			const link = new NoisePeerLink({ network: 'regtest' });
 			const client = new BeignetClient({
+				allowEphemeralStorage: true,
 				link,
 				network: 'regtest',
 				wallet: narrowed,

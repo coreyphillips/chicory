@@ -251,6 +251,7 @@ export type SwapErrorCode =
 	| 'timeout'
 	| 'deadline'
 	| 'funding_unconfirmed'
+	| 'storage'
 	| 'state';
 
 export class SwapError extends Error {
@@ -261,4 +262,12 @@ export class SwapError extends Error {
 		super(message);
 		this.name = 'SwapError';
 	}
+}
+
+/** A swap moved from one state to another; the record is the new one. */
+export interface IReverseSwapChange {
+	swapIdHex: string;
+	from: ReverseSwapState;
+	to: ReverseSwapState;
+	record: IReverseSwapRecord;
 }

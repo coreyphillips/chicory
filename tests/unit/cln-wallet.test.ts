@@ -529,6 +529,7 @@ describe('ClnWallet over a fake clnrest', function () {
 				network: 'regtest'
 			});
 			const client = new BeignetClient({
+				allowEphemeralStorage: true,
 				link: new NoisePeerLink({ network: 'regtest' }),
 				network: 'regtest',
 				wallet,

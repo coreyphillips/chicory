@@ -126,6 +126,7 @@ describe('A real Core Lightning node pays a beignet direct-funding request (dock
 				published.set(`${c.txidHex}:${c.vout}`, coin);
 			}
 			const client = new BeignetClient({
+				allowEphemeralStorage: true,
 				link: new NoisePeerLink({ network: 'regtest' }),
 				network: 'regtest',
 				wallet: narrowed,

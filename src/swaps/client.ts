@@ -23,11 +23,16 @@ import {
 } from '../types';
 import { IPeerLink } from '../link/types';
 import { exchange } from '../link/exchange';
-import { IWalletDataStorage, MemoryStorage } from '../storage';
+import {
+	EphemeralStorageError,
+	IWalletDataStorage,
+	MemoryStorage
+} from '../storage';
 import { ReverseSwapStore } from './store';
 import { ReverseSwap } from './reverse';
 import { assertNativeSegwit, verifyReverseAck } from './verify';
 import {
+	IReverseSwapChange,
 	IReverseSwapRecord,
 	ISwapChain,
 	ISwapClientPolicy,
@@ -43,6 +48,11 @@ export interface ISwapClientOptions {
 	payer?: ISwapLightningPayer;
 	chain?: ISwapChain;
 	storage?: IWalletDataStorage;
+	/**
+	 * Refuse to create a swap whose record would live in ephemeral storage
+	 * (BeignetClient sets this when `storage` was defaulted and not allowed).
+	 */
+	refuseEphemeralStorage?: boolean;
 	policy?: Partial<ISwapClientPolicy>;
 	/** Where claims go when a swap names no destination; falls back to the payer's wallet. */
 	destination?: () => Promise<Buffer>;
@@ -160,14 +170,15 @@ export class SwapClient {
 		};
 	}
 
-	stop(): void {
-		this.reverse.stop();
+	stop(): Promise<void> {
+		return this.reverse.stop();
 	}
 }
 
 export class ReverseSwapClient {
 	private readonly store: ReverseSwapStore;
 	private readonly live = new Map<string, ReverseSwap>();
+	private readonly listeners = new Set<(change: IReverseSwapChange) => void>();
 
 	constructor(
 		private readonly options: ISwapClientOptions,
@@ -205,7 +216,10 @@ export class ReverseSwapClient {
 			chain,
 			store: this.store,
 			policy: this.policy,
-			log: this.log
+			log: this.log,
+			notify: (change) => {
+				for (const cb of this.listeners) cb(change);
+			}
 		});
 		this.live.set(record.swapIdHex, swap);
 		return swap;
@@ -230,6 +244,11 @@ export class ReverseSwapClient {
 	): Promise<ReverseSwap> {
 		const peer = assertPubkeyHex(providerPubkeyHex, 'provider pubkey');
 		const { payer, chain } = this.deps();
+		if (this.options.refuseEphemeralStorage) {
+			throw new EphemeralStorageError(
+				'a reverse swap (its claim key and preimage)'
+			);
+		}
 		const amountSat = toSats(params.amountSat, 'amountSat');
 		if (amountSat <= 0n)
 			throw new SwapError('amountSat must be positive', 'policy');
@@ -410,7 +429,19 @@ export class ReverseSwapClient {
 		return report;
 	}
 
-	stop(): void {
-		for (const swap of this.live.values()) swap.stop();
+	/**
+	 * Watch every swap this client drives: one call per persisted state
+	 * change, with the new record. Returns the unsubscribe.
+	 */
+	onChange(cb: (change: IReverseSwapChange) => void): () => void {
+		this.listeners.add(cb);
+		return () => {
+			this.listeners.delete(cb);
+		};
+	}
+
+	/** Park every live swap; resolves once their passes in flight finished. */
+	async stop(): Promise<void> {
+		await Promise.all([...this.live.values()].map((swap) => swap.stop()));
 	}
 }

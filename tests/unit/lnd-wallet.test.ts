@@ -423,6 +423,7 @@ describe('LndWallet over a fake LND REST API', function () {
 				network: 'regtest'
 			});
 			const client = new BeignetClient({
+				allowEphemeralStorage: true,
 				link: new NoisePeerLink({ network: 'regtest' }),
 				network: 'regtest',
 				wallet,

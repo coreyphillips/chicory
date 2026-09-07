@@ -223,6 +223,7 @@ export function payerSide(coin: ReturnType<typeof makeCoin>): {
 	});
 	const link = new NoisePeerLink({ network: 'regtest' });
 	const client = new BeignetClient({
+		allowEphemeralStorage: true,
 		link,
 		network: 'regtest',
 		wallet,
