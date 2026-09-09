@@ -16,8 +16,13 @@
  *  - ISwapChain: height, raw transactions, one outpoint's unspent-ness and
  *    depth, broadcast. Bitcoin Core's RPC or any beignet IChainBackend.
  *
- * The same chain seam serves submarine swaps later; the Lightning seam then
- * grows invoice creation.
+ * A submarine swap moves the other way: this client mints an invoice on
+ * its own node, locks coins in a P2WSH contract whose preimage branch is
+ * the provider's, the provider pays the invoice under an absolute expiry
+ * ceiling and claims the coins with the preimage; unpaid past the refund
+ * height, the client refunds itself. The same chain seam serves it, the
+ * Lightning seam grows invoice creation and lookup, and a third seam
+ * (ISwapFunder) sends the coins.
  */
 
 import { ChicoryNetwork } from '../types';
@@ -42,6 +47,54 @@ export interface ISwapLightningPayer {
 	trackPayment(paymentHash: Buffer): Promise<ISwapPaymentStatus>;
 	/** A fresh native-segwit output script of the paying node's wallet. */
 	newDestinationScript?(): Promise<Buffer>;
+	/** Submarine swaps: mint an invoice this node will settle. */
+	createInvoice?(
+		params: ISwapCreateInvoiceParams
+	): Promise<ISwapCreatedInvoice>;
+	/** Submarine swaps: the invoice's state, HTLCs in flight included. */
+	lookupInvoice?(paymentHash: Buffer): Promise<ISwapInvoiceStatus>;
+}
+
+export interface ISwapCreateInvoiceParams {
+	amountMsat: bigint;
+	description: string;
+	expirySeconds: number;
+	minFinalCltvExpiry: number;
+}
+
+export interface ISwapCreatedInvoice {
+	bolt11: string;
+	paymentHash: Buffer;
+}
+
+/**
+ * An invoice as the node sees it. `accepted` (or `htlcsInFlight` above
+ * zero on an open invoice) means an HTLC is parked or in flight: the payer
+ * may still learn the preimage from a settle, so a refund must wait.
+ */
+export interface ISwapInvoiceStatus {
+	state: 'unknown' | 'open' | 'accepted' | 'settled' | 'cancelled' | 'expired';
+	preimage?: Buffer;
+	htlcsInFlight?: number;
+}
+
+/** Sends the swap's coins to the contract address (submarine swaps). */
+export interface ISwapFunder {
+	/**
+	 * Pay `amountSat` to the address. `label` is a per-swap tag a wallet
+	 * that supports labels records, so a funding lost between the call and
+	 * its reply can be found again.
+	 */
+	fund(
+		address: string,
+		amountSat: bigint,
+		opts: { label: string; feeRateSatPerVb?: number }
+	): Promise<{ txidHex: string; vout?: number; rawHex?: string }>;
+	/** Optional: a funding this wallet sent for the label or address. */
+	findFunding?(
+		address: string,
+		label: string
+	): Promise<{ txidHex: string; vout: number } | null>;
 }
 
 export interface ISwapChainOutput {
@@ -116,6 +169,22 @@ export interface ISwapClientPolicy {
 	statusPollMs: number;
 	chainPollMs: number;
 	replyTimeoutMs: number;
+	// Submarine swaps (on-chain to Lightning).
+	/** Final CLTV the minted invoice asks for (LND's floor is 18). */
+	invoiceFinalCltvBlocks: number;
+	/** Route headroom the provider's payment may add above the final CLTV. */
+	routeBudgetBlocks: number;
+	invoiceExpirySeconds: number;
+	maxRefundFeeSat: bigint;
+	/** Confirmations our refund needs before the swap is REFUNDED. */
+	refundConfirmations: number;
+	/** Refuse an ack whose funding depth would eat the window. */
+	maxProviderFundingConfirmations: number;
+	/**
+	 * Sats left to the provider above its quoted fee, so a fee estimate that
+	 * rose between the quote and the create cannot refuse the invoice.
+	 */
+	submarineFeeSlackSat: bigint;
 }
 
 export const SWAP_DEFAULT_POLICY: ISwapClientPolicy = {
@@ -132,7 +201,14 @@ export const SWAP_DEFAULT_POLICY: ISwapClientPolicy = {
 	paymentTimeoutSeconds: 600,
 	statusPollMs: 10_000,
 	chainPollMs: 15_000,
-	replyTimeoutMs: 15_000
+	replyTimeoutMs: 15_000,
+	invoiceFinalCltvBlocks: 40,
+	routeBudgetBlocks: 12,
+	invoiceExpirySeconds: 21_600,
+	maxRefundFeeSat: 10_000n,
+	refundConfirmations: 1,
+	maxProviderFundingConfirmations: 12,
+	submarineFeeSlackSat: 100n
 };
 
 export function resolvePolicy(
@@ -156,6 +232,27 @@ export function resolvePolicy(
 			'refund delta bounds must satisfy 1 <= min <= max',
 			'policy'
 		);
+	}
+	if (
+		!Number.isInteger(policy.invoiceFinalCltvBlocks) ||
+		policy.invoiceFinalCltvBlocks < 18
+	) {
+		throw new SwapError('invoiceFinalCltvBlocks must be at least 18', 'policy');
+	}
+	if (
+		!Number.isInteger(policy.routeBudgetBlocks) ||
+		policy.routeBudgetBlocks < 0
+	) {
+		throw new SwapError(
+			'routeBudgetBlocks must be a non-negative integer',
+			'policy'
+		);
+	}
+	if (
+		!Number.isInteger(policy.refundConfirmations) ||
+		policy.refundConfirmations < 1
+	) {
+		throw new SwapError('refundConfirmations must be at least 1', 'policy');
 	}
 	return policy;
 }
@@ -252,7 +349,12 @@ export type SwapErrorCode =
 	| 'deadline'
 	| 'funding_unconfirmed'
 	| 'storage'
-	| 'state';
+	| 'state'
+	// Submarine swaps.
+	| 'invoice'
+	| 'cltv_unsafe'
+	| 'refund_blocked'
+	| 'already_funded';
 
 export class SwapError extends Error {
 	constructor(
@@ -270,4 +372,119 @@ export interface IReverseSwapChange {
 	from: ReverseSwapState;
 	to: ReverseSwapState;
 	record: IReverseSwapRecord;
+}
+
+// ─────────────── Submarine swaps (on-chain to Lightning) ───────────────
+
+/**
+ *   CREATED          terms verified, refund key persisted, no coins moved
+ *   FUNDING          a funding outpoint is recorded and verified, below the
+ *                    provider's depth
+ *   FUNDED           at the provider's depth: it may pay now
+ *   SETTLED          terminal: our invoice was paid (or the output was
+ *                    claimed with a valid preimage)
+ *   REFUND_BROADCAST a refund attempt is persisted and out
+ *   REFUNDED         terminal: a refund attempt confirmed
+ *   CANCELLED        terminal: never funded and the window closed
+ *
+ * There is no PAYING: the provider paying shows as the invoice being
+ * `accepted`, a fact on the record that can flip back to open.
+ */
+export type SubmarineSwapState =
+	| 'CREATED'
+	| 'FUNDING'
+	| 'FUNDED'
+	| 'SETTLED'
+	| 'REFUND_BROADCAST'
+	| 'REFUNDED'
+	| 'CANCELLED';
+
+export function isTerminalSubmarineSwapState(
+	state: SubmarineSwapState
+): boolean {
+	return state === 'SETTLED' || state === 'REFUNDED' || state === 'CANCELLED';
+}
+
+/** A refund attempt has the same shape as a claim attempt. */
+export type ISubmarineSwapRefundAttempt = IReverseSwapClaimAttempt;
+
+/**
+ * One submarine swap as this device knows it. Holds the refund private
+ * key: a refund after a crash needs exactly that. No preimage: the invoice
+ * is the node's, and the provider learns the preimage by paying it.
+ */
+export interface ISubmarineSwapRecord {
+	version: 1;
+	swapIdHex: string;
+	providerNodeIdHex: string;
+	network: ChicoryNetwork;
+	createdAt: number;
+	createdHeight: number;
+	paymentHashHex: string;
+	refundPrivkeyHex: string;
+	refundPubkeyHex: string;
+	claimPubkeyHex: string;
+	refundHeight: number;
+	htlcAddress: string;
+	htlcOutputScriptHex: string;
+	/** What we lock. */
+	onchainAmountSat: string;
+	/** (onchainAmountSat - totalFeeSat) * 1000: our invoice. */
+	invoiceAmountMsat: string;
+	totalFeeSat: string;
+	minerFeeSat: string;
+	bolt11: string;
+	invoiceExpiresAt: number;
+	invoiceFinalCltv: number;
+	invoiceSource: 'minted' | 'supplied';
+	providerFundingConfirmations: number;
+	/** The provider stops watching for funding after this (unix seconds). */
+	providerExpiresAt: number;
+	/** Informational: the provider's absolute HTLC expiry ceiling. */
+	paymentCeilingHeight?: number;
+	refundDestinationScriptHex: string;
+	state: SubmarineSwapState;
+	invoice?: {
+		state: ISwapInvoiceStatus['state'];
+		preimageHex?: string;
+		htlcsInFlight?: number;
+		checkedAt: number;
+		acceptedSeenAt?: number;
+	};
+	/** Persisted BEFORE the funder is asked; a retry needs the operator. */
+	fundingAttempt?: {
+		requestedAt: number;
+		label: string;
+		txidHex?: string;
+		error?: string;
+	};
+	funding?: {
+		txidHex: string;
+		vout: number;
+		valueSat: string;
+		firstSeenHeight: number;
+		confirmedHeight?: number;
+		source: 'funder' | 'attached' | 'discovered';
+	};
+	refund?: {
+		attempts: ISubmarineSwapRefundAttempt[];
+		confirmedTxidHex?: string;
+		confirmedHeight?: number;
+	};
+	resolution?: {
+		kind: 'settled' | 'refund' | 'claim' | 'other';
+		txidHex?: string;
+	};
+	settledBy?: 'invoice' | 'chain';
+	/** Why a due refund was last withheld. */
+	refundBlockedReason?: string;
+	lastError?: string;
+	updatedAt: number;
+}
+
+export interface ISubmarineSwapChange {
+	swapIdHex: string;
+	from: SubmarineSwapState;
+	to: SubmarineSwapState;
+	record: ISubmarineSwapRecord;
 }

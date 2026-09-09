@@ -4,13 +4,22 @@
  * `pay` blocks until the payment resolves, and a hold invoice resolves when
  * the swap does, so the request is sent with a day-long timeout; if the
  * socket still drops, `trackPayment` (listpays) answers. Rune needs pay,
- * listpays and newaddr.
+ * listpays and newaddr, plus invoice, listinvoices and listpeerchannels for
+ * submarine swaps (the last one to see an HTLC parked on an unpaid
+ * invoice; CLN 23.02 or later).
  */
 
 import { ChicoryLog, ChicoryNetwork, noopLog } from '../types';
 import { HttpError, IHttpEndpoint, requestJson } from '../link/http';
+import crypto from 'crypto';
 import { toOutputScript } from './verify';
-import { ISwapLightningPayer, ISwapPaymentStatus } from './types';
+import {
+	ISwapCreateInvoiceParams,
+	ISwapCreatedInvoice,
+	ISwapInvoiceStatus,
+	ISwapLightningPayer,
+	ISwapPaymentStatus
+} from './types';
 
 export interface IClnPayerOptions {
 	host: string;
@@ -130,5 +139,75 @@ export class ClnPayer implements ISwapLightningPayer {
 			addresstype: 'bech32'
 		});
 		return toOutputScript(res.bech32, this.options.network);
+	}
+
+	/** `invoice`: a regular invoice under a fresh label. */
+	async createInvoice(
+		params: ISwapCreateInvoiceParams
+	): Promise<ISwapCreatedInvoice> {
+		const res = await this.rpc<{ bolt11: string; payment_hash: string }>(
+			'invoice',
+			{
+				amount_msat: params.amountMsat.toString(),
+				label: `chicory-swap-${crypto.randomBytes(8).toString('hex')}`,
+				description: params.description,
+				expiry: params.expirySeconds,
+				cltv: params.minFinalCltvExpiry
+			}
+		);
+		return {
+			bolt11: res.bolt11,
+			paymentHash: Buffer.from(res.payment_hash, 'hex')
+		};
+	}
+
+	/**
+	 * `listinvoices` by hash; an unpaid invoice with an incoming HTLC for
+	 * the hash in `listpeerchannels` is one the payer is holding.
+	 */
+	async lookupInvoice(paymentHash: Buffer): Promise<ISwapInvoiceStatus> {
+		const hashHex = paymentHash.toString('hex');
+		const res = await this.rpc<{
+			invoices: Array<{
+				payment_hash: string;
+				status: string;
+				payment_preimage?: string;
+			}>;
+		}>('listinvoices', { payment_hash: hashHex });
+		const inv = res.invoices.find((i) => i.payment_hash === hashHex);
+		if (!inv) return { state: 'unknown' };
+		if (inv.status === 'paid') {
+			return {
+				state: 'settled',
+				preimage: inv.payment_preimage
+					? Buffer.from(inv.payment_preimage, 'hex')
+					: undefined,
+				htlcsInFlight: 0
+			};
+		}
+		if (inv.status === 'expired') return { state: 'expired', htlcsInFlight: 0 };
+		let inFlight = 0;
+		try {
+			const channels = await this.rpc<{
+				channels: Array<{
+					htlcs?: Array<{ direction: string; payment_hash: string }>;
+				}>;
+			}>('listpeerchannels', {});
+			for (const ch of channels.channels) {
+				for (const h of ch.htlcs ?? []) {
+					if (h.direction === 'in' && h.payment_hash === hashHex) inFlight++;
+				}
+			}
+		} catch (err) {
+			// Without listpeerchannels the gate cannot see a parked HTLC:
+			// say so loudly rather than pretend the invoice is idle.
+			this.log('cln_listpeerchannels_failed', {
+				error: err instanceof Error ? err.message : String(err)
+			});
+			throw err;
+		}
+		return inFlight > 0
+			? { state: 'accepted', htlcsInFlight: inFlight }
+			: { state: 'open', htlcsInFlight: 0 };
 	}
 }

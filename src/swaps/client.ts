@@ -1,7 +1,8 @@
 /**
  * Swaps against a beignet provider, the client's front door.
  *
- *   quote()            SWAP_QUOTE_REQUEST (48) -> SWAP_QUOTE (49), link only
+ *   quote()            SWAP_QUOTE_REQUEST (48) -> SWAP_QUOTE (49), link only,
+ *                      either direction
  *   reverse.create()   SWAP_CREATE (50) -> SWAP_CREATE_ACK (51); the ack is
  *                      verified (the contract rebuilt from OUR hash and key,
  *                      the invoice decoded, the fee and refund window inside
@@ -9,6 +10,9 @@
  *                      Nothing is paid here.
  *   reverse.run()      create, pay, and follow the swap to its end.
  *   reverse.resume()   after a restart: every unresolved record re-checked.
+ *   submarine.*        the other direction (submarine-client.ts): our
+ *                      invoice, the provider's claim key, our funding, our
+ *                      refund.
  */
 
 import crypto from 'crypto';
@@ -30,12 +34,18 @@ import {
 } from '../storage';
 import { ReverseSwapStore } from './store';
 import { ReverseSwap } from './reverse';
-import { assertNativeSegwit, verifyReverseAck } from './verify';
+import { SubmarineSwapClient } from './submarine-client';
+import {
+	assertNativeSegwit,
+	submarineCltvProblem,
+	verifyReverseAck
+} from './verify';
 import {
 	IReverseSwapChange,
 	IReverseSwapRecord,
 	ISwapChain,
 	ISwapClientPolicy,
+	ISwapFunder,
 	ISwapLightningPayer,
 	SwapError,
 	isTerminalReverseSwapState,
@@ -46,6 +56,8 @@ export interface ISwapClientOptions {
 	link: IPeerLink;
 	network: ChicoryNetwork;
 	payer?: ISwapLightningPayer;
+	/** Sends a submarine swap's coins; omit to fund by hand (attachFunding). */
+	funder?: ISwapFunder;
 	chain?: ISwapChain;
 	storage?: IWalletDataStorage;
 	/**
@@ -60,13 +72,15 @@ export interface ISwapClientOptions {
 }
 
 export interface ISwapQuoteParams {
-	direction: 'reverse';
-	/** On-chain amount to receive (sat); 0 asks for limits only. */
+	/** reverse: Lightning to on-chain; submarine: on-chain to Lightning. */
+	direction: 'reverse' | 'submarine';
+	/** On-chain amount (received for reverse, locked for submarine); 0 asks for limits only. */
 	amountSat?: Sats;
 	timeoutMs?: number;
 }
 
 export interface ISwapQuoteResult {
+	direction: 'reverse' | 'submarine';
 	accepted: boolean;
 	reason?: string;
 	flatFeeSat: bigint;
@@ -107,6 +121,7 @@ export interface IResumeReport {
 
 export class SwapClient {
 	readonly reverse: ReverseSwapClient;
+	readonly submarine: SubmarineSwapClient;
 	private readonly log: ChicoryLog;
 	private readonly policy: ISwapClientPolicy;
 
@@ -114,6 +129,7 @@ export class SwapClient {
 		this.log = options.log ?? noopLog;
 		this.policy = resolvePolicy(options.policy);
 		this.reverse = new ReverseSwapClient(options, this.policy, this.log);
+		this.submarine = new SubmarineSwapClient(options, this.policy, this.log);
 	}
 
 	async quote(
@@ -121,9 +137,13 @@ export class SwapClient {
 		params: ISwapQuoteParams
 	): Promise<ISwapQuoteResult> {
 		const peer = assertPubkeyHex(providerPubkeyHex, 'provider pubkey');
-		if (params.direction !== 'reverse') {
-			throw new SwapError('only reverse swaps are supported', 'policy');
+		if (params.direction !== 'reverse' && params.direction !== 'submarine') {
+			throw new SwapError(
+				'direction must be "reverse" or "submarine"',
+				'policy'
+			);
 		}
+		const submarine = params.direction === 'submarine';
 		const amountSat = toSats(params.amountSat ?? 0, 'amountSat');
 		const requestId = crypto.randomBytes(8);
 		const q = await exchange(this.options.link, {
@@ -131,7 +151,9 @@ export class SwapClient {
 			requestSubtype: message.BeignetCustomSubtype.SWAP_QUOTE_REQUEST,
 			requestPayload: swaps.encodeSwapQuoteRequest({
 				requestId,
-				direction: swaps.SwapWireDirection.REVERSE,
+				direction: submarine
+					? swaps.SwapWireDirection.SUBMARINE
+					: swaps.SwapWireDirection.REVERSE,
 				amountSat
 			}),
 			replySubtype: message.BeignetCustomSubtype.SWAP_QUOTE,
@@ -140,16 +162,30 @@ export class SwapClient {
 			timeoutMs: params.timeoutMs ?? this.policy.replyTimeoutMs,
 			timeoutMessage: 'provider did not answer the swap quote'
 		});
-		const withinPolicy =
+		let withinPolicy =
 			q.accepted &&
 			q.refundDeltaBlocks >= this.policy.minRefundDeltaBlocks &&
 			q.refundDeltaBlocks <= this.policy.maxRefundDeltaBlocks;
+		if (withinPolicy && submarine) {
+			// The invoice we would mint must fit the provider's window.
+			withinPolicy =
+				submarineCltvProblem({
+					currentHeight: 0,
+					refundHeight: q.refundDeltaBlocks,
+					fundingConfirmations: q.fundingConfirmations,
+					invoiceMinFinalCltv: this.policy.invoiceFinalCltvBlocks,
+					policy: this.policy
+				}) === null &&
+				q.fundingConfirmations <= this.policy.maxProviderFundingConfirmations;
+		}
 		this.log('swap_quote', {
 			provider: peer,
+			direction: params.direction,
 			accepted: q.accepted,
 			totalFeeSat: q.totalFeeSat.toString()
 		});
 		return {
+			direction: params.direction,
 			accepted: q.accepted,
 			reason: q.accepted
 				? undefined
@@ -170,8 +206,8 @@ export class SwapClient {
 		};
 	}
 
-	stop(): Promise<void> {
-		return this.reverse.stop();
+	async stop(): Promise<void> {
+		await Promise.all([this.reverse.stop(), this.submarine.stop()]);
 	}
 }
 

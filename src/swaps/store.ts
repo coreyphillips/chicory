@@ -1,44 +1,56 @@
 /**
- * Where the reverse swap records live: one JSON document under the key
- * `swaps:reverse` of the host's IWalletDataStorage.
+ * Where the swap records live: one JSON document per direction under the
+ * keys `swaps:reverse` and `swaps:submarine` of the host's
+ * IWalletDataStorage.
  *
  * Unlike the direct-funding payment record, a swap record IS key material:
- * it holds the claim private key and the preimage, because a claim after a
- * crash needs exactly those. A host must treat the storage it hands chicory
- * as it would a wallet file (encrypt at rest, restrict its mode). A
+ * a reverse record holds the claim private key and the preimage, a
+ * submarine record the refund private key, because a claim or refund after
+ * a crash needs exactly those. A host must treat the storage it hands
+ * chicory as it would a wallet file (encrypt at rest, restrict its mode). A
  * key-deriving hook, so nothing secret is written, is a documented
- * follow-up.
+ * follow-up (chicory issue #1) for both directions.
  */
 
 import { IWalletDataStorage } from '../storage';
-import { IReverseSwapRecord, SwapError } from './types';
+import { IReverseSwapRecord, ISubmarineSwapRecord, SwapError } from './types';
 
 export const REVERSE_SWAP_STORAGE_KEY = 'swaps:reverse';
+export const SUBMARINE_SWAP_STORAGE_KEY = 'swaps:submarine';
 
-interface IDocument {
+interface IDocument<T> {
 	version: 1;
-	swaps: Record<string, IReverseSwapRecord>;
+	swaps: Record<string, T>;
 }
 
-export class ReverseSwapStore {
-	private doc: IDocument | null = null;
+interface ISwapRecordLike {
+	swapIdHex: string;
+	paymentHashHex: string;
+}
 
-	constructor(private readonly storage: IWalletDataStorage) {}
+export class SwapStore<T extends ISwapRecordLike> {
+	private doc: IDocument<T> | null = null;
+
+	constructor(
+		private readonly storage: IWalletDataStorage,
+		private readonly key: string,
+		private readonly label: string
+	) {}
 
 	/**
 	 * Read the document. A damaged one (not JSON, or not this shape) is
-	 * NEVER treated as empty: it may hold the only copy of a claim key, and
+	 * NEVER treated as empty: it may hold the only copy of a key, and
 	 * starting fresh would let the next write bury it. The bytes are kept
-	 * under a dated `swaps:reverse.damaged.<time>` key and the error names
-	 * that key, so an operator can recover the records by hand.
+	 * under a dated `<key>.damaged.<time>` key and the error names that
+	 * key, so an operator can recover the records by hand.
 	 */
-	restore(): IReverseSwapRecord[] {
-		const raw = this.storage.loadWalletData(REVERSE_SWAP_STORAGE_KEY);
-		let doc: IDocument = { version: 1, swaps: {} };
+	restore(): T[] {
+		const raw = this.storage.loadWalletData(this.key);
+		let doc: IDocument<T> = { version: 1, swaps: {} };
 		if (raw) {
 			let problem: string | null = null;
 			try {
-				const parsed = JSON.parse(raw) as Partial<IDocument>;
+				const parsed = JSON.parse(raw) as Partial<IDocument<T>>;
 				if (
 					parsed &&
 					parsed.version === 1 &&
@@ -53,14 +65,14 @@ export class ReverseSwapStore {
 				problem = err instanceof Error ? err.message : String(err);
 			}
 			if (problem) {
-				const kept = `${REVERSE_SWAP_STORAGE_KEY}.damaged.${Date.now()}`;
+				const kept = `${this.key}.damaged.${Date.now()}`;
 				try {
 					this.storage.saveWalletData(kept, raw);
 				} catch {
 					/* the original stays where it is */
 				}
 				throw new SwapError(
-					`reverse swap store is damaged (${problem}); the bytes were kept ` +
+					`${this.label} swap store is damaged (${problem}); the bytes were kept ` +
 						`under "${kept}" and nothing was overwritten`,
 					'storage'
 				);
@@ -70,16 +82,16 @@ export class ReverseSwapStore {
 		return this.list();
 	}
 
-	private load(): IDocument {
+	private load(): IDocument<T> {
 		if (!this.doc) this.restore();
 		return this.doc!;
 	}
 
-	list(): IReverseSwapRecord[] {
+	list(): T[] {
 		return Object.values(this.load().swaps).map((r) => ({ ...r }));
 	}
 
-	get(swapIdHex: string): IReverseSwapRecord | null {
+	get(swapIdHex: string): T | null {
 		const r = this.load().swaps[swapIdHex];
 		return r ? { ...r } : null;
 	}
@@ -89,11 +101,23 @@ export class ReverseSwapStore {
 	}
 
 	/** Write the record; synchronous, and FileStorage makes it atomic. */
-	upsert(record: IReverseSwapRecord): IReverseSwapRecord {
+	upsert(record: T & { updatedAt?: number }): T {
 		const doc = this.load();
 		const stored = { ...record, updatedAt: Date.now() };
 		doc.swaps[record.swapIdHex] = stored;
-		this.storage.saveWalletData(REVERSE_SWAP_STORAGE_KEY, JSON.stringify(doc));
+		this.storage.saveWalletData(this.key, JSON.stringify(doc));
 		return { ...stored };
+	}
+}
+
+export class ReverseSwapStore extends SwapStore<IReverseSwapRecord> {
+	constructor(storage: IWalletDataStorage) {
+		super(storage, REVERSE_SWAP_STORAGE_KEY, 'reverse');
+	}
+}
+
+export class SubmarineSwapStore extends SwapStore<ISubmarineSwapRecord> {
+	constructor(storage: IWalletDataStorage) {
+		super(storage, SUBMARINE_SWAP_STORAGE_KEY, 'submarine');
 	}
 }

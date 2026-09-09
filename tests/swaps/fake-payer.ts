@@ -5,13 +5,42 @@
  */
 
 import * as bitcoin from 'bitcoinjs-lib';
-import { crypto as bcrypto } from 'beignet/lightning';
+import {
+	crypto as bcrypto,
+	invoice as beignetInvoice
+} from 'beignet/lightning';
 import crypto from 'crypto';
-import { ISwapLightningPayer, ISwapPaymentStatus } from '../../src/swaps/types';
+import {
+	ISwapCreateInvoiceParams,
+	ISwapCreatedInvoice,
+	ISwapInvoiceStatus,
+	ISwapLightningPayer,
+	ISwapPaymentStatus
+} from '../../src/swaps/types';
 import { IWalletDataStorage } from '../../src/storage';
 import { REVERSE_SWAP_STORAGE_KEY } from '../../src/swaps/store';
 
+/** An invoice this fake node holds (submarine swaps). */
+export interface IFakeInvoice {
+	preimage: Buffer;
+	bolt11: string;
+	amountMsat: bigint;
+	minFinalCltv: number;
+	expiresAt: number;
+	state: ISwapInvoiceStatus['state'];
+	htlcsInFlight: number;
+}
+
 export class FakePayer implements ISwapLightningPayer {
+	/** The node's identity, which signs the invoices it mints. */
+	readonly nodeKey = crypto.randomBytes(32);
+	readonly invoices = new Map<string, IFakeInvoice>();
+	readonly invoiceCalls: ISwapCreateInvoiceParams[] = [];
+	readonly lookups: string[] = [];
+	rejectCreateInvoice = false;
+	lookupThrows = false;
+	/** Mint with this final CLTV whatever was asked (a node that ignores the field). */
+	createdCltvOverride: number | null = null;
 	readonly calls: Array<{
 		bolt11: string;
 		maxFeeSat: bigint;
@@ -98,5 +127,114 @@ export class FakePayer implements ISwapLightningPayer {
 		for (const p of this.pending.filter((x) => x.hash === hashHex))
 			p.resolve(status);
 		this.pending = this.pending.filter((x) => x.hash !== hashHex);
+	}
+
+	// ─────────────── invoices (submarine swaps) ───────────────
+
+	private mint(
+		amountMsat: bigint,
+		minFinalCltv: number,
+		expirySeconds: number,
+		description = 'submarine swap'
+	): IFakeInvoice {
+		const preimage = crypto.randomBytes(32);
+		const paymentHash = crypto.createHash('sha256').update(preimage).digest();
+		const timestamp = Math.floor(Date.now() / 1000);
+		const bolt11 = beignetInvoice.encode({
+			network: beignetInvoice.Network.REGTEST,
+			amountMsat,
+			timestamp,
+			paymentHash,
+			paymentSecret: crypto.randomBytes(32),
+			description,
+			expiry: expirySeconds,
+			minFinalCltvExpiry: minFinalCltv,
+			privateKey: this.nodeKey
+		});
+		const inv: IFakeInvoice = {
+			preimage,
+			bolt11,
+			amountMsat,
+			minFinalCltv,
+			expiresAt: timestamp + expirySeconds,
+			state: 'open',
+			htlcsInFlight: 0
+		};
+		this.invoices.set(paymentHash.toString('hex'), inv);
+		return inv;
+	}
+
+	async createInvoice(
+		params: ISwapCreateInvoiceParams
+	): Promise<ISwapCreatedInvoice> {
+		this.invoiceCalls.push(params);
+		if (this.rejectCreateInvoice) throw new Error('node refused to invoice');
+		const inv = this.mint(
+			params.amountMsat,
+			this.createdCltvOverride ?? params.minFinalCltvExpiry,
+			params.expirySeconds,
+			params.description
+		);
+		return {
+			bolt11: inv.bolt11,
+			paymentHash: crypto.createHash('sha256').update(inv.preimage).digest()
+		};
+	}
+
+	async lookupInvoice(paymentHash: Buffer): Promise<ISwapInvoiceStatus> {
+		const hashHex = paymentHash.toString('hex');
+		this.lookups.push(hashHex);
+		if (this.lookupThrows) throw new Error('node unreachable');
+		const inv = this.invoices.get(hashHex);
+		if (!inv) return { state: 'unknown' };
+		return {
+			state: inv.state,
+			preimage: inv.state === 'settled' ? inv.preimage : undefined,
+			htlcsInFlight: inv.htlcsInFlight
+		};
+	}
+
+	/** A bolt11 this node owns, for the "caller-supplied invoice" cases. */
+	supplyInvoice(
+		amountMsat: bigint,
+		minFinalCltv = 40,
+		expirySeconds = 7200
+	): string {
+		return this.mint(amountMsat, minFinalCltv, expirySeconds).bolt11;
+	}
+
+	hashOfInvoice(bolt11: string): string {
+		for (const [hash, inv] of this.invoices)
+			if (inv.bolt11 === bolt11) return hash;
+		throw new Error('unknown invoice');
+	}
+
+	acceptInvoice(hashHex: string, parts = 1): void {
+		const inv = this.invoices.get(hashHex)!;
+		inv.state = 'accepted';
+		inv.htlcsInFlight = parts;
+	}
+
+	releaseInvoice(hashHex: string): void {
+		const inv = this.invoices.get(hashHex)!;
+		inv.state = 'open';
+		inv.htlcsInFlight = 0;
+	}
+
+	settleInvoice(hashHex: string): Buffer {
+		const inv = this.invoices.get(hashHex)!;
+		inv.state = 'settled';
+		inv.htlcsInFlight = 0;
+		return inv.preimage;
+	}
+
+	expireInvoice(hashHex: string): void {
+		const inv = this.invoices.get(hashHex)!;
+		inv.state = 'expired';
+		inv.htlcsInFlight = 0;
+	}
+
+	forgetInvoice(hashHex: string): void {
+		this.invoices.delete(hashHex);
 	}
 }

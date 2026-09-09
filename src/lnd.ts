@@ -2,14 +2,15 @@
  * `chicory/lnd`: everything an LND integration needs, and one call that
  * wires it up. LND speaks over its REST API with a macaroon; the same
  * credentials serve the peer link (custom messages), the wallet (coins,
- * PSBT signing, message signing) and the payer (invoices, payments,
- * addresses).
+ * PSBT signing, message signing), the payer (invoices, payments,
+ * addresses) and the funder (on-chain sends for submarine swaps).
  */
 
 import { BeignetClient, IBeignetClientOptions } from './client';
 import { LndPeerLink } from './link/lnd-link';
 import { LndWallet } from './direct-funding/lnd-wallet';
 import { LndPayer } from './swaps/lnd-payer';
+import { LndFunder } from './swaps/lnd-funder';
 import { IHttpEndpoint } from './link/http';
 import { ChicoryLog, ChicoryNetwork } from './types';
 
@@ -19,6 +20,8 @@ export { LndWallet, LND_WALLET_LEASE_ID } from './direct-funding/lnd-wallet';
 export type { ILndWalletOptions } from './direct-funding/lnd-wallet';
 export { LndPayer } from './swaps/lnd-payer';
 export type { ILndPayerOptions } from './swaps/lnd-payer';
+export { LndFunder } from './swaps/lnd-funder';
+export type { ILndFunderOptions } from './swaps/lnd-funder';
 
 export interface ILndClientOptions
 	extends Pick<
@@ -71,6 +74,7 @@ export function createLndClient(options: ILndClientOptions): BeignetClient {
 		sender: options.sender,
 		swaps: {
 			payer: new LndPayer({ ...rest, network: options.network }),
+			funder: new LndFunder({ ...rest, network: options.network }),
 			chain: options.chain,
 			policy: options.policy,
 			destination: options.destination

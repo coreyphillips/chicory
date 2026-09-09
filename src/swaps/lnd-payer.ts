@@ -7,12 +7,13 @@
  * and matches the hash, which needs no encoding games with LND's path
  * params.
  *
- * Needs a macaroon with offchain:read, offchain:write and address:write
- * (the admin macaroon has them).
+ * Needs a macaroon with offchain:read, offchain:write and address:write,
+ * plus invoices:read and invoices:write for submarine swaps (the admin
+ * macaroon has them).
  */
 
 import { ChicoryLog, ChicoryNetwork, noopLog } from '../types';
-import { IHttpEndpoint, requestJson } from '../link/http';
+import { HttpError, IHttpEndpoint, requestJson } from '../link/http';
 
 const PAYMENT_PAGE = 100;
 /** Seeking backwards from past the end lands on the newest payments. */
@@ -21,7 +22,13 @@ const LND_MAX_PAYMENT_INDEX = 4294967295;
 /** A hold invoice keeps the call open for as long as the swap runs. */
 const HOLD_REQUEST_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 import { toOutputScript } from './verify';
-import { ISwapLightningPayer, ISwapPaymentStatus } from './types';
+import {
+	ISwapCreateInvoiceParams,
+	ISwapCreatedInvoice,
+	ISwapInvoiceStatus,
+	ISwapLightningPayer,
+	ISwapPaymentStatus
+} from './types';
 
 export interface ILndPayerOptions {
 	host: string;
@@ -140,6 +147,78 @@ export class LndPayer implements ISwapLightningPayer {
 			'/v1/newaddress?type=WITNESS_PUBKEY_HASH'
 		);
 		return toOutputScript(res.address, this.options.network);
+	}
+
+	/** `POST /v1/invoices`: a regular invoice this node settles on arrival. */
+	async createInvoice(
+		params: ISwapCreateInvoiceParams
+	): Promise<ISwapCreatedInvoice> {
+		const res = await requestJson<{
+			r_hash: string;
+			payment_request: string;
+		}>(this.ep, 'POST', '/v1/invoices', {
+			value_msat: params.amountMsat.toString(),
+			memo: params.description,
+			expiry: String(params.expirySeconds),
+			cltv_expiry: String(params.minFinalCltvExpiry),
+			private: false
+		});
+		return {
+			bolt11: res.payment_request,
+			paymentHash: Buffer.from(res.r_hash, 'base64')
+		};
+	}
+
+	/**
+	 * `GET /v1/invoice/{hash}`. LND parks a partial MPP set on an OPEN
+	 * invoice with its htlcs ACCEPTED: that counts as an HTLC in flight.
+	 */
+	async lookupInvoice(paymentHash: Buffer): Promise<ISwapInvoiceStatus> {
+		let inv: {
+			state?: string;
+			settled?: boolean;
+			r_preimage?: string;
+			creation_date?: string;
+			expiry?: string;
+			htlcs?: Array<{ state?: string }>;
+		};
+		try {
+			inv = await requestJson(
+				this.ep,
+				'GET',
+				`/v1/invoice/${paymentHash.toString('hex')}`
+			);
+		} catch (err) {
+			if (
+				err instanceof HttpError &&
+				(err.status === 404 || /unable to locate/i.test(err.body))
+			) {
+				return { state: 'unknown' };
+			}
+			throw err;
+		}
+		const inFlight = (inv.htlcs ?? []).filter(
+			(h) => h.state === 'ACCEPTED'
+		).length;
+		if (inv.state === 'SETTLED' || inv.settled) {
+			const preimage =
+				inv.r_preimage &&
+				Buffer.from(inv.r_preimage, 'base64').some((b) => b !== 0)
+					? Buffer.from(inv.r_preimage, 'base64')
+					: undefined;
+			return { state: 'settled', preimage, htlcsInFlight: 0 };
+		}
+		if (inv.state === 'CANCELED')
+			return { state: 'cancelled', htlcsInFlight: 0 };
+		if (inv.state === 'ACCEPTED' || inFlight > 0) {
+			return { state: 'accepted', htlcsInFlight: Math.max(1, inFlight) };
+		}
+		const created = Number(inv.creation_date ?? 0);
+		const expiry = Number(inv.expiry ?? 0);
+		if (created > 0 && expiry > 0 && (created + expiry) * 1000 <= Date.now()) {
+			return { state: 'expired', htlcsInFlight: 0 };
+		}
+		return { state: 'open', htlcsInFlight: 0 };
 	}
 
 	/** Nothing to release: the payment call is a plain request. */

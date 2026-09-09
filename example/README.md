@@ -75,6 +75,31 @@ NETWORK=regtest AMOUNT_SATS=100000 npm run example:cln-reverse-swap
 
 Both reverse examples use `~/.chicory/swaps.json`. Use a separate storage path for independent nodes or networks. On regtest, mine blocks to confirm the provider's funding and your claim. Live tests sharing the same Docker node should run sequentially, including Chicory and beignet CLN suites.
 
+## LND: on-chain to Lightning (submarine swap)
+
+[lnd-submarine-swap.ts](lnd-submarine-swap.ts) moves an on-chain coin from LND's wallet into LND's own Lightning balance through a beignet provider running the submarine role (`BEIGNET_SWAP_SUBMARINE=true`). chicory quotes, has LND mint the invoice (or takes `INVOICE=<bolt11>` of your own for exactly the quoted amount), verifies the provider's terms and the CLTV fit, writes the record (refund key included) to `~/.chicory/swaps.json` before anything is funded, pays the contract from LND's wallet through `sendcoins`, and follows the swap: SETTLED once the provider pays the invoice and claims, or REFUNDED after the refund height. The refund never goes out while LND holds the provider's HTLC, and the process (or `RESUME=1`) must be running past the refund height for it to happen.
+
+The provider needs outbound Lightning liquidity toward your node and a route to it. Your node needs a channel already; a swap into a channel the provider would open for you at the same time is refused. LND needs `invoices:read`, `invoices:write` and `onchain:write` on top of the reverse permissions.
+
+```bash
+LND_REST='127.0.0.1:8080' LND_MACAROON='<macaroon hex>' \
+BEIGNET_PROVIDER='<compressed node pubkey>@<host>:<port>' \
+BITCOIN_RPC='127.0.0.1:18443' BITCOIN_RPC_USER=u BITCOIN_RPC_PASS=p \
+NETWORK=regtest AMOUNT_SATS=100000 npm run example:lnd-submarine-swap
+```
+
+`RESUME=1` re-checks every unresolved swap in the file; a swap whose funding call was made and its reply lost is reported and never funded again by the tool, since the coins may be on chain: check the wallet, then `attachFunding(txid)` or `fund({ force: true })`.
+
+## CLN: on-chain to Lightning (submarine swap)
+
+[cln-submarine-swap.ts](cln-submarine-swap.ts) is the CLN twin (`CLN_REST`, `CLN_RUNE`; the rune needs getinfo, listpeers, connect, sendcustommsg, invoice, listinvoices, listpeerchannels (CLN 23.02 or later, to see an HTLC parked on an unpaid invoice), withdraw, listtransactions and newaddr; the `ws` package must be installed for clnrest's notifications).
+
+```bash
+CLN_REST='127.0.0.1:3010' CLN_RUNE='<rune>' BEIGNET_PROVIDER='<pubkey>@<host>:<port>' \
+BITCOIN_RPC='127.0.0.1:18443' BITCOIN_RPC_USER=u BITCOIN_RPC_PASS=p \
+NETWORK=regtest AMOUNT_SATS=100000 npm run example:cln-submarine-swap
+```
+
 ## LND: pay a beignet direct-funding request
 
 [lnd-pay-request.ts](lnd-pay-request.ts) spends one confirmed P2WPKH or P2TR coin from LND's on-chain wallet. LND signs the ownership proof and funding witness without exporting a private key. Its wallet lease protects the selected coin during signing.

@@ -1,6 +1,7 @@
 /**
  * The front door: one object, one beignet node URI, the liquidity protocols
- * a beignet node serves its peers (JIT, direct funding, reverse swaps).
+ * a beignet node serves its peers (JIT, direct funding, swaps in both
+ * directions).
  */
 
 import type { directFunding } from 'beignet/lightning';
@@ -24,8 +25,8 @@ export interface IBeignetClientOptions {
 	wallet?: directFunding.IDfSenderWallet;
 	/**
 	 * Durable home for direct-funding payment records and swap records (a
-	 * swap record holds its claim key and preimage: treat the storage as a
-	 * wallet file). Omitted, records live in this process only and every
+	 * swap record holds its claim or refund key, and for reverse swaps the
+	 * preimage: treat the storage as a wallet file). Omitted, records live in this process only and every
 	 * operation that moves funds refuses to start, unless
 	 * `allowEphemeralStorage` says that is intended.
 	 */
@@ -35,12 +36,13 @@ export interface IBeignetClientOptions {
 	jit?: Pick<IJitClientOptions, 'maxFlatFeeSat' | 'maxFeePpm'>;
 	sender?: directFunding.IDfSenderConfig;
 	/**
-	 * Reverse swaps (Lightning to on-chain): a node that pays invoices and a
-	 * chain source. Omit both for quotes only.
+	 * Swaps in both directions: a node that pays and mints invoices, a chain
+	 * source, and for submarine swaps a funder that sends the coins (omit it
+	 * to fund by hand). Omit all for quotes only.
 	 */
 	swaps?: Pick<
 		ISwapClientOptions,
-		'payer' | 'chain' | 'policy' | 'destination'
+		'payer' | 'funder' | 'chain' | 'policy' | 'destination'
 	>;
 	log?: ChicoryLog;
 }
