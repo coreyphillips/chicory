@@ -1,7 +1,7 @@
 {
 	"name": "chicory",
 	"version": "0.1.0",
-	"description": "Client for beignet JIT inbound liquidity, direct-funding payments and reverse swaps from supported wallets and Lightning applications.",
+	"description": "Client for beignet JIT inbound liquidity, direct-funding payments and swaps in both directions from supported wallets and Lightning applications.",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"exports": {
@@ -58,7 +58,9 @@
 		"example:cln-pay": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/cln-pay-request.ts",
 		"example:lnd-reverse-swap": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/lnd-reverse-swap.ts",
 		"example:cln-reverse-swap": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/cln-reverse-swap.ts",
-		"test:swap:live": "TS_NODE_TRANSPILE_ONLY=1 mocha --exit --timeout 600000 -r ts-node/register 'tests/wire/lnd-reverse-swap-live.test.ts' 'tests/wire/cln-reverse-swap-live.test.ts'",
+		"example:lnd-submarine-swap": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/lnd-submarine-swap.ts",
+		"example:cln-submarine-swap": "TS_NODE_TRANSPILE_ONLY=1 ts-node example/cln-submarine-swap.ts",
+		"test:swap:live": "TS_NODE_TRANSPILE_ONLY=1 mocha --exit --timeout 900000 -r ts-node/register 'tests/wire/lnd-reverse-swap-live.test.ts' 'tests/wire/cln-reverse-swap-live.test.ts' 'tests/wire/lnd-submarine-swap-live.test.ts' 'tests/wire/cln-submarine-swap-live.test.ts'",
 		"link:beignet": "npm link ../synonym/beignet"
 	},
 	"keywords": [
@@ -81,7 +83,7 @@
 	},
 	"dependencies": {
 		"@bitcoinerlab/secp256k1": "1.0.5",
-		"beignet": "^0.15.0",
+		"beignet": "^0.16.0",
 		"bitcoinjs-lib": "6.1.4"
 	},
 	"peerDependencies": {

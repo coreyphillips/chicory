@@ -2,14 +2,16 @@
  * `chicory/cln`: everything a Core Lightning integration needs, and one
  * call that wires it up. CLN speaks over clnrest with a rune; the same
  * credentials serve the peer link (custom messages and the Socket.IO
- * notification stream), the wallet (coins, reservations, signpsbt) and the
- * payer (pay, listpays, newaddr).
+ * notification stream), the wallet (coins, reservations, signpsbt), the
+ * payer (pay, listpays, newaddr, invoice, listinvoices) and the funder
+ * (withdraw, for submarine swaps).
  */
 
 import { BeignetClient, IBeignetClientOptions } from './client';
 import { ClnPeerLink } from './link/cln-link';
 import { ClnWallet } from './direct-funding/cln-wallet';
 import { ClnPayer } from './swaps/cln-payer';
+import { ClnFunder } from './swaps/cln-funder';
 import { IHttpEndpoint } from './link/http';
 import { ChicoryLog, ChicoryNetwork } from './types';
 
@@ -24,6 +26,8 @@ export { ClnWallet } from './direct-funding/cln-wallet';
 export type { IClnWalletOptions } from './direct-funding/cln-wallet';
 export { ClnPayer } from './swaps/cln-payer';
 export type { IClnPayerOptions } from './swaps/cln-payer';
+export { ClnFunder } from './swaps/cln-funder';
+export type { IClnFunderOptions } from './swaps/cln-funder';
 
 export interface IClnClientOptions
 	extends Pick<
@@ -33,7 +37,7 @@ export interface IClnClientOptions
 	host: string;
 	/** clnrest port (default 3010). */
 	port?: number;
-	/** A rune permitting getinfo, listpeers, connect, sendcustommsg, listfunds, listtransactions, newaddr, reserveinputs, unreserveinputs, signpsbt, pay, listpays. */
+	/** A rune permitting getinfo, listpeers, connect, sendcustommsg, listfunds, listtransactions, newaddr, reserveinputs, unreserveinputs, signpsbt, pay, listpays, and for submarine swaps invoice, listinvoices, listpeerchannels, withdraw. */
 	rune: string;
 	network: ChicoryNetwork;
 	https?: boolean;
@@ -78,6 +82,7 @@ export function createClnClient(options: IClnClientOptions): BeignetClient {
 		sender: options.sender,
 		swaps: {
 			payer: new ClnPayer({ ...rest, network: options.network }),
+			funder: new ClnFunder({ ...rest, network: options.network }),
 			chain: options.chain,
 			policy: options.policy,
 			destination: options.destination

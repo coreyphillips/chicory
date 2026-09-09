@@ -14,7 +14,11 @@
  *  - Reverse swaps (`client.swaps.reverse`): move Lightning balance to the
  *    chain. Pay a beignet provider's hold invoice for a hash you hold the
  *    preimage of, verify the contract it funds, claim it to your own wallet;
- *    the claim settles the hold. Submarine swaps are not included yet.
+ *    the claim settles the hold.
+ *  - Submarine swaps (`client.swaps.submarine`): move on-chain coins to
+ *    Lightning balance. Mint an invoice on your node, verify the contract
+ *    the provider offers, fund it; the provider pays your invoice and
+ *    claims the coins with the preimage, or you refund after the height.
  */
 
 export { BeignetClient } from './client';
@@ -117,6 +121,17 @@ export { exchange } from './link/exchange';
 export type { IExchangeParams } from './link/exchange';
 
 export { ReverseSwapClient, SwapClient } from './swaps/client';
+export { SubmarineSwapClient } from './swaps/submarine-client';
+export type {
+	ISubmarineResumeReport,
+	ISubmarineSwapCreateParams
+} from './swaps/submarine-client';
+export { SubmarineSwap } from './swaps/submarine';
+export type { ISubmarineSwapStatus } from './swaps/submarine';
+export { LndFunder } from './swaps/lnd-funder';
+export type { ILndFunderOptions } from './swaps/lnd-funder';
+export { ClnFunder } from './swaps/cln-funder';
+export type { IClnFunderOptions } from './swaps/cln-funder';
 export type {
 	IReverseSwapCreateParams,
 	IResumeReport,
@@ -130,31 +145,59 @@ export {
 	SWAP_DEFAULT_POLICY,
 	SwapError,
 	isTerminalReverseSwapState,
+	isTerminalSubmarineSwapState,
 	resolvePolicy
 } from './swaps/types';
 export type {
 	IReverseSwapClaimAttempt,
 	IReverseSwapChange,
 	IReverseSwapRecord,
+	ISubmarineSwapChange,
+	ISubmarineSwapRecord,
+	ISubmarineSwapRefundAttempt,
 	ISwapChain,
 	ISwapChainOutput,
 	ISwapClientPolicy,
+	ISwapCreateInvoiceParams,
+	ISwapCreatedInvoice,
+	ISwapFunder,
 	ISwapFundingCandidate,
+	ISwapInvoiceStatus,
 	ISwapLightningPayer,
 	ISwapPaymentStatus,
 	ReverseSwapState,
+	SubmarineSwapState,
 	SwapErrorCode
 } from './swaps/types';
-export { REVERSE_SWAP_STORAGE_KEY, ReverseSwapStore } from './swaps/store';
+export {
+	REVERSE_SWAP_STORAGE_KEY,
+	ReverseSwapStore,
+	SUBMARINE_SWAP_STORAGE_KEY,
+	SubmarineSwapStore,
+	SwapStore
+} from './swaps/store';
 export {
 	assertNativeSegwit,
+	decodeSuppliedInvoice,
+	isClaimWitness,
 	isRefundWitness,
+	submarineCltvProblem,
 	toOutputScript,
 	verifyFundingOutput,
-	verifyReverseAck
+	verifyReverseAck,
+	verifySubmarineAck
 } from './swaps/verify';
-export type { FundingVerdict, IVerifiedReverseTerms } from './swaps/verify';
-export { bumpedFeeRate, claimFeeForRate, replacementFloor } from './swaps/fees';
+export type {
+	FundingVerdict,
+	IVerifiedReverseTerms,
+	IVerifiedSubmarineTerms
+} from './swaps/verify';
+export {
+	bumpedFeeRate,
+	claimFeeForRate,
+	feeForRate,
+	replacementFloor
+} from './swaps/fees';
 export { LndPayer } from './swaps/lnd-payer';
 export type { ILndPayerOptions } from './swaps/lnd-payer';
 export { ClnPayer } from './swaps/cln-payer';

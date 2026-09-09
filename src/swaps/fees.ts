@@ -1,8 +1,9 @@
 /**
- * Claim fees. The claim is a fixed-shape transaction (one P2WSH input with a
- * four-item witness, one native-segwit output), so its size is known once
- * built; the fee is the rate times that size, with two virtual bytes of
- * padding for the signature's DER length varying between builds.
+ * Claim and refund fees. Both are fixed-shape transactions (one P2WSH input
+ * with a four- or three-item witness, one native-segwit output), so their
+ * size is known once built; the fee is the rate times that size, with two
+ * virtual bytes of padding for the signature's DER length varying between
+ * builds.
  */
 
 import * as bitcoin from 'bitcoinjs-lib';
@@ -21,6 +22,17 @@ export function claimFeeForRate(
 	feeRateSatPerVb: number,
 	policy: ISwapClientPolicy
 ): IBuiltClaim {
+	return feeForRate(build, feeRateSatPerVb, {
+		maxFeeSat: policy.maxClaimFeeSat
+	});
+}
+
+/** Build a spend at the rate, its absolute fee capped at `maxFeeSat`. */
+export function feeForRate(
+	build: (feeSat: bigint) => bitcoin.Transaction,
+	feeRateSatPerVb: number,
+	caps: { maxFeeSat: bigint }
+): IBuiltClaim {
 	if (!(feeRateSatPerVb > 0)) {
 		throw new SwapError('fee rate must be positive', 'fee');
 	}
@@ -37,7 +49,7 @@ export function claimFeeForRate(
 	}
 	const vsize = probe.virtualSize() + SIGNATURE_PAD_VBYTES;
 	let feeSat = BigInt(Math.ceil(vsize * feeRateSatPerVb));
-	if (feeSat > policy.maxClaimFeeSat) feeSat = policy.maxClaimFeeSat;
+	if (feeSat > caps.maxFeeSat) feeSat = caps.maxFeeSat;
 	let tx: bitcoin.Transaction;
 	try {
 		tx = build(feeSat);

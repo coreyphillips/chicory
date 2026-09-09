@@ -215,6 +215,22 @@ export const PROVIDER_TIMEOUTS = {
 	resolutionSafetyBlocks: 3
 };
 
+/**
+ * Submarine margins sized for LND's 80-block final CLTV: the fit needs
+ * fundingConfirmations + route budget + 80 + 3 + claim + resolution margins
+ * under the refund delta.
+ */
+export const SUBMARINE_TIMEOUTS = {
+	refundDeltaBlocks: 160,
+	minRefundDeltaBlocks: 100,
+	maxRefundDeltaBlocks: 300,
+	claimSafetyBlocks: 6,
+	resolutionSafetyBlocks: 6,
+	routeCltvBudgetBlocks: 6,
+	claimBumpIntervalBlocks: 2,
+	minInvoiceExpirySeconds: 30
+};
+
 export interface ILiveProvider {
 	node: LightningNode;
 	chain: CoreSwapChainSource;
@@ -227,7 +243,8 @@ export interface ILiveProvider {
 
 /** A provider node listening for the docker node, chain fed by the tests. */
 export async function startProvider(
-	passphrase: string
+	passphrase: string,
+	options: { submarine?: boolean } = {}
 ): Promise<ILiveProvider> {
 	await ensureBitcoindFunds(3);
 	const chain = new CoreSwapChainSource();
@@ -258,7 +275,10 @@ export async function startProvider(
 			chainSource: chain,
 			fee: { flatFeeSat: 100n, feePpm: 1_000 },
 			confirmations: { fundingConfirmations: 1, resolutionConfirmations: 2 },
-			timeouts: PROVIDER_TIMEOUTS
+			timeouts: PROVIDER_TIMEOUTS,
+			...(options.submarine
+				? { submarine: { enabled: true, ...SUBMARINE_TIMEOUTS } }
+				: {})
 		}
 	});
 	node.on('node:error', () => undefined);
@@ -278,6 +298,7 @@ export async function startProvider(
 		const tip = await chain.refresh();
 		node.handleNewBlock(tip);
 		await node.getSwapProvider()!.onBlock(tip);
+		await node.getSubmarineSwapProvider()?.onBlock(tip);
 		return tip;
 	};
 	await tick();
@@ -346,4 +367,46 @@ export function providerSwap(
 	return provider.node.listSwaps().find((r) => r.id === swapIdHex) as
 		| Record<string, unknown>
 		| undefined;
+}
+
+/**
+ * Open a channel FROM the provider TO the docker node through the
+ * provider's bitcoind funding provider, so the provider has outbound
+ * liquidity (the submarine provider pays). `peerSeesChannel` waits until
+ * the remote lists it usable.
+ */
+export async function openProviderChannelTo(
+	provider: ILiveProvider,
+	peerPubkey: string,
+	host: string,
+	port: number,
+	amountSat: bigint,
+	peerSeesChannel: () => Promise<unknown>
+): Promise<Buffer> {
+	const node = provider.node;
+	await node.connectPeer(peerPubkey, host, port);
+	await sleep(2_000);
+	node.openChannel(peerPubkey, amountSat);
+	const manager = node.getChannelManager();
+	const deadline = Date.now() + 30_000;
+	let funded = manager.listChannels().find((c) => c.getChannelId() !== null);
+	while (!funded && Date.now() < deadline) {
+		await sleep(500);
+		funded = manager.listChannels().find((c) => c.getChannelId() !== null);
+	}
+	if (!funded)
+		throw new Error('no funded channel after the provider-funded open');
+	const channelId = funded.getChannelId()!;
+	await mineBlocks(6);
+	await sleep(3_000);
+	node.handleFundingConfirmed(channelId);
+	await peerSeesChannel();
+	const normalDeadline = Date.now() + 30_000;
+	while (Date.now() < normalDeadline) {
+		const ch = manager.getChannel(channelId);
+		if (ch && ch.getState() === 'NORMAL') break;
+		await sleep(500);
+	}
+	await provider.tick();
+	return channelId;
 }
