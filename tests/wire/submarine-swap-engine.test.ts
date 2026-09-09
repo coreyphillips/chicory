@@ -346,6 +346,7 @@ async function wireScene(label: string): Promise<IWireScene> {
 		{
 			flatFeeSat: 50n,
 			feePpm: 2_000,
+			paymentMaxFeePpm: 1_000,
 			refundDeltaBlocks: 200,
 			minRefundDeltaBlocks: 100,
 			maxRefundDeltaBlocks: 400,
@@ -411,9 +412,10 @@ describe("submarine swap: chicory against beignet's real provider engine over No
 			});
 			expect(quote.accepted).to.equal(true);
 			expect(quote.direction).to.equal('submarine');
-			// flat 50 + 2000 ppm (200) + 2 sat/vB x 150 vB (300)
-			expect(quote.totalFeeSat).to.equal(550n);
-			expect(quote.invoiceAmountMsat).to.equal((100_000n - 550n) * 1000n);
+			// flat 50 + 2000 ppm (200) + 2 sat/vB x 150 vB (300), plus the
+			// routing budget of 1000 ppm on the 99_450 sat left (100).
+			expect(quote.totalFeeSat).to.equal(650n);
+			expect(quote.invoiceAmountMsat).to.equal((100_000n - 650n) * 1000n);
 			expect(quote.withinPolicy).to.equal(true);
 
 			const swap = await s.client.swaps.submarine.create(s.peer.idHex, {
@@ -422,7 +424,7 @@ describe("submarine swap: chicory against beignet's real provider engine over No
 			const rec = swap.record();
 			expect(rec.refundHeight).to.equal(5_200);
 			expect(rec.paymentCeilingHeight).to.equal(5_200 - 12 - 6);
-			expect(rec.totalFeeSat).to.equal('650');
+			expect(rec.totalFeeSat).to.equal('750');
 			expect(s.ledger.list()[0].state).to.equal('CREATED');
 			expect(s.ledger.list()[0].bolt11).to.equal(rec.bolt11);
 
