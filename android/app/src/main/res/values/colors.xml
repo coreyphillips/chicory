@@ -1,0 +1,7 @@
+<resources>
+    <!-- The app's own background. The window shows this from launch, so a cold
+         start opens on the wallet's colour instead of flashing the default
+         light theme before React has drawn anything. Matches `colors.background`
+         in src/theme.ts. -->
+    <color name="brandBackground">#111417</color>
+</resources>
