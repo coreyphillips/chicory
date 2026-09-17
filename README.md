@@ -102,9 +102,11 @@ from GitHub; the engine builds its portable bundle on `prepare`, so the first
 install is slower than the rest.
 
 To work on the engine or the wallet core at the same time as the app, check them
-out beside it as `../../beignet-engine` and `../../shared` and install them by
-path (`npm install ../../beignet-engine ../../shared`). Metro watches both those
-directories when they exist, so an edit there reloads here.
+out beside it as `../../beignet-engine` and `../../shared` and run
+`npm run deps:local`, which installs both by path without changing
+`package.json`, so the published dependencies stay the ones a clone gets. Metro
+watches those two directories when they exist, so an edit there reloads here.
+`npm install` puts the GitHub copies back.
 
 `react-native-camera-kit` (QR scanning) and `react-native-haptic-feedback` are native modules, so a build made before they were added will not have them. Both are loaded optionally at runtime: without them the app still runs, the scanner explains that this build has no camera module and offers the clipboard instead, and haptics fall back to a short Android vibration or to silence. Rebuild the native apps, including `pod install`, after pulling this change.
 
