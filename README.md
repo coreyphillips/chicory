@@ -176,3 +176,7 @@ Recorded result for the lightning-first parity pass (September 10, 2026): the 13
 Android reopening validation also passed on a disposable Android 37 emulator: a real encrypted regtest wallet survived an in-place replacement with the normal standalone APK and a full force-stop/cold launch. Explicit lock remained locked across restart. The offline wallet's name and network remained visible; the screenshot is `../android-reopen-verification.png`. The RN tests (now 91), typecheck and lint pass, including source migration, unchanged older wallets, missing-source failures and closing during seed lookup. See the workspace validation document for the exact scope.
 
 `native-tests/ColdStartSeed.tsx` is a separate emulator-only developer entry for that bounded test. It creates one unfunded regtest wallet with unavailable Electrum, closes storage and emits only public verification details. It refuses established sessions and existing regtest wallets. Build it only with an explicit `ENTRY_FILE` override on a disposable emulator, then rebuild with the normal `index.js` entry before distributing any APK. It is excluded from the delivered app bundle.
+
+## License
+
+MIT. See [LICENSE](LICENSE). The Beignet engine it runs is MIT as well, Copyright (c) 2023 Synonym.

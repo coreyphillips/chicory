@@ -2,6 +2,7 @@
   "name": "chicory",
   "version": "0.4.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "android": "react-native run-android",
     "ios": "react-native run-ios",
