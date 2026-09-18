@@ -1,4 +1,5 @@
 import React from 'react';
+import { EmbeddedWalletClient } from '@beignet/wallet-core';
 import { AppState, Text } from 'react-native';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import type {
@@ -462,9 +463,7 @@ test('fresh positive inbound capacity releases a stale amount-required override 
     tree = create(screen(1000));
   });
   await act(async () =>
-    field(tree, 'Note · optional').props.onChangeText(
-      'Keep this note',
-    ),
+    field(tree, 'Note · optional').props.onChangeText('Keep this note'),
   );
   await act(async () => {
     await press(tree, 'Continue').props.onPress();
@@ -473,9 +472,7 @@ test('fresh positive inbound capacity releases a stale amount-required override 
   await act(async () => tree.update(screen(0)));
   await act(async () => tree.update(screen(2000)));
   expect(press(tree, 'Continue').props.disabled).toBeFalsy();
-  expect(field(tree, 'Note · optional').props.value).toBe(
-    'Keep this note',
-  );
+  expect(field(tree, 'Note · optional').props.value).toBe('Keep this note');
   expect(text(tree)).not.toContain('Amount required');
   await act(async () => tree.unmount());
 });
@@ -596,4 +593,39 @@ test('Lightning-only fallback shares the exact invoice and clearly labels its pa
   expect(text(detail)).toContain('This request accepts Lightning only.');
   expect(press(detail, 'Share original request').props.disabled).toBeFalsy();
   await act(async () => detail.unmount());
+});
+
+test('embedded offline receiving requires an amount and confirms the wallet can close', async () => {
+  const client = new EmbeddedWalletClient({
+    runtime: { request: jest.fn() },
+    walletId: 'test',
+  });
+  client.quoteReceive = jest.fn().mockResolvedValue(quote);
+  client.receive = jest
+    .fn()
+    .mockResolvedValue({ ...request, offlineReceive: true });
+  client.getReceiveStatus = jest.fn().mockResolvedValue(waiting);
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <ReceiveScreen
+        client={client}
+        receivableSats={100000}
+        onActivity={noop}
+        onBusy={noop}
+      />,
+    );
+  });
+  expect(press(tree, 'Continue').props.disabled).toBe(true);
+  await act(async () => {
+    field(tree, 'Amount in sats').props.onChangeText('1000');
+  });
+  await act(async () => {
+    await press(tree, 'Continue').props.onPress();
+  });
+  await act(async () => {
+    await press(tree, 'Create request').props.onPress();
+  });
+  expect(text(tree)).toContain('You can close your wallet');
+  await act(async () => tree.unmount());
 });
