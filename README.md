@@ -185,6 +185,6 @@ MIT. See [LICENSE](LICENSE). The Beignet engine it runs is MIT as well, Copyrigh
 
 Normal fixed-amount Receive now prepares a durable reservation automatically. Users can close the wallet after sharing the request. Reopening discovers settled receipts and updates the ordinary balance and Activity. Unpaid requests remain payable until expiry.
 
-This requires the accompanying upgraded Beignet settlement peer. Stock 0.21.7 does not implement receipt discovery or automatic receive-channel funding. The provider must enable settlement and explicitly budget any new receive channels. The app reports unsupported preparation without silently issuing an online-only invoice.
+This requires a Beignet 0.21.8 or newer settlement peer. The provider must enable settlement and explicitly budget any new receive channels. The app reports unsupported preparation without silently issuing an online-only invoice.
 
 See [FFOR validation](FFOR-VALIDATION.md) for simulator and funded regtest evidence, commands, and deployment limits.
