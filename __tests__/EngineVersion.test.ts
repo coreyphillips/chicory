@@ -22,6 +22,7 @@ test('the installed engine reports the verified upstream release', async () => {
   try {
     const config = await runtime.request({ path: '/api/config' });
     expect(config.engineVersion).toBe('0.21.7-portable');
+    expect(config.offlineReceiveAvailable).toBe(true);
   } finally {
     await runtime.close();
   }

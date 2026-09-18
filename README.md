@@ -181,17 +181,10 @@ Android reopening validation also passed on a disposable Android 37 emulator: a 
 
 MIT. See [LICENSE](LICENSE). The Beignet engine it runs is MIT as well, Copyright (c) 2023 Synonym.
 
-## Offline receiving validation
+## Offline receiving
 
-This update pins the portable engine to the beignet 0.21.7 source baseline.
-Normal Receive still creates ordinary or JIT invoices, so keep the wallet open
-until the payment arrives. It does not yet prepare an offline reservation.
+Normal fixed-amount Receive now prepares a durable reservation automatically. Users can close the wallet after sharing the request. Reopening discovers settled receipts and updates the ordinary balance and Activity. Unpaid requests remain payable until expiry.
 
-A disposable regtest verified that an explicitly prepared FFOR invoice can be
-paid with the receiver stopped and credited after recovery. Automatic recovery
-cannot simply run whenever the app opens: closing a reservation also invalidates
-its unpaid invoices, and an active reservation prevents ordinary payments and
-splices on the same channel. Receipt discovery and the reservation/channel
-lifecycle must be integrated before this can be enabled transparently.
+This requires the accompanying upgraded Beignet settlement peer. Stock 0.21.7 does not implement receipt discovery or automatic receive-channel funding. The provider must enable settlement and explicitly budget any new receive channels. The app reports unsupported preparation without silently issuing an online-only invoice.
 
-See [FFOR validation](FFOR-VALIDATION.md) for the evidence and release criteria.
+See [FFOR validation](FFOR-VALIDATION.md) for simulator and funded regtest evidence, commands, and deployment limits.

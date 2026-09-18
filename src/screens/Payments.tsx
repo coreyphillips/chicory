@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import QRCode from 'react-native-qrcode-svg';
-import { parseSats } from '@beignet/wallet-core';
+import { EmbeddedWalletClient, parseSats } from '@beignet/wallet-core';
 import type {
   ReceiveQuote,
   ReceiveRequest,
@@ -359,7 +359,10 @@ export function ReceiveScreen({
   onBusy: (busy: boolean) => void;
 }) {
   const [capacityChanged, setCapacityChanged] = useState(false);
-  const amountRequired = receivableSats <= 0 || capacityChanged;
+  const amountRequired =
+    client instanceof EmbeddedWalletClient ||
+    receivableSats <= 0 ||
+    capacityChanged;
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [quote, setQuote] = useState<ReceiveQuote | null>(null);
@@ -399,7 +402,13 @@ export function ReceiveScreen({
     : quote
     ? now >= quote.expiresAt
     : false;
-  const step = receipt ? 'receipt' : request ? 'request' : quote ? 'quote' : 'form';
+  const step = receipt
+    ? 'receipt'
+    : request
+    ? 'request'
+    : quote
+    ? 'quote'
+    : 'form';
   const enter = useEnter(step);
   const celebrated = useRef(false);
   useEffect(() => {
@@ -537,6 +546,12 @@ export function ReceiveScreen({
                       Math.max(0, request.expiresAt - now) / 60000,
                     )} minutes`}
               </Text>
+              {request.offlineReceive && !expired ? (
+                <Body>
+                  You can close your wallet. Payments will appear when you
+                  reopen it.
+                </Body>
+              ) : null}
               {request.warnings.map((warning, i) => (
                 <Notice key={i} icon="info">
                   {warning}
@@ -668,7 +683,9 @@ export function ReceiveScreen({
             presets={[1000, 10000, 50000]}
             editable={!busy}
             hint={
-              amountRequired ? 'An amount is needed to quote the receive fee.' : undefined
+              amountRequired
+                ? 'Enter an amount for your payment request.'
+                : undefined
             }
           />
           <Field
@@ -730,7 +747,11 @@ const styles = StyleSheet.create({
     fontSize: 26,
     color: colors.ink,
   },
-  qrNote: { ...typography.caption, color: colors.creamInk, textAlign: 'center' },
+  qrNote: {
+    ...typography.caption,
+    color: colors.creamInk,
+    textAlign: 'center',
+  },
   enlargeBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.86)',
