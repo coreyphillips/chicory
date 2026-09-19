@@ -80,7 +80,7 @@ Sending to a Bitcoin address splices the channel, which spends the channel's own
 
 ## Not implemented
 
-Screenshot blocking is not claimed: neither platform offers it through React Native core, and a partial version would be worse than none. The recovery phrase is still cleared whenever the app stops being active, is never copied to the clipboard, and can be put behind the biometric lock. There is also no wallet import/restore-from-phrase screen, no fiat display, no LNURL or Lightning address, no BOLT12 payment, and no background or push-woken receiving.
+Screenshot blocking is not claimed: neither platform offers it through React Native core, and a partial version would be worse than none. The recovery phrase is still cleared whenever the app stops being active, is never copied to the clipboard, and can be put behind the biometric lock. The restore-from-phrase screen takes a 12 or 24 word phrase. There is no wallet import from a file or from another app, no fiat display, no LNURL or Lightning address, no BOLT12 payment, and no background or push-woken receiving.
 
 ## Develop and build
 
