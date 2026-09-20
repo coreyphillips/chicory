@@ -13,8 +13,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@beignet/portable-engine": "github:coreyphillips/beignet-portable-engine#7b3d9fb31729da328f939e61f74de2f92813bb6a",
-    "@beignet/wallet-core": "github:coreyphillips/beignet-wallet-core#d276ec2d0730f51142599e86895faed5f69c85db",
+    "@beignet/portable-engine": "github:coreyphillips/beignet-portable-engine#86e860217ff3cdc0c49ba123eb1581bed2ec1eca",
+    "@beignet/wallet-core": "github:coreyphillips/beignet-wallet-core#854bf99fbab54884a5f051656cc6777147dd21d3",
     "@op-engineering/op-sqlite": "^18.2.0",
     "@react-native-clipboard/clipboard": "^1.16.3",
     "@react-native/new-app-screen": "0.87.1",
