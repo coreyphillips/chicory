@@ -183,8 +183,8 @@ MIT. See [LICENSE](LICENSE). The Beignet engine it runs is MIT as well, Copyrigh
 
 ## Offline receiving
 
-Normal fixed-amount Receive now prepares a durable reservation automatically. Users can close the wallet after sharing the request. Reopening discovers settled receipts and updates the ordinary balance and Activity. Unpaid requests remain payable until expiry.
+Receiving offline is an opt-in on the Receive screen ("Receive offline", off by default), shown when the engine advertises it. The ordinary request is paid over the home channel or provisioned by the primary just in time. With the box on, a fixed amount of at least 354 sats is required and the primary prepares a durable reservation: the wallet can be closed after sharing the request, reopening discovers settled receipts and updates the balance and Activity, and unpaid requests remain payable until expiry.
 
-This requires a Beignet 0.21.8 or newer settlement peer. The provider must enable settlement and explicitly budget any new receive channels. The app reports unsupported preparation without silently issuing an online-only invoice.
+An offline receive is only for a channel that already exists with the primary and has room for the amount; it never has the primary open one. The primary must run Beignet 0.21.8 or newer with settlement enabled. The app reports unsupported preparation without silently issuing an online-only invoice.
 
 See [FFOR validation](FFOR-VALIDATION.md) for simulator and funded regtest evidence, commands, and deployment limits.
