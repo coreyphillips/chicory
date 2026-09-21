@@ -5,13 +5,14 @@ import {
   Pressable,
   Share,
   StyleSheet,
+  Switch,
   Text,
   View,
   useWindowDimensions,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import QRCode from 'react-native-qrcode-svg';
-import { EmbeddedWalletClient, parseSats } from '@beignet/wallet-core';
+import { parseSats } from '@beignet/wallet-core';
 import type {
   ReceiveQuote,
   ReceiveRequest,
@@ -359,10 +360,34 @@ export function ReceiveScreen({
   onBusy: (busy: boolean) => void;
 }) {
   const [capacityChanged, setCapacityChanged] = useState(false);
-  const amountRequired =
-    client instanceof EmbeddedWalletClient ||
-    receivableSats <= 0 ||
-    capacityChanged;
+  // Receiving offline is an opt-in, never the default: the ordinary request
+  // is paid over the home channel or provisioned by the primary just in
+  // time. The box is offered only when the engine advertises offline
+  // receiving; the primary still has to offer settlement, and the engine
+  // says so at quote time when it does not.
+  const [offlineAvailable, setOfflineAvailable] = useState(false);
+  const [offline, setOffline] = useState(false);
+  useEffect(() => {
+    let active = true;
+    // Read through a promise so a client without the method (the demo
+    // client, older hosts) leaves the box off rather than breaking the form.
+    Promise.resolve()
+      .then(() => client.getConfig())
+      .then(config => {
+        if (active)
+          setOfflineAvailable(config?.offlineReceiveAvailable === true);
+      })
+      .catch(() => {
+        if (active) setOfflineAvailable(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [client]);
+  // An amount is needed when the primary has to provide the capacity (a
+  // just-in-time receive is quoted on it), when it changed under a quote, and
+  // for an offline receive, whose slot holds one fixed amount.
+  const amountRequired = receivableSats <= 0 || capacityChanged || offline;
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [quote, setQuote] = useState<ReceiveQuote | null>(null);
@@ -430,6 +455,7 @@ export function ReceiveScreen({
         await client.quoteReceive({
           amountSats: amount.trim() ? parseSats(amount) : undefined,
           description: description.trim(),
+          ...(offline ? { mode: 'offline' as const } : {}),
         }),
       );
     } catch (e) {
@@ -644,6 +670,12 @@ export function ReceiveScreen({
               />
             ) : null}
           </Card>
+          {offline ? (
+            <Notice icon="info">
+              Payable while this wallet is closed. Your primary node prepares
+              it and settles the payment for you.
+            </Notice>
+          ) : null}
           {quote.warnings.map((warning, i) => (
             <Notice key={i} icon="info">
               {warning}
@@ -696,6 +728,30 @@ export function ReceiveScreen({
             maxLength={180}
             editable={!busy}
           />
+          {offlineAvailable ? (
+            <View style={styles.optIn}>
+              <View style={styles.optInRow}>
+                <Text style={styles.optInLabel}>Receive offline</Text>
+                <Switch
+                  accessibilityLabel="Receive offline"
+                  accessibilityHint="Accept this payment even while this wallet is closed."
+                  value={offline}
+                  disabled={busy}
+                  trackColor={{ true: colors.primary, false: colors.line }}
+                  thumbColor={colors.text}
+                  onValueChange={next => {
+                    setOffline(next);
+                    setError('');
+                  }}
+                />
+              </View>
+              <Text style={styles.optInHint}>
+                {offline
+                  ? 'Accept this payment even while this wallet is closed. Your primary node prepares it, so it has to offer offline settlement. Enter at least 354 sats.'
+                  : 'Off, the request is paid over your channel or provisioned by your primary node just in time.'}
+              </Text>
+            </View>
+          ) : null}
           <Button
             label="Continue"
             icon="arrowDown"
@@ -711,6 +767,22 @@ export function ReceiveScreen({
 
 const styles = StyleSheet.create({
   stack: { gap: space.lg },
+  optIn: { gap: space.xs },
+  optInRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.xs + 2,
+    minHeight: 44,
+  },
+  optInLabel: {
+    ...typography.body,
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+    flexShrink: 1,
+  },
+  optInHint: { ...typography.caption, color: colors.muted },
   amount: {
     ...typography.amount,
     color: colors.text,

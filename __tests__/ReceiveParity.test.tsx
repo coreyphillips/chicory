@@ -595,11 +595,14 @@ test('Lightning-only fallback shares the exact invoice and clearly labels its pa
   await act(async () => detail.unmount());
 });
 
-test('embedded offline receiving requires an amount and confirms the wallet can close', async () => {
+test('embedded offline receiving is an opt-in that requires an amount and confirms the wallet can close', async () => {
   const client = new EmbeddedWalletClient({
     runtime: { request: jest.fn() },
     walletId: 'test',
   });
+  client.getConfig = jest
+    .fn()
+    .mockResolvedValue({ offlineReceiveAvailable: true });
   client.quoteReceive = jest.fn().mockResolvedValue(quote);
   client.receive = jest
     .fn()
@@ -616,6 +619,14 @@ test('embedded offline receiving requires an amount and confirms the wallet can 
       />,
     );
   });
+  // Off by default: with inbound capacity the ordinary request needs no
+  // amount, and nothing is asked of the offline lane.
+  expect(press(tree, 'Continue').props.disabled).toBe(false);
+  const box = tree.root.findByProps({ accessibilityLabel: 'Receive offline' });
+  expect(box.props.value).toBe(false);
+  await act(async () => {
+    box.props.onValueChange(true);
+  });
   expect(press(tree, 'Continue').props.disabled).toBe(true);
   await act(async () => {
     field(tree, 'Amount in sats').props.onChangeText('1000');
@@ -623,9 +634,52 @@ test('embedded offline receiving requires an amount and confirms the wallet can 
   await act(async () => {
     await press(tree, 'Continue').props.onPress();
   });
+  expect(client.quoteReceive).toHaveBeenCalledWith(
+    expect.objectContaining({ amountSats: 1000, mode: 'offline' }),
+  );
+  expect(text(tree)).toContain('Payable while this wallet is closed');
   await act(async () => {
     await press(tree, 'Create request').props.onPress();
   });
   expect(text(tree)).toContain('You can close your wallet');
   await act(async () => tree.unmount());
+});
+
+test('the ordinary embedded request never names a receive mode, and the box is absent without engine support', async () => {
+  for (const offlineReceiveAvailable of [true, false]) {
+    const client = new EmbeddedWalletClient({
+      runtime: { request: jest.fn() },
+      walletId: 'test',
+    });
+    client.getConfig = jest.fn().mockResolvedValue({ offlineReceiveAvailable });
+    client.quoteReceive = jest.fn().mockResolvedValue(quote);
+    client.receive = jest.fn().mockResolvedValue(request);
+    client.getReceiveStatus = jest.fn().mockResolvedValue(waiting);
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(
+        <ReceiveScreen
+          client={client}
+          receivableSats={100000}
+          onActivity={noop}
+          onBusy={noop}
+        />,
+      );
+    });
+    expect(
+      tree.root.findAllByProps({ accessibilityLabel: 'Receive offline' })
+        .length > 0,
+    ).toBe(offlineReceiveAvailable);
+    await act(async () => {
+      field(tree, 'Amount in sats').props.onChangeText('1000');
+    });
+    await act(async () => {
+      await press(tree, 'Continue').props.onPress();
+    });
+    const input = (client.quoteReceive as jest.Mock).mock.calls[0][0];
+    expect(input.amountSats).toBe(1000);
+    expect('mode' in input).toBe(false);
+    expect(text(tree)).not.toContain('Payable while this wallet is closed');
+    await act(async () => tree.unmount());
+  }
 });
