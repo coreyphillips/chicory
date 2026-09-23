@@ -361,3 +361,40 @@ test('a request that names its amount fills the amount field and locks it', asyn
     tree.unmount();
   });
 });
+
+test('a Lightning review shows the expected fee beside the maximum it can cost', async () => {
+  const lightning: SendReview = {
+    ...quote,
+    feeSats: 11,
+    estimatedFeeSats: 1,
+    feeLabel: 'Maximum routing fee',
+    totalSats: 4211,
+  };
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <SendScreen
+        client={adapter({ prepareSend: jest.fn().mockResolvedValue(lightning) })}
+        onActivity={jest.fn()}
+        onRefresh={jest.fn()}
+        onBusy={onBusy}
+      />,
+    );
+  });
+  await act(async () => {
+    field(tree, 'Payment request or address').props.onChangeText('lnbc-request');
+  });
+  await act(async () => {
+    await label(tree, 'Review payment').props.onPress();
+  });
+  const shown = JSON.stringify(tree.toJSON());
+  expect(shown).toContain('Expected routing fee');
+  expect(shown).toContain('about 1 sats');
+  expect(shown).toContain('Maximum routing fee');
+  expect(shown).toContain('11 sats');
+  expect(shown).toContain('Total, at most');
+  expect(shown).toContain('4,211 sats');
+  await act(async () => {
+    tree.unmount();
+  });
+});
