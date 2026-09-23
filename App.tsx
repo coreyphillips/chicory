@@ -583,6 +583,7 @@ function WalletApp() {
           <ReceiveScreen
             client={client}
             receivableSats={snapshot?.balance.receivableSats}
+            offlineReceivableSats={snapshot?.balance.offlineReceivableSats}
             disabled={stale}
             onRefresh={session.refresh}
             onActivity={showActivity}
