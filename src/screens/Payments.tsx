@@ -346,6 +346,7 @@ export function SendScreen({
 export function ReceiveScreen({
   client,
   receivableSats = 0,
+  offlineReceivableSats,
   disabled = false,
   onActivity,
   onRefresh,
@@ -353,6 +354,11 @@ export function ReceiveScreen({
 }: {
   client: WalletAdapter;
   receivableSats?: number;
+  /**
+   * The most an offline receive can take right now, 0 when no channel can
+   * hold one. Undefined when the engine does not say.
+   */
+  offlineReceivableSats?: number;
   /** Set when the wallet's balance is too old to quote against. */
   disabled?: boolean;
   onActivity: () => void;
@@ -384,11 +390,22 @@ export function ReceiveScreen({
       active = false;
     };
   }, [client]);
+  // Nor is it offered when no channel can hold one: an offline receive needs
+  // a channel with the primary that holds none of this wallet's balance. An
+  // engine that does not say how much fits leaves that to the quote.
+  const offlineOffered =
+    offlineAvailable &&
+    (offlineReceivableSats === undefined || offlineReceivableSats > 0);
   // An amount is needed when the primary has to provide the capacity (a
   // just-in-time receive is quoted on it), when it changed under a quote, and
   // for an offline receive, whose slot holds one fixed amount.
   const amountRequired = receivableSats <= 0 || capacityChanged || offline;
   const [amount, setAmount] = useState('');
+  const typedSats = /^\d+$/.test(amount.trim()) ? Number(amount.trim()) : 0;
+  const overOffline =
+    offline &&
+    offlineReceivableSats !== undefined &&
+    typedSats > offlineReceivableSats;
   const [description, setDescription] = useState('');
   const [quote, setQuote] = useState<ReceiveQuote | null>(null);
   const [request, setRequest] = useState<ReceiveRequest | null>(null);
@@ -434,6 +451,12 @@ export function ReceiveScreen({
     : quote
     ? 'quote'
     : 'form';
+  // Back to the ordinary request when an offline one no longer fits, but only
+  // on the form: creating an offline request reserves its channel, which takes
+  // the figure to 0 while that request is still on screen.
+  useEffect(() => {
+    if (step === 'form' && !offlineOffered) setOffline(false);
+  }, [step, offlineOffered]);
   const enter = useEnter(step);
   const celebrated = useRef(false);
   useEffect(() => {
@@ -715,7 +738,11 @@ export function ReceiveScreen({
             presets={[1000, 10000, 50000]}
             editable={!busy}
             hint={
-              amountRequired
+              overOffline
+                ? `An offline receive can take up to ${number(
+                    offlineReceivableSats ?? 0,
+                  )} sats right now.`
+                : amountRequired
                 ? 'Enter an amount for your payment request.'
                 : undefined
             }
@@ -728,7 +755,7 @@ export function ReceiveScreen({
             maxLength={180}
             editable={!busy}
           />
-          {offlineAvailable ? (
+          {offlineOffered ? (
             <View style={styles.optIn}>
               <View style={styles.optInRow}>
                 <Text style={styles.optInLabel}>Receive offline</Text>
@@ -747,7 +774,11 @@ export function ReceiveScreen({
               </View>
               <Text style={styles.optInHint}>
                 {offline
-                  ? 'Accept this payment even while this wallet is closed. Your primary node prepares it, so it has to offer offline settlement. Enter at least 354 sats.'
+                  ? `Accept this payment even while this wallet is closed. Your primary node prepares it, so it has to offer offline settlement. ${
+                      offlineReceivableSats === undefined
+                        ? 'Enter at least 354 sats.'
+                        : `Enter 354 to ${number(offlineReceivableSats)} sats.`
+                    }`
                   : 'Off, the request is paid over your channel or provisioned by your primary node just in time.'}
               </Text>
             </View>
@@ -757,7 +788,9 @@ export function ReceiveScreen({
             icon="arrowDown"
             onPress={price}
             busy={busy}
-            disabled={disabled || (amountRequired && !amount.trim())}
+            disabled={
+              disabled || (amountRequired && !amount.trim()) || overOffline
+            }
           />
         </>
       )}

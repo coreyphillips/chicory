@@ -683,3 +683,148 @@ test('the ordinary embedded request never names a receive mode, and the box is a
     await act(async () => tree.unmount());
   }
 });
+
+function offlineClient() {
+  const client = new EmbeddedWalletClient({
+    runtime: { request: jest.fn() },
+    walletId: 'test',
+  });
+  client.getConfig = jest
+    .fn()
+    .mockResolvedValue({ offlineReceiveAvailable: true });
+  client.quoteReceive = jest.fn().mockResolvedValue(quote);
+  client.receive = jest
+    .fn()
+    .mockResolvedValue({ ...request, offlineReceive: true });
+  client.getReceiveStatus = jest.fn().mockResolvedValue(waiting);
+  return client;
+}
+const hasOfflineBox = (tree: ReactTestRenderer) =>
+  tree.root.findAllByProps({ accessibilityLabel: 'Receive offline' }).length >
+  0;
+
+test('the offline box is absent when no channel can hold an offline receive', async () => {
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <ReceiveScreen
+        client={offlineClient()}
+        receivableSats={24000}
+        offlineReceivableSats={0}
+        onActivity={noop}
+        onBusy={noop}
+      />,
+    );
+  });
+  expect(hasOfflineBox(tree)).toBe(false);
+  await act(async () => tree.unmount());
+});
+
+test('an offline amount above what a channel can hold is stopped on the form', async () => {
+  const client = offlineClient();
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <ReceiveScreen
+        client={client}
+        receivableSats={100000}
+        offlineReceivableSats={30000}
+        onActivity={noop}
+        onBusy={noop}
+      />,
+    );
+  });
+  await act(async () => {
+    tree.root
+      .findByProps({ accessibilityLabel: 'Receive offline' })
+      .props.onValueChange(true);
+  });
+  expect(text(tree)).toContain('Enter 354 to 30,000 sats.');
+  await act(async () => {
+    field(tree, 'Amount in sats').props.onChangeText('30001');
+  });
+  expect(press(tree, 'Continue').props.disabled).toBe(true);
+  expect(text(tree)).toContain(
+    'An offline receive can take up to 30,000 sats right now.',
+  );
+  await act(async () => {
+    field(tree, 'Amount in sats').props.onChangeText('30000');
+  });
+  expect(press(tree, 'Continue').props.disabled).toBe(false);
+  await act(async () => {
+    await press(tree, 'Continue').props.onPress();
+  });
+  expect(client.quoteReceive).toHaveBeenCalledWith(
+    expect.objectContaining({ amountSats: 30000, mode: 'offline' }),
+  );
+  await act(async () => tree.unmount());
+});
+
+test('the offline box turns itself off when the room goes, but not under a request it reserved', async () => {
+  const client = offlineClient();
+  const screen = (offlineReceivableSats: number) => (
+    <ReceiveScreen
+      client={client}
+      receivableSats={100000}
+      offlineReceivableSats={offlineReceivableSats}
+      onActivity={noop}
+      onBusy={noop}
+    />
+  );
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(screen(30000));
+  });
+  await act(async () => {
+    tree.root
+      .findByProps({ accessibilityLabel: 'Receive offline' })
+      .props.onValueChange(true);
+  });
+  // On the form, a refresh that finds no room hides the box and drops the
+  // choice, so Continue asks for the ordinary request.
+  await act(async () => tree.update(screen(0)));
+  expect(hasOfflineBox(tree)).toBe(false);
+  await act(async () => {
+    field(tree, 'Amount in sats').props.onChangeText('1000');
+  });
+  await act(async () => {
+    await press(tree, 'Continue').props.onPress();
+  });
+  expect(
+    'mode' in (client.quoteReceive as jest.Mock).mock.calls[0][0],
+  ).toBe(false);
+  await act(async () => tree.unmount());
+
+  // Creating the offline request reserves its channel and the figure drops
+  // to 0; the request on screen keeps saying it is payable while closed.
+  const reserved = offlineClient();
+  const reservedScreen = (offlineReceivableSats: number) => (
+    <ReceiveScreen
+      client={reserved}
+      receivableSats={100000}
+      offlineReceivableSats={offlineReceivableSats}
+      onActivity={noop}
+      onBusy={noop}
+    />
+  );
+  await act(async () => {
+    tree = create(reservedScreen(30000));
+  });
+  await act(async () => {
+    tree.root
+      .findByProps({ accessibilityLabel: 'Receive offline' })
+      .props.onValueChange(true);
+  });
+  await act(async () => {
+    field(tree, 'Amount in sats').props.onChangeText('1000');
+  });
+  await act(async () => {
+    await press(tree, 'Continue').props.onPress();
+  });
+  await act(async () => {
+    await press(tree, 'Create request').props.onPress();
+  });
+  await act(async () => tree.update(reservedScreen(0)));
+  expect(text(tree)).toContain('You can close your wallet');
+  await act(async () => tree.unmount());
+});
