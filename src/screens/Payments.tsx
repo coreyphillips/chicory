@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Modal,
@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import QRCode from 'react-native-qrcode-svg';
-import { parseSats } from '@beignet/wallet-core';
+import { parsePayment, parseSats } from '@beignet/wallet-core';
 import type {
   ReceiveQuote,
   ReceiveRequest,
@@ -50,6 +50,30 @@ import {
 } from '../theme';
 import type { WalletAdapter } from '../services/wallet';
 
+/**
+ * The amount a payment request fixes, or null when it leaves it to the payer.
+ * The same precedence prepareSend applies: the request's own amount, else the
+ * amount of the Lightning invoice a Bitcoin link carries.
+ */
+function fixedAmount(request: string): number | null {
+  let parsed;
+  try {
+    parsed = parsePayment(request.trim());
+  } catch {
+    return null;
+  }
+  const sats =
+    parsed.kind === 'bolt11' || parsed.kind === 'bolt12'
+      ? parsed.amountSats
+      : parsed.kind === 'onchain'
+      ? parsed.amountSats ??
+        (parsed.lightning && 'amountSats' in parsed.lightning
+          ? parsed.lightning.amountSats
+          : null)
+      : null;
+  return typeof sats === 'number' && sats > 0 ? sats : null;
+}
+
 export function SendScreen({
   client,
   initialRequest = '',
@@ -75,6 +99,10 @@ export function SendScreen({
   // request or amount survives a scan that is cancelled or replaces it.
   const [scanning, setScanning] = useState(initialScanning);
   const [amount, setAmount] = useState('');
+  // A request that names its amount sets the field and locks it, so the
+  // amount cannot be changed by accident. What was typed stays for a request
+  // that names none.
+  const fixedSats = useMemo(() => fixedAmount(request), [request]);
   const [review, setReview] = useState<SendReview | null>(null);
   const [result, setResult] = useState<SendResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -107,7 +135,8 @@ export function SendScreen({
       setReview(
         await client.prepareSend({
           request: request.trim(),
-          amountSats: amount.trim() ? parseSats(amount) : undefined,
+          amountSats:
+            fixedSats === null && amount.trim() ? parseSats(amount) : undefined,
         }),
       );
     } catch (e) {
@@ -325,10 +354,13 @@ export function SendScreen({
           </View>
           <AmountField
             label="Amount in sats"
-            value={amount}
+            value={fixedSats === null ? amount : String(fixedSats)}
             onChangeText={setAmount}
             placeholder="0"
-            editable={!busy}
+            editable={!busy && fixedSats === null}
+            hint={
+              fixedSats === null ? undefined : 'Set by the payment request.'
+            }
           />
           <Button
             label="Review payment"

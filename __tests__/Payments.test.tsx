@@ -305,3 +305,59 @@ test('a direct-funding review names its method and fee ceiling, and a refusal sa
   expect(send).toHaveBeenCalledTimes(1);
   await act(async () => tree.unmount());
 });
+
+// A structurally valid 24,425 sat invoice: the amount is all the form reads.
+const INVOICE_24425 =
+  'lnbc244250n1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqw53adf';
+
+test('a request that names its amount fills the amount field and locks it', async () => {
+  const prepareSend = jest.fn().mockRejectedValue(new Error('stop here'));
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <SendScreen
+        client={adapter({ prepareSend })}
+        onActivity={jest.fn()}
+        onRefresh={jest.fn()}
+        onBusy={onBusy}
+      />,
+    );
+  });
+  await act(async () => {
+    field(tree, 'Amount in sats').props.onChangeText('500');
+  });
+  await act(async () => {
+    label(tree, 'Scan a payment request').props.onPress();
+  });
+  await act(async () => {
+    tree.root.findByType(Scanner).props.onDetected(INVOICE_24425);
+  });
+  const amount = field(tree, 'Amount in sats');
+  expect(amount.props.value).toBe('24,425');
+  expect(amount.props.editable).toBe(false);
+  expect(JSON.stringify(tree.toJSON())).toContain('Set by the payment request.');
+  await act(async () => {
+    await label(tree, 'Review payment').props.onPress();
+  });
+  // The request carries the amount; sending one alongside could only conflict.
+  expect(prepareSend).toHaveBeenLastCalledWith({
+    request: INVOICE_24425,
+    amountSats: undefined,
+  });
+  // A Bitcoin link carrying that invoice fixes the same amount.
+  await act(async () => {
+    field(tree, 'Payment request or address').props.onChangeText(
+      `bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?lightning=${INVOICE_24425}`,
+    );
+  });
+  expect(field(tree, 'Amount in sats').props.value).toBe('24,425');
+  // A request that names no amount gives back what was typed.
+  await act(async () => {
+    field(tree, 'Payment request or address').props.onChangeText('lnbc-typed');
+  });
+  expect(field(tree, 'Amount in sats').props.value).toBe('500');
+  expect(field(tree, 'Amount in sats').props.editable).toBe(true);
+  await act(async () => {
+    tree.unmount();
+  });
+});

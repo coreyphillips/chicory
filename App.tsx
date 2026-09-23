@@ -5,7 +5,6 @@ import {
   Animated,
   KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -67,6 +66,14 @@ const SHEET_TITLES: Record<Exclude<Sheet, null>, string> = {
 };
 
 const REFRESH_FAILED = 'Could not refresh. Showing the last known state.';
+
+// Padding on both platforms. The app draws edge to edge on Android, where the
+// window no longer shrinks for the keyboard (adjustResize does nothing, and a
+// full-screen Modal is its own edge-to-edge window), so without it the keyboard
+// covered the lower fields: the Send amount sits under a long request. Padding
+// only adds what the keyboard actually overlaps, so a window that does resize
+// gets none.
+const KEYBOARD_AVOIDING = 'padding' as const;
 
 function WalletApp() {
   useReducedMotion();
@@ -544,7 +551,7 @@ function WalletApp() {
       ) : (
         <KeyboardAvoidingView
           style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={KEYBOARD_AVOIDING}
         >
           <ScrollView
             contentContainerStyle={styles.content}
@@ -745,7 +752,7 @@ function SheetModal({
         </View>
         <KeyboardAvoidingView
           style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={KEYBOARD_AVOIDING}
         >
           <ScrollView
             keyboardShouldPersistTaps="handled"
