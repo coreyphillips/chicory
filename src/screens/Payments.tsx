@@ -266,12 +266,22 @@ export function SendScreen({
             {review.description ? (
               <Row label="For" value={review.description} />
             ) : null}
+            {review.estimatedFeeSats != null ? (
+              <Row
+                label="Expected routing fee"
+                value={`about ${number(review.estimatedFeeSats)} sats`}
+              />
+            ) : null}
             <Row
               label={review.feeLabel || 'Fee'}
               value={`${number(review.feeSats)} sats`}
             />
             <Row
-              label="Total including fee"
+              label={
+                review.estimatedFeeSats != null
+                  ? 'Total, at most'
+                  : 'Total including fee'
+              }
               value={`${number(review.totalSats)} sats`}
             />
           </Card>

@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@beignet/portable-engine": "github:coreyphillips/beignet-portable-engine#2096b8024c785ef69a8d508316fda85dffddcb9c",
-    "@beignet/wallet-core": "github:coreyphillips/beignet-wallet-core#a18be292dc4c4dfcd6f3fa4ead940f3f6bc490d4",
+    "@beignet/wallet-core": "github:coreyphillips/beignet-wallet-core#b9f68a55862d7fab4be42f28b8d777f08be162a0",
     "@op-engineering/op-sqlite": "^18.2.0",
     "@react-native-clipboard/clipboard": "^1.16.3",
     "@react-native/new-app-screen": "0.87.1",
