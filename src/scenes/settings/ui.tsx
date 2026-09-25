@@ -39,6 +39,7 @@ import { useFocus } from '../../motion/focus';
 import { riseIn, smooth, stagger } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
+import { PANE_SETTLE_MS } from '../../stage/layout';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { HIT_SLOP, fonts, radius, space, type } from '../../theme';
 import { drawPlan } from './motion';
@@ -514,31 +515,66 @@ const CREAM_TWIN = '#F3ECE0';
 
 /**
  * The thumb colour for a switch's `epoch`th showing on iOS. On iOS 26 a
- * switch's own thumb colour falls back to white: the device pass saw white
- * thumbs from the first, and it is known to happen each time the app comes
- * back to the front (react-native#53856). React Native sends the colour only
- * when it changes, so each showing alternates between cream and its twin,
- * and the switch is told again once it is on screen and after each return.
+ * switch's own thumb colour falls back to white (react-native#53856). React
+ * Native sends the colour only when it changes, so each showing alternates
+ * between cream and its twin, and the switch is told again (`useShowing`).
  */
 export const thumbTint = (epoch: number): string =>
   epoch % 2 === 1 ? palette.cream : CREAM_TWIN;
 
 /**
- * Counts the showings of a switch on iOS: one once it is on screen, and one
- * more each time the app comes back to the front. Android keeps its thumb
- * colour, so there it stays at its first.
+ * When a switch is told its thumb colour again after it is first laid out,
+ * in ms: once Settings has slid in, and once more after the slide's spring
+ * has come to rest and a slow first paint has landed. It is also told at
+ * once, and on the next frame.
+ *
+ * iOS 26 drops a colour a UISwitch is given before it has been drawn. The
+ * device pass saw it after a cold launch: the colour sent as the switch
+ * mounted, and again as the effect after mount ran, both arrived before the
+ * switch was on screen, and the thumb stayed white on every showing until
+ * the app had been to the background and back. A recycled switch that had
+ * already been drawn kept whatever it was told, which is why every showing
+ * after that return was cream. Layout is the first sign the switch is about
+ * to be drawn, so the colour is sent again from there, not from mount.
  */
-function useShowing(): number {
-  const [epoch, setEpoch] = useState(0);
+export const RETINT_AFTER_MS = [PANE_SETTLE_MS, 1000] as const;
+
+/**
+ * Counts the showings of a switch on iOS, so its thumb is told its colour
+ * again (`thumbTint`) once the switch is on screen: it starts at one, counts
+ * one as the switch is first laid out (`onShown`), one on the frame after,
+ * one at each of `RETINT_AFTER_MS`, and one each time the app comes back to
+ * the front. Android keeps its thumb colour, so there it stays at its first.
+ */
+function useShowing(): { epoch: number; onShown: () => void } {
+  const [epoch, setEpoch] = useState(1);
+  const shown = useRef(false);
+  // Cancels for what `onShown` schedules, one list for the switch's life.
+  const pending = useRef<(() => void)[]>([]);
   useEffect(() => {
+    const cancels = pending.current;
     if (Platform.OS !== 'ios') return;
-    setEpoch(1);
     const subscription = AppState.addEventListener('change', state => {
       if (state === 'active') setEpoch(at => at + 1);
     });
-    return () => subscription.remove();
+    return () => {
+      subscription.remove();
+      cancels.forEach(cancel => cancel());
+    };
   }, []);
-  return epoch;
+  const onShown = () => {
+    if (Platform.OS !== 'ios' || shown.current) return;
+    shown.current = true;
+    const again = () => setEpoch(at => at + 1);
+    again();
+    const frame = requestAnimationFrame(again);
+    pending.current.push(() => cancelAnimationFrame(frame));
+    for (const ms of RETINT_AFTER_MS) {
+      const timer = setTimeout(again, ms);
+      pending.current.push(() => clearTimeout(timer));
+    }
+  };
+  return { epoch, onShown };
 }
 
 /**
@@ -552,7 +588,8 @@ function useShowing(): number {
  * The colours are set for each platform: on both the track is the accent
  * when on and husk when off, with a cream thumb; iOS fills the off track with
  * its own grey unless given a background, so it takes husk as one, and its
- * thumb is told its colour again on each showing (`thumbTint`).
+ * thumb is told its colour again once it is laid out and on each return to
+ * the front (`useShowing`).
  */
 export function Toggle({
   label,
@@ -569,12 +606,12 @@ export function Toggle({
 }) {
   const live = usePaneActive();
   const { accent } = useAccent();
-  const epoch = useShowing();
+  const { epoch, onShown } = useShowing();
   const ios = Platform.OS === 'ios';
   return (
     <View style={styles.toggle}>
       <Text style={styles.toggleLabel}>{label}</Text>
-      <View style={styles.switchBox}>
+      <View onLayout={onShown} style={styles.switchBox}>
         <Switch
           accessibilityRole="switch"
           accessibilityLabel={accessibilityLabel}
