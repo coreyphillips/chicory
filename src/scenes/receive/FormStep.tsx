@@ -42,7 +42,10 @@ const PINNED_MIN = CONTROL * 3;
  * The amount shows an infinity while it is empty and the sender may choose,
  * and a dust 0 with a caret while one is needed. It turns radish past an
  * offline receive's cap and dust under its floor, and shakes when an amount
- * turns out to be needed after all, as the infinity gives way to the 0.
+ * turns out to be needed after all, as the infinity gives way to the 0. An
+ * amount the engine refuses, past what the primary node funds for one
+ * receive say, turns radish and shakes as it is refused, and the way on is
+ * dimmed until another amount is entered.
  */
 export function FormStep({
   amount,
@@ -97,6 +100,9 @@ export function FormStep({
   const { room } = useReceiveHost();
   const landing = useLaunchLanding();
   const showNote = noteOpen || note !== '';
+  // A refused amount is radish until another is entered, and the way on
+  // waits for that, dimmed (P10, 19-receive-refusal-pip).
+  const refusedAmount = !!error?.amount;
   // Each time an amount turns out to be needed, the amount shakes once.
   const needed = cue.kind === 'required';
   const [asked, setAsked] = useState({ needed, times: 0 });
@@ -155,9 +161,17 @@ export function FormStep({
         onChangeText={onAmount}
         presets={PRESETS}
         busy={busy}
-        hint={cue.kind === 'any' && cue.empty ? copy.amount.any : undefined}
+        hint={
+          refusedAmount
+            ? error?.message
+            : cue.kind === 'any' && cue.empty
+            ? copy.amount.any
+            : undefined
+        }
         empty={<AmountFace cue={cue} />}
-        tone={cue.over ? 'radish' : cue.under ? 'dust' : undefined}
+        tone={
+          cue.over || refusedAmount ? 'radish' : cue.under ? 'dust' : undefined
+        }
         shake={asked.times}
       />
     </>
@@ -175,7 +189,7 @@ export function FormStep({
           hint={stale ? copy.receive.stale : undefined}
           size={CONTROL}
           tone="primary"
-          disabled={!stale && !ready}
+          disabled={!stale && (!ready || refusedAmount)}
           blocked={stale}
           busy={busy}
           shake={shake}

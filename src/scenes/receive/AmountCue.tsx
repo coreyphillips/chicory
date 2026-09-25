@@ -14,7 +14,8 @@ import { useBloom } from './tone';
 
 /**
  * What the amount means, as a glyph over it (REDESIGN.md 6, Receive): a
- * sprout while an amount is needed for a channel made just in time, and the
+ * sprout while an amount is still needed for a channel made just in time,
+ * gone once one is entered, and the
  * moon and the cap an offline receive can take, radish past it and dust
  * below the floor. The amount itself shows the rest: an infinity while the
  * sender may choose, a dust 0 and a caret while one is needed, and the
@@ -67,7 +68,9 @@ export function AmountCue({
         ) : null}
       </>
     );
-  } else if (cue.kind === 'required') {
+  } else if (cue.kind === 'required' && cue.empty) {
+    // Only while the amount is empty: once one is entered, it is not
+    // required any more (P10, 19-receive-refusal-pip).
     label = copy.amount.required;
     hint = copy.receive.enterAmount;
     face = <Glyph name="sprout" size={20} color={bloom} />;

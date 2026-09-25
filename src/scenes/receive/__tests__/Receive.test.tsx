@@ -19,6 +19,11 @@ import type {
   WalletSnapshot,
 } from '@beignet/wallet-core';
 import { AmountField } from '../../../components/AmountField';
+import { AmountReadout } from '../../keypad/AmountReadout';
+import {
+  clearDiagnostics,
+  recentDiagnostics,
+} from '../../../services/diagnosticLog';
 import { ReceiveReceipt } from '../../../components/ReceiveReceipt';
 import { ReceiveRequestDetails } from '../../../components/ReceiveRequestDetails';
 import { copy } from '../../../design/copy';
@@ -50,7 +55,7 @@ import { Unplugged } from '../../send/LoopingGlyphs';
 import { quietRing } from '../controls';
 import { ReceiveHostContext, slotRoom } from '../host';
 import { Spin } from '../loops';
-import { CELEBRATION, requestFace } from '../model';
+import { CELEBRATION, receiveRefusal, requestFace } from '../model';
 import { ReceiveScene } from '../ReceiveScene';
 import { ACTIVITY, RequestStep } from '../RequestStep';
 
@@ -740,6 +745,61 @@ describe('the amount step', () => {
     await act(async () => tree.unmount());
   });
 
+  test('an amount the engine refuses turns radish and shakes, and the way on waits for another', async () => {
+    // At 999,999,999 the amount stayed cream and still, Continue stayed a
+    // bright primary, and the only sign was a pip labelled with the engine's
+    // raw sentence (P10, 19-receive-refusal-pip).
+    const RAW = 'the provider funds at most 1000000 sats for one receive';
+    const SAID = copy.receive.providerCap(1_000_000);
+    expect(SAID).toContain('1,000,000 sats');
+    clearDiagnostics();
+    const error = jest.spyOn(haptics, 'error');
+    const tree = await screen(
+      clientOf({
+        quoteReceive: jest.fn(() =>
+          Promise.reject(
+            Object.assign(new Error(RAW), { code: 'RECEIVE_UNAVAILABLE' }),
+          ),
+        ),
+      }),
+      { receivableSats: 0 },
+    );
+    await enterAmount(tree, '999999999');
+    await tap(tree, copy.receive.continue);
+    const readout = tree.root.findByType(AmountReadout);
+    expect(readout.props.tone).toBe('over-total');
+    expect(readout.props.hint).toBe(SAID);
+    expect(error).toHaveBeenCalledTimes(1);
+    const way = find(tree, copy.receive.continue)!;
+    expect(way.props.accessibilityState).toMatchObject({ disabled: true });
+    expect(alerts(tree)).toEqual([SAID]);
+    // Said in Receive's words, and logged in the engine's.
+    expect(recentDiagnostics().map(entry => entry.message)).toContain(RAW);
+    expect(meaning(tree)).not.toContain(RAW);
+    // Another amount is another ask.
+    await enterAmount(tree, '50000');
+    expect(tree.root.findByType(AmountReadout).props.tone).toBe('plain');
+    expect(
+      find(tree, copy.receive.continue)!.props.accessibilityState,
+    ).toMatchObject({ disabled: false });
+    expect(alerts(tree)).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+
+  test('its sprout says an amount is needed only until one is entered', async () => {
+    const tree = await screen(clientOf(), { receivableSats: 0 });
+    const cue = () =>
+      tree.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.accessibilityLabel === copy.amount.required,
+      );
+    expect(cue()).toHaveLength(1);
+    await enterAmount(tree, '1000');
+    expect(cue()).toHaveLength(0);
+    await act(async () => tree.unmount());
+  });
+
   test('its cue is a place a finger can hold', async () => {
     const tree = await screen(clientOf(), { receivableSats: 0 });
     const [cue] = tree.root.findAll(
@@ -1063,6 +1123,47 @@ describe("the request a payment's detail keeps", () => {
     });
     expect(leadOf(chipOf(tree))).toBe('bolt');
     await act(async () => tree.unmount());
+  });
+});
+
+describe('a refusal', () => {
+  test.each<[string, string | undefined, { said: string; amount: boolean }]>([
+    [
+      'the provider funds at most 1000000 sats for one receive',
+      'RECEIVE_UNAVAILABLE',
+      {
+        said: 'Your primary node funds at most 1,000,000 sats for one receive. Request less.',
+        amount: true,
+      },
+    ],
+    [
+      'The receive fee would use the entire amount. Request more sats.',
+      'RECEIVE_FEE_TOO_HIGH',
+      {
+        said: 'The receive fee would use the entire amount. Request more sats.',
+        amount: true,
+      },
+    ],
+    [
+      'Enter a whole number of sats.',
+      'INVALID_AMOUNT',
+      { said: 'Enter a whole number of sats.', amount: true },
+    ],
+    [
+      'The primary node cannot provide capacity for this amount within your fee limit.',
+      'RECEIVE_UNAVAILABLE',
+      {
+        said: 'The primary node cannot provide capacity for this amount within your fee limit.',
+        amount: false,
+      },
+    ],
+    [
+      'No route to the primary.',
+      undefined,
+      { said: 'No route to the primary.', amount: false },
+    ],
+  ])('%s (%s)', (message, code, expected) => {
+    expect(receiveRefusal(message, code)).toEqual(expected);
   });
 });
 

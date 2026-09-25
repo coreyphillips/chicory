@@ -32,6 +32,10 @@ export const receive = {
   offlineOver: (cap: number) =>
     `An offline receive can take up to ${sats(cap)} right now.`,
   stale: 'Balance not confirmed recently. Refresh before creating a request.',
+  providerCap: (cap: number) =>
+    `Your primary node funds at most ${sats(
+      cap,
+    )} for one receive. Request less.`,
 
   // The quote.
   requested: (value: number) => `Requested, ${sats(value)}`,
