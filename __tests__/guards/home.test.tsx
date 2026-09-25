@@ -16,8 +16,9 @@ import { DemoWalletClient } from '@beignet/wallet-core';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../../src/design/copy';
 import { haptics } from '../../src/design/haptics';
+import { gradients } from '../../src/design/palette';
 import { ActionCircle } from '../../src/scenes/home/ActionCircle';
-import { Backdrop } from '../../src/scenes/home/Backdrop';
+import { Backdrop, glowBleed } from '../../src/scenes/home/Backdrop';
 import { HomePane } from '../../src/scenes/home/HomePane';
 import {
   LAUNCH_DROP,
@@ -435,6 +436,36 @@ describe('the backdrop', () => {
       });
     expect(look(offline(NOW + 60_000)).tint).toBe('night');
     expect(look(offline(NOW - 1)).tint).toBeNull();
+  });
+
+  test('the drifting glows reach past every edge, however far they drift and turn', () => {
+    const { x, y, rotate } = gradients.G1.drift;
+    const turn = (rotate * Math.PI) / 180;
+    const signs = [-1, 1];
+    for (const [width, height] of [
+      [390, 844],
+      [844, 390],
+      [1024, 1366],
+    ]) {
+      const bleed = glowBleed(width, height);
+      // Each corner of the pane, seen from the layer, which has drifted and
+      // turned about its own centre: it must still fall inside the layer.
+      for (const [cornerX, cornerY, driftX, driftY, spin] of signs.flatMap(a =>
+        signs.flatMap(b =>
+          signs.flatMap(c =>
+            signs.flatMap(d => signs.map(e => [a, b, c, d, e])),
+          ),
+        ),
+      )) {
+        const px = (cornerX * width) / 2 - driftX * x * width;
+        const py = (cornerY * height) / 2 - driftY * y * height;
+        const angle = spin * turn;
+        const lx = px * Math.cos(angle) + py * Math.sin(angle);
+        const ly = py * Math.cos(angle) - px * Math.sin(angle);
+        expect(Math.abs(lx)).toBeLessThanOrEqual(width / 2 + bleed);
+        expect(Math.abs(ly)).toBeLessThanOrEqual(height / 2 + bleed);
+      }
+    }
   });
 
   test('an old balance dims the glow, and a test network turns it slate', () => {

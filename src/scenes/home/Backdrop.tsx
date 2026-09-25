@@ -67,6 +67,20 @@ const AT_MARK = { cx: 0.12, cy: 0.06 };
 const AT_HERO = { cx: 0.5, cy: 0.28 };
 
 /**
+ * How far past each edge the drifting glows are drawn, so that at the far
+ * end of a drift, turned as far as the bloom glow turns, no edge of a layer
+ * ever shows inside the pane.
+ */
+export function glowBleed(width: number, height: number): number {
+  const turn = Math.sin((G1.drift.rotate * Math.PI) / 180);
+  return Math.ceil(
+    G1.drift.x * width +
+      G1.drift.y * height +
+      (turn * Math.max(width, height)) / 2,
+  );
+}
+
+/**
  * The ground of the top pane, drawn first so everything else sits on it
  * (REDESIGN.md 3.2). It fills the pane edge to edge, under the status bar
  * too, and takes no touches and says nothing.
@@ -88,6 +102,8 @@ export function Backdrop({ snapshot, stale, backup, session }: BackdropProps) {
   const awake = useAppActive();
   const { reduced } = useMotionPrefs();
   const running = live && awake && !reduced;
+  const bleed = glowBleed(width, height);
+  const spill = { top: -bleed, left: -bleed, right: -bleed, bottom: -bleed };
   const look = backdropVisual({
     snapshot,
     stale,
@@ -175,20 +191,22 @@ export function Backdrop({ snapshot, stale, backup, session }: BackdropProps) {
       style={styles.ground}
     >
       <Wash width={width} height={height} />
-      <Reanimated.View style={[styles.layer, g1]}>
+      <Reanimated.View style={[styles.layer, spill, g1]}>
         <Glow
-          width={width}
-          height={height}
-          at={G1}
+          width={width + 2 * bleed}
+          height={height + 2 * bleed}
+          cx={bleed + G1.cx * width}
+          cy={bleed + G1.cy * height}
           radius={G1.r * width}
           stops={look.glow === 'slate' ? SLATE_GLOW : G1.stops}
         />
       </Reanimated.View>
-      <Reanimated.View style={[styles.layer, g2]}>
+      <Reanimated.View style={[styles.layer, spill, g2]}>
         <Glow
-          width={width}
-          height={height}
-          at={G2}
+          width={width + 2 * bleed}
+          height={height + 2 * bleed}
+          cx={bleed + G2.cx * width}
+          cy={bleed + G2.cy * height}
           radius={G2.r * width}
           stops={G2.stops}
         />
@@ -293,17 +311,19 @@ const Wash = memo(function WashSvg({
   );
 });
 
-/** A radial glow centred at `at`, a fraction of the pane, `radius` points wide. */
+/** A radial glow `radius` points wide, centred `cx`, `cy` points in. */
 const Glow = memo(function GlowSvg({
   width,
   height,
-  at,
+  cx,
+  cy,
   radius,
   stops,
 }: {
   width: number;
   height: number;
-  at: { cx: number; cy: number };
+  cx: number;
+  cy: number;
   radius: number;
   stops: Stops;
 }) {
@@ -314,8 +334,8 @@ const Glow = memo(function GlowSvg({
         <RadialGradient
           id={id}
           gradientUnits="userSpaceOnUse"
-          cx={at.cx * width}
-          cy={at.cy * height}
+          cx={cx}
+          cy={cy}
           r={radius}
         >
           {stopsOf(stops)}
@@ -345,7 +365,8 @@ function Tint({
       <Glow
         width={width}
         height={height}
-        at={at}
+        cx={at.cx * width}
+        cy={at.cy * height}
         radius={0.9 * width}
         stops={stops}
       />
