@@ -539,7 +539,11 @@ describe('the scene layers', () => {
       />,
     );
     const scanner = tree.root.findByType(Scanner);
-    expect(scanner.props.onDetected).toBe(onDetected);
+    // The overlay notes a code read on its way through, for the disc's exit,
+    // and hands it on in the same call.
+    scanner.props.onDetected('lnbcrt1scanned');
+    expect(onDetected).toHaveBeenCalledTimes(1);
+    expect(onDetected).toHaveBeenCalledWith('lnbcrt1scanned');
     expect(scanner.props.onCancel).toBe(onCancel);
   });
 
