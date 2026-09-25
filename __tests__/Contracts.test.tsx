@@ -1,5 +1,5 @@
 import React from 'react';
-import { AccessibilityInfo, Platform, Text } from 'react-native';
+import { AccessibilityInfo, Platform, StyleSheet, Text } from 'react-native';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -140,12 +140,21 @@ describe('SceneSlot', () => {
 });
 
 describe('Bloom', () => {
-  // The Svg draws a group of its own; each petal is a group placed by its
-  // transform.
+  // Each petal is a still drawing whose group sits at the centre of its own
+  // Svg, inside a view that turns, scales and fades it.
   const petals = (tree: ReactTestRenderer) =>
     tree.root
       .findAllByType(G)
       .filter(group => typeof group.props.transform === 'string');
+  const flat = (node: ReactTestInstance) =>
+    StyleSheet.flatten(node.props.style) ?? {};
+  const turned = (group: ReactTestInstance) => {
+    let at = group.parent;
+    while (at && !(typeof at.type === 'string' && flat(at).transform)) {
+      at = at.parent;
+    }
+    return flat(at!);
+  };
 
   test.each<[BloomTone, number]>([
     ['live', 96],
@@ -159,7 +168,7 @@ describe('Bloom', () => {
 
   test('a closed bud draws its petals faint', async () => {
     const tree = await render(<Bloom size={120} open={0} />);
-    for (const petal of petals(tree)) expect(petal.props.opacity).toBe(0.25);
+    for (const petal of petals(tree)) expect(turned(petal).opacity).toBe(0.25);
   });
 
   test('is decoration unless it is given a label', async () => {
