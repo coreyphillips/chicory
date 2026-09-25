@@ -36,7 +36,7 @@ import { BIOMETRY_NAMES, supportedBiometry } from '../../services/lock';
 import type { BiometryKind } from '../../services/lock';
 import { motionReduced } from '../../services/motion';
 import { space } from '../../theme';
-import { useRunning } from './parts';
+import { useArrivalFocus, useRunning } from './parts';
 import {
   BUD_OPEN,
   lockVisual,
@@ -119,6 +119,7 @@ export function LockScreen({
     [],
   );
 
+  const focus = useArrivalFocus();
   const mark = markPoint(insets);
   const glyph = kind === undefined ? null : unlockGlyph(kind);
   return (
@@ -126,6 +127,7 @@ export function LockScreen({
       <SafeAreaView style={styles.root} edges={EDGES}>
         <StatusBar barStyle="light-content" />
         <Pressable
+          ref={focus}
           accessibilityRole="button"
           accessibilityLabel={copy.phase.unlock}
           accessibilityHint={
@@ -134,7 +136,7 @@ export function LockScreen({
               : copy.phase.unlockWith(BIOMETRY_NAMES[kind ?? 'passcode'])
           }
           accessibilityValue={{ text: look.value }}
-          accessibilityState={{ busy: prompting }}
+          accessibilityState={{ disabled: prompting, busy: prompting }}
           disabled={prompting}
           onPress={onUnlock}
           style={styles.screen}

@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
+import type { Ref } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import type { HostInstance } from 'react-native';
 import Reanimated, {
   cancelAnimation,
   ReduceMotion,
@@ -19,7 +21,7 @@ import { stagger } from '../../motion/presets';
 import { curves, durations } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
 import { radius, space, type as typography } from '../../theme';
-import { GlyphButton, PhaseRoot, useRunning } from './parts';
+import { GlyphButton, PhaseRoot, useArrivalFocus, useRunning } from './parts';
 import { bloomTone, SIZES, WAVE } from './visual';
 
 /**
@@ -41,6 +43,7 @@ export function OpeningWallet({
   busy: boolean;
   onDisconnect: () => void;
 }) {
+  const focus = useArrivalFocus();
   return (
     <PhaseRoot style={styles.canvas}>
       <View style={styles.status}>
@@ -64,7 +67,7 @@ export function OpeningWallet({
           onPress={onDisconnect}
         />
       </View>
-      <Wave label={copy.phase.opening} />
+      <Wave ref={focus} label={copy.phase.opening} />
       <View style={styles.vessel} />
       <View
         style={styles.actions}
@@ -110,11 +113,12 @@ const STILL = 0.4;
  * wait: a screen reader hears it as busy, and a long press whispers it. When
  * the figures arrive the dots shrink away as the digits roll in (R-3).
  */
-function Wave({ label }: { label: string }) {
+function Wave({ ref, label }: { ref?: Ref<HostInstance>; label: string }) {
   const running = useRunning(true);
   return (
     <Whisper label={label}>
       <Reanimated.View
+        ref={ref}
         exiting={shrinkOut()}
         accessible
         accessibilityRole="progressbar"

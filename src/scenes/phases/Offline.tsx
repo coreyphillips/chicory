@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import type { Ref } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import type { HostInstance } from 'react-native';
 import Reanimated, {
   cancelAnimation,
   ReduceMotion,
@@ -33,6 +35,7 @@ import {
   PhaseRoot,
   SetupPanel,
   StatusPip,
+  useArrivalFocus,
   useRunning,
 } from './parts';
 import { bloomTone, SIZES, UNPLUG_DRIFT } from './visual';
@@ -97,6 +100,8 @@ export function OfflineWallet({
     setPanel(false);
     return true;
   });
+  // The unplug says what this phase is, so a screen reader starts there.
+  const focus = useArrivalFocus();
   // The connection dropped: the hand hears it as the unplug pops in.
   useEffect(() => {
     if (error) haptics.warning();
@@ -121,6 +126,7 @@ export function OfflineWallet({
         {name ? <Text style={styles.name}>{name}</Text> : null}
       </View>
       <Unplug
+        ref={focus}
         label={error ? copy.phase.offline : copy.phase.connecting}
         apart={!!error}
       />
@@ -195,7 +201,15 @@ const [LEFT, RIGHT, SPARK] = GLYPHS.unplug;
  * it is still being tried they rest together. It pops in when the phase
  * arrives and splits apart when the connection comes back (R-5).
  */
-function Unplug({ label, apart }: { label: string; apart: boolean }) {
+function Unplug({
+  ref,
+  label,
+  apart,
+}: {
+  ref?: Ref<HostInstance>;
+  label: string;
+  apart: boolean;
+}) {
   const running = useRunning(apart);
   const drift = useSharedValue(apart ? 1 : 0);
   useEffect(() => {
@@ -219,6 +233,7 @@ function Unplug({ label, apart }: { label: string; apart: boolean }) {
   return (
     <Whisper label={label}>
       <Reanimated.View
+        ref={ref}
         entering={popIn()}
         accessible
         accessibilityRole="image"

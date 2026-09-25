@@ -24,6 +24,7 @@ import {
   PhaseRoot,
   SetupPanel,
   StatusPip,
+  useArrivalFocus,
 } from './parts';
 import { bloomTone, SIZES } from './visual';
 
@@ -74,6 +75,7 @@ export function Picker({
     setNetworkEditor(false);
     return true;
   });
+  const focus = useArrivalFocus();
   const [chosen, setChosen] = useState<string | null>(null);
   const open = useCallback(
     (wallet: WalletRecord) => {
@@ -101,6 +103,7 @@ export function Picker({
     <PhaseRoot style={styles.picker}>
       <View style={styles.header}>
         <View
+          ref={focus}
           accessible
           accessibilityRole="header"
           accessibilityLabel={

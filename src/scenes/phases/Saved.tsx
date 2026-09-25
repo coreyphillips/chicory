@@ -15,6 +15,7 @@ import {
   PhaseRoot,
   SetupPanel,
   StatusPip,
+  useArrivalFocus,
 } from './parts';
 import { bloomTone, SIZES } from './visual';
 
@@ -63,6 +64,7 @@ export function Saved({
     setNetworkEditor(false);
     return true;
   });
+  const focus = useArrivalFocus();
   const reason = switchError || error;
   // The bloom speaks for what the screen no longer writes: whose wallet it is
   // when there is no name to show, and that it is still here.
@@ -92,6 +94,7 @@ export function Saved({
       </View>
       <View style={styles.controls}>
         <GlyphButton
+          ref={focus}
           glyph="refresh"
           look="fill"
           tone={bloomTone(network)}

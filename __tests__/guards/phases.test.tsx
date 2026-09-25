@@ -518,6 +518,7 @@ describe('phase behaviour', () => {
       ),
     );
     expect(find(tree, copy.phase.unlock)?.props.accessibilityState).toEqual({
+      disabled: true,
       busy: true,
     });
     expect(find(tree, copy.phase.unlock)?.props.disabled).toBe(true);
@@ -665,5 +666,62 @@ describe('phase behaviour', () => {
       find(tree, copy.phase.retryConnection)?.props.accessibilityState,
     ).toEqual({ disabled: true, busy: true });
     await act(async () => tree.unmount());
+  });
+
+  describe('focus lands on what each phase is about', () => {
+    const focused = jest.mocked(AccessibilityInfo.sendAccessibilityEvent);
+    /** What each focus went to, by the label a screen reader reads there. */
+    const landed = () =>
+      focused.mock.calls.map(([node, kind]) => [
+        (node as unknown as { props: { accessibilityLabel?: string } }).props
+          .accessibilityLabel,
+        kind,
+      ]);
+    /** Lets the work queued for after the transition run. */
+    const settle = () =>
+      act(async () => {
+        jest.runOnlyPendingTimers();
+      });
+
+    beforeEach(() => {
+      focused.mockClear();
+      jest.useFakeTimers();
+    });
+    afterEach(() => jest.useRealTimers());
+
+    const ARRIVALS: Array<[string, () => Promise<ReactTestRenderer>, string]> =
+      [
+        ['the lock', () => lock(), copy.phase.unlock],
+        [
+          'a transit',
+          () => staged(<Transit erasing={false} closing switchTarget={null} />),
+          copy.phase.closing,
+        ],
+        ['the opening', () => staged(<Opening />), copy.phase.openingWallet],
+        [
+          'a saved wallet',
+          () => saved({ error: 'Electrum is offline.' }),
+          copy.phase.openDevice,
+        ],
+        ['the welcome', () => welcome(), copy.phase.tagline],
+        ['the picker', () => picker(), copy.phase.chooseTitle],
+        ['the loading page', () => loading(), copy.phase.opening],
+        ['an offline wallet', () => offline(), copy.phase.offline],
+      ];
+
+    test.each(ARRIVALS)('%s', async (_name, render, label) => {
+      const tree = await render();
+      expect(focused).not.toHaveBeenCalled();
+      await settle();
+      expect(landed()).toEqual([[label, 'focus']]);
+      await act(async () => tree.unmount());
+    });
+
+    test('a phase that leaves before the move settles moves nothing', async () => {
+      const tree = await staged(<Opening />);
+      await act(async () => tree.unmount());
+      await settle();
+      expect(focused).not.toHaveBeenCalled();
+    });
   });
 });

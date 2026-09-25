@@ -21,7 +21,7 @@ import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { motionReduced } from '../../services/motion';
 import type { useWalletSession } from '../../services/useWalletSession';
-import { PhaseRoot } from './parts';
+import { PhaseRoot, useArrivalFocus } from './parts';
 import {
   BUD_OPEN,
   markFlight,
@@ -55,6 +55,7 @@ export function Transit({
   const insets = useSafeAreaInsets();
   const { reduced } = useMotionPrefs();
   const event = useArrivalEvent(look.kind, reduced);
+  const focus = useArrivalFocus();
 
   // A switch recolors toward its target once the mark has landed.
   const toward = useSharedValue(0);
@@ -94,6 +95,7 @@ export function Transit({
     <PhaseRoot>
       <Whisper label={look.label}>
         <View
+          ref={focus}
           accessible
           accessibilityRole="progressbar"
           accessibilityLabel={look.label}

@@ -12,7 +12,13 @@ import { errorMessage } from '../../services/useWalletSession';
 import type { useWalletSession } from '../../services/useWalletSession';
 import { usePhaseBack } from '../../stage/StageContext';
 import { space } from '../../theme';
-import { GlyphButton, PhaseRoot, SetupPanel, StatusPip } from './parts';
+import {
+  GlyphButton,
+  PhaseRoot,
+  SetupPanel,
+  StatusPip,
+  useArrivalFocus,
+} from './parts';
 import { SIZES, welcomeVisual } from './visual';
 
 type Session = ReturnType<typeof useWalletSession>;
@@ -75,6 +81,9 @@ export function Welcome({
     returning: !!rememberedSession,
   });
 
+  // The bloom stands for the screen, as a title would, so a screen reader
+  // starts there and moves on to the controls.
+  const focus = useArrivalFocus();
   // Closed on the first frame, so the bloom unfolds as the screen arrives.
   const [unfolded, setUnfolded] = useState(false);
   useEffect(() => setUnfolded(true), []);
@@ -123,6 +132,7 @@ export function Welcome({
           label={opening ? copy.phase.openingWallet : copy.phase.tagline}
         >
           <View
+            ref={focus}
             accessible
             accessibilityRole={opening ? 'progressbar' : 'image'}
             accessibilityLabel={copy.phase.tagline}
