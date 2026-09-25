@@ -357,6 +357,16 @@ describe('the mark', () => {
       },
       { pulse: 'reconnecting' },
     ],
+    [
+      'a cached launch pulses the dot until a live read',
+      { stale: true, connecting: true },
+      { pulse: 'reconnecting', tone: 'dormant', mode: 'ratchet' },
+    ],
+    [
+      'figures too old to spend say nothing of the connection now',
+      { stale: true },
+      { pulse: 'reconnecting' },
+    ],
   ])('%s', (_name, over, look) => {
     expect(markVisual(input(over))).toMatchObject(look);
   });
@@ -390,9 +400,10 @@ describe('the mark', () => {
 
   test('says how old the balance is, and why setup stopped', () => {
     expect(healthText(input({ stale: true }))).toContain(copy.health.stale);
-    expect(healthText(input({ stale: true, connecting: true }))).toContain(
-      copy.health.cached,
-    );
+    const cached = healthText(input({ stale: true, connecting: true }));
+    expect(cached).toContain(copy.health.cached);
+    expect(cached).toContain(copy.health.reconnecting);
+    expect(cached).not.toContain(copy.health.fresh);
     const failed = snapshotOf({
       wallet: MAINNET,
       primary: { setup: 'failed', setupError: 'Provider unavailable.' },

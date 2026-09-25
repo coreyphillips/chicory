@@ -171,6 +171,15 @@ export interface MarkVisual {
   pulse: 'live' | 'reconnecting' | 'failed';
 }
 
+/**
+ * Whether the wallet has answered lately. A snapshot's own `connected` is
+ * only as new as the snapshot: figures from a cached launch, or ones old
+ * enough to be gated, say nothing about the connection now, and the dot
+ * waits for a live read before it turns sage again.
+ */
+const answering = ({ snapshot, stale, connecting }: HealthInput) =>
+  snapshot.primary.connected && !stale && !connecting;
+
 export function markVisual(input: HealthInput): MarkVisual {
   const { snapshot, stale, refreshing, connecting, error } = input;
   const setup = setupOf(snapshot);
@@ -187,11 +196,7 @@ export function markVisual(input: HealthInput): MarkVisual {
     halo: input.backupPending,
     droop: setup === 'failed',
     flask: test,
-    pulse: error
-      ? 'failed'
-      : snapshot.primary.connected
-      ? 'live'
-      : 'reconnecting',
+    pulse: error ? 'failed' : answering(input) ? 'live' : 'reconnecting',
   };
 }
 
@@ -208,7 +213,7 @@ export function healthText(input: HealthInput): string {
   return [
     error
       ? copy.health.refreshFailedDetail(error)
-      : snapshot.primary.connected
+      : answering(input)
       ? copy.health.fresh
       : copy.health.reconnecting,
     stale
