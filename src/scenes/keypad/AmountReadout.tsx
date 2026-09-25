@@ -22,7 +22,7 @@ import { BANG, DrawnGlyph } from '../send/DrawnGlyph';
 import type { Stroke } from '../send/DrawnGlyph';
 import { WaitingClock } from '../send/LoopingGlyphs';
 import { Keypad } from './Keypad';
-import { amountCells, digitsOnly, grouped, pressKey } from './keys';
+import { amountCells, digitsOnly, grouped, isBlank, pressKey } from './keys';
 import type { AmountTone, KeyName } from './keys';
 
 /** Amounts are entered in sats, whatever unit the balance shows. */
@@ -279,6 +279,7 @@ export function AmountReadout({
         <Keypad
           onKey={onKey}
           onClear={onClear}
+          blank={isBlank(digits)}
           disabled={busy || !onChangeText}
         />
       ) : null}

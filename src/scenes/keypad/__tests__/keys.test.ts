@@ -4,6 +4,8 @@ import {
   amountCells,
   digitsOnly,
   grouped,
+  isBlank,
+  keyIdle,
   pressKey,
 } from '../keys';
 
@@ -29,6 +31,33 @@ describe('pressKey', () => {
     expect(pressKey(full, '1')).toBeNull();
     // Deleting is never refused.
     expect(pressKey(full, 'back')).toBe(full.slice(1));
+  });
+});
+
+describe('keyIdle', () => {
+  test('zero and backspace do nothing to an empty amount, and say so', () => {
+    for (const blank of ['', '0', '00']) {
+      expect(isBlank(blank)).toBe(true);
+      expect(keyIdle(isBlank(blank), '0')).toBe(true);
+      expect(keyIdle(isBlank(blank), 'back')).toBe(true);
+      expect(keyIdle(isBlank(blank), '4')).toBe(false);
+    }
+    expect(isBlank('40')).toBe(false);
+    expect(keyIdle(isBlank('4'), '0')).toBe(false);
+    expect(keyIdle(isBlank('4'), 'back')).toBe(false);
+  });
+
+  test('an idle key is one that leaves the amount showing as it was', () => {
+    const keys = ['0', '1', '5', '9', 'back'] as const;
+    for (const digits of ['', '0', '4', '40']) {
+      for (const key of keys) {
+        if (keyIdle(isBlank(digits), key)) {
+          expect(amountCells(pressKey(digits, key) ?? '')).toEqual(
+            amountCells(digits),
+          );
+        }
+      }
+    }
   });
 });
 
