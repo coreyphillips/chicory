@@ -12,7 +12,11 @@ import { colors } from '../../theme';
 /**
  * Send, in the top slot under the status row. `prefill` is the request a
  * scanned code or a tapped link brought with the scene, never sent without a
- * review. `sceneKey` is the key of the scene this Send is.
+ * review.
+ *
+ * `sceneKey` is the key of the scene this Send is. A scan receiver takes
+ * `useIsCurrentScene(sceneKey)` as its `active`, so it stays registered while
+ * the scan overlay covers this Send (REDESIGN.md 2.3).
  */
 export function SendScene({
   prefill,

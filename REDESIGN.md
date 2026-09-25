@@ -762,7 +762,7 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
   - `scenes/detail/DetailLayer` (`item`, `from`; the `DetailCard` in the slot at the compact stop);
   - `scenes/settings/SettingsLayer`, whose root carries the copy guard's marker, `testID="scene-settings"`. `SettingsScreen` takes `backupPending` and `onBackupSaved` for the recovery phrase flow.
 - **Backup.** A pending backup reaches the regions as data, `backup: { pending, loadPhrase, onSaved } | null`, never as a rendered node. `scenes/shared/BackupBanner` draws it as the old screens did until Home and Settings replace it.
-- **Responders.** `useSceneBack(handler, active)` and `usePhaseBack(handler)` from `StageContext` answer Android back (2.2). `useScanReceiver(receiver, active)` takes a code scanned for the Send already open (2.3).
+- **Responders.** `useSceneBack(handler, active)` and `usePhaseBack(handler)` from `StageContext` answer Android back (2.2). `useScanReceiver(receiver, active)` takes a code scanned for the Send already open (2.3). Its `active` is `useIsCurrentScene(sceneKey)`, true while the scene keyed `sceneKey` is the one the stage shows, overlays aside, and never `usePaneActive()`, which the scan overlay turns false.
 
 ### 10.2 Glyphs and layers
 

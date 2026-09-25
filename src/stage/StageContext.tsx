@@ -160,6 +160,16 @@ export function useStage(): StageStore {
 }
 
 /**
+ * Whether the scene keyed `key` is the scene the stage shows, whatever
+ * overlay covers it. `usePaneActive()` turns false under the scan overlay;
+ * this does not, so a surface that answers the overlay, as a Send takes the
+ * code scanned over it, keeps answering while it is open.
+ */
+export function useIsCurrentScene(key: number): boolean {
+  return useStage().state.scene.key === key;
+}
+
+/**
  * Keeps `value` in `registry` while `active`, always its latest version. An
  * entry that turns active again moves to the end, as the newest.
  */

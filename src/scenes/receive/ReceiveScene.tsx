@@ -11,7 +11,8 @@ import { colors } from '../../theme';
 
 /**
  * Receive, in the top slot under the status row. `sceneKey` is the key of
- * the scene this Receive is.
+ * the scene this Receive is, for anything in it that must tell whether it is
+ * still the scene the stage shows, overlays aside (`useIsCurrentScene`).
  */
 export function ReceiveScene({
   snapshot,

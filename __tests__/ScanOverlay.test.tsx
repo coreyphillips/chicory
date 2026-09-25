@@ -7,12 +7,18 @@ import type { WalletSnapshot } from '@beignet/wallet-core';
 import App from '../App';
 import { Scanner } from '../src/components/Scanner';
 import * as DeviceWallet from '../src/embedded/client';
+import * as SendRegion from '../src/scenes/send/SendScene';
 import { HomeScreen } from '../src/screens/Wallet';
 import { SendScreen } from '../src/screens/Payments';
 import { defaultPreferences } from '../src/services/networks';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import { ScanReveal } from '../src/stage/layers/ScanReveal';
-import { StageProvider, useStageStore } from '../src/stage/StageContext';
+import { usePaneActive } from '../src/stage/panes/Pane';
+import {
+  StageProvider,
+  useIsCurrentScene,
+  useStageStore,
+} from '../src/stage/StageContext';
 import type { StageStore } from '../src/stage/StageContext';
 import { useScanReceiver } from '../src/stage/useScanReceiver';
 import { field, pressableLabels, press } from '../test-support/query';
@@ -241,6 +247,41 @@ describe('inside Send', () => {
     expect(stage.state.overlay).toBeNull();
     expect(stage.state.scene).toMatchObject({ name: 'send', key: send });
     await act(async () => tree.unmount());
+  });
+
+  test('a receiver in the Send scene, keyed to the scene, takes the code the overlay reads over it', async () => {
+    // The Send scene the canvas draws, with two receivers inside it: one
+    // active while its scene is the current one, as useScanReceiver asks,
+    // and one active while its pane is in use, which the overlay ends.
+    const { SendScene } = SendRegion;
+    const keyed = jest.fn();
+    const paned = jest.fn();
+    function InScene({ sceneKey }: { sceneKey: number }) {
+      useScanReceiver(keyed, useIsCurrentScene(sceneKey));
+      useScanReceiver(paned, usePaneActive());
+      return null;
+    }
+    const spy = jest
+      .spyOn(SendRegion, 'SendScene')
+      .mockImplementation(props => (
+        <>
+          <SendScene {...props} />
+          <InScene sceneKey={props.sceneKey} />
+        </>
+      ));
+    try {
+      const tree = await render(<OnCanvas />);
+      const send = await scanInSend(tree);
+      expect(spy.mock.lastCall?.[0].sceneKey).toBe(send);
+      await detect(tree, SCANNED);
+      expect(keyed).toHaveBeenCalledWith(SCANNED);
+      expect(paned).not.toHaveBeenCalled();
+      expect(stage.state.overlay).toBeNull();
+      expect(stage.state.scene).toMatchObject({ name: 'send', key: send });
+      await act(async () => tree.unmount());
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test('a code read from home never reaches a receiver', async () => {
