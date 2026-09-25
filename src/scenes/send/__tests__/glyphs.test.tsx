@@ -1,5 +1,6 @@
 import React from 'react';
 import { AccessibilityInfo, StyleSheet } from 'react-native';
+import * as Reanimated from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
@@ -12,6 +13,14 @@ import { GLYPHS } from '../../../design/glyphs';
 import { BANG, DrawnGlyph } from '../DrawnGlyph';
 import { Orbit } from '../Orbit';
 import { Unplugged, WaitingClock } from '../LoopingGlyphs';
+import {
+  BOLT_DRAW_MS,
+  CHAIN_SLIDE,
+  ClosingChain,
+  FlashingBolt,
+} from '../ErrorGlyphs';
+import { FailureMark } from '../FailureMark';
+import { sendFailure } from '../model';
 
 /**
  * The hold and the countdown around it (REDESIGN.md 5, HoldButton and
@@ -20,6 +29,19 @@ import { Unplugged, WaitingClock } from '../LoopingGlyphs';
  * glyphs that move in parts, and what Reduce Motion keeps of each.
  */
 const LABEL = 'Send 4,200 sats';
+
+/** The drawn instances of a memoized component, which carry its inner type. */
+const drawnOf = (tree: ReactTestRenderer, component: object) =>
+  tree.root.findAll(
+    node => node.type === (component as { type: unknown }).type,
+  );
+
+/** The failure the engine's `code` is drawn as, beside the control. */
+const failureFor = (code: string) =>
+  sendFailure(Object.assign(new Error(code), { code }), {
+    message: code,
+    amountSats: null,
+  });
 
 const felt = () =>
   jest.mocked(HapticFeedback.trigger).mock.calls.map(([kind]) => kind);
@@ -200,6 +222,57 @@ describe('a glyph that moves in parts', () => {
     expect(layers(tree, moves('translateX'))).toEqual([[left.d], [right.d]]);
     expect(tree.root.findAllByType(Path)[0].props.d).toBe(spark.d);
     await act(async () => tree.unmount());
+  });
+
+  test("no route's bolt draws in over 240ms, then flashes", async () => {
+    const sequence = jest.spyOn(Reanimated, 'withSequence');
+    const delay = jest.spyOn(Reanimated, 'withDelay');
+    const tree = await mount(<FailureMark failure={failureFor('NO_ROUTE')} />);
+    expect(drawnOf(tree, FlashingBolt)).toHaveLength(1);
+    const [bolt] = drawnOf(tree, DrawnGlyph);
+    expect(bolt.props).toMatchObject({
+      name: 'bolt',
+      strokes: [{ duration: BOLT_DRAW_MS }],
+    });
+    // Once drawn, it dims and brightens twice.
+    expect(delay).toHaveBeenCalledWith(BOLT_DRAW_MS, expect.anything());
+    expect(sequence.mock.calls.some(steps => steps.length === 4)).toBe(true);
+    await act(async () => tree.unmount());
+    sequence.mockRestore();
+    delay.mockRestore();
+  });
+
+  test("an unconfirmed funding's chain slides its halves together", async () => {
+    const timing = jest.spyOn(Reanimated, 'withTiming');
+    const tree = await mount(
+      <FailureMark failure={failureFor('FUNDING_UNCONFIRMED')} />,
+    );
+    expect(drawnOf(tree, ClosingChain)).toHaveLength(1);
+    const [upper, lower] = GLYPHS.chain;
+    const halves = layers(tree, moves('translateY'));
+    expect(halves).toEqual([[upper.d], [lower.d]]);
+    expect(timing).toHaveBeenCalledWith(
+      0,
+      expect.objectContaining({ duration: 200 }),
+    );
+    // They arrive half the slide apart each, along the chain's diagonal, the
+    // upper half up and right and the lower down and left, and close to 0.
+    const step = CHAIN_SLIDE / 2 / Math.SQRT2;
+    const arriving = tree.root
+      .findAll(
+        node =>
+          typeof node.type === 'string' &&
+          [node.props.style]
+            .flat(3)
+            .some(style => !!style && moves('translateY')(style)),
+      )
+      .map(node => StyleSheet.flatten(node.props.style).transform);
+    expect(arriving).toEqual([
+      [{ translateX: step }, { translateY: -step }],
+      [{ translateX: -step }, { translateY: step }],
+    ]);
+    await act(async () => tree.unmount());
+    timing.mockRestore();
   });
 });
 
