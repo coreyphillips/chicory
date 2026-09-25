@@ -175,6 +175,40 @@ describe('shapes that are data', () => {
     const found = await violations(<Text>{text}</Text>);
     expect(found.map(item => item.text)).toEqual([text]);
   });
+
+  test('a whole part and its point pass only beside the decimals dimmed after them', async () => {
+    // A row's no amount, or whole bitcoin, in BTC: the zeros are dust.
+    expect(
+      await violations(
+        <Text>
+          0.<Text>00000000</Text> BTC
+        </Text>,
+      ),
+    ).toEqual([]);
+    expect(
+      await violations(
+        <Text>
+          {'+1.'}
+          <Text>00000000</Text>
+        </Text>,
+      ),
+    ).toEqual([]);
+    // Alone, or beside anything but its decimals, it is not an amount.
+    for (const element of [
+      <Text>1.</Text>,
+      <Text>
+        1.<Text>word</Text>
+      </Text>,
+      <Text>
+        1.<Text>000000000</Text>
+      </Text>,
+      <Text>
+        Step 1.<Text>00</Text>
+      </Text>,
+    ]) {
+      expect((await violations(element)).length).toBeGreaterThan(0);
+    }
+  });
 });
 
 // The app's TypeScript config leaves Node's types out (test-support/node),

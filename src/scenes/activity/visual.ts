@@ -182,7 +182,7 @@ const BTC_DECIMALS = 8;
  * decimals, the zeros after the last significant one set apart as `dim` to
  * be drawn in dust. So a row in BTC lines up with the hero above it. An
  * amount with no significant decimal at all, a fee of nothing or a whole
- * bitcoin, is drawn whole: a point with nothing after it reads as no number.
+ * bitcoin, dims all eight, as the hero does.
  */
 export function figureOf(
   sats: number,
@@ -194,7 +194,6 @@ export function figureOf(
   if (!/^\d+$/.test(whole)) return { value: text, dim: '', suffix: 'BTC' };
   const decimals = fraction.padEnd(BTC_DECIMALS, '0');
   const kept = decimals.replace(/0+$/, '');
-  if (!kept) return { value: `${whole}.${decimals}`, dim: '', suffix: 'BTC' };
   return {
     value: `${whole}.${kept}`,
     dim: decimals.slice(kept.length),

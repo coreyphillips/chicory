@@ -176,6 +176,11 @@ const GUARDED: GuardedState[] = [
     wallet: MAINNET,
   }),
   list('rows in BTC', ALL_ROWS.slice(0, 10), { unit: 'btc' }),
+  list(
+    'rows in BTC: a whole bitcoin',
+    [{ ...EVERY['received completed'], amountSats: 100_000_000 }],
+    { unit: 'btc' },
+  ),
   list('the attention band', [
     EVERY['sent completed'],
     EVERY['request partly paid'],

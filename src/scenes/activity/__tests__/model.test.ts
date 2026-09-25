@@ -162,22 +162,23 @@ describe('an amount as a row draws it', () => {
       dim: '',
       suffix: 'BTC',
     });
-    // With no significant decimal, it is drawn whole: a point with nothing
-    // after it reads as no number at all.
+    // With no significant decimal, all eight dim, as the hero draws them.
     expect(figureOf(100_000_000, 'btc')).toEqual({
-      value: '1.00000000',
-      dim: '',
+      value: '1.',
+      dim: '00000000',
       suffix: 'BTC',
     });
     expect(figureOf(0, 'btc')).toEqual({
-      value: '0.00000000',
-      dim: '',
+      value: '0.',
+      dim: '00000000',
       suffix: 'BTC',
     });
   });
 
   test('draws what the odometer draws, digit for digit', () => {
-    for (const sats of [1, 12, 5_000, 120_000, 62_235, 250_010_000]) {
+    for (const sats of [
+      0, 1, 12, 5_000, 120_000, 62_235, 100_000_000, 250_010_000,
+    ]) {
       const figure = figureOf(sats, 'btc');
       const cells = cellsFor(sats, 'btc');
       const drawn = cells

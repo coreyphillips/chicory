@@ -125,6 +125,12 @@ const GUARDED: GuardedState[] = [
   detail('in BTC: a request for any amount', EVERY['request for any amount'], {
     unit: 'btc',
   }),
+  // All eight decimals dim, the point with the whole part.
+  detail(
+    'in BTC: a whole bitcoin, and no fee',
+    { ...EVERY['sent completed'], amountSats: 100_000_000, feeSats: 0 },
+    { unit: 'btc' },
+  ),
   ...Object.entries(EVERY).map(([name, item]) =>
     detail(`on a test network: ${name}`, item, { test: true }),
   ),

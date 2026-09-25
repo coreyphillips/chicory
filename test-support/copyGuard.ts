@@ -38,6 +38,42 @@ const SHAPES = [
 ];
 
 /**
+ * The whole part of an amount and its point, drawn apart from the decimals
+ * that follow it in a nested text so they can be dimmed, as a row or a line
+ * draws a whole bitcoin or no amount in BTC ("0." then "00000000"). Only
+ * that pairing is data: a whole number and a point on its own is not.
+ */
+const SPLIT_WHOLE = /^[+\-−]?\s?[\d,]+\.$/;
+const SPLIT_DECIMALS = /^\d{1,8}$/;
+
+/** Every string under `node`, in order. */
+const textOf = (node: ReactTestInstance): string =>
+  node.children
+    .map(child => (typeof child === 'string' ? child : textOf(child)))
+    .join('');
+
+/**
+ * The runs of `children` that are the whole part of a split amount: a run
+ * ending in a point, followed at once by a child whose text is its decimals.
+ */
+function splitWholes(children: ReadonlyArray<ReactTestInstance | string>) {
+  const found = new Set<string>();
+  let run = '';
+  for (const child of children) {
+    if (typeof child === 'string') {
+      run += child;
+      continue;
+    }
+    const whole = run.trim();
+    if (SPLIT_WHOLE.test(whole) && SPLIT_DECIMALS.test(textOf(child))) {
+      found.add(whole);
+    }
+    run = '';
+  }
+  return found;
+}
+
+/**
  * Visible props that hold text of their own: the same ones the suites count
  * as drawn (`visibleText` in ./query).
  */
@@ -81,8 +117,13 @@ export function copyViolations(
         if (typeof value === 'string' && value.trim()) shown.push(value.trim());
       }
     }
+    const split = splitWholes(node.children);
     for (const text of shown) {
-      if (!allowed.has(text) && !SHAPES.some(shape => shape.test(text))) {
+      if (
+        !allowed.has(text) &&
+        !split.has(text) &&
+        !SHAPES.some(shape => shape.test(text))
+      ) {
         out.push({ text, path: componentPath(node) });
       }
     }
