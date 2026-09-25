@@ -20,7 +20,6 @@ import { Backdrop } from '../src/scenes/home/Backdrop';
 import { HomePane } from '../src/scenes/home/HomePane';
 import { StatusRow } from '../src/scenes/home/StatusRow';
 import { SettingsLayer } from '../src/scenes/settings/SettingsLayer';
-import { BackupBanner } from '../src/scenes/shared/BackupBanner';
 import { ActivityScreen, HomeScreen } from '../src/screens/Wallet';
 import { SettingsScreen } from '../src/screens/Settings';
 import { copy } from '../src/design/copy';
@@ -570,23 +569,23 @@ describe('the canvas', () => {
       onSaved: jest.fn(),
     };
     const tree = await render(<OnCanvas backup={backup} />);
-    // Settings draws the backup itself, as its leading section, so its
-    // reveal counts there, and a banner's counts wherever one is drawn.
-    // Home has no banner: its shield tile leads to Settings.
+    // Settings draws the backup itself, as its leading section, so a reveal
+    // counts wherever one is drawn. The canvas draws no phrase: its shields,
+    // the tile at home and the shelf on the open list, lead to Settings.
     const places = () =>
-      [
-        ...tree.root.findAllByType(BackupBanner),
-        ...tree.root.findAllByType(SettingsLayer),
-      ].flatMap(place =>
-        place.findAll(
-          node =>
-            node.props.accessibilityLabel === 'Reveal recovery phrase' &&
-            typeof node.props.onPress === 'function',
-        ),
+      tree.root.findAll(
+        node =>
+          node.props.accessibilityLabel === 'Reveal recovery phrase' &&
+          typeof node.props.onPress === 'function',
       ).length + (pressableLabels(tree).has(copy.health.backupPending) ? 1 : 0);
     expect(places()).toBe(1);
     await act(async () => stage.actions.openActivity());
     expect(places()).toBe(1);
+    // The shelf's Settings, over the list.
+    await act(async () => stage.actions.openSettings());
+    expect(stage.state.scene.name).toBe('settings');
+    expect(places()).toBe(1);
+    await act(async () => stage.actions.back());
     await act(async () => stage.actions.home());
     await act(async () => stage.actions.openSettings());
     expect(places()).toBe(1);

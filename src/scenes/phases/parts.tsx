@@ -325,7 +325,11 @@ export function StatusPip({
  * 2), drawn in the Settings language and allowed their words, so the panel
  * carries the copy guard's marker for settings-class surfaces. A phase opens
  * at most one, and never while the Settings scene is drawn, so the marker
- * stays single.
+ * stays single. Nor does it draw one under the new wallet sheet, a surface
+ * of its own that slides over the phase: the picker closes its network
+ * editor as it opens the sheet, and draws none under a sheet opened any
+ * other way (REDESIGN.md 10.1). The stage draws a new wallet's recovery
+ * phrase (BackupPanel) in place of the phase, never beside a panel.
  */
 export function SetupPanel({ children }: PropsWithChildren) {
   return (
