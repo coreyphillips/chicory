@@ -725,7 +725,7 @@ Release on velocity over 800pt/s, or past 40% going up or 25% going down. Rubber
   - Only the scene in front announces a stale balance: Home stays quiet while Send or Receive is open.
   - Identical messages within 2s are dropped.
 - **Focus.** After each transition, focus moves to the new primary element.
-- **Home focus order:** mark, hero, vessel, Send, Scan, Receive, cog, sheet.
+- **Home focus order:** mark, hero, vessel, Send, Scan, Receive, cog, sheet. TalkBack follows the tree, which is in that order. VoiceOver orders what shares a container by where each part starts, top to bottom and then left to right, whatever the tree says, so the geometry is set to agree: the three action circles sit in slots of one height, so they share a top edge, and the corner control hangs from an anchor that starts just under the home pane's top edge and above the sheet's, while it is drawn, and pressed, in the status row. Nothing on the canvas that a screen reader reaches may sit in a layer that starts at the top edge.
 - **Shape as well as color.** Every state has a distinct shape.
 - **Strings.** All strings live in `src/design/copy/`, one file per area (shared, home, activity, detail, send, receive, scan, phases, settings), composed into one `copy` object by its `index.ts`. The legacy phrases that tests assert are kept verbatim, for example:
   - "Total balance {n} sats"
