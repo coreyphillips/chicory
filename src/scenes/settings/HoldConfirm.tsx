@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { AccessibilityActionEvent } from 'react-native';
 import Reanimated, {
+  ReduceMotion,
   cancelAnimation,
   interpolateColor,
   useAnimatedProps,
@@ -26,6 +27,10 @@ const CIRCUMFERENCE = 2 * Math.PI * R;
 const ACTIONS = [{ name: 'activate' as const }];
 
 const AnimatedCircle = Reanimated.createAnimatedComponent(Circle);
+
+// Reduce Motion keeps the fill (REDESIGN.md 8): it is the hold's only
+// measure of how long is left, and it moves nothing through space.
+const DRAIN = { ...springs.snap, reduceMotion: ReduceMotion.Never };
 
 /**
  * Confirms something that closes a safety state, as the recovery phrase
@@ -80,7 +85,13 @@ export function HoldConfirm({
     finger.current = true;
     if (committed.current) return;
     haptics.tap();
-    fill.set(withTiming(1, { duration, easing: HOLD_CURVE }));
+    fill.set(
+      withTiming(1, {
+        duration,
+        easing: HOLD_CURVE,
+        reduceMotion: ReduceMotion.Never,
+      }),
+    );
     steps.current = holdSteps(duration).map((at, index) =>
       setTimeout(() => {
         haptics.holdRamp(index + 1);
@@ -95,7 +106,7 @@ export function HoldConfirm({
     }, 0);
     if (committed.current) return;
     stop();
-    fill.set(withSpring(0, springs.snap));
+    fill.set(withSpring(0, DRAIN));
   };
 
   const ring = useAnimatedProps(() => ({
