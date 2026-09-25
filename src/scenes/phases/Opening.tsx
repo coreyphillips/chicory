@@ -1,23 +1,32 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { Body } from '../../components/ui';
-import { colors, space } from '../../theme';
+import { View } from 'react-native';
+import { copy } from '../../design/copy';
+import { Bloom } from '../../glyphs/Bloom';
+import { Whisper } from '../../glyphs/Whisper';
+import { PhaseRoot, useArrivalFocus } from './parts';
+import { QUIET_MS, SIZES } from './visual';
 
-/** The restore at launch, before it is known whether there is a wallet to show. */
+/**
+ * The restore at launch, before it is known whether there is a wallet to
+ * show: the bloom's chase, a light running round the petals, and nothing to
+ * read. A screen reader hears the wait, marked busy. A quick open ends
+ * before the loader shows.
+ */
 export function Opening() {
+  const focus = useArrivalFocus();
   return (
-    <View style={styles.centered}>
-      <ActivityIndicator color={colors.primary} />
-      <Body>Opening your wallet…</Body>
-    </View>
+    <PhaseRoot delay={QUIET_MS}>
+      <Whisper label={copy.phase.openingWallet}>
+        <View
+          ref={focus}
+          accessible
+          accessibilityRole="progressbar"
+          accessibilityLabel={copy.phase.openingWallet}
+          accessibilityState={{ busy: true }}
+        >
+          <Bloom size={SIZES.loader} mode="chase" />
+        </View>
+      </Whisper>
+    </PhaseRoot>
   );
 }
-
-const styles = StyleSheet.create({
-  centered: {
-    gap: space.md,
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

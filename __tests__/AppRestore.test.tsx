@@ -9,7 +9,8 @@ import { defaultPreferences } from '../src/services/networks';
 import { NetworkSettings } from '../src/screens/NetworkSettings';
 import { SettingsScreen } from '../src/screens/Settings';
 import { eraseDeviceStorage } from '../src/embedded/storage';
-import { activeScene } from '../test-support/scene';
+import { meaning } from '../test-support/query';
+import { activePhase, activeScene } from '../test-support/scene';
 jest.mock('../src/embedded/storage', () => ({
   eraseDeviceStorage: jest.fn().mockResolvedValue(undefined),
 }));
@@ -117,8 +118,13 @@ test('fresh mount restores the exact saved device network and wallet even when s
     { existingOnly: true },
   );
   expect(client.connection.walletId).toBe('saved-regtest');
-  expect(text(tree)).toContain('My saved wallet');
-  expect(text(tree)).toContain('Balances are unavailable');
+  expect(activePhase(tree)).toBe('offline');
+  expect(meaning(tree)).toContain('My saved wallet');
+  expect(meaning(tree)).toContain('Balances are unavailable');
+  // The network editor, the recovery phrase and the lock wait behind the cog.
+  await act(async () => {
+    label(tree, 'Settings').props.onPress();
+  });
   expect(label(tree, 'Change network or Bitcoin server')).toBeDefined();
   expect(label(tree, 'Reveal recovery phrase')).toBeDefined();
   expect(client.createWallet).not.toHaveBeenCalled();
@@ -139,7 +145,8 @@ test('fresh mount restores the exact saved device network and wallet even when s
   });
   expect(label(tree, 'Open device wallet')).toBeDefined();
   expect(opened).toHaveBeenCalledTimes(1);
-  expect(text(tree)).toContain('Open device wallet');
+  expect(activePhase(tree)).toBe('saved');
+  expect(meaning(tree)).toContain('Open device wallet');
   await act(async () => {
     tree.unmount();
   });
@@ -234,7 +241,8 @@ test('a remembered wallet identity never resumes an empty vault as fresh setup',
     expect.any(Function),
     { existingOnly: true },
   );
-  expect(text(tree)).toContain('No new wallet was created');
+  expect(activePhase(tree)).toBe('saved');
+  expect(meaning(tree)).toContain('No new wallet was created');
   expect(label(tree, 'Create a wallet')).toBeUndefined();
   expect(client.createWallet).not.toHaveBeenCalled();
   expect(JSON.parse(records.get(SESSION)!).walletId).toBe('saved-regtest');
@@ -257,7 +265,8 @@ test('restore storage errors stay visible and never fall back to creating an emp
   await act(async () => {
     tree = create(<App />);
   });
-  expect(text(tree)).toContain('Saved encryption key unavailable');
+  expect(activePhase(tree)).toBe('saved');
+  expect(meaning(tree)).toContain('Saved encryption key unavailable');
   expect(label(tree, 'Open device wallet')).toBeDefined();
   expect(
     tree.root.findAllByProps({ accessibilityLabel: 'Create a wallet' }),
@@ -284,6 +293,9 @@ test('locking serializes secure-store writes and closure against captured wallet
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(<App />);
+  });
+  await act(async () => {
+    label(tree, 'Settings').props.onPress();
   });
   const lock = label(tree, 'Lock device wallet').props.onPress;
   const choose = label(tree, 'Choose another wallet').props.onPress;
@@ -315,7 +327,8 @@ test('locking serializes secure-store writes and closure against captured wallet
     savesBefore + 1,
   );
   expect(close).not.toHaveBeenCalled();
-  expect(text(tree)).toContain('Closing your wallet');
+  expect(activePhase(tree)).toBe('transit');
+  expect(meaning(tree)).toContain('Closing your wallet');
   expect(label(tree, 'Choose another wallet')).toBeUndefined();
   await act(async () => {
     finishSave();
@@ -391,10 +404,16 @@ test('a failed close preserves the wallet and permits retrying the durable close
     tree = create(<App />);
   });
   await act(async () => {
+    label(tree, 'Settings').props.onPress();
+  });
+  await act(async () => {
     label(tree, 'Lock device wallet').props.onPress();
   });
-  expect(text(tree)).toContain('Storage flush failed');
-  expect(text(tree)).toContain('My saved wallet');
+  expect(meaning(tree)).toContain('Storage flush failed');
+  expect(meaning(tree)).toContain('My saved wallet');
+  await act(async () => {
+    label(tree, 'Settings').props.onPress();
+  });
   expect(label(tree, 'Lock device wallet')).toBeDefined();
   await act(async () => {
     label(tree, 'Lock device wallet').props.onPress();
@@ -439,7 +458,8 @@ test('an empty prepared setup can resume after lock and relaunch without claimin
     },
   );
   expect(label(tree, 'Create a wallet')).toBeDefined();
-  expect(text(tree)).toContain('Add a primary node for regtest.');
+  expect(activePhase(tree)).toBe('picker');
+  expect(meaning(tree)).toContain('Add a primary node for regtest.');
   expect(JSON.parse(records.get(SESSION)!).prepared).toBe(true);
   await act(async () => {
     label(tree, 'Lock device wallet').props.onPress();
@@ -624,7 +644,8 @@ test('a returning wallet with nothing cached shows a quiet opening page, not the
   await act(async () => {
     tree = create(<App />);
   });
-  const opening = text(tree);
+  expect(activePhase(tree)).toBe('loading');
+  const opening = meaning(tree);
   expect(opening).toContain('Opening…');
   expect(opening).toContain('My saved wallet');
   expect(opening).not.toContain('Balances are unavailable');
@@ -689,7 +710,8 @@ test('erasing the wallet closes the engine, removes storage and returns to a fre
   );
   // Back at the beginning: a fresh start, not a wallet to welcome back, and
   // no question about where the next one should live.
-  const fresh = text(tree);
+  expect(activePhase(tree)).toBe('welcome');
+  const fresh = meaning(tree);
   expect(fresh).toContain('Bitcoin, with less to think about.');
   expect(fresh).not.toContain('Welcome back');
   expect(fresh).not.toContain('On this device');
@@ -821,7 +843,8 @@ test('saving the device server waits for close and returns to Settings with the 
   await act(async () => {
     applying = tree.root.findByType(NetworkSettings).props.onApply(profile);
   });
-  expect(text(tree)).toContain('Closing this wallet');
+  expect(activePhase(tree)).toBe('transit');
+  expect(meaning(tree)).toContain('Closing this wallet');
   expect(opened).toHaveBeenCalledTimes(1);
   await act(async () => {
     resolveClose();
@@ -933,7 +956,8 @@ test('a switch whose open fails keeps the previous network and says why, without
       .catch(() => {});
   });
   expect(opened).toHaveBeenCalledTimes(2);
-  const shown = text(tree);
+  expect(activePhase(tree)).toBe('saved');
+  const shown = meaning(tree);
   // The reason survives the full-page wait that replaced the screen it was
   // started from, and the phone is still described as being on regtest.
   expect(shown).toContain('The Electrum server did not answer.');
@@ -1008,7 +1032,8 @@ test('a close that fails still releases the vault, so the next switch works', as
       .props.onNetwork(mainnet)
       .catch(() => {});
   });
-  expect(text(tree)).toContain('did not finish closing');
+  expect(activePhase(tree)).toBe('saved');
+  expect(meaning(tree)).toContain('did not finish closing');
   await act(async () => {
     label(tree, 'Change network or Bitcoin server').props.onPress();
   });

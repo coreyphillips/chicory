@@ -8,6 +8,8 @@ import { DemoWalletClient, EmbeddedWalletClient } from '@beignet/wallet-core';
 import { defaultPreferences } from '../src/services/networks';
 import { WhisperProvider } from '../src/glyphs/Whisper';
 import { LockScreen } from '../src/scenes/phases/Locked';
+import { meaning } from '../test-support/query';
+import { activePhase } from '../test-support/scene';
 
 const SESSION = 'com.beignet.wallet.last-session';
 const LOCK = 'com.beignet.wallet.lock';
@@ -97,9 +99,11 @@ test('an enabled lock holds the wallet back until it is unlocked', async () => {
     await act(async () => {
       tree = create(<App />);
     });
-    // The lock screen shows, and nothing about the wallet is on it.
-    expect(text(tree)).toContain('Locked');
-    expect(text(tree)).not.toContain('My saved wallet');
+    // The lock screen shows, and nothing about the wallet is on it or
+    // spoken from it.
+    expect(activePhase(tree)).toBe('locked');
+    expect(meaning(tree)).toContain('Locked');
+    expect(meaning(tree)).not.toContain('My saved wallet');
     // A long press can summon a whisper here too.
     expect(
       tree.root.findByType(WhisperProvider).findAllByType(LockScreen),
@@ -114,7 +118,8 @@ test('an enabled lock holds the wallet back until it is unlocked', async () => {
       await label(tree, 'Unlock')!.props.onPress();
     });
     expect(opened).toHaveBeenCalledTimes(1);
-    expect(text(tree)).not.toContain('Chicory is locked.');
+    expect(activePhase(tree)).not.toBe('locked');
+    expect(meaning(tree)).not.toContain('Chicory is locked.');
   } finally {
     await act(async () => tree?.unmount());
     jest.restoreAllMocks();
@@ -132,7 +137,8 @@ test('a refused unlock keeps the wallet closed and says so', async () => {
     await act(async () => {
       await label(tree, 'Unlock')!.props.onPress();
     });
-    expect(text(tree)).toContain('stays locked until this is confirmed');
+    expect(activePhase(tree)).toBe('locked');
+    expect(meaning(tree)).toContain('stays locked until this is confirmed');
     expect(opened).not.toHaveBeenCalled();
   } finally {
     await act(async () => tree?.unmount());
@@ -190,7 +196,8 @@ test('a saved wallet that fails to open offers itself back, not first-run setup'
     await act(async () => {
       tree = create(<App />);
     });
-    const shown = text(tree);
+    expect(activePhase(tree)).toBe('saved');
+    const shown = meaning(tree);
     // The wallet is here; offering to choose where a wallet should live is the
     // wrong question, and was what the app used to fall back to.
     expect(shown).toContain('could not be opened just now');
