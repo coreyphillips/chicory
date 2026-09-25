@@ -91,8 +91,10 @@ export function DrawnArc({
   const c = size / 2;
   const r = c - stroke;
   const around = 2 * Math.PI * r;
+  // One dash as long as the circle, slid back by what is not yet drawn: the
+  // offset is a plain number, which the UI thread can set every frame.
   const animated = useAnimatedProps(() => ({
-    strokeDasharray: [around * share.get(), around],
+    strokeDashoffset: around * (1 - share.get()),
     strokeOpacity: share.get() > 0 ? 1 : 0,
   }));
   return (
@@ -104,6 +106,7 @@ export function DrawnArc({
       stroke={color}
       strokeWidth={stroke}
       strokeLinecap="round"
+      strokeDasharray={[around, around]}
       transform={`rotate(-90 ${c} ${c})`}
       animatedProps={animated}
     />
