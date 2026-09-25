@@ -1,9 +1,16 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import Reanimated, {
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import type { SendReview } from '@beignet/wallet-core';
 import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
+import { curves, durations } from '../../motion/tokens';
 import { amountIn, space, type as typography } from '../../theme';
 import type { Unit } from '../../theme';
 import { reviewFigures, reviewRail } from './model';
@@ -48,6 +55,9 @@ function Pip({ warning }: { warning: string }) {
   );
 }
 
+/** How far the sum dims once the payment it priced is going out. */
+export const SPENT_OPACITY = 0.4;
+
 /**
  * What a payment will cost, as a sum with no words on it (REDESIGN.md 6,
  * Send): the rail and `+ ≤` the most the fee can be, `≈` what the route
@@ -57,18 +67,34 @@ function Pip({ warning }: { warning: string }) {
  *
  * The figures are in `unit`, the one the balance is shown in. They are
  * never hidden: a review is where the payment is checked before it is sent.
+ * Once the hold commits (`spent`) there is nothing left to check, so the
+ * sum dims back and the screen reads as money going out.
  */
 export function ReviewLines({
   review,
   unit = 'sats',
+  spent = false,
 }: {
   review: SendReview;
   unit?: Unit;
+  spent?: boolean;
 }) {
   const rail = reviewRail(review);
   const bloom = useBloom();
+  // A colour change, not a movement, so it plays under Reduce Motion too.
+  const dim = useSharedValue(spent ? SPENT_OPACITY : 1);
+  useEffect(() => {
+    dim.set(
+      withTiming(spent ? SPENT_OPACITY : 1, {
+        duration: durations.move,
+        easing: curves.standard,
+        reduceMotion: ReduceMotion.Never,
+      }),
+    );
+  }, [spent, dim]);
+  const dimStyle = useAnimatedStyle(() => ({ opacity: dim.get() }));
   return (
-    <View style={styles.lines}>
+    <Reanimated.View style={[styles.lines, dimStyle]}>
       {reviewFigures(review).map((figure, index) => (
         <View key={figure.key} style={styles.line}>
           {index === 0 ? (
@@ -93,7 +119,7 @@ export function ReviewLines({
           ))}
         </View>
       ) : null}
-    </View>
+    </Reanimated.View>
   );
 }
 

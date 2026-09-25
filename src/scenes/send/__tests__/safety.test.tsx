@@ -51,6 +51,10 @@ jest.mock('../../../design/announce', () => ({ announce: jest.fn() }));
 const payable = (label: string) =>
   `bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?label=${label}`;
 
+/** A payable request, named `label`, that fixes the 4,200 sats sent here. */
+const priced = (label: string) =>
+  `bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=0.000042&label=${label}`;
+
 const said = jest.mocked(announce);
 const felt = () =>
   jest.mocked(HapticFeedback.trigger).mock.calls.map(([kind]) => kind);
@@ -322,6 +326,68 @@ describe('a quote', () => {
     expect(send).not.toHaveBeenCalled();
     expect(find(tree, copy.send.refreshQuote)).toBeDefined();
     expect(logged()).toContain('QUOTE_EXPIRED');
+    await act(async () => tree.unmount());
+  });
+
+  test('is spent once the hold commits: it never runs out, offers a refresh or asks for a review again', async () => {
+    jest.useFakeTimers();
+    const send = jest.fn(() => new Promise<SendResult>(() => {}));
+    const client = {
+      prepareSend: jest
+        .fn()
+        .mockResolvedValue(quote({ expiresAt: Date.now() + 15_000 })),
+      send,
+    };
+    const props = { initialRequest: priced('spent') };
+    const tree = await draw(client, props);
+    await press(tree, copy.send.review);
+    expect(tree.root.findAllByType(ExpiryRing)).toHaveLength(1);
+    await activate(tree, HOLD);
+    expect(send).toHaveBeenCalledTimes(1);
+    // The quote's ring goes as the hold commits, and the sum dims back.
+    expect(tree.root.findAllByType(ExpiryRing)).toEqual([]);
+    expect(tree.root.findByType(ReviewLines).props.spent).toBe(true);
+    // Past the moment the quote would have run out, and past a balance
+    // going stale, the hold is still what shows, going out.
+    await act(async () => jest.advanceTimersByTime(5_000));
+    await act(async () => {
+      tree.update(screen(client, { ...props, disabled: true }));
+    });
+    await act(async () => jest.advanceTimersByTime(2_000));
+    await heard(true);
+    expect(find(tree, copy.send.refreshQuote)).toBeUndefined();
+    expect(tree.root.findAllByType(ExpiryRing)).toEqual([]);
+    const [hold] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === HOLD &&
+        node.props.accessibilityState?.busy === true,
+    );
+    expect(hold).toBeDefined();
+    // Its words no longer count a quote down.
+    expect(hold.props.accessibilityValue.text).not.toMatch(
+      copy.send.quoteExpires(0),
+    );
+    expect(logged()).not.toContain('QUOTE_EXPIRED');
+    expect(said).not.toHaveBeenCalledWith(copy.send.quoteExpired, {
+      assertive: true,
+    });
+    expect(said).not.toHaveBeenCalledWith(copy.send.quoteExpires(10));
+    await act(async () => tree.unmount());
+  });
+
+  test('refused as it is sent is not spent: the review comes back to try again', async () => {
+    const tree = await draw(
+      {
+        prepareSend: jest.fn().mockResolvedValue(quote()),
+        send: jest.fn().mockRejectedValue(coded('QUOTE_EXPIRED')),
+      },
+      { initialRequest: priced('refused-spent') },
+    );
+    await press(tree, copy.send.review);
+    await activate(tree, HOLD);
+    expect(find(tree, copy.send.refreshQuote)).toBeDefined();
+    expect(tree.root.findByType(ReviewLines).props.spent).toBe(false);
     await act(async () => tree.unmount());
   });
 

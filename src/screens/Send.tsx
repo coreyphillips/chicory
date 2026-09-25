@@ -206,6 +206,10 @@ export function SendScreen({
   const [review, setReview] = useState<SendReview | null>(null);
   const [reviewedAt, setReviewedAt] = useState(0);
   const [expired, setExpired] = useState(false);
+  // The hold has committed on the review's quote, which is spent from then
+  // on: nothing about it can expire, be refreshed or be reviewed again for
+  // this payment, however long the payment takes.
+  const [spent, setSpent] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [rail, setRail] = useState<GlyphName>('bolt');
   const [busy, setBusy] = useState(false);
@@ -242,7 +246,7 @@ export function SendScreen({
   // Whether the hold is up, for the balance's gate to read as it turns.
   const reviewing = useRef(false);
   useLayoutEffect(() => {
-    reviewing.current = review !== null && !expired;
+    reviewing.current = review !== null && !expired && !spent;
   });
 
   // A request brought by a scan or a link is taken as a pasted one is, and
@@ -282,9 +286,9 @@ export function SendScreen({
   useEffect(() => () => expiredSaid.current?.(), []);
 
   // A quote runs out on its own clock, and is said aloud once as it gets
-  // close.
+  // close, until the hold commits on it.
   useEffect(() => {
-    if (!review || expired) return;
+    if (!review || expired || spent) return;
     const left = review.expiresAt - Date.now();
     const timers = [
       setTimeout(() => {
@@ -302,7 +306,7 @@ export function SendScreen({
       );
     }
     return () => timers.forEach(clearTimeout);
-  }, [review, expired, land, say]);
+  }, [review, expired, spent, land, say]);
 
   // The stale gate closing on the payment is a safety state (REDESIGN.md
   // rule 4): felt and logged as it closes, and said once a screen reader
@@ -492,6 +496,7 @@ export function SendScreen({
     setResult(outcome);
     setStayed(false);
     setReview(null);
+    setSpent(false);
     onRefresh();
     if (outcome.status === 'uncertain' || outcome.status === 'failed') {
       recordDiagnostic({
@@ -566,6 +571,7 @@ export function SendScreen({
       return;
     }
     goingOut();
+    setSpent(true);
     setFailure(null);
     setRail(reviewRail(review).glyph);
     try {
@@ -585,9 +591,12 @@ export function SendScreen({
           errorCode(e),
         );
       } else if (errorCode(e) === 'QUOTE_EXPIRED') {
+        // The engine refused the quote, so nothing went out on it.
+        setSpent(false);
         setExpired(true);
         fail(e, () => control);
       } else {
+        setSpent(false);
         setReview(null);
         fail(e, backToCompose);
       }
@@ -818,7 +827,7 @@ export function SendScreen({
               {review.description}
             </Text>
           ) : null}
-          <ReviewLines review={review} unit={unit} />
+          <ReviewLines review={review} unit={unit} spent={spent} />
         </View>
         <View style={styles.controls}>
           <View style={[styles.side, styles.start]}>
@@ -839,6 +848,7 @@ export function SendScreen({
             expired={expired}
             stale={disabled}
             busy={busy}
+            spent={spent}
             onCommit={pay}
             onRefreshQuote={live && !busy ? refreshQuote : undefined}
             onRefresh={live ? onRefresh : undefined}
