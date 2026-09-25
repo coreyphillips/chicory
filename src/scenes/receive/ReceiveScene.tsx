@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { copy } from '../../design/copy';
 import { ReceiveScreen } from '../../screens/Receive';
+import { isTestNetwork } from '../home/visual';
 import type { RegionProps } from '../../stage/Canvas';
 import { MINI_STRIP, STATUS_ROW } from '../../stage/layout';
 import { Arriving } from '../../stage/panes/Arriving';
@@ -56,6 +57,7 @@ export function ReceiveScene({
               onActivity={actions.openActivity}
               onBusy={actions.setBusy}
               completionsFelt
+              test={isTestNetwork(snapshot.wallet.network)}
             />
           </View>
         </SceneSlot>

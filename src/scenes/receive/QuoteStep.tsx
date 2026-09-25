@@ -20,6 +20,7 @@ import {
 import type { Focus } from './focus';
 import { feeGlyph, shownSats } from './model';
 import type { Refused } from './model';
+import { useBloom } from './tone';
 
 /** The ring that runs down around the create control. */
 const RING = CONTROL + 16;
@@ -66,6 +67,7 @@ export function QuoteStep({
   focus: Focus;
 }) {
   const live = usePaneActive();
+  const { bloom } = useBloom();
   const glyph = feeGlyph({
     offline,
     feeSats: quote.feeSats,
@@ -117,7 +119,7 @@ export function QuoteStep({
           accessibilityLabel={feeWords}
           style={styles.line}
         >
-          <Glyph name={glyph} size={20} color={palette.bloom} />
+          <Glyph name={glyph} size={20} color={bloom} />
           <Text style={styles.sign} maxFontSizeMultiplier={1.4}>
             −
           </Text>

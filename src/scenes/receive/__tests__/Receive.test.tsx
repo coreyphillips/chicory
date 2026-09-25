@@ -23,6 +23,7 @@ import { copy } from '../../../design/copy';
 import { Glyph } from '../../../design/glyphs';
 import { haptics } from '../../../design/haptics';
 import { palette } from '../../../design/palette';
+import { ExpiryRing } from '../../../glyphs/ExpiryRing';
 import * as tokens from '../../../motion/tokens';
 import { ReceiveScreen } from '../../../screens/Receive';
 import type { WalletAdapter } from '../../../services/wallet';
@@ -31,7 +32,12 @@ import { StageProvider, useStageStore } from '../../../stage/StageContext';
 import type { StageStore } from '../../../stage/StageContext';
 import { mount } from '../../../../test-support/guard';
 import { enterAmount } from '../../../../test-support/keypad';
-import { alerts, find, meaning } from '../../../../test-support/query';
+import {
+  alerts,
+  componentPath,
+  find,
+  meaning,
+} from '../../../../test-support/query';
 import { CONTROL as SEND_CONTROL } from '../../send/Controls';
 import { Unplugged } from '../../send/LoopingGlyphs';
 import { Spin } from '../loops';
@@ -607,5 +613,159 @@ describe('type', () => {
     });
     expect(shown.props.maxFontSizeMultiplier).toBe(1.4);
     await act(async () => tree.unmount());
+  });
+});
+
+describe('a test network', () => {
+  const BLOOMS = [
+    palette.bloom,
+    palette.bloomHi,
+    palette.bloomDeep,
+    palette.bloomNight,
+  ].map(hex => hex.toLowerCase());
+
+  /** Whether `value`, or anything in it, is one of bloom's colours. */
+  const blooms = (value: unknown): boolean =>
+    typeof value === 'string'
+      ? BLOOMS.includes(value.toLowerCase())
+      : Array.isArray(value)
+      ? value.some(blooms)
+      : !!value && typeof value === 'object'
+      ? Object.values(value).some(blooms)
+      : false;
+
+  /**
+   * Where something is drawn in bloom, as the path of components to it,
+   * leaving out the expiry rings, which draw their own colours
+   * (REDESIGN.md 10.2).
+   */
+  const inBloom = (tree: ReactTestRenderer) =>
+    tree.root
+      .findAll(node => {
+        for (let at: ReactTestInstance | null = node; at; at = at.parent) {
+          if (at.type === ExpiryRing) return false;
+        }
+        const { stroke, fill, color, selectionColor, style } = node.props;
+        return blooms([
+          stroke,
+          fill,
+          color,
+          selectionColor,
+          StyleSheet.flatten(style),
+        ]);
+      })
+      .map(node => componentPath(node));
+
+  /** Receive through each step with slate for bloom, or not: what it drew. */
+  async function drawn(test: boolean) {
+    let answer!: (quote: ReceiveQuote) => void;
+    const client = clientOf({
+      getConfig: jest.fn().mockResolvedValue({ offlineReceiveAvailable: true }),
+      quoteReceive: jest.fn(
+        () =>
+          new Promise<ReceiveQuote>(resolve => {
+            answer = resolve;
+          }),
+      ),
+      receive: jest
+        .fn()
+        .mockResolvedValue(requestOf({ offlineReceive: true } as object)),
+    });
+    const seen: string[] = [];
+    const tree = await screen(client, {
+      test,
+      receivableSats: 0,
+      offlineReceivableSats: 50_000,
+    });
+    // The sprout and the caret while an amount is needed.
+    seen.push(...inBloom(tree));
+    await act(async () => {
+      tree.root
+        .findByProps({ accessibilityLabel: copy.receive.offline })
+        .props.onPress();
+    });
+    await tap(tree, copy.receive.addNote);
+    await enterAmount(tree, '1000');
+    // The moon and its switch on, the note, the way on.
+    seen.push(...inBloom(tree));
+    await act(async () => {
+      find(tree, copy.receive.continue)!.props.onPress();
+    });
+    // The orbit round the busy control.
+    seen.push(...inBloom(tree));
+    await act(async () => answer(quoteOf()));
+    // The fee's moon and the create control.
+    seen.push(...inBloom(tree));
+    await tap(tree, copy.receive.create);
+    // The rocking moon of an offline request.
+    seen.push(...inBloom(tree));
+    await act(async () => tree.unmount());
+    return seen;
+  }
+
+  test('draws every glyph, ring and primary control of Receive in slate, not bloom', async () => {
+    // The same walk on mainnet draws each of them in bloom.
+    const live = await drawn(false);
+    expect(live.length).toBeGreaterThan(0);
+    expect(await drawn(true)).toEqual([]);
+  });
+
+  test("links an old request back from a payment's detail in slate", async () => {
+    const request = requestOf();
+    const item: Activity = {
+      id: `payment:${request.paymentHash}`,
+      kind: 'request',
+      title: 'Payment request',
+      description: '',
+      amountSats: 1000,
+      feeSats: 0,
+      status: 'pending',
+      timestamp: Date.now(),
+      reference: request.bolt11,
+      paymentHash: request.paymentHash,
+      receiveRequest: { ...request, legacy: true },
+    };
+    const client = {
+      importReceiveRequest: jest.fn(),
+    } as unknown as WalletAdapter;
+    for (const test of [false, true]) {
+      const tree = await mount(
+        <ReceiveRequestDetails item={item} client={client} test={test} />,
+      );
+      await tap(tree, copy.receive.linkOriginal);
+      await act(async () => {
+        tree.root
+          .findAll(
+            node => node.props.onChangeText && node.type === TextInput,
+          )[0]
+          .props.onChangeText(request.uri);
+      });
+      expect(inBloom(tree).length > 0).toBe(!test);
+      await act(async () => tree.unmount());
+    }
+  });
+
+  test('bursts a paid request into slate petals', async () => {
+    const completed: ReceiveStatus = {
+      phase: 'completed',
+      receivedSats: 1000,
+      confirmedSats: 1000,
+      pendingSats: 0,
+      txids: [],
+      method: 'lightning',
+    };
+    const client = clientOf({
+      getReceiveStatus: jest.fn().mockResolvedValue(completed),
+    });
+    for (const test of [false, true]) {
+      const tree = await screen(client, { test });
+      await toRequest(tree);
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(meaning(tree)).toContain(copy.receive.received);
+      expect(inBloom(tree).length > 0).toBe(!test);
+      await act(async () => tree.unmount());
+    }
   });
 });

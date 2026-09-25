@@ -28,6 +28,7 @@ import { space, type as typography } from '../../theme';
 import type { Focus } from './focus';
 import { Pulse, Spin } from './loops';
 import { refusalLook } from './model';
+import { useBloom } from './tone';
 
 /**
  * The circle of the way on, on the form and on the quote: the size Home's
@@ -139,6 +140,7 @@ export function GlyphButton({
 }>) {
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
+  const { bloom } = useBloom();
   const press = useSharedValue(1);
   const swell = useSharedValue(1);
   // A refusal shakes it, or tints it radish under Reduce Motion.
@@ -179,7 +181,9 @@ export function GlyphButton({
           {halo ? (
             <Decor size={size}>
               <Pulse>
-                <View style={[styles.haloRing, ring(size)]} />
+                <View
+                  style={[styles.haloRing, ring(size), { borderColor: bloom }]}
+                />
               </Pulse>
             </Decor>
           ) : null}
@@ -209,7 +213,7 @@ export function GlyphButton({
             style={[
               styles.control,
               children ? [styles.pill, pill] : round,
-              primary ? styles.primary : styles.raised,
+              primary ? { backgroundColor: bloom } : styles.raised,
               quiet && styles.quiet,
             ]}
           >
@@ -239,7 +243,7 @@ export function GlyphButton({
           {busy ? (
             <Decor size={size}>
               <Spin>
-                <Orbit size={size + ORBIT_GAP * 2} />
+                <Orbit size={size + ORBIT_GAP * 2} color={bloom} />
               </Spin>
             </Decor>
           ) : null}
@@ -283,7 +287,7 @@ function Decor({ size, children }: PropsWithChildren<{ size: number }>) {
 }
 
 /** A quarter arc in bloom, which turns while something is being prepared. */
-function Orbit({ size }: { size: number }) {
+function Orbit({ size, color }: { size: number; color: string }) {
   const stroke = 2.5;
   const r = size / 2 - stroke;
   const circumference = 2 * Math.PI * r;
@@ -294,7 +298,7 @@ function Orbit({ size }: { size: number }) {
         cy={size / 2}
         r={r}
         fill="none"
-        stroke={palette.bloom}
+        stroke={color}
         strokeWidth={stroke}
         strokeLinecap="round"
         strokeDasharray={[circumference / 4, circumference]}
@@ -366,7 +370,6 @@ const styles = StyleSheet.create({
     gap: space.xs,
     paddingHorizontal: space.lg,
   },
-  primary: { backgroundColor: palette.bloom },
   raised: { backgroundColor: palette.mocha },
   quiet: { backgroundColor: palette.espresso, transform: [{ scale: 0.94 }] },
   data: { ...typography.line },
@@ -379,7 +382,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.radishSoft,
   },
   around: { position: 'absolute' },
-  haloRing: { borderWidth: 2, borderColor: palette.bloom },
+  haloRing: { borderWidth: 2 },
   errorPip: {
     width: 32,
     height: 32,

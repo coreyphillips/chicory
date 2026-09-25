@@ -27,6 +27,7 @@ import {
   receiptRing,
   receiptTransactions,
 } from '../scenes/receive/model';
+import { useBloom } from '../scenes/receive/tone';
 import { useFlashTint } from '../stage/StageContext';
 import { space } from '../theme';
 import type { Unit } from '../theme';
@@ -328,10 +329,11 @@ function Petals({
   size: number;
   progress: SharedValue<number>;
 }) {
+  const { hi } = useBloom();
   return (
     <View pointerEvents="none" style={styles.center}>
       {Array.from({ length: PETALS }, (_, i) => (
-        <Petal key={i} index={i} size={size} progress={progress} />
+        <Petal key={i} index={i} size={size} progress={progress} color={hi} />
       ))}
     </View>
   );
@@ -341,10 +343,12 @@ function Petal({
   index,
   size,
   progress,
+  color,
 }: {
   index: number;
   size: number;
   progress: SharedValue<number>;
+  color: string;
 }) {
   const style = useAnimatedStyle(() => {
     const pose = petalPose(index, progress.get(), size / 2, size * 0.28);
@@ -361,7 +365,7 @@ function Petal({
   return (
     <Reanimated.View style={[styles.petal, style]}>
       <Svg width={PETAL_SIZE} height={PETAL_SIZE} viewBox="-12 -48 24 48">
-        <Path d={PETAL} fill={palette.bloomHi} />
+        <Path d={PETAL} fill={color} />
       </Svg>
     </Reanimated.View>
   );

@@ -13,6 +13,7 @@ import type { Focus } from './focus';
 import type { AmountCue as Cue, Refused } from './model';
 import { PRESETS } from './model';
 import { OfflineSwitch } from './OfflineSwitch';
+import { useBloom } from './tone';
 
 /** The longest note a request carries. */
 const NOTE_MAX = 180;
@@ -78,6 +79,7 @@ export function FormStep({
   focus: Focus;
 }) {
   const live = usePaneActive();
+  const { bloom } = useBloom();
   const showNote = noteOpen || note !== '';
   // Each time an amount turns out to be needed, the amount shakes once.
   const needed = cue.kind === 'required';
@@ -130,7 +132,7 @@ export function FormStep({
             autoFocus={noteOpen && note === ''}
             autoCorrect={false}
             returnKeyType="done"
-            selectionColor={palette.bloom}
+            selectionColor={bloom}
             style={styles.note}
           />
         </Reanimated.View>

@@ -29,6 +29,7 @@ import {
 import type { Refused } from '../scenes/receive/model';
 import { QuoteStep } from '../scenes/receive/QuoteStep';
 import { RequestStep } from '../scenes/receive/RequestStep';
+import { TestNetwork } from '../scenes/receive/tone';
 import { useNow } from '../services/clock';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { useReceiveStatus } from '../services/useReceiveStatus';
@@ -57,6 +58,7 @@ export function ReceiveScreen({
   onRefresh,
   onBusy,
   completionsFelt = false,
+  test = false,
 }: {
   client: WalletAdapter;
   receivableSats?: number;
@@ -82,6 +84,8 @@ export function ReceiveScreen({
    * seen on its way, or part of what was asked.
    */
   completionsFelt?: boolean;
+  /** A wallet on a test network, where slate stands in for bloom. */
+  test?: boolean;
 }) {
   const { useBack } = useReceiveHost();
   const live = usePaneActive();
@@ -383,99 +387,101 @@ export function ReceiveScreen({
   const amountMessage =
     error && error.message === amountError.current ? error.message : '';
   return (
-    <View style={styles.root}>
-      {/* Under a lifted code, the step it covers is out of a screen
+    <TestNetwork.Provider value={test}>
+      <View style={styles.root}>
+        {/* Under a lifted code, the step it covers is out of a screen
           reader's reach, as it is out of a finger's. */}
-      <Reanimated.View
-        key={step}
-        entering={sceneIn()}
-        exiting={sceneOut()}
-        accessibilityElementsHidden={showLift}
-        importantForAccessibility={showLift ? 'no-hide-descendants' : 'auto'}
-      >
-        {request && face ? (
-          <RequestStep
-            request={request}
-            createdAt={request.createdAt ?? createdAt}
-            face={face}
-            minutesLeft={Math.ceil(
-              Math.max(0, request.expiresAt - now) / 60000,
-            )}
-            receipt={receipt}
-            trackingError={tracking?.error}
-            hidden={hidden}
-            unit={unit}
-            qr={qr}
-            error={error}
-            onLift={lift}
-            onCopy={copyRequest}
-            copies={copies}
-            onShare={share}
-            onAgain={again}
-            onActivity={onActivity}
-            focus={focus}
-            qrFocus={qrFocus}
+        <Reanimated.View
+          key={step}
+          entering={sceneIn()}
+          exiting={sceneOut()}
+          accessibilityElementsHidden={showLift}
+          importantForAccessibility={showLift ? 'no-hide-descendants' : 'auto'}
+        >
+          {request && face ? (
+            <RequestStep
+              request={request}
+              createdAt={request.createdAt ?? createdAt}
+              face={face}
+              minutesLeft={Math.ceil(
+                Math.max(0, request.expiresAt - now) / 60000,
+              )}
+              receipt={receipt}
+              trackingError={tracking?.error}
+              hidden={hidden}
+              unit={unit}
+              qr={qr}
+              error={error}
+              onLift={lift}
+              onCopy={copyRequest}
+              copies={copies}
+              onShare={share}
+              onAgain={again}
+              onActivity={onActivity}
+              focus={focus}
+              qrFocus={qrFocus}
+            />
+          ) : quote ? (
+            <QuoteStep
+              quote={quote}
+              quotedAt={quotedAt}
+              offline={offline}
+              receivableSats={receivableSats}
+              expired={quoteExpired}
+              busy={busy}
+              stale={disabled}
+              error={error}
+              shake={refusals}
+              onCreate={create}
+              onRequote={() => {
+                setQuote(null);
+                price();
+              }}
+              onEdit={() => {
+                setQuote(null);
+                setError(null);
+              }}
+              onBlocked={blocked}
+              focus={focus}
+            />
+          ) : (
+            <FormStep
+              amount={amount}
+              onAmount={setAmount}
+              cue={cue}
+              cap={offlineReceivableSats}
+              amountMessage={amountMessage}
+              note={description}
+              onNote={setDescription}
+              noteOpen={noteOpen}
+              onNoteOpen={setNoteOpen}
+              offlineOffered={offlineOffered}
+              offline={offline}
+              offlineRefused={offlineRefusals}
+              onOffline={next => {
+                setOffline(next);
+                setError(null);
+              }}
+              busy={busy}
+              stale={disabled}
+              ready={ready}
+              error={amountMessage ? null : error}
+              shake={refusals}
+              onContinue={price}
+              onBlocked={blocked}
+              focus={focus}
+            />
+          )}
+        </Reanimated.View>
+        {showLift && request ? (
+          <LiftedQr
+            value={request.uri}
+            from={qrSide(qr)}
+            onClose={() => setLifted(false)}
           />
-        ) : quote ? (
-          <QuoteStep
-            quote={quote}
-            quotedAt={quotedAt}
-            offline={offline}
-            receivableSats={receivableSats}
-            expired={quoteExpired}
-            busy={busy}
-            stale={disabled}
-            error={error}
-            shake={refusals}
-            onCreate={create}
-            onRequote={() => {
-              setQuote(null);
-              price();
-            }}
-            onEdit={() => {
-              setQuote(null);
-              setError(null);
-            }}
-            onBlocked={blocked}
-            focus={focus}
-          />
-        ) : (
-          <FormStep
-            amount={amount}
-            onAmount={setAmount}
-            cue={cue}
-            cap={offlineReceivableSats}
-            amountMessage={amountMessage}
-            note={description}
-            onNote={setDescription}
-            noteOpen={noteOpen}
-            onNoteOpen={setNoteOpen}
-            offlineOffered={offlineOffered}
-            offline={offline}
-            offlineRefused={offlineRefusals}
-            onOffline={next => {
-              setOffline(next);
-              setError(null);
-            }}
-            busy={busy}
-            stale={disabled}
-            ready={ready}
-            error={amountMessage ? null : error}
-            shake={refusals}
-            onContinue={price}
-            onBlocked={blocked}
-            focus={focus}
-          />
-        )}
-      </Reanimated.View>
-      {showLift && request ? (
-        <LiftedQr
-          value={request.uri}
-          from={qrSide(qr)}
-          onClose={() => setLifted(false)}
-        />
-      ) : null}
-    </View>
+        ) : null}
+      </View>
+    </TestNetwork.Provider>
   );
 }
 

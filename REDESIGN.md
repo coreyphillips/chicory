@@ -619,6 +619,8 @@ A cocoa pill anchored above its source (see rule 3).
 | partial              | A split ring showing received over requested, and `plus` with the remainder.                                                        |
 | completed            | The full celebration.                                                                                                               |
 
+On a test network Receive draws slate wherever it would draw bloom (`scenes/receive/tone.ts`): its glyphs, the busy orbit, the halo, the offline switch, the primary controls and the burst petals, and `ReceiveRequestDetails` does the same for the request a payment's detail keeps when it is given `test`. The expiry rings are ExpiryRing's own, which has no test tone yet.
+
 ### Backup and setup
 
 - **Backup pending.** A honey halo on the mark and a shield tile in the shelf. It cannot be dismissed, and tapping it opens Settings > Recovery phrase.

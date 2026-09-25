@@ -24,6 +24,7 @@ import { ErrorPip, GlyphButton, WarningPips } from './controls';
 import type { Focus } from './focus';
 import { Rock } from './loops';
 import type { Refused, RequestFace } from './model';
+import { useBloom } from './tone';
 import { lateAt, remainderSats, requestRails, shownSats } from './model';
 
 /** The expiry ring runs this far outside the card. */
@@ -278,6 +279,7 @@ function About({
   minutesLeft: number;
   focus?: Focus;
 }) {
+  const { bloom } = useBloom();
   const rails = requestRails(request);
   const how = [
     rails.length > 1 ? copy.receive.unified : copy.receive.lightningOnly,
@@ -329,7 +331,7 @@ function About({
           ))}
           {request.offlineReceive && !face.expired ? (
             <Rock>
-              <Glyph name="moon" size={18} color={palette.bloom} />
+              <Glyph name="moon" size={18} color={bloom} />
             </Rock>
           ) : null}
         </View>

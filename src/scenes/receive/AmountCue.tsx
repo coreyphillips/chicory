@@ -9,6 +9,7 @@ import { riseIn, sceneOut } from '../../motion/presets';
 import { number, space, type as typography } from '../../theme';
 import { Pulse } from './loops';
 import type { AmountCue as Cue } from './model';
+import { useBloom } from './tone';
 
 /**
  * What the amount means, as a glyph over it (REDESIGN.md 6, Receive): a
@@ -30,6 +31,7 @@ export function AmountCue({
   /** What the engine said when it asked for an amount. */
   message?: string;
 }) {
+  const { bloom } = useBloom();
   let label: string | undefined;
   let hint: string | undefined;
   let face: React.ReactNode = null;
@@ -45,7 +47,7 @@ export function AmountCue({
         : copy.receive.offlineRange(cap);
     face = (
       <>
-        <Glyph name="moon" size={18} color={palette.bloom} />
+        <Glyph name="moon" size={18} color={bloom} />
         {cap !== undefined ? (
           <>
             <Text
@@ -67,7 +69,7 @@ export function AmountCue({
   } else if (cue.kind === 'required') {
     label = copy.amount.required;
     hint = copy.receive.enterAmount;
-    face = <Glyph name="sprout" size={20} color={palette.bloom} />;
+    face = <Glyph name="sprout" size={20} color={bloom} />;
   }
   return (
     <View style={styles.strip}>
@@ -97,8 +99,9 @@ export function AmountCue({
  * it, since an amount is needed.
  */
 export function AmountFace({ cue }: { cue: Cue }) {
+  const { bloom } = useBloom();
   if (cue.kind === 'any') {
-    return <Glyph name="infinity" size={40} color={palette.bloom} />;
+    return <Glyph name="infinity" size={40} color={bloom} />;
   }
   return (
     <>
@@ -106,7 +109,7 @@ export function AmountFace({ cue }: { cue: Cue }) {
         0
       </Text>
       <Pulse period={1000} low={0}>
-        <View style={styles.caret} />
+        <View style={[styles.caret, { backgroundColor: bloom }]} />
       </Pulse>
     </>
   );
@@ -127,7 +130,6 @@ const styles = StyleSheet.create({
     height: 36,
     marginLeft: 2,
     borderRadius: 1,
-    backgroundColor: palette.bloom,
   },
   cap: typography.meta,
 });

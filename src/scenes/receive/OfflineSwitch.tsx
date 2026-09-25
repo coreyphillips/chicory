@@ -16,6 +16,7 @@ import { springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { useOnce } from './controls';
+import { useBloom } from './tone';
 
 const TRACK = { width: 60, height: 36 };
 const KNOB = 28;
@@ -47,6 +48,7 @@ export function OfflineSwitch({
 }) {
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
+  const tones = useBloom();
   const refusal = useShake();
   useOnce(shake, refusal.play);
   const slide = useSharedValue(on ? 1 : 0);
@@ -76,13 +78,19 @@ export function OfflineSwitch({
               }
             : undefined
         }
-        style={[styles.track, on && styles.on, disabled && styles.disabled]}
+        style={[
+          styles.track,
+          on && { backgroundColor: tones.night },
+          disabled && styles.disabled,
+        ]}
       >
         <Reanimated.View
           pointerEvents="none"
           style={[styles.tint, refusal.tint]}
         />
-        <Reanimated.View style={[styles.knob, on && styles.knobOn, knob]}>
+        <Reanimated.View
+          style={[styles.knob, on && { backgroundColor: tones.bloom }, knob]}
+        >
           <Svg
             width={MOON}
             height={MOON}
@@ -106,7 +114,6 @@ const styles = StyleSheet.create({
     backgroundColor: palette.husk,
     padding: INSET,
   },
-  on: { backgroundColor: palette.bloomNight },
   disabled: { opacity: 0.5 },
   tint: {
     ...StyleSheet.absoluteFill,
@@ -121,5 +128,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: palette.mocha,
   },
-  knobOn: { backgroundColor: palette.bloom },
 });
