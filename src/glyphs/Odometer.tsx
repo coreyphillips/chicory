@@ -74,6 +74,12 @@ export interface OdometerProps {
   sign?: '+' | '-' | null;
   /** The width the hero may take, as its container measured it. */
   room?: number;
+  /**
+   * How long a roll takes, in place of `rollDuration` of the change: for a
+   * count whose length is set by what it belongs to, as the received
+   * celebration's count-up is (REDESIGN.md 5).
+   */
+  duration?: number;
   accessibilityLabel?: string;
 }
 
@@ -678,6 +684,7 @@ export function Odometer({
   color = palette.cream,
   sign = null,
   room,
+  duration,
   accessibilityLabel,
 }: OdometerProps) {
   const { reduced } = useMotionPrefs();
@@ -730,14 +737,17 @@ export function Odometer({
     v.set(
       withTiming(
         target,
-        { duration: rollDuration(target - from), easing: curves.standard },
+        {
+          duration: duration ?? rollDuration(target - from),
+          easing: curves.standard,
+        },
         done => {
           'worklet';
           if (done) scheduleOnRN(settle);
         },
       ),
     );
-  }, [v, roll, phase, target, settle]);
+  }, [v, roll, phase, target, settle, duration]);
 
   const s = useSharedValue(0);
   useEffect(() => {

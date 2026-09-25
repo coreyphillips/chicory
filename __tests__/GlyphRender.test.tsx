@@ -1,4 +1,5 @@
 import React from 'react';
+import * as Reanimated from 'react-native-reanimated';
 import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
 import { LayoutAnimationConfig } from 'react-native-reanimated';
 import { act, create } from 'react-test-renderer';
@@ -19,7 +20,7 @@ import Svg, {
 import type { WalletRecord } from '@beignet/wallet-core';
 import { Bloom, petalState } from '../src/glyphs/Bloom';
 import type { BloomEvent, BloomMode, BloomTone } from '../src/glyphs/Bloom';
-import { Odometer } from '../src/glyphs/Odometer';
+import { Odometer, rollDuration } from '../src/glyphs/Odometer';
 import type { OdometerVariant } from '../src/glyphs/Odometer';
 import { PulseDot } from '../src/glyphs/PulseDot';
 import { StatusRing, ringColor } from '../src/glyphs/StatusRing';
@@ -499,6 +500,36 @@ describe('Odometer', () => {
     expect(visibleText(tree)).toContain('9');
     await act(async () => {});
     expect(visibleText(tree).join('')).toBe('1,450sats');
+  });
+
+  test('a roll takes its length from the change, or from duration when given', async () => {
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    const rolledFor = () =>
+      timings.mock.calls
+        .filter(([to]) => to === 1_450)
+        .map(([, config]) => config?.duration);
+    const tree = await render(
+      <Odometer sats={1_200} unit="sats" variant="line" />,
+    );
+    await act(async () =>
+      tree.update(<Odometer sats={1_450} unit="sats" variant="line" />),
+    );
+    // Under the mock the column value has already moved, so the change the
+    // roll sizes itself by is not the one asked for; what matters is that it
+    // comes from rollDuration.
+    const [natural] = rolledFor();
+    expect(natural).toBeGreaterThanOrEqual(rollDuration(0));
+    expect(natural).toBeLessThanOrEqual(rollDuration(250));
+    timings.mockClear();
+    const timed = await render(
+      <Odometer sats={1_200} unit="sats" variant="line" duration={700} />,
+    );
+    await act(async () =>
+      timed.update(
+        <Odometer sats={1_450} unit="sats" variant="line" duration={700} />,
+      ),
+    );
+    expect(rolledFor()).toEqual([700]);
   });
 
   test('a new leading digit joins the roll, and one going away leaves after it', async () => {

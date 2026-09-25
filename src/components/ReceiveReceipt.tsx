@@ -159,6 +159,7 @@ export function ReceiveReceipt({
             variant={celebrate ? 'amountDetail' : 'line'}
             color={completed ? palette.sage : palette.cream}
             sign="+"
+            duration={play ? CELEBRATION.count.duration : undefined}
           />
           {partial && amountSats != null ? (
             <View style={styles.of}>

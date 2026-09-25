@@ -18,12 +18,14 @@ import type {
   WalletSnapshot,
 } from '@beignet/wallet-core';
 import { AmountField } from '../../../components/AmountField';
+import { ReceiveReceipt } from '../../../components/ReceiveReceipt';
 import { ReceiveRequestDetails } from '../../../components/ReceiveRequestDetails';
 import { copy } from '../../../design/copy';
 import { Glyph } from '../../../design/glyphs';
 import { haptics } from '../../../design/haptics';
 import { palette } from '../../../design/palette';
 import { ExpiryRing } from '../../../glyphs/ExpiryRing';
+import { Odometer } from '../../../glyphs/Odometer';
 import * as tokens from '../../../motion/tokens';
 import { ReceiveScreen } from '../../../screens/Receive';
 import type { WalletAdapter } from '../../../services/wallet';
@@ -42,6 +44,7 @@ import { CONTROL as SEND_CONTROL } from '../../send/Controls';
 import { BANG, DrawnGlyph } from '../../send/DrawnGlyph';
 import { Unplugged } from '../../send/LoopingGlyphs';
 import { Spin } from '../loops';
+import { CELEBRATION } from '../model';
 
 /**
  * Receive's accessibility, feedback and look (REDESIGN.md 6 and 9), driven
@@ -625,6 +628,38 @@ describe('type', () => {
     });
     expect(shown.props.maxFontSizeMultiplier).toBe(1.4);
     await act(async () => tree.unmount());
+  });
+});
+
+describe('the celebration', () => {
+  test('counts what arrived up over 700ms, and a still receipt rolls as any amount does', async () => {
+    const completed: ReceiveStatus = {
+      phase: 'completed',
+      receivedSats: 1000,
+      confirmedSats: 1000,
+      pendingSats: 0,
+      txids: [],
+      method: 'lightning',
+    };
+    const durations = async (celebrate: boolean) => {
+      const tree = await mount(
+        <ReceiveReceipt
+          status={completed}
+          amountSats={1000}
+          celebrate={celebrate}
+        />,
+      );
+      const found = tree.root
+        .findAllByType(Odometer)
+        .filter(odometer => odometer.props.sign === '+')
+        .map(odometer => odometer.props.duration);
+      await act(async () => tree.unmount());
+      return found;
+    };
+    // REDESIGN.md 5, Received celebration: the amount counts up (700ms).
+    expect(CELEBRATION.count.duration).toBe(700);
+    expect(await durations(true)).toEqual([CELEBRATION.count.duration]);
+    expect(await durations(false)).toEqual([undefined]);
   });
 });
 
