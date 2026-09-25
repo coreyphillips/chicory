@@ -1,11 +1,6 @@
 import React, { useEffect } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import type {
-  AccessibilityActionEvent,
-  LayoutChangeEvent,
-  StyleProp,
-  ViewStyle,
-} from 'react-native';
+import type { AccessibilityActionEvent, LayoutChangeEvent } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import Reanimated, {
   useAnimatedStyle,
@@ -14,7 +9,7 @@ import Reanimated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import type { AnimatedStyle, SharedValue } from 'react-native-reanimated';
+import type { SharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
@@ -40,8 +35,6 @@ import type { Panes } from '../../stage/panes/Pane';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { space } from '../../theme';
 import type { Unit } from '../../theme';
-
-type Style = StyleProp<AnimatedStyle<StyleProp<ViewStyle>>>;
 
 /** The pull's haptic, as the pan's worklets hand it back to JS. */
 const feelPull = () => haptics.soft();
@@ -84,8 +77,6 @@ export function HomeScreen({
   progress,
   launching = 'none',
   arrived = 0,
-  heroStyle,
-  barStyle,
 }: {
   snapshot: WalletSnapshot;
   hidden?: boolean;
@@ -109,9 +100,6 @@ export function HomeScreen({
   launching?: Launch;
   /** A count that rises with each read that brought money in. */
   arrived?: number;
-  /** Further styles for the hero and the action row. */
-  heroStyle?: Style;
-  barStyle?: Style;
 }) {
   // On the canvas, Home stays drawn while other scenes show, so its controls
   // only get their handlers while its pane is the one in use.
@@ -262,7 +250,7 @@ export function HomeScreen({
               <Reanimated.View
                 testID="home-hero"
                 onLayout={measureHero}
-                style={[styles.hero, heroMotion, heroStyle]}
+                style={[styles.hero, heroMotion]}
               >
                 <Pressable
                   accessibilityRole="button"
@@ -308,7 +296,7 @@ export function HomeScreen({
             <Reanimated.View
               testID="home-bar"
               onLayout={measureRow}
-              style={[styles.bar, barFade, barStyle]}
+              style={[styles.bar, barFade]}
             >
               <Reanimated.View style={sendLaunch} onLayout={centreOf(sendAt)}>
                 <ActionCircle
