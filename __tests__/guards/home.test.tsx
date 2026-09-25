@@ -82,6 +82,7 @@ import {
 } from '../../test-support/fixtures';
 import type { Lfbw } from '../../test-support/fixtures';
 import { guard, mount } from '../../test-support/guard';
+import { filesUnder, fs, path, ROOT } from '../../test-support/node';
 import type { GuardedState } from '../../test-support/guard';
 import {
   find,
@@ -525,6 +526,23 @@ describe('the backdrop', () => {
         expect(Math.abs(ly)).toBeLessThanOrEqual(height / 2 + bleed);
       }
     }
+  });
+
+  test('every colour comes from the palette, the slate glow included', () => {
+    // A hex colour written anywhere in the canvas's own files, rather than
+    // taken from src/design/palette.ts, would be a colour outside the
+    // palette (REDESIGN.md 3.1).
+    const code = /\.tsx?$/;
+    const sources = [
+      ...filesUnder(path.join(ROOT, 'src/scenes/home'), code),
+      ...filesUnder(path.join(ROOT, 'src/stage'), code),
+      ...filesUnder(path.join(ROOT, 'src/motion'), code),
+      path.join(ROOT, 'src/screens/wallet/Home.tsx'),
+    ];
+    const stray = sources.filter(file =>
+      /['"]#[0-9A-Fa-f]{3,8}['"]/.test(fs.readFileSync(file, 'utf8')),
+    );
+    expect(stray.map(file => path.relative(ROOT, file))).toEqual([]);
   });
 
   test('an old balance dims the glow, and a test network turns it slate', () => {
