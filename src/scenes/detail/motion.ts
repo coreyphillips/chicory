@@ -27,8 +27,11 @@ import { amountVisual } from '../activity/visual';
  * (REDESIGN.md 7, T4), as layout animations and the frame math under them.
  */
 
-/** The card grows out of its row over this long. */
-export const EXPAND_MS = 380;
+/**
+ * The card grows out of its row over this long: the 320ms T4 gives the
+ * ring and amount to fly, inside the 340ms transition lock the card holds.
+ */
+export const EXPAND_MS = durations.move;
 /** A row's corners, which the card starts from and folds back to. */
 export const ROW_RADIUS = radius.md;
 /** The card's corners once it has grown. */

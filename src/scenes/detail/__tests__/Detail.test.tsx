@@ -21,6 +21,8 @@ import { SceneSlot } from '../../../stage/panes/SceneSlot';
 import { StageProvider, useStageStore } from '../../../stage/StageContext';
 import type { StageStore } from '../../../stage/StageContext';
 import { MASK, dateLabel } from '../../../theme';
+import { durations } from '../../../motion/tokens';
+import { PANE_SETTLE_MS } from '../../../stage/layout';
 import {
   activityOf,
   everyActivity,
@@ -36,6 +38,7 @@ import * as motionPrefs from '../../../services/motion';
 import { ringWords, statusSentence } from '../model';
 import {
   CARD_RADIUS,
+  EXPAND_MS,
   ROW_RADIUS,
   frameOver,
   headerIn,
@@ -397,6 +400,14 @@ describe('the lines', () => {
 
 describe('the card', () => {
   const rect = { x: 24, y: 480, width: 327, height: 64 };
+
+  test('grows in the 320ms T4 gives it, inside the transition lock', () => {
+    // REDESIGN.md 7, T4: the ring and amount fly to the header from 0 to
+    // 320, and the card that carries them holds the 340ms lock, so taps wait
+    // until it has grown.
+    expect(EXPAND_MS).toBe(durations.move);
+    expect(EXPAND_MS).toBeLessThanOrEqual(PANE_SETTLE_MS);
+  });
 
   test('lies over the row in its parent’s coordinates', () => {
     expect(frameOver(rect, { x: 0, y: 0 }, { x: 0, y: 72 })).toEqual({
