@@ -14,7 +14,7 @@ export type Scene =
   | { name: 'home'; key: number }
   | { name: 'activity'; key: number }
   | { name: 'detail'; item: Activity; from: Rect | null; key: number }
-  | { name: 'send'; prefill: string; scanning: boolean; key: number }
+  | { name: 'send'; prefill: string; key: number }
   | { name: 'receive'; key: number }
   | { name: 'settings'; key: number };
 
@@ -133,7 +133,7 @@ function settle(
 function sendOver(state: StageState, prefill: string): StageState {
   const key = state.key + 1;
   return settle(state, {
-    scene: { name: 'send', prefill, scanning: false, key },
+    scene: { name: 'send', prefill, key },
     stack: [base(state)],
     overlay: null,
     key,

@@ -18,7 +18,7 @@ const REQUEST = 'lnbcrt12u1invoice';
 
 const openSend = (prefill = ''): StageAction => ({
   type: 'open',
-  scene: { name: 'send', prefill, scanning: false },
+  scene: { name: 'send', prefill },
 });
 const openActivity: StageAction = {
   type: 'open',
@@ -213,7 +213,6 @@ describe('the send prefill', () => {
     expect(run(openSend(REQUEST)).scene).toEqual({
       name: 'send',
       prefill: REQUEST,
-      scanning: false,
       key: 1,
     });
   });
@@ -369,7 +368,6 @@ describe('link', () => {
     expect(next.scene).toEqual({
       name: 'send',
       prefill: REQUEST,
-      scanning: false,
       key: 2,
     });
     expect(names(next)).toEqual(['home']);
@@ -431,7 +429,6 @@ describe('scanned', () => {
     expect(next.scene).toEqual({
       name: 'send',
       prefill: REQUEST,
-      scanning: false,
       key: 2,
     });
     expect(names(next)).toEqual(['home']);

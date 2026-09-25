@@ -13,17 +13,15 @@ import { colors } from '../../theme';
 /**
  * Send, in the top slot under the status row. `prefill` is the request a
  * scanned code or a tapped link brought with the scene, never sent without a
- * review; `scanning` opens it onto the camera.
+ * review.
  */
 export function SendScene({
   prefill,
-  scanning,
   client,
   stale,
   session,
 }: {
   prefill: string;
-  scanning: boolean;
   client: WalletAdapter;
   stale: boolean;
   session: Pick<CanvasSession, 'refresh'>;
@@ -35,7 +33,6 @@ export function SendScene({
         <SendScreen
           client={client}
           initialRequest={prefill}
-          initialScanning={scanning}
           disabled={stale}
           onActivity={actions.openActivity}
           onRefresh={session.refresh}

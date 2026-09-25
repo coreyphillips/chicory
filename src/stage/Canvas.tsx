@@ -184,7 +184,6 @@ export function Canvas({
       <SendScene
         key={scene.key}
         prefill={scene.prefill}
-        scanning={scene.scanning}
         client={client}
         stale={stale}
         session={session}

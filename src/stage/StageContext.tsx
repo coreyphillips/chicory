@@ -18,7 +18,7 @@ import type { Rect, StageAction, StageState } from './scene';
  * prop without re-rendering whenever the scene changes.
  */
 export interface StageActions {
-  openSend: (prefill?: string, scanning?: boolean) => void;
+  openSend: (prefill?: string) => void;
   openReceive: () => void;
   openScan: (origin?: { x: number; y: number }) => void;
   openDetail: (item: Activity, rect?: Rect) => void;
@@ -109,11 +109,8 @@ export function useStageStore(): StageStore {
       if (latest.current !== before) motion?.follow(latest.current);
     };
     return {
-      openSend: (prefill = '', scanning = false) =>
-        tap({
-          type: 'open',
-          scene: { name: 'send', prefill, scanning },
-        }),
+      openSend: (prefill = '') =>
+        tap({ type: 'open', scene: { name: 'send', prefill } }),
       openReceive: () => tap({ type: 'open', scene: { name: 'receive' } }),
       openScan: origin =>
         tap({

@@ -29,7 +29,7 @@ const SCENES: Scene[] = [
   HOME,
   { name: 'activity', key: 1 },
   { name: 'detail', item: ITEM, from: null, key: 2 },
-  { name: 'send', prefill: '', scanning: false, key: 3 },
+  { name: 'send', prefill: '', key: 3 },
   { name: 'receive', key: 4 },
 ];
 const SETTINGS: Scene = { name: 'settings', key: 5 };
