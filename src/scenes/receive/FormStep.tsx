@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Reanimated from 'react-native-reanimated';
 import { AmountField } from '../../components/AmountField';
 import { copy } from '../../design/copy';
@@ -10,6 +10,7 @@ import { radius, space, type as typography } from '../../theme';
 import { AmountCue, AmountFace } from './AmountCue';
 import { CONTROL, ErrorPip, GlyphButton } from './controls';
 import type { Focus } from './focus';
+import { useReceiveHost } from './host';
 import type { AmountCue as Cue, Refused } from './model';
 import { PRESETS } from './model';
 import { OfflineSwitch } from './OfflineSwitch';
@@ -19,11 +20,23 @@ import { useBloom } from './tone';
 const NOTE_MAX = 180;
 
 /**
+ * The least a pinned step is given, so a slot squeezed flat still leaves the
+ * amount room to scroll above the way on; past that the slot scrolls.
+ */
+const PINNED_MIN = CONTROL * 3;
+
+/**
  * The amount to ask for (REDESIGN.md 6, Receive): the amount with its cue
  * over it and the preset chips, the pencil that opens a note, the moon that
  * makes the request payable offline when that is offered, and the control
  * that asks for a quote. No words: the cue, the switch and the controls
  * carry them for a screen reader.
+ *
+ * The pencil and the moon flank the cue, and the note opens under them,
+ * where a keyboard leaves it in view. The way on sits at the bottom with a
+ * refusal beside it, as Send's does. In the scene (`room`) the step fits its
+ * slot on any phone: the way on is pinned above the bottom inset and what
+ * is entered scrolls above it when the phone is too short for it all.
  *
  * The amount shows an infinity while it is empty and the sender may choose,
  * and a dust 0 with a caret while one is needed. It turns radish past an
@@ -80,6 +93,7 @@ export function FormStep({
 }) {
   const live = usePaneActive();
   const { bloom } = useBloom();
+  const { room } = useReceiveHost();
   const showNote = noteOpen || note !== '';
   // Each time an amount turns out to be needed, the amount shakes once.
   const needed = cue.kind === 'required';
@@ -87,20 +101,9 @@ export function FormStep({
   if (asked.needed !== needed) {
     setAsked({ needed, times: asked.times + (needed ? 1 : 0) });
   }
-  return (
-    <View style={styles.form}>
-      <AmountCue cue={cue} cap={cap} message={amountMessage || undefined} />
-      <AmountField
-        value={amount}
-        onChangeText={onAmount}
-        presets={PRESETS}
-        busy={busy}
-        hint={cue.kind === 'any' && cue.empty ? copy.amount.any : undefined}
-        empty={<AmountFace cue={cue} />}
-        tone={cue.over ? 'radish' : cue.under ? 'dust' : undefined}
-        shake={asked.times}
-      />
-      <Reanimated.View entering={stagger(2)} style={styles.options}>
+  const tools = (
+    <View style={styles.tools}>
+      <View style={styles.side}>
         <GlyphButton
           glyph="pencil"
           label={copy.receive.addNote}
@@ -109,6 +112,9 @@ export function FormStep({
           disabled={busy}
           onPress={() => onNoteOpen(!noteOpen)}
         />
+      </View>
+      <AmountCue cue={cue} cap={cap} message={amountMessage || undefined} />
+      <View style={[styles.side, styles.end]}>
         {offlineOffered ? (
           <OfflineSwitch
             on={offline}
@@ -118,7 +124,12 @@ export function FormStep({
             onToggle={onOffline}
           />
         ) : null}
-      </Reanimated.View>
+      </View>
+    </View>
+  );
+  const entry = (
+    <>
+      {tools}
       {showNote ? (
         <Reanimated.View entering={riseIn(8)} exiting={sceneOut()}>
           <TextInput
@@ -137,35 +148,76 @@ export function FormStep({
           />
         </Reanimated.View>
       ) : null}
-      <Reanimated.View entering={stagger(3)} style={styles.go}>
-        <GlyphButton
-          glyph="receive"
-          label={copy.receive.continue}
-          hint={stale ? copy.receive.stale : undefined}
-          size={CONTROL}
-          tone="primary"
-          disabled={!stale && !ready}
-          blocked={stale}
-          busy={busy}
-          shake={shake}
-          onPress={onContinue}
-          onBlocked={onBlocked}
-          focusRef={focus}
-        />
+      <AmountField
+        value={amount}
+        onChangeText={onAmount}
+        presets={PRESETS}
+        busy={busy}
+        hint={cue.kind === 'any' && cue.empty ? copy.amount.any : undefined}
+        empty={<AmountFace cue={cue} />}
+        tone={cue.over ? 'radish' : cue.under ? 'dust' : undefined}
+        shake={asked.times}
+      />
+    </>
+  );
+  // The way on, with what went wrong beside it as Send has it, so a refusal
+  // is never pushed past the bottom of the screen.
+  const controls = (
+    <Reanimated.View entering={stagger(3)} style={styles.controls}>
+      <View style={styles.side} />
+      <GlyphButton
+        glyph="receive"
+        label={copy.receive.continue}
+        hint={stale ? copy.receive.stale : undefined}
+        size={CONTROL}
+        tone="primary"
+        disabled={!stale && !ready}
+        blocked={stale}
+        busy={busy}
+        shake={shake}
+        onPress={onContinue}
+        onBlocked={onBlocked}
+        focusRef={focus}
+      />
+      <View style={styles.side}>
         {error ? <ErrorPip message={error.message} code={error.code} /> : null}
-      </Reanimated.View>
+      </View>
+    </Reanimated.View>
+  );
+  if (room === undefined) {
+    return (
+      <View style={styles.form}>
+        {entry}
+        {controls}
+      </View>
+    );
+  }
+  // In the scene, the step fits its slot: what is entered scrolls on a
+  // short phone, and the way on stays pinned above the bottom inset.
+  return (
+    <View style={[styles.pinned, { height: Math.max(room, PINNED_MIN) }]}>
+      <ScrollView
+        testID="receive-entry"
+        style={styles.entry}
+        contentContainerStyle={styles.form}
+        alwaysBounceVertical={false}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
+      >
+        {entry}
+      </ScrollView>
+      {controls}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  form: { gap: space.lg },
-  options: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.xl,
-  },
+  form: { flexGrow: 1, gap: space.lg },
+  pinned: { gap: space.lg },
+  entry: { flex: 1 },
+  tools: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  side: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  end: { justifyContent: 'flex-end' },
   note: {
     ...typography.row,
     minHeight: 48,
@@ -175,9 +227,9 @@ const styles = StyleSheet.create({
     backgroundColor: palette.mocha,
     color: palette.cream,
   },
-  go: {
+  controls: {
+    flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    marginTop: space.xs,
   },
 });

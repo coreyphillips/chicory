@@ -46,8 +46,11 @@ import {
 import { CONTROL as SEND_CONTROL } from '../../send/Controls';
 import { BANG, DrawnGlyph } from '../../send/DrawnGlyph';
 import { Unplugged } from '../../send/LoopingGlyphs';
+import { quietRing } from '../controls';
+import { ReceiveHostContext, slotRoom } from '../host';
 import { Spin } from '../loops';
 import { CELEBRATION } from '../model';
+import { ReceiveScene } from '../ReceiveScene';
 
 /**
  * Receive's accessibility, feedback and look (REDESIGN.md 6 and 9), driven
@@ -131,6 +134,12 @@ const tap = (tree: ReactTestRenderer, label: string) =>
   act(async () => {
     await find(tree, label)!.props.onPress();
   });
+
+/** The glyphs drawn inside `node`. `Glyph` is a memo: its function is drawn. */
+const glyphsIn = (node: ReactTestInstance) =>
+  node.findAll(
+    inside => inside.type === (Glyph as unknown as { type: unknown }).type,
+  );
 
 /** Lets focus that waits for an idle moment move. */
 const idle = () =>
@@ -557,6 +566,251 @@ describe('the way on', () => {
     expect(width(tree, copy.receive.continue)).toBe(SEND_CONTROL);
     await toQuote(tree);
     expect(width(tree, copy.receive.create)).toBe(SEND_CONTROL);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('the amount step', () => {
+  const unmapped = () =>
+    clientOf({
+      quoteReceive: jest.fn(() =>
+        Promise.reject(new Error('No route to the primary.')),
+      ),
+    });
+
+  /** The nearest row round `node` that holds `other` too, if any. */
+  const rowWith = (node: ReactTestInstance, other: ReactTestInstance) => {
+    for (let at = node.parent; at; at = at.parent) {
+      if (
+        StyleSheet.flatten(at.props.style)?.flexDirection === 'row' &&
+        at.findAll(inside => inside === other).length
+      ) {
+        return at;
+      }
+    }
+    return null;
+  };
+
+  /** Whether `node` sits inside the step's scrolling entry. */
+  const scrolls = (node: ReactTestInstance) => {
+    for (let at = node.parent; at; at = at.parent) {
+      if (at.props.testID === 'receive-entry') return true;
+    }
+    return false;
+  };
+
+  /** The step's pinned height, when it has one. */
+  const pinnedHeight = (tree: ReactTestRenderer) => {
+    const [entry] = tree.root.findAll(
+      node => node.props.testID === 'receive-entry',
+    );
+    return entry
+      ? StyleSheet.flatten(entry.parent!.props.style).height
+      : undefined;
+  };
+
+  const keypad = (tree: ReactTestRenderer) =>
+    tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === copy.keypad.label,
+    )[0];
+
+  test('keeps what was refused beside the way on, where it is always in view', async () => {
+    // It sat under the control, where on a phone it fell past the bottom
+    // edge (P7, row 18); Send has its refusal beside its control.
+    const tree = await screen(unmapped());
+    await toQuote(tree);
+    const [pip] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityRole === 'alert',
+    );
+    expect(rowWith(pip, find(tree, copy.receive.continue)!)).not.toBeNull();
+    // A place a finger can hold to hear it whispered.
+    expect(StyleSheet.flatten(pip.props.style)).toMatchObject({
+      width: 48,
+      height: 48,
+    });
+    await act(async () => tree.unmount());
+  });
+
+  test('is given the room its slot has inside its padding and clear of the bottom inset', () => {
+    // A 402 by 874 phone: 62 on top, then the status row and the mini
+    // strip, leave the slot 712; its padding and the 34 inset leave 618.
+    expect(slotRoom(874 - 62 - 56 - 44, 34)).toBe(618);
+    // A 375 by 667 phone with no bottom inset.
+    expect(slotRoom(667 - 20 - 56 - 44, 0)).toBe(487);
+    expect(slotRoom(40.5, 0)).toBe(0);
+  });
+
+  test('given room, pins the way on to the bottom of it and scrolls what is entered above', async () => {
+    const tree = await mount(
+      <ReceiveHostContext.Provider value={{ useBack: noop, room: 500 }}>
+        <ReceiveScreen
+          client={unmapped()}
+          receivableSats={10_000}
+          onActivity={noop}
+          onBusy={noop}
+        />
+      </ReceiveHostContext.Provider>,
+    );
+    expect(pinnedHeight(tree)).toBe(500);
+    expect(scrolls(keypad(tree))).toBe(true);
+    expect(scrolls(find(tree, copy.receive.addNote)!)).toBe(true);
+    expect(scrolls(find(tree, copy.receive.continue)!)).toBe(false);
+    await toQuote(tree);
+    // The quote has come back refused: the bang is pinned with the way on.
+    const [pip] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityRole === 'alert',
+    );
+    expect(scrolls(pip)).toBe(false);
+    await act(async () => tree.unmount());
+  });
+
+  test('without room, as alone, takes the height it needs', async () => {
+    const tree = await screen(clientOf());
+    expect(pinnedHeight(tree)).toBeUndefined();
+    expect(scrolls(keypad(tree))).toBe(false);
+    await act(async () => tree.unmount());
+  });
+
+  test('in its scene, fits the slot the scene measures', async () => {
+    function InScene() {
+      const stage = useStageStore();
+      const view = useCanvasView();
+      return (
+        <StageProvider value={stage}>
+          <ReceiveScene
+            sceneKey={1}
+            client={clientOf()}
+            snapshot={
+              {
+                wallet: { network: 'mainnet' },
+                balance: { receivableSats: 10_000 },
+              } as WalletSnapshot
+            }
+            session={
+              { refresh: noop } as unknown as React.ComponentProps<
+                typeof ReceiveScene
+              >['session']
+            }
+            view={view}
+            stale={false}
+            backup={null}
+            arrived={0}
+          />
+        </StageProvider>
+      );
+    }
+    const tree = await mount(<InScene />);
+    // Until it is measured, the step takes the height it needs.
+    expect(pinnedHeight(tree)).toBeUndefined();
+    const [slot] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'receive-slot',
+    );
+    await act(async () => {
+      slot.props.onLayout({
+        nativeEvent: { layout: { x: 0, y: 0, width: 402, height: 712 } },
+      });
+    });
+    expect(pinnedHeight(tree)).toBe(slotRoom(712, 0));
+    await act(async () => tree.unmount());
+  });
+
+  test("a way on held back is a mocha disc in a husk ring with a dust glyph, as Send's is", async () => {
+    // Espresso on roast, it all but vanished (P7, 20-receive-amount).
+    const tree = await screen(clientOf(), { receivableSats: 0 });
+    const way = find(tree, copy.receive.continue)!;
+    expect(way.props.accessibilityState).toMatchObject({ disabled: true });
+    expect(StyleSheet.flatten(way.props.style)).toMatchObject({
+      backgroundColor: palette.mocha,
+      borderColor: palette.husk,
+      borderWidth: quietRing(SEND_CONTROL),
+    });
+    expect(quietRing(SEND_CONTROL)).toBe(4);
+    expect(glyphsIn(way).map(glyph => glyph.props.color)).toEqual([
+      palette.dust,
+    ]);
+    await act(async () => tree.unmount());
+  });
+
+  test('its cue is a place a finger can hold', async () => {
+    const tree = await screen(clientOf(), { receivableSats: 0 });
+    const [cue] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === copy.amount.required,
+    );
+    expect(StyleSheet.flatten(cue.props.style)).toMatchObject({
+      minWidth: 48,
+      minHeight: 48,
+    });
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('the quote', () => {
+  test("lines up its signs and its values in columns, as Send's review does", async () => {
+    const tree = await screen(
+      clientOf({
+        quoteReceive: jest
+          .fn()
+          .mockResolvedValue(quoteOf({ feeSats: 0, netSats: 1000 })),
+      }),
+    );
+    await toQuote(tree);
+    const lines = [copy.receive.fee(0), copy.receive.net(1000)].map(
+      label =>
+        tree.root.findAll(
+          node =>
+            typeof node.type === 'string' &&
+            node.props.accessibilityLabel === label,
+        )[0],
+    );
+    // Each is text, not a thing to press.
+    expect(lines.map(line => line.props.accessibilityRole)).toEqual([
+      'text',
+      'text',
+    ]);
+    // A glyph column, then a sign column, then the value, each line started
+    // at the same edge.
+    const columns = lines.map(line => {
+      const [glyph, sign] = line.children as ReactTestInstance[];
+      return [
+        StyleSheet.flatten(glyph.props.style).width,
+        StyleSheet.flatten(sign.props.style).minWidth,
+      ];
+    });
+    expect(columns).toEqual([
+      [24, 16],
+      [24, 16],
+    ]);
+    await act(async () => tree.unmount());
+  });
+
+  test('holds each warning in a place a finger can hold', async () => {
+    const WARNING = 'The primary charges more than usual.';
+    const tree = await screen(
+      clientOf({
+        quoteReceive: jest
+          .fn()
+          .mockResolvedValue(quoteOf({ warnings: [WARNING] })),
+      }),
+    );
+    await toQuote(tree);
+    const [pip] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === WARNING,
+    );
+    expect(StyleSheet.flatten(pip.props.style)).toMatchObject({
+      width: 48,
+      height: 48,
+    });
     await act(async () => tree.unmount());
   });
 });

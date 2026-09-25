@@ -7,6 +7,7 @@ import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
 import { riseIn, sceneOut } from '../../motion/presets';
 import { number, space, type as typography } from '../../theme';
+import { TARGET } from './controls';
 import { Pulse } from './loops';
 import type { AmountCue as Cue } from './model';
 import { useBloom } from './tone';
@@ -116,13 +117,17 @@ export function AmountFace({ cue }: { cue: Cue }) {
 }
 
 const styles = StyleSheet.create({
-  strip: { height: 40, alignItems: 'center', justifyContent: 'center' },
+  // As tall as the pencil and the switch beside it, and a place a finger
+  // can hold to hear the cue whispered (REDESIGN.md 3.4).
+  strip: { height: TARGET, alignItems: 'center', justifyContent: 'center' },
   face: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: space.xs,
     paddingHorizontal: space.sm,
-    minHeight: 32,
+    minWidth: TARGET,
+    minHeight: TARGET,
   },
   zero: { ...typography.amount, color: palette.dust },
   caret: {

@@ -38,6 +38,9 @@ import { useBloom } from './tone';
  */
 export const CONTROL = 88;
 
+/** The least a finger is given to press or hold (REDESIGN.md 3.4). */
+export const TARGET = 48;
+
 /** How long refresh takes to turn once as it arrives (REDESIGN.md 4). */
 const TURN_MS = 500;
 
@@ -174,7 +177,10 @@ export function GlyphButton({
     press.set(reduced ? 1 : withSpring(scale, springs.snap));
   const round = { width: size, height: size, borderRadius: size / 2 };
   const pill = { minHeight: size, borderRadius: size / 2 };
-  // Held back, a long press whispers why (REDESIGN.md rule 3).
+  // Held back, it is drawn as Send's way on is, a mocha disc in a husk ring
+  // with a dust glyph: a shape as well as a colour (REDESIGN.md 9). And a
+  // long press whispers why (REDESIGN.md rule 3).
+  const held = quiet && { borderWidth: quietRing(size) };
   return (
     <Whisper label={hint ?? label} enabled={quiet}>
       <Reanimated.View style={refusal.style}>
@@ -216,6 +222,7 @@ export function GlyphButton({
               children ? [styles.pill, pill] : round,
               primary ? { backgroundColor: bloom } : styles.raised,
               quiet && styles.quiet,
+              held,
             ]}
           >
             {confirm === undefined ? (
@@ -255,6 +262,12 @@ export function GlyphButton({
 }
 
 const ORBIT_GAP = 5;
+
+/**
+ * The husk ring round a control held back: Send's 4pt on the 88pt way on,
+ * and in step with it on a smaller control, never under 2pt.
+ */
+export const quietRing = (size: number) => Math.max(2, Math.round(size / 22));
 
 /** A circle just outside a control `size` across. */
 const ring = (size: number) => ({
@@ -326,6 +339,7 @@ export function ErrorPip({
 }) {
   const look = refusalLook(code);
   const honey = look.tone === 'honey';
+  // The disc is 32, in a place a finger can hold to hear it whispered.
   return (
     <Whisper label={message}>
       <Reanimated.View
@@ -333,18 +347,20 @@ export function ErrorPip({
         accessible
         accessibilityRole="alert"
         accessibilityLabel={message}
-        style={[styles.errorPip, honey && styles.waitPip]}
+        style={styles.pipArea}
       >
-        {look.glyph === 'unplug' ? (
-          <Unplugged size={18} color={palette.honey} />
-        ) : (
-          <DrawnGlyph
-            name="bang"
-            size={18}
-            color={palette.radish}
-            strokes={BANG}
-          />
-        )}
+        <View style={[styles.errorPip, honey && styles.waitPip]}>
+          {look.glyph === 'unplug' ? (
+            <Unplugged size={18} color={palette.honey} />
+          ) : (
+            <DrawnGlyph
+              name="bang"
+              size={18}
+              color={palette.radish}
+              strokes={BANG}
+            />
+          )}
+        </View>
       </Reanimated.View>
     </Whisper>
   );
@@ -353,7 +369,7 @@ export function ErrorPip({
 /**
  * What the engine warned about, as honey pips: one each, each carrying its
  * warning for a screen reader and whispering it when held, in a place big
- * enough to hold.
+ * enough to hold (REDESIGN.md 3.4, 48 at the least).
  */
 export function WarningPips({ warnings }: { warnings: string[] }) {
   if (!warnings.length) return null;
@@ -378,7 +394,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
   },
   raised: { backgroundColor: palette.mocha },
-  quiet: { backgroundColor: palette.espresso, transform: [{ scale: 0.94 }] },
+  quiet: {
+    backgroundColor: palette.mocha,
+    borderColor: palette.husk,
+    transform: [{ scale: 0.94 }],
+  },
   data: { ...typography.line },
   tint: {
     position: 'absolute',
@@ -401,8 +421,8 @@ const styles = StyleSheet.create({
   waitPip: { backgroundColor: palette.honeySoft },
   pips: { flexDirection: 'row', justifyContent: 'center' },
   pipArea: {
-    width: 28,
-    height: 28,
+    width: TARGET,
+    height: TARGET,
     alignItems: 'center',
     justifyContent: 'center',
   },
