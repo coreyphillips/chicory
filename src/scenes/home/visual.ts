@@ -185,7 +185,10 @@ export interface MarkVisual {
   breath: 'whole' | 'center';
   /** How far the petals are open: .6 during setup, all the way once ready. */
   open: number;
-  /** Dormant while the balance is old, slate on a test network. */
+  /**
+   * Slate on a test network, whatever else holds; otherwise dormant while
+   * the balance is old.
+   */
   tone: 'live' | 'test' | 'dormant';
   /** The honey halo of a recovery phrase still to save. */
   halo: boolean;
@@ -218,7 +221,10 @@ export function markVisual(input: HealthInput): MarkVisual {
         : 'still',
     breath: setup === 'pending' ? 'center' : 'whole',
     open: setup === 'pending' ? 0.6 : setup === 'failed' ? 0.8 : 1,
-    tone: stale ? 'dormant' : test ? 'test' : 'live',
+    // A test network's outline outlasts an old balance: slate replaces bloom
+    // everywhere (REDESIGN.md 6), and the hero, the actions and the dot
+    // still say the balance is old.
+    tone: test ? 'test' : stale ? 'dormant' : 'live',
     halo: input.backupPending,
     droop: setup === 'failed',
     flask: test,

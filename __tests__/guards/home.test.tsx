@@ -377,6 +377,11 @@ describe('the mark', () => {
       { snapshot: snapshotOf() },
       { tone: 'test', flask: true },
     ],
+    [
+      'an old balance on a test network keeps it slate, with its flask',
+      { snapshot: snapshotOf(), stale: true },
+      { tone: 'test', flask: true, pulse: 'reconnecting' },
+    ],
     ['a backup to save haloes it', { backupPending: true }, { halo: true }],
     [
       'a failed refresh hollows the dot',
