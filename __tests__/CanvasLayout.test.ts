@@ -5,6 +5,7 @@ import {
   canvasScene,
   sameLayout,
   stops,
+  veilOpacity,
 } from '../src/stage/layout';
 import type { Scene } from '../src/stage/scene';
 
@@ -74,6 +75,7 @@ describe('each scene takes its pose', () => {
       ...pose,
       covered: false,
       scanning: false,
+      card: name === 'detail',
     });
   });
 
@@ -90,6 +92,7 @@ describe('under Settings', () => {
       ...SCENE_LAYOUT.home,
       covered: true,
       scanning: false,
+      card: false,
     });
   });
 
@@ -134,4 +137,22 @@ test('two poses are the same when every value is', () => {
   expect(sameLayout(home, { ...home, seam: 'compact' })).toBe(false);
   expect(sameLayout(home, { ...home, hero: 0 })).toBe(false);
   expect(sameLayout(home, { ...home, bar: 0 })).toBe(false);
+  expect(sameLayout(home, { ...home, card: true })).toBe(false);
+});
+
+test('a payment’s detail keeps the list’s pose, but is a move of its own', () => {
+  const activity = SCENES.find(scene => scene.name === 'activity')!;
+  const detail = SCENES.find(scene => scene.name === 'detail')!;
+  const list = canvasLayout({ scene: activity, stack: [HOME] });
+  const card = canvasLayout({ scene: detail, stack: [HOME, activity] });
+  expect({ ...card, card: false }).toEqual(list);
+  expect(sameLayout(list, card)).toBe(false);
+});
+
+test('the Reduce Motion crossfade hides the jump at its middle', () => {
+  expect(veilOpacity(1)).toBe(1);
+  expect(veilOpacity(0)).toBe(1);
+  expect(veilOpacity(0.25)).toBeCloseTo(0.5);
+  expect(veilOpacity(0.5)).toBe(0);
+  expect(veilOpacity(0.75)).toBeCloseTo(0.5);
 });

@@ -22,6 +22,7 @@ import { BackupBanner } from '../src/scenes/shared/BackupBanner';
 import { ActivityScreen, HomeScreen } from '../src/screens/Wallet';
 import { SettingsScreen } from '../src/screens/Settings';
 import { copy } from '../src/design/copy';
+import { durations } from '../src/motion/tokens';
 import { FOCUS_SETTLE_MS } from '../src/motion/speech';
 import { FILTERS } from '../src/scenes/activity/model';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
@@ -412,6 +413,27 @@ describe('the canvas', () => {
       expect(props.accessibilityElementsHidden).toBe(true);
       expect(props.importantForAccessibility).toBe('no-hide-descendants');
     }
+    await act(async () => tree.unmount());
+  });
+
+  test('a payment’s detail takes the lock while its card grows out of the row', async () => {
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openActivity());
+    await settle();
+    expect(passThrough(tree)).toBe(SLOTS.length);
+    act(() => stage.actions.openDetail(payment));
+    // The panes stay where the list had them, but the card is on its way:
+    // taps and back wait for it, as for any move.
+    expect(passThrough(tree)).toBe(0);
+    act(() => stage.actions.back());
+    expect(stage.state.scene.name).toBe('detail');
+    await settle();
+    expect(passThrough(tree)).toBe(SLOTS.length);
+    // Closing it is a move too.
+    act(() => stage.actions.back());
+    expect(stage.state.scene.name).toBe('activity');
+    expect(passThrough(tree)).toBe(0);
+    await settle();
     await act(async () => tree.unmount());
   });
 
@@ -842,6 +864,7 @@ describe('the canvas', () => {
     jest
       .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
       .mockResolvedValue(true);
+    const delays = jest.spyOn(Reanimated, 'withDelay');
     const tree = await render(<OnCanvas />);
     act(() => {
       stage.actions.openActivity();
@@ -850,6 +873,15 @@ describe('the canvas', () => {
     expect(stage.state.scene.name).toBe('detail');
     expect(passThrough(tree)).toBe(SLOTS.length);
     expect(transformOf(panes(tree).sheet, 'translateY')).toBe(at().compact);
+    // Nothing travels: the sheet and the balance crossfade within 160ms,
+    // jumping halfway through while they are unseen.
+    const jumps = delays.mock.calls.filter(
+      ([delay, , reduce]) =>
+        delay === durations.crossfade / 2 &&
+        reduce === Reanimated.ReduceMotion.Never,
+    );
+    expect(jumps.map(([, to]) => to)).toEqual([at().compact, 0]);
+    expect(flat(panes(tree).sheet).opacity).toBe(1);
     await act(async () => stage.actions.home());
     await act(async () => stage.actions.openSettings());
     const { canvas } = panes(tree);

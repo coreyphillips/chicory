@@ -36,6 +36,16 @@ export const COVERED = { scale: 0.94, opacity: 0.5 };
 export const SCANNING = { scale: 0.96, opacity: 0.5 };
 
 /**
+ * The opacity of what the Reduce Motion crossfade covers (the panes'
+ * `veil`), from its clock: whole at rest (1), gone halfway, whole again at
+ * the end, so the jump at the middle is never seen.
+ */
+export function veilOpacity(veil: number): number {
+  'worklet';
+  return Math.min(1, Math.abs(1 - 2 * veil));
+}
+
+/**
  * About how long the pane spring takes to look settled, which is well before
  * its rest threshold reports rest. The transition lock lasts this long, so
  * taps wait this long at most, and only while a pane is actually moving.
@@ -102,22 +112,28 @@ export function canvasScene(
 }
 
 /**
- * The panes' pose for a stage, plus whether Settings covers the canvas and
- * whether the scan overlay is open over it.
+ * The panes' pose for a stage, plus whether Settings covers the canvas,
+ * whether the scan overlay is open over it, and whether a payment's detail
+ * card is open on the sheet. The card leaves the panes where the list had
+ * them, but its growth out of the row is a move all the same, so it holds
+ * the transition lock like any other.
  */
 export interface CanvasLayout extends PaneLayout {
   covered: boolean;
   scanning: boolean;
+  card: boolean;
 }
 
 export function canvasLayout(
   state: Pick<StageState, 'scene' | 'stack'> &
     Partial<Pick<StageState, 'overlay'>>,
 ): CanvasLayout {
+  const shown = canvasScene(state);
   return {
-    ...SCENE_LAYOUT[canvasScene(state)],
+    ...SCENE_LAYOUT[shown],
     covered: state.scene.name === 'settings',
     scanning: state.overlay?.name === 'scan',
+    card: shown === 'detail',
   };
 }
 
@@ -126,4 +142,5 @@ export const sameLayout = (a: CanvasLayout, b: CanvasLayout) =>
   a.hero === b.hero &&
   a.bar === b.bar &&
   a.covered === b.covered &&
-  a.scanning === b.scanning;
+  a.scanning === b.scanning &&
+  a.card === b.card;

@@ -32,6 +32,7 @@ import {
 } from '../../scenes/home/motion';
 import type { HeroFrame, Launch } from '../../scenes/home/motion';
 import { isTestNetwork } from '../../scenes/home/visual';
+import { veilOpacity } from '../../stage/layout';
 import type { Panes } from '../../stage/panes/Pane';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { usePrimary } from '../../stage/panes/Primary';
@@ -106,7 +107,8 @@ export function HomeScreen({
    * The canvas's panes, which move the hero and the action row, and take
    * the pull for the mark to open with.
    */
-  progress?: Pick<Panes, 'hero' | 'bar'> & Partial<Pick<Panes, 'pull'>>;
+  progress?: Pick<Panes, 'hero' | 'bar'> &
+    Partial<Pick<Panes, 'pull' | 'veil'>>;
   /** The scene the canvas is heading to, when one of the circles opens it. */
   launching?: Launch;
   /** A count that rises with each read that brought money in. */
@@ -218,6 +220,12 @@ export function HomeScreen({
   const vesselStyle = useAnimatedStyle(() => ({
     opacity: vesselOpacity(hero.get()),
   }));
+  // Under Reduce Motion the balance and its vessel fade out and back in
+  // around their jump to the mini strip, rather than travelling.
+  const veil = progress?.veil;
+  const veiled = useAnimatedStyle(() => ({
+    opacity: veilOpacity(veil?.get() ?? 1),
+  }));
   // Reduce Motion keeps the circles where they are while the row fades.
   const row = { bar, gate, middle, launching: reduced ? 'none' : launching };
   const sendLaunch = useLaunchStyle(row, 'send', sendAt);
@@ -279,7 +287,7 @@ export function HomeScreen({
     <GestureDetector gesture={pan}>
       <View style={styles.fill}>
         <Reanimated.View style={[styles.stack, stackStyle]}>
-          <View style={styles.middle}>
+          <Reanimated.View style={[styles.middle, veiled]}>
             <Reanimated.View
               testID="home-hero"
               onLayout={measureHero}
@@ -327,7 +335,7 @@ export function HomeScreen({
                 stale={stale}
               />
             </Reanimated.View>
-          </View>
+          </Reanimated.View>
           {/* Each circle sits in a slot as tall as the row, so the three
               share one top edge and VoiceOver, which orders what shares a
               row by where it starts, reads them left to right: Send, Scan,

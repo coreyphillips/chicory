@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import {
   ReduceMotion,
   useSharedValue,
+  withDelay,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
@@ -34,6 +35,20 @@ const FADE = {
 const SETTLE = { duration: PANE_SETTLE_MS, easing: curves.linear };
 
 /**
+ * Under Reduce Motion nothing travels: the sheet and the balance fade out
+ * over the first half of a crossfade, jump to where they belong while
+ * unseen, and fade back in over the second (REDESIGN.md 8). The veil is
+ * that crossfade's clock, and the jump is held for half of it.
+ */
+const VEIL = {
+  duration: durations.crossfade,
+  easing: curves.linear,
+  reduceMotion: ReduceMotion.Never,
+};
+const JUMP = { duration: 0, reduceMotion: ReduceMotion.Never };
+const HALF = durations.crossfade / 2;
+
+/**
  * Drives the canvas's panes toward `layout`, the pose of the scene it shows
  * (REDESIGN.md 2.3), for a canvas `height` points tall from the top of the
  * window.
@@ -52,9 +67,11 @@ const SETTLE = { duration: PANE_SETTLE_MS, easing: curves.linear };
  * While the panes move, the transition lock holds: taps are refused and
  * `blocking` is true. It lifts once the panes look settled, PANE_SETTLE_MS
  * after the move starts, timed on the UI thread alongside the springs. A
- * move that interrupts another ends the earlier lock and holds its own. Under
- * Reduce Motion nothing travels, so the panes are simply where they belong,
- * the fades take 160ms, and nothing is locked.
+ * move that interrupts another ends the earlier lock and holds its own. A
+ * payment's detail card opening on the list, or closing, is such a move,
+ * though the panes stay where they are. Under Reduce Motion nothing
+ * travels: the sheet and the balance crossfade to where they belong within
+ * 160ms, the other fades take 160ms, and nothing is locked.
  */
 export function usePaneMotion(
   height: number,
@@ -73,18 +90,26 @@ export function usePaneMotion(
   const cover = useSharedValue(layout.covered ? 1 : 0);
   const scan = useSharedValue(layout.scanning ? 1 : 0);
   const pull = useSharedValue(0);
+  const veil = useSharedValue(1);
   const settling = useSharedValue(0);
   const aimed = useRef(layout);
 
   const aim = useCallback(
     (next: CanvasLayout, fling?: Fling) => {
-      if (sameLayout(next, aimed.current)) return;
+      const before = aimed.current;
+      if (sameLayout(next, before)) return;
       aimed.current = next;
       const covered = next.covered ? 1 : 0;
       const scanning = next.scanning ? 1 : 0;
       if (reduced) {
-        seam.set(at[next.seam]);
-        hero.set(next.hero);
+        if (next.seam !== before.seam || next.hero !== before.hero) {
+          veil.set(0);
+          veil.set(withTiming(1, VEIL));
+          const jump = (to: number) =>
+            withDelay(HALF, withTiming(to, JUMP), ReduceMotion.Never);
+          seam.set(jump(at[next.seam]));
+          hero.set(jump(next.hero));
+        }
         bar.set(withTiming(next.bar, FADE));
         cover.set(withTiming(covered, FADE));
         scan.set(withTiming(scanning, FADE));
@@ -110,7 +135,7 @@ export function usePaneMotion(
       settling.set(0);
       settling.set(withTiming(1, SETTLE, settled));
     },
-    [at, reduced, begin, seam, hero, bar, cover, scan, settling],
+    [at, reduced, begin, seam, hero, bar, cover, scan, veil, settling],
   );
 
   // A new canvas size moves the stops out from under the seam, which follows
@@ -134,8 +159,8 @@ export function usePaneMotion(
   }, [registry, active, aim]);
 
   const panes = useMemo(
-    () => ({ seam, hero, bar, cover, scan, pull, stops: at }),
-    [seam, hero, bar, cover, scan, pull, at],
+    () => ({ seam, hero, bar, cover, scan, pull, veil, stops: at }),
+    [seam, hero, bar, cover, scan, pull, veil, at],
   );
   return { panes, blocking };
 }

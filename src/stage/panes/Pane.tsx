@@ -51,8 +51,11 @@ export function Pane({
  * likewise to the scan overlay open over it. `pull` is how
  * far a finger has pulled the home pane down, in points, and 0 whenever no
  * finger pulls: Home's pan writes it, and the status row's mark opens its
- * petals with it. `stops` are where the seam can rest at the canvas's
- * current size.
+ * petals with it. `veil` is the clock of the crossfade that stands in for a
+ * move under Reduce Motion, 1 at rest: the sheet and the balance take their
+ * opacity from it (`veilOpacity`). The canvas always has one; a region drawn
+ * on panes of its own, as a suite draws one, may leave it out. `stops` are
+ * where the seam can rest at the canvas's current size.
  */
 export interface Panes {
   seam: SharedValue<number>;
@@ -61,6 +64,7 @@ export interface Panes {
   cover: SharedValue<number>;
   scan: SharedValue<number>;
   pull: SharedValue<number>;
+  veil?: SharedValue<number>;
   stops: Stops;
 }
 

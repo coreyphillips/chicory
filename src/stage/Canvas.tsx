@@ -26,6 +26,7 @@ import {
   STATUS_ROW,
   canvasLayout,
   canvasScene,
+  veilOpacity,
 } from './layout';
 import { CORNER_ROOM, CornerControl } from './panes/CornerControl';
 import { EdgeBack } from './panes/EdgeBack';
@@ -217,7 +218,10 @@ export function Canvas({
       (1 - (1 - COVERED.scale) * cover) * (1 - (1 - SCANNING.scale) * scan);
     return { opacity, transform: [{ scale }] };
   }, [reduced]);
+  // Under Reduce Motion the sheet fades out and back in around its jump
+  // instead of travelling (`veilOpacity`); otherwise the veil rests at 1.
   const sheetStyle = useAnimatedStyle(() => ({
+    opacity: veilOpacity(panes.veil?.get() ?? 1),
     transform: [{ translateY: panes.seam.get() }],
   }));
 
