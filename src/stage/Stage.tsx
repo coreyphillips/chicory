@@ -11,6 +11,7 @@ import Reanimated, { LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../design/copy';
+import { Bloom } from '../glyphs/Bloom';
 import { WhisperProvider } from '../glyphs/Whisper';
 import { wakeAmbient, wakeOnTouch } from '../motion/ambient';
 import { slideIn, slideOut } from '../motion/presets';
@@ -26,6 +27,7 @@ import { Welcome } from '../scenes/phases/Welcome';
 import { Picker } from '../scenes/phases/Picker';
 import { OpeningWallet } from '../scenes/phases/Loading';
 import { OfflineWallet } from '../scenes/phases/Offline';
+import { bloomTone, QUIET_MS, SIZES } from '../scenes/phases/visual';
 import { BackupTile } from '../scenes/home/BackupTile';
 import { useAppActive } from '../scenes/home/useAppActive';
 import { colors, space } from '../theme';
@@ -85,19 +87,20 @@ export function Stage({
   const locked = phase.kind === 'locked';
   // How the canvas arrives, from the phase before the wallet's: over the
   // opening lock (R-1), back from offline (R-5), or from loading or anything
-  // else (R-3). Kept until the next arrival, so the canvas is told once.
+  // else (R-3). Kept until the next arrival, so the canvas is told once. A
+  // lock that opened before its bud showed (QUIET_MS) had no bud to unfold,
+  // so the canvas builds as it does after a load, rather than waiting on an
+  // unfold nobody saw.
   const [shown, setShown] = useState(phase.kind);
   const [arrival, setArrival] = useState<Arrival>('load');
+  const [lockedAt, setLockedAt] = useState(() =>
+    phase.kind === 'locked' ? Date.now() : 0,
+  );
   if (phase.kind !== shown) {
     setShown(phase.kind);
+    if (phase.kind === 'locked') setLockedAt(Date.now());
     if (phase.kind === 'wallet') {
-      setArrival(
-        shown === 'locked'
-          ? 'unlock'
-          : shown === 'offline'
-          ? 'reconnect'
-          : 'load',
-      );
+      setArrival(arrivalFrom(shown, Date.now() - lockedAt));
     }
   }
 
@@ -145,7 +148,7 @@ export function Stage({
       );
       break;
     case 'opening':
-      content = <Opening />;
+      content = <Opening network={activeProfile.network} />;
       break;
     case 'saved':
       content = (
@@ -200,12 +203,23 @@ export function Stage({
       );
       break;
     case 'loading':
+      // Drawn as the canvas is, edge to edge, with the tile where the
+      // canvas puts it, beside the mark.
       content = (
         <OpeningWallet
           name={savedWallet?.name}
           network={savedWallet?.network || activeProfile.network}
           busy={connecting || selecting || refreshing}
           onDisconnect={session.disconnect}
+          tile={
+            pending ? (
+              <BackupTile
+                running={awake && !reduced}
+                hint={copy.phase.backupHint}
+                onOpen={openBackup}
+              />
+            ) : null
+          }
         />
       );
       break;
@@ -291,9 +305,10 @@ export function Stage({
                     <BackupPanel backup={backup} onClose={closeBackup} />
                   </Reanimated.View>
                 </SafeAreaView>
-              ) : phase.kind === 'wallet' ? (
+              ) : phase.kind === 'wallet' || phase.kind === 'loading' ? (
                 // The canvas draws edge to edge, under the system bars, and
-                // keeps its own content clear of them.
+                // keeps its own content clear of them, and so does the
+                // loading page drawn as it.
                 content
               ) : (
                 <SafeAreaView style={styles.root} edges={EDGES}>
@@ -360,11 +375,40 @@ export function Stage({
             onUnlock={onUnlock}
           />
         ) : null}
+        {/* While the app is not in front, as the app switcher shows it, a
+            roast ground and the mark cover whatever is drawn, so the
+            switcher's picture of the app holds no balance. It is up and
+            down at once, with no fade: the picture is taken as the app
+            leaves. The lock hides the wallet itself. */}
+        {!awake && !locked ? (
+          <View
+            testID="privacy-cover"
+            style={[styles.layer, styles.cover]}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
+            <Bloom
+              size={SIZES.loader}
+              tone={bloomTone(activeProfile.network)}
+            />
+          </View>
+        ) : null}
       </View>
     </WhisperProvider>
   );
 }
 Stage.displayName = 'Stage';
+
+/**
+ * How the canvas arrives after the phase `before` (REDESIGN.md 7): an
+ * unlock when the lock's bud was seen, `lockedFor` ms having passed its
+ * QUIET_MS, a reconnect after offline, and a load after anything else,
+ * the lock that opened before its bud showed included.
+ */
+export function arrivalFrom(before: Phase['kind'], lockedFor: number): Arrival {
+  if (before === 'locked') return lockedFor >= QUIET_MS ? 'unlock' : 'load';
+  return before === 'offline' ? 'reconnect' : 'load';
+}
 
 /**
  * What a wallet read shows, as a key that changes only when something drawn
@@ -423,6 +467,7 @@ const EDGES = ['top', 'bottom', 'left', 'right'] as const;
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   layer: { ...StyleSheet.absoluteFill, backgroundColor: colors.background },
+  cover: { alignItems: 'center', justifyContent: 'center' },
   flex: { flex: 1 },
   // Grows to the slot, so a phase root that grows can centre itself in it.
   stack: { gap: space.lg, flexGrow: 1 },

@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import type { Ref } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import type { ReactNode, Ref } from 'react';
+import {
+  PixelRatio,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import type { HostInstance } from 'react-native';
 import Reanimated, {
   cancelAnimation,
@@ -17,6 +23,7 @@ import type {
   EntryAnimationsValues,
   EntryExitAnimationFunction,
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Network } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
@@ -24,24 +31,41 @@ import { palette } from '../../design/palette';
 import { Bloom } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
 import { useFocus } from '../../motion/focus';
-import { stagger } from '../../motion/presets';
-import { curves, durations, springs } from '../../motion/tokens';
+import { fadeOut, riseIn, stagger } from '../../motion/presets';
+import { curves, durations, overlap, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { motionReduced } from '../../services/motion';
-import { PANE_SETTLE_MS } from '../../stage/layout';
+import { DAY_HEIGHT, ROW_GAP, ROW_HEIGHT, ROW_RING } from '../activity/model';
+import { GRIP_HEIGHT } from '../activity/sheet';
+import {
+  HOME,
+  PANE_SETTLE_MS,
+  STATUS_ROW,
+  heroBox,
+  stops,
+} from '../../stage/layout';
+import { CORNER_REACH, CORNER_TARGET } from '../../stage/panes/CornerControl';
 import type { Rect } from '../../stage/scene';
 import { radius, space, type as typography } from '../../theme';
 import { takeHandOff } from './handoff';
-import { GlyphButton, PhaseRoot, useRunning } from './parts';
+import { GlyphButton, useRunning } from './parts';
 import { bloomTone, flightFrom, SIZES, WAVE } from './visual';
 
 /**
- * The wallet page before its first figures, drawn as the canvas will be:
- * the mark and the wallet's name, five husk dots breathing in a wave where
- * the balance will stand, the vessel's hairline, the actions as husk
- * outlines that cannot be used yet, and skeleton rows in the sheet. The lock
- * stays in its corner, since a wallet that never answers must still be
- * closable.
+ * The wallet page before its first figures, drawn as the canvas will be and
+ * where the canvas will be (REDESIGN.md 6, loading): the mark in the status
+ * row, with the wallet's name, five husk dots breathing in a wave where the
+ * balance will stand, the vessel's hairline under them, the actions as husk
+ * outlines that cannot be used yet, and skeleton rows in the sheet. Every
+ * part sits where the canvas draws its own, from the same measures
+ * (`HOME`, `stops`, `STATUS_ROW`), so the live canvas that replaces it
+ * builds in over it without anything jumping (R-3). The lock stands where
+ * the canvas's corner control will, since a wallet that never answers must
+ * still be closable, and a recovery phrase still to save puts its `tile`
+ * beside the mark, where the canvas puts it.
+ *
+ * Like the canvas it runs edge to edge, under the system bars, and keeps its
+ * content clear of them itself.
  *
  * A wallet chosen in the picker a moment ago brings its mark with it: the
  * mark flies from that row to the status row, still chasing, and comes to
@@ -52,11 +76,14 @@ export function OpeningWallet({
   network,
   busy,
   onDisconnect,
+  tile,
 }: {
   name?: string;
   network: Network;
   busy: boolean;
   onDisconnect: () => void;
+  /** The shield tile of a recovery phrase still to save, if one is. */
+  tile?: ReactNode;
 }) {
   const { reduced } = useMotionPrefs();
   // Taken once, as the page mounts; a hand-off is only good for one arrival.
@@ -69,26 +96,51 @@ export function OpeningWallet({
     return () => clearTimeout(settle);
   }, [landed]);
   const focus = useFocus();
+  const insets = useSafeAreaInsets();
+  const { height, fontScale } = useWindowDimensions();
+  const at = stops(height, insets);
+  const belowStatus = insets.top + STATUS_ROW;
+  const [page] = useState(() => ({
+    entering: riseIn(overlap.rise, flying ? 0 : overlap.enterDelay),
+    // It leaves as the canvas builds in over it, fading in place: a page
+    // that shrank or moved as it went would not line up with what replaces
+    // it.
+    exiting: fadeOut(),
+  }));
   return (
-    <PhaseRoot style={styles.canvas} delay={flying ? 0 : undefined}>
-      <View style={styles.status}>
+    <Reanimated.View
+      entering={page.entering}
+      exiting={page.exiting}
+      style={[
+        styles.page,
+        { marginLeft: insets.left, marginRight: insets.right },
+      ]}
+    >
+      <View
+        style={[styles.status, { paddingTop: insets.top, height: belowStatus }]}
+      >
         <View style={styles.identity}>
-          <Reanimated.View
-            entering={origin && flying ? arriveFrom(origin) : undefined}
-          >
-            <Bloom
-              size={SIZES.mark}
-              tone={bloomTone(network)}
-              mode={landed ? 'still' : 'chase'}
-              accessibilityLabel={name ? undefined : copy.phase.yourWallet}
-            />
-          </Reanimated.View>
+          <View style={styles.mark}>
+            <Reanimated.View
+              entering={origin && flying ? arriveFrom(origin) : undefined}
+            >
+              <Bloom
+                size={SIZES.mark}
+                tone={bloomTone(network)}
+                mode={landed ? 'still' : 'chase'}
+                accessibilityLabel={name ? undefined : copy.phase.yourWallet}
+              />
+            </Reanimated.View>
+          </View>
           {name ? (
             <Text numberOfLines={1} style={styles.name}>
               {name}
             </Text>
           ) : null}
+          {tile}
         </View>
+      </View>
+      <View style={[styles.corner, { top: insets.top }]}>
         <GlyphButton
           glyph="lock"
           size={SIZES.cog}
@@ -97,57 +149,79 @@ export function OpeningWallet({
           onPress={onDisconnect}
         />
       </View>
-      <Wave ref={focus} label={copy.phase.opening} />
-      <View style={styles.vessel} />
       <View
-        style={styles.actions}
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
+        style={[
+          styles.home,
+          { top: belowStatus, height: at.home - belowStatus },
+        ]}
       >
-        {ACTIONS.map(({ glyph, disc, size }) => (
-          <View key={glyph} style={[styles.action, disc]}>
-            <Glyph name={glyph} size={size} color={palette.husk} />
+        <View style={styles.middle}>
+          <Wave
+            ref={focus}
+            label={copy.phase.opening}
+            height={heroBox(fontScale, PixelRatio.get())}
+          />
+          <View style={styles.vessel}>
+            <View style={styles.hairline} />
           </View>
-        ))}
+        </View>
+        <View
+          style={styles.bar}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          {ACTIONS.map(({ glyph, disc, size }) => (
+            <View key={glyph} style={styles.slot}>
+              <View style={[styles.action, disc]}>
+                <Glyph name={glyph} size={size} color={palette.husk} />
+              </View>
+            </View>
+          ))}
+        </View>
       </View>
       <View
-        style={styles.sheet}
+        style={[styles.sheet, { top: at.home }]}
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       >
-        {SKELETON_ROWS.map((width, row) => (
-          <Reanimated.View
-            key={width}
-            entering={stagger(row)}
-            style={styles.row}
-          >
-            <View style={styles.ring} />
-            <View style={styles.lines}>
-              <View style={[styles.bar, { width }]} />
-              <View style={[styles.bar, styles.short]} />
-            </View>
-          </Reanimated.View>
-        ))}
+        <View style={styles.grip}>
+          <View style={styles.grabber} />
+        </View>
+        <View style={styles.rows}>
+          {SKELETON_ROWS.map((width, row) => (
+            <Reanimated.View
+              key={width}
+              entering={stagger(row)}
+              style={styles.row}
+            >
+              <View style={styles.ring} />
+              <View style={styles.lines}>
+                <View style={[styles.line, { width }]} />
+                <View style={[styles.line, styles.short]} />
+              </View>
+            </Reanimated.View>
+          ))}
+        </View>
       </View>
-    </PhaseRoot>
+    </Reanimated.View>
   );
 }
 
 /**
  * The action row as Home draws it, Send, Scan and Receive, in husk: there,
- * so the page reads as the wallet, and plainly not yet of use.
+ * so the page reads as the wallet, and plainly not yet of use. Each disc
+ * and glyph is the size Home's circle draws.
  */
 const ACTIONS = (
   [
-    ['send', SIZES.secondary],
-    ['scan', 76],
-    ['receive', SIZES.secondary],
+    ['send', HOME.circle, 24],
+    ['scan', HOME.row, 30],
+    ['receive', HOME.circle, 24],
   ] as const
-).map(([glyph, disc]) => ({
+).map(([glyph, disc, size]) => ({
   glyph,
   disc: { width: disc, height: disc, borderRadius: disc / 2 },
-  // Drawn at the size a glyph control of that disc draws its glyph.
-  size: Math.round(disc * 0.42),
+  size,
 }));
 
 /** How much the mark lifts as it leaves the picker row. */
@@ -202,10 +276,19 @@ const STILL = 0.4;
 
 /**
  * Five husk dots breathing one after another, which is the whole of the
- * wait: a screen reader hears it as busy, and a long press whispers it. When
- * the figures arrive the dots shrink away as the digits roll in (R-3).
+ * wait: a screen reader hears it as busy, and a long press whispers it. It
+ * stands in the balance's own box, `height` tall. When the figures arrive
+ * the dots shrink away as the digits roll in (R-3).
  */
-function Wave({ ref, label }: { ref?: Ref<HostInstance>; label: string }) {
+function Wave({
+  ref,
+  label,
+  height,
+}: {
+  ref?: Ref<HostInstance>;
+  label: string;
+  height: number;
+}) {
   const running = useRunning(true);
   return (
     <Whisper label={label}>
@@ -216,7 +299,7 @@ function Wave({ ref, label }: { ref?: Ref<HostInstance>; label: string }) {
         accessibilityRole="progressbar"
         accessibilityLabel={label}
         accessibilityState={{ busy: true }}
-        style={styles.wave}
+        style={[styles.wave, { height }]}
       >
         {DOTS.map(index => (
           <WaveDot key={index} index={index} running={running} />
@@ -273,13 +356,17 @@ function WaveDot({ index, running }: { index: number; running: boolean }) {
   return <Reanimated.View style={[styles.dot, style]} />;
 }
 
+/** The mark's touch target in the status row, as the canvas's. */
+const MARK_TARGET = 48;
+
 const styles = StyleSheet.create({
-  canvas: { alignItems: 'stretch', justifyContent: 'flex-start' },
+  page: { ...StyleSheet.absoluteFill },
+  // The status row, as the canvas's: the mark's target hangs its petals at
+  // the page edge.
   status: {
+    paddingLeft: space.xl - (MARK_TARGET - SIZES.mark) / 2,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space.sm,
   },
   identity: {
     flexShrink: 1,
@@ -287,9 +374,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.xs,
   },
+  mark: {
+    width: MARK_TARGET,
+    height: MARK_TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   name: { ...typography.micro, color: palette.steam, flexShrink: 1 },
+  // Where the canvas's corner control stands, its glyph on the same spot.
+  corner: {
+    position: 'absolute',
+    right: space.xl - CORNER_REACH + (CORNER_TARGET - SIZES.cog) / 2,
+    height: STATUS_ROW,
+    justifyContent: 'center',
+  },
+  // Home's pane, laid out as Home lays it out.
+  home: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    paddingHorizontal: HOME.edge,
+  },
+  middle: { flex: 1, justifyContent: 'center', gap: HOME.gap },
   wave: {
-    height: typography.hero.lineHeight,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -302,17 +409,25 @@ const styles = StyleSheet.create({
     backgroundColor: palette.husk,
   },
   vessel: {
-    alignSelf: 'center',
-    width: '60%',
+    height: HOME.vessel,
+    marginHorizontal: HOME.vesselInset,
+    justifyContent: 'center',
+  },
+  hairline: {
     height: 2,
     borderRadius: radius.round,
     backgroundColor: palette.husk,
   },
-  actions: {
+  bar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-evenly',
+    paddingBottom: HOME.rowBottom,
+  },
+  slot: {
+    height: HOME.row,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: space.xl,
   },
   action: {
     alignItems: 'center',
@@ -320,28 +435,43 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: palette.husk,
   },
+  // The sheet at its home stop, full bleed, as the canvas's.
   sheet: {
-    gap: space.xs,
-    paddingTop: space.lg,
-    paddingHorizontal: space.md,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     borderTopLeftRadius: radius.pane,
     borderTopRightRadius: radius.pane,
     backgroundColor: palette.espresso,
   },
+  grip: {
+    height: GRIP_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  grabber: {
+    width: 36,
+    height: 4,
+    borderRadius: radius.round,
+    backgroundColor: palette.husk,
+  },
+  // The first row stands where the list's first row will, under its day.
+  rows: { paddingTop: DAY_HEIGHT, paddingHorizontal: HOME.edge },
   row: {
-    height: 64,
+    height: ROW_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.md,
+    gap: ROW_GAP,
   },
   ring: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: ROW_RING,
+    height: ROW_RING,
+    borderRadius: ROW_RING / 2,
     borderWidth: 2,
     borderColor: palette.husk,
   },
   lines: { flex: 1, gap: space.xs },
-  bar: { height: 12, borderRadius: radius.sm, backgroundColor: palette.husk },
+  line: { height: 12, borderRadius: radius.sm, backgroundColor: palette.husk },
   short: { width: '28%', height: 8 },
 });
