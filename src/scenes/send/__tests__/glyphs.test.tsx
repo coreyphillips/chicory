@@ -2,12 +2,15 @@ import React from 'react';
 import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
-import { Circle } from 'react-native-svg';
+import { Circle, Path } from 'react-native-svg';
 import { palette } from '../../../design/palette';
 import { ExpiryRing } from '../../../glyphs/ExpiryRing';
 import { HoldButton } from '../../../glyphs/HoldButton';
 import { mount } from '../../../../test-support/guard';
+import { GLYPHS } from '../../../design/glyphs';
+import { BANG, DrawnGlyph } from '../DrawnGlyph';
 import { Orbit } from '../Orbit';
+import { WaitingClock } from '../WaitingClock';
 
 /**
  * The hold and the countdown around it (REDESIGN.md 5, HoldButton and
@@ -109,6 +112,63 @@ describe('ExpiryRing', () => {
       />,
     );
     expect(onExpired).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+});
+
+/** The host view whose own style passes `test`, as a layer is found. */
+const layer = (
+  tree: ReactTestRenderer,
+  test: (style: Record<string, unknown>) => boolean,
+) =>
+  tree.root.find(
+    node =>
+      typeof node.type === 'string' &&
+      [node.props.style].flat(3).some(style => !!style && test(style)),
+  );
+
+describe('a glyph that arrives', () => {
+  test('the bang draws its line, then pops its dot from where it sits', async () => {
+    const tree = await mount(
+      <DrawnGlyph
+        name="bang"
+        size={48}
+        color={palette.radish}
+        strokes={BANG}
+      />,
+    );
+    const [line, dot] = GLYPHS.bang;
+    expect(tree.root.findAllByType(Path).map(path => path.props.d)).toEqual([
+      line.d,
+      dot.d,
+    ]);
+    // The dot sits on a layer of its own, which scales about the dot.
+    const popped = layer(
+      tree,
+      style => style.transformOrigin === `50% ${(18.5 / 24) * 100}%`,
+    );
+    expect(popped.findAllByType(Path).map(path => path.props.d)).toEqual([
+      dot.d,
+    ]);
+    await act(async () => tree.unmount());
+  });
+
+  test('the waiting clock turns its hands on a layer apart from its face', async () => {
+    const tree = await mount(<WaitingClock size={16} color={palette.honey} />);
+    const [face, hands] = GLYPHS.clock;
+    const turning = layer(
+      tree,
+      style =>
+        Array.isArray(style.transform) &&
+        style.transform.some(step => 'rotate' in step),
+    );
+    expect(turning.findAllByType(Path).map(path => path.props.d)).toEqual([
+      hands.d,
+    ]);
+    expect(tree.root.findAllByType(Path).map(path => path.props.d)).toEqual([
+      face.d,
+      hands.d,
+    ]);
     await act(async () => tree.unmount());
   });
 });

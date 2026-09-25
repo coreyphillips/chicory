@@ -14,13 +14,18 @@ import { palette } from '../../design/palette';
 import { dropOut, riseIn, smooth } from '../../motion/presets';
 import { durations } from '../../motion/tokens';
 import { type as typography } from '../../theme';
+import { BANG, DrawnGlyph } from '../send/DrawnGlyph';
 import { useShake } from '../send/motion';
+import { WaitingClock } from '../send/WaitingClock';
 import { Keypad } from './Keypad';
 import { amountCells, digitsOnly, grouped, pressKey } from './keys';
 import type { AmountTone, KeyName } from './keys';
 
 /** Amounts are entered in sats, whatever unit the balance shows. */
 const UNIT = 'sats';
+
+/** The size of a mark beside the amount. */
+const MARK = 16;
 
 /** A new digit rises this far into place, and a deleted one drops this far. */
 const RISE = 12;
@@ -38,6 +43,19 @@ const MARKS: Record<AmountTone, GlyphName | null> = {
   'over-spendable': 'clock',
   'over-total': 'bang',
 };
+
+/**
+ * A mark beside the amount. The lock is still; the clock ticks while the
+ * rest of the money arrives; the bang draws in as the amount goes past all
+ * there is.
+ */
+function Mark({ name, color }: { name: GlyphName; color: string }) {
+  if (name === 'clock') return <WaitingClock size={MARK} color={color} />;
+  if (name === 'bang') {
+    return <DrawnGlyph name="bang" size={MARK} color={color} strokes={BANG} />;
+  }
+  return <Glyph name={name} size={MARK} color={palette.steam} />;
+}
 
 export interface AmountReadoutProps {
   /** What a screen reader calls the amount, and how the suites find it. */
@@ -198,11 +216,7 @@ export function AmountReadout({
           <Text style={styles.unit}>{UNIT}</Text>
           {marks.map(mark => (
             <View key={mark} style={styles.mark}>
-              <Glyph
-                name={mark}
-                size={16}
-                color={mark === 'lock' ? palette.steam : color}
-              />
+              <Mark name={mark} color={color} />
             </View>
           ))}
         </View>

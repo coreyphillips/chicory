@@ -10,7 +10,8 @@ import { Whisper } from '../../glyphs/Whisper';
 import { durations } from '../../motion/tokens';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { CONTROL } from './Controls';
-import { DrawnGlyph } from './DrawnGlyph';
+import { BANG, DrawnGlyph } from './DrawnGlyph';
+import type { Stroke } from './DrawnGlyph';
 import type { ResultVisual } from './model';
 import { popIn, useLoop, useShake } from './motion';
 import { Orbit } from './Orbit';
@@ -19,6 +20,12 @@ import { useFocusOnMount } from './useFocusOnMount';
 const SIZE = 120;
 const STROKE = 5;
 const R = (SIZE - STROKE) / 2;
+
+/** The pause bars pop in one after the other, then hold still. */
+const PAUSE: Stroke[] = [
+  { pop: { x: 9, y: 12 } },
+  { pop: { x: 15, y: 12 }, delay: 60 },
+];
 
 /** A still ring round the mark, in `color`. */
 function Ring({ color }: { color: string }) {
@@ -80,7 +87,7 @@ function Held() {
         name="pause"
         size={48}
         color={palette.honey}
-        strokes={[{ duration: 220 }, { duration: 220, delay: 60 }]}
+        strokes={PAUSE}
       />
     </>
   );
@@ -91,12 +98,7 @@ function Broken() {
   return (
     <>
       <Ring color={palette.radish} />
-      <DrawnGlyph
-        name="bang"
-        size={48}
-        color={palette.radish}
-        strokes={[{ duration: 200 }, { duration: durations.tick, delay: 200 }]}
-      />
+      <DrawnGlyph name="bang" size={48} color={palette.radish} strokes={BANG} />
     </>
   );
 }

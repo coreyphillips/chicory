@@ -5,19 +5,21 @@ import type { GlyphName } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
 import { durations } from '../../motion/tokens';
-import { DrawnGlyph } from './DrawnGlyph';
+import { BANG, DrawnGlyph } from './DrawnGlyph';
 import type { Stroke } from './DrawnGlyph';
 import type { Failure } from './model';
 import { useShake } from './motion';
+import { WaitingClock } from './WaitingClock';
 
 /**
  * How each glyph an error shows draws in (REDESIGN.md 4, Animated glyphs):
  * the cross in two quick strokes, the bang's line and then its dot, the bolt
- * quickly, and anything else at the drawing pace.
+ * quickly, and anything else at the drawing pace. A clock is never drawn:
+ * it is something waiting, so it ticks.
  */
 const STROKES: Partial<Record<GlyphName, Stroke[]>> = {
   cross: [{ duration: 140 }, { duration: 140, delay: 60 }],
-  bang: [{ duration: 200 }, { duration: durations.tick, delay: 200 }],
+  bang: BANG,
   bolt: [{ duration: 240 }],
 };
 const DRAW: Stroke[] = [{ duration: durations.draw }];
@@ -48,15 +50,19 @@ export function FailureMark({ failure }: { failure: Failure }) {
           style={[styles.tint, refusal.tint]}
         />
         <View style={styles.glyphs}>
-          {failure.glyphs.map(glyph => (
-            <DrawnGlyph
-              key={glyph}
-              name={glyph}
-              size={22}
-              color={color}
-              strokes={STROKES[glyph] ?? DRAW}
-            />
-          ))}
+          {failure.glyphs.map(glyph =>
+            glyph === 'clock' ? (
+              <WaitingClock key={glyph} size={22} color={color} />
+            ) : (
+              <DrawnGlyph
+                key={glyph}
+                name={glyph}
+                size={22}
+                color={color}
+                strokes={STROKES[glyph] ?? DRAW}
+              />
+            ),
+          )}
         </View>
       </Reanimated.View>
     </Whisper>
