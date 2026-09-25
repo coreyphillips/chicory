@@ -239,6 +239,41 @@ export const isUncertain = (error: unknown) => UNCERTAIN.has(errorCode(error));
 export const alreadySubmitted = (error: unknown) =>
   errorCode(error) === 'ALREADY_SUBMITTED';
 
+/** A failure of `code` with the engine's `message`, drawn as the rest say. */
+function failureOf(
+  code: string,
+  message: string,
+  target: Failure['target'],
+  tone: Failure['tone'],
+  glyphs: GlyphName[],
+): Failure {
+  return {
+    code,
+    message,
+    target,
+    tone,
+    glyphs,
+    shake: tone === 'radish',
+    haptic: tone === 'radish' ? 'error' : 'warning',
+  };
+}
+
+/**
+ * Why a request cannot be paid, read as it is entered (pasted, scanned,
+ * brought by a link, or typed and left) by the parser the engine reads it
+ * with, or null when it reads as a payment or is empty. A refused request
+ * never takes the accepted look: it stays in the well with a cross
+ * (REDESIGN.md 6, Engine errors). The engine still has the last word at
+ * review, for what only it can know, such as the wallet's network.
+ */
+export function requestRefusal(request: string): Failure | null {
+  const payment = parsed(request);
+  if (payment?.kind !== 'invalid') return null;
+  return failureOf(payment.code, payment.message, 'request', 'radish', [
+    'cross',
+  ]);
+}
+
 export function sendFailure(
   error: unknown,
   context: { message: string; amountSats: number | null; balance?: Balance },
@@ -248,15 +283,7 @@ export function sendFailure(
     target: Failure['target'],
     tone: Failure['tone'],
     glyphs: GlyphName[],
-  ): Failure => ({
-    code,
-    message: context.message,
-    target,
-    tone,
-    glyphs,
-    shake: tone === 'radish',
-    haptic: tone === 'radish' ? 'error' : 'warning',
-  });
+  ): Failure => failureOf(code, context.message, target, tone, glyphs);
   if (REFUSED.has(code) || REFUSED_FAMILY.test(code)) {
     return failure('request', 'radish', ['cross']);
   }

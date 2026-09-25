@@ -7,6 +7,7 @@ import {
   fixedAmount,
   isUncertain,
   requestRail,
+  requestRefusal,
   resultVisual,
   reviewRail,
   sendFailure,
@@ -51,6 +52,38 @@ test('an amount is measured against what can be sent and what is held', () => {
   expect(amountTone(balance.totalSats, balance)).toBe('over-spendable');
   expect(amountTone(balance.totalSats + 1, balance)).toBe('over-total');
   expect(amountTone(1_000_000)).toBe('plain');
+});
+
+describe('a request as it is entered', () => {
+  const LNURL =
+    'LNURL1DP68GURN8GHJ7UM9WFMXJCM99E3K7MF0V9CXJ0M385EKVCENXC6R2C35XVUKXEFCV5MKVV34X5EKZD3EV56NYD3HXQURZEPEXEJXXEPNXSCRVWFNV9NXZCN9XQ6XYEFHVGCXXCMYXYMNSERXFQ5FNS';
+
+  test.each([
+    ['an LNURL', LNURL, 'LNURL_UNSUPPORTED'],
+    [
+      'a Lightning address',
+      'user@example.com',
+      'LIGHTNING_ADDRESS_UNSUPPORTED',
+    ],
+    ['words', 'demo', 'NOT_PAYABLE'],
+  ])('is refused with a cross when it is %s', (_, request, code) => {
+    expect(requestRefusal(request)).toMatchObject({
+      code,
+      target: 'request',
+      tone: 'radish',
+      glyphs: ['cross'],
+      haptic: 'error',
+    });
+    expect(requestRefusal(request)?.message).toBeTruthy();
+  });
+
+  test('is taken when it reads as a payment, and nothing is nothing to refuse', () => {
+    expect(requestRefusal(INVOICE)).toBeNull();
+    expect(requestRefusal(`bitcoin:${ADDRESS}?amount=0.001`)).toBeNull();
+    expect(requestRefusal(` ${ADDRESS} `)).toBeNull();
+    expect(requestRefusal('')).toBeNull();
+    expect(requestRefusal('   ')).toBeNull();
+  });
 });
 
 test('a review names the rail it settled on', () => {

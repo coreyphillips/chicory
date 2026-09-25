@@ -45,6 +45,7 @@ import {
   isUncertain,
   resultVisual,
   reviewRail,
+  requestRefusal,
   reviewWords,
   sendFailure,
 } from '../scenes/send/model';
@@ -189,8 +190,12 @@ export function SendScreen({
 }) {
   const live = usePaneActive();
   const [request, setRequest] = useState(initialRequest);
-  // A request that arrived whole shows as a chip; one being typed as text.
-  const [collapsed, setCollapsed] = useState(initialRequest !== '');
+  // A request that arrived whole shows as a chip; one being typed as text,
+  // and one the parser refuses stays in the well with its cross, so it never
+  // takes the accepted look first.
+  const [collapsed, setCollapsed] = useState(
+    () => initialRequest !== '' && !requestRefusal(initialRequest),
+  );
   // Without the overlay, the camera is a view inside this screen, so a typed
   // request or amount survives a scan that is cancelled or replaces it.
   const [scanning, setScanning] = useState(initialScanning);
@@ -201,7 +206,9 @@ export function SendScreen({
   const [result, setResult] = useState<SendResult | null>(null);
   const [rail, setRail] = useState<GlyphName>('bolt');
   const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<Failure | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(() =>
+    requestRefusal(initialRequest),
+  );
   // Each refusal of the amount shakes it, the same one again included.
   const [amountShakes, setAmountShakes] = useState(0);
   // A completed payment goes home on its own unless the screen is touched or
@@ -235,10 +242,14 @@ export function SendScreen({
     reviewing.current = review !== null && !expired;
   });
 
+  // A request brought by a scan or a link is taken as a pasted one is, and
+  // refused as it arrives when it cannot be paid.
+  const entered = useRef(accept);
+  useLayoutEffect(() => {
+    entered.current = accept;
+  });
   useEffect(() => {
-    if (!initialRequest) return;
-    setRequest(initialRequest);
-    setCollapsed(true);
+    if (initialRequest) entered.current(initialRequest);
   }, [initialRequest]);
   // The stage is told busy by the handlers that send, as a request goes out
   // and as its answer comes back (`goingOut` and `cameBack` below), and
@@ -387,36 +398,73 @@ export function SendScreen({
     setBusy(false);
   }
 
-  function accept(code: string) {
+  /**
+   * Takes a request as it is entered, pasted, scanned or brought by a link,
+   * as a chip. One the parser refuses is refused here, before an amount is
+   * keyed for it: it stays in the well with a cross (REDESIGN.md 6, Engine
+   * errors). Returns whether it was taken.
+   */
+  function accept(code: string): boolean {
     setRequest(code);
+    setScanning(false);
+    const refused = requestRefusal(code);
+    if (refused) {
+      refuse(refused);
+      return false;
+    }
     setCollapsed(true);
     setFailure(null);
-    setScanning(false);
+    return true;
+  }
+
+  /** Typing is done: a request is taken as a chip, or refused in the well. */
+  function collapse() {
+    if (!request.trim()) {
+      setCollapsed(false);
+      return;
+    }
+    if (failure?.target === 'request') return;
+    const refused = requestRefusal(request);
+    if (refused) refuse(refused);
+    else setCollapsed(true);
   }
 
   /**
-   * An engine refusal: felt and logged as it comes, and said once a screen
-   * reader has landed where `landing` says, when the refusal moves it on.
+   * A refusal: felt and logged as it comes, and said once a screen reader has
+   * landed where `landing` says, when the refusal moves it on.
    */
-  function fail(
-    error: unknown,
+  function refuse(
+    next: Failure,
     landing?: (next: Failure) => Landing | null,
   ): Failure {
-    const message = errorMessage(error);
-    const next = sendFailure(error, {
-      message,
-      amountSats: fixedSats ?? (amount ? Number(amount) : null),
-      balance,
-    });
     haptics[next.haptic]();
     const target = landing?.(next);
     if (target) land(target);
-    say(message, true);
-    recordDiagnostic({ phase: 'ui', code: next.code || undefined, message });
+    say(next.message, true);
+    recordDiagnostic({
+      phase: 'ui',
+      code: next.code || undefined,
+      message: next.message,
+    });
     if (next.target === 'request') setCollapsed(false);
     if (next.target === 'amount' && next.shake) setAmountShakes(n => n + 1);
     setFailure(next);
     return next;
+  }
+
+  /** An engine refusal, drawn where its code says. */
+  function fail(
+    error: unknown,
+    landing?: (next: Failure) => Landing | null,
+  ): Failure {
+    return refuse(
+      sendFailure(error, {
+        message: errorMessage(error),
+        amountSats: fixedSats ?? (amount ? Number(amount) : null),
+        balance,
+      }),
+      landing,
+    );
   }
 
   /**
@@ -574,8 +622,8 @@ export function SendScreen({
         say(copy.send.clipboardEmpty);
         return false;
       }
-      accept(pasted);
-      say(copy.send.pasted);
+      // A refused paste is said with its refusal instead.
+      if (accept(pasted)) say(copy.send.pasted);
       return true;
     } catch (e) {
       fail(e);
@@ -879,7 +927,7 @@ export function SendScreen({
             onExpand={
               busy ? undefined : review ? edit : () => setCollapsed(false)
             }
-            onCollapse={() => setCollapsed(request.trim() !== '')}
+            onCollapse={collapse}
             fixed={fixedSats !== null}
             refused={
               composing && failure?.target === 'request' ? failure : null

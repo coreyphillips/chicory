@@ -43,6 +43,14 @@ jest.mock('../../../design/announce', () => ({ announce: jest.fn() }));
  * primary element once the step has risen into view, ahead of anything said
  * aloud.
  */
+
+/**
+ * A request the parser reads as a payment, named `label`, so it is taken as
+ * a chip and can be held. A string it cannot read is refused as it enters.
+ */
+const payable = (label: string) =>
+  `bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?label=${label}`;
+
 const said = jest.mocked(announce);
 const felt = () =>
   jest.mocked(HapticFeedback.trigger).mock.calls.map(([kind]) => kind);
@@ -183,8 +191,8 @@ describe('a held request', () => {
   });
 
   test('left before it is heard, is not said as it goes', async () => {
-    holdRequest('lnbc-left-held', { status: 'uncertain' });
-    const tree = await draw({}, { initialRequest: 'lnbc-left-held' });
+    holdRequest(payable('left-held'), { status: 'uncertain' });
+    const tree = await draw({}, { initialRequest: payable('left-held') });
     expect(meaning(tree)).toContain(copy.send.held);
     expect(logged()).toContain('HELD');
     await act(async () => tree.unmount());
@@ -195,11 +203,11 @@ describe('a held request', () => {
   });
 
   test('opens from its chip to take another request, and stays held', async () => {
-    holdRequest('lnbc-chip-held', { status: 'pending' });
+    holdRequest(payable('chip-held'), { status: 'pending' });
     const prepareSend = jest.fn().mockResolvedValue(quote());
     const tree = await draw(
       { prepareSend },
-      { initialRequest: 'lnbc-chip-held' },
+      { initialRequest: payable('chip-held') },
     );
     expect(meaning(tree)).toContain(copy.send.onItsWay);
     await press(tree, copy.send.request);
@@ -209,7 +217,7 @@ describe('a held request', () => {
       request: 'lnbc-another',
       amountSats: undefined,
     });
-    expect(heldRequest('lnbc-chip-held')).toEqual({ status: 'pending' });
+    expect(heldRequest(payable('chip-held'))).toEqual({ status: 'pending' });
     await act(async () => tree.unmount());
   });
 
