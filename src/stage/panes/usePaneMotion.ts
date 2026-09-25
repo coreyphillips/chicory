@@ -71,6 +71,7 @@ export function usePaneMotion(
   const hero = useSharedValue(layout.hero);
   const bar = useSharedValue(layout.bar);
   const cover = useSharedValue(layout.covered ? 1 : 0);
+  const scan = useSharedValue(layout.scanning ? 1 : 0);
   const pull = useSharedValue(0);
   const settling = useSharedValue(0);
   const aimed = useRef(layout);
@@ -80,11 +81,13 @@ export function usePaneMotion(
       if (sameLayout(next, aimed.current)) return;
       aimed.current = next;
       const covered = next.covered ? 1 : 0;
+      const scanning = next.scanning ? 1 : 0;
       if (reduced) {
         seam.set(at[next.seam]);
         hero.set(next.hero);
         bar.set(withTiming(next.bar, FADE));
         cover.set(withTiming(covered, FADE));
+        scan.set(withTiming(scanning, FADE));
         return;
       }
       const end = begin(PANE_SETTLE_MS);
@@ -102,11 +105,12 @@ export function usePaneMotion(
       hero.set(withSpring(next.hero, springs.pane));
       bar.set(withSpring(next.bar, springs.pane));
       cover.set(withSpring(covered, springs.pane));
+      scan.set(withSpring(scanning, springs.pane));
       // Restarting the clock cuts the last one short, which ends its lock.
       settling.set(0);
       settling.set(withTiming(1, SETTLE, settled));
     },
-    [at, reduced, begin, seam, hero, bar, cover, settling],
+    [at, reduced, begin, seam, hero, bar, cover, scan, settling],
   );
 
   // A new canvas size moves the stops out from under the seam, which follows
@@ -130,8 +134,8 @@ export function usePaneMotion(
   }, [registry, active, aim]);
 
   const panes = useMemo(
-    () => ({ seam, hero, bar, cover, pull, stops: at }),
-    [seam, hero, bar, cover, pull, at],
+    () => ({ seam, hero, bar, cover, scan, pull, stops: at }),
+    [seam, hero, bar, cover, scan, pull, at],
   );
   return { panes, blocking };
 }

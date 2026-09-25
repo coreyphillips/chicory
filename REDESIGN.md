@@ -93,7 +93,7 @@ This branch (`redesign`) is an experimental redesign of the Chicory app. It is n
 - **Tap lock.** A transition lock blocks taps while a pane moves. It lifts when the panes look settled, `PANE_SETTLE_MS` (340ms) after the move starts, timed by a clock of its own on the UI thread: the pane spring's rest callback only arrives near 630ms. A safety timeout ends it regardless.
 - **Settings** slides in from the right over the canvas. The canvas scales to .94 and dims to .5.
 - **Scan** is an overlay. It is a disc that scales up from the scan button, with its content counter-scaled so it stays still. On Android the camera is a SurfaceView, which ignores clipping, alpha and transforms. So the camera mounts only after the reveal finishes, full-bleed, under a cover that then fades out.
-  - The canvas draws it above everything while `overlay.name` is `scan`. The panes stay drawn beneath it, out of use.
+  - The canvas draws it above everything while `overlay.name` is `scan`. The panes stay drawn beneath it, out of use, and the canvas under it scales to .96 and dims to .5 on the pane spring (`SCANNING`), springing back as it closes; under Reduce Motion it only dims.
   - A code read from home dispatches `scanned`, and the reducer opens Send prefilled with it. A scan started inside Send has the target `send`: the code goes to the receiver the open Send registered with `useScanReceiver(receiver, active)`, the one that became active last, and the overlay closes over that same Send.
   - Cancelling dispatches `back`, which closes the overlay.
 - **No `LayoutAnimation`.** Use Reanimated `LinearTransition` on the specific containers that resize.
@@ -741,12 +741,12 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
   - `stops(H, insets)`: `full` = `insets.top`, `compact` = `insets.top + 72`, `home` = `max(insets.top + 380, 0.5H)`, `gone` = `H + 24`. The canvas draws edge to edge, under the status bar, so it passes the real safe-area insets and measures `H` from its root `onLayout`.
   - `SCENE_LAYOUT`: each scene's `{ seam, hero, bar }`. Home is `home`/1/1; activity and detail are `compact`/0/0; send and receive are `gone`/0/0. Settings has none.
   - `canvasScene(state)` and `canvasLayout(state)`: under Settings the canvas keeps the pose of the scene it covers, plus `covered`.
-  - `STATUS_ROW` (56), `HERO_MINI` (.34), `MINI_STRIP` (44), `COVERED` (scale .94, opacity .5) and `PANE_SETTLE_MS` (340).
+  - `STATUS_ROW` (56), `HERO_MINI` (.34), `MINI_STRIP` (44), `COVERED` (scale .94, opacity .5), `SCANNING` (scale .96, opacity .5) and `PANE_SETTLE_MS` (340). `canvasLayout` also takes the overlay and answers `scanning` while the scan overlay is open.
   - `MINI_STRIP` is the band under the status row that Send and Receive leave clear: the balance rests there as the mini strip while either is open. Under Activity and a payment's detail the sheet's compact stop leaves no band, so the strip rests in the middle of the status row instead, and the hero's landing springs between the two (`miniLanding` in `scenes/home/motion.ts`).
 - **`src/stage/panes/Pane.tsx`**.
   - `Pane({ active, style })`: a layer of the canvas. When it is not active it gets `pointerEvents` `none`, `accessibilityElementsHidden` and `importantForAccessibility` `no-hide-descendants`. Panes nest.
   - `usePaneActive()`: whether the pane a component is drawn in is in use. It is true outside any pane.
-  - `usePanes()`: the canvas's shared values: `seam` (the sheet's top edge in points), `hero` (0 is the mini strip, 1 the full balance), `bar` (the action row's opacity), `cover` (0 to 1 as Settings covers the canvas), `pull` (how far a finger pulls the home pane down, in points, and 0 once it lets go; Home's pan writes it and the status row's mark opens with it), and `stops`.
+  - `usePanes()`: the canvas's shared values: `seam` (the sheet's top edge in points), `hero` (0 is the mini strip, 1 the full balance), `bar` (the action row's opacity), `cover` (0 to 1 as Settings covers the canvas), `scan` (0 to 1 as the scan overlay opens over it), `pull` (how far a finger pulls the home pane down, in points, and 0 once it lets go; Home's pan writes it and the status row's mark opens with it), and `stops`.
 - **Rules for anything drawn on the canvas.**
 
   - A control in a pane passes its handlers (`onPress`, `onLongPress`, `onChangeText`, `onAccessibilityAction`) only while `usePaneActive()` is true. `Button`, `IconButton` and `Chip` take no touches without an `onPress`.

@@ -153,6 +153,7 @@ function HomeRegions({
     hero: useSharedValue(1),
     bar: useSharedValue(1),
     cover: useSharedValue(0),
+    scan: useSharedValue(0),
     pull: useSharedValue(0),
     stops: stops(844, { top: 0 }),
   };

@@ -59,6 +59,7 @@ function OnCanvas({ item }: { item: Activity }) {
     hero: useSharedValue(pose.hero),
     bar: useSharedValue(pose.bar),
     cover: useSharedValue(0),
+    scan: useSharedValue(0),
     pull: useSharedValue(0),
     stops: at,
   };

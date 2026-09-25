@@ -20,7 +20,13 @@ import type { WalletAdapter } from '../services/wallet';
 import { colors, radius, space } from '../theme';
 import type { Unit } from '../theme';
 import { ScanReveal } from './layers/ScanReveal';
-import { COVERED, STATUS_ROW, canvasLayout, canvasScene } from './layout';
+import {
+  COVERED,
+  SCANNING,
+  STATUS_ROW,
+  canvasLayout,
+  canvasScene,
+} from './layout';
 import { CornerControl } from './panes/CornerControl';
 import { Pane, PanesProvider } from './panes/Pane';
 import { usePaneMotion } from './panes/usePaneMotion';
@@ -168,7 +174,10 @@ export function Canvas({
   );
 
   const { stack } = state;
-  const layout = useMemo(() => canvasLayout({ scene, stack }), [scene, stack]);
+  const layout = useMemo(
+    () => canvasLayout({ scene, stack, overlay }),
+    [scene, stack, overlay],
+  );
   const { panes, blocking } = usePaneMotion(height, layout);
   const shown = canvasScene({ scene, stack });
   const live = !overlay && !layout.covered;
@@ -185,13 +194,18 @@ export function Canvas({
     [snapshot.activity, opened],
   );
 
-  // Settings dims and shrinks what it covers. Under Reduce Motion it only
-  // dims, since a shrinking canvas is movement too.
+  // Settings dims and shrinks what it covers, and so, a little less, does
+  // the scan overlay. Under Reduce Motion each only dims, since a shrinking
+  // canvas is movement too.
   const coveredStyle = useAnimatedStyle(() => {
     const cover = panes.cover.get();
-    const opacity = 1 - (1 - COVERED.opacity) * cover;
+    const scan = panes.scan.get();
+    const opacity =
+      (1 - (1 - COVERED.opacity) * cover) * (1 - (1 - SCANNING.opacity) * scan);
     if (reduced) return { opacity };
-    return { opacity, transform: [{ scale: 1 - (1 - COVERED.scale) * cover }] };
+    const scale =
+      (1 - (1 - COVERED.scale) * cover) * (1 - (1 - SCANNING.scale) * scan);
+    return { opacity, transform: [{ scale }] };
   }, [reduced]);
   const sheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: panes.seam.get() }],

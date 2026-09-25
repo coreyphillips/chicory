@@ -32,6 +32,9 @@ export const MINI_STRIP = 44;
 /** What Settings does to the canvas it slides over. */
 export const COVERED = { scale: 0.94, opacity: 0.5 };
 
+/** What the scan overlay does to the canvas it opens over. */
+export const SCANNING = { scale: 0.96, opacity: 0.5 };
+
 /**
  * About how long the pane spring takes to look settled, which is well before
  * its rest threshold reports rest. The transition lock lasts this long, so
@@ -98,17 +101,23 @@ export function canvasScene(
   return 'home';
 }
 
-/** The panes' pose for a stage, plus whether Settings covers the canvas. */
+/**
+ * The panes' pose for a stage, plus whether Settings covers the canvas and
+ * whether the scan overlay is open over it.
+ */
 export interface CanvasLayout extends PaneLayout {
   covered: boolean;
+  scanning: boolean;
 }
 
 export function canvasLayout(
-  state: Pick<StageState, 'scene' | 'stack'>,
+  state: Pick<StageState, 'scene' | 'stack'> &
+    Partial<Pick<StageState, 'overlay'>>,
 ): CanvasLayout {
   return {
     ...SCENE_LAYOUT[canvasScene(state)],
     covered: state.scene.name === 'settings',
+    scanning: state.overlay?.name === 'scan',
   };
 }
 
@@ -116,4 +125,5 @@ export const sameLayout = (a: CanvasLayout, b: CanvasLayout) =>
   a.seam === b.seam &&
   a.hero === b.hero &&
   a.bar === b.bar &&
-  a.covered === b.covered;
+  a.covered === b.covered &&
+  a.scanning === b.scanning;

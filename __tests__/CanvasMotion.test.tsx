@@ -22,6 +22,7 @@ import {
   COVERED,
   HERO_MINI,
   PANE_SETTLE_MS,
+  SCANNING,
   SCENE_LAYOUT,
   STATUS_ROW,
   stops,
@@ -450,6 +451,32 @@ describe('the canvas', () => {
     expect(stage.state.scene.name).toBe('home');
     expect(flat(panes(tree).canvas).opacity).toBe(1);
     expect(tree.root.findAllByType(SettingsScreen)).toHaveLength(0);
+    await act(async () => tree.unmount());
+  });
+
+  test('the scan overlay dims and shrinks the canvas under it, and lets it go as it closes', async () => {
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openScan());
+    await settle();
+    expect(flat(panes(tree).canvas).opacity).toBe(SCANNING.opacity);
+    expect(transformOf(panes(tree).canvas, 'scale')).toBe(SCANNING.scale);
+    // Cancelled, it closes by the stage's own back.
+    await act(async () => stage.dispatch({ type: 'back' }));
+    await settle();
+    expect(stage.state.overlay).toBeNull();
+    expect(flat(panes(tree).canvas).opacity).toBe(1);
+    expect(transformOf(panes(tree).canvas, 'scale')).toBe(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('under Reduce Motion the scan overlay only dims the canvas', async () => {
+    jest
+      .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
+      .mockResolvedValue(true);
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openScan());
+    expect(flat(panes(tree).canvas).opacity).toBe(SCANNING.opacity);
+    expect(flat(panes(tree).canvas).transform).toBeUndefined();
     await act(async () => tree.unmount());
   });
 

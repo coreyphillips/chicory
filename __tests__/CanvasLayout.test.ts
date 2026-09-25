@@ -73,6 +73,7 @@ describe('each scene takes its pose', () => {
     expect(canvasLayout({ scene, stack: [] })).toEqual({
       ...pose,
       covered: false,
+      scanning: false,
     });
   });
 
@@ -88,6 +89,7 @@ describe('under Settings', () => {
     expect(canvasLayout({ scene: SETTINGS, stack })).toEqual({
       ...SCENE_LAYOUT.home,
       covered: true,
+      scanning: false,
     });
   });
 
@@ -106,10 +108,29 @@ describe('under Settings', () => {
   });
 });
 
+test('the scan overlay leaves the pose as it was, and marks it scanning', () => {
+  for (const scene of SCENES) {
+    const under = canvasLayout({ scene, stack: [HOME] });
+    const scanning = canvasLayout({
+      scene,
+      stack: [HOME],
+      overlay: { name: 'scan', target: 'home', origin: null, key: 1 },
+    });
+    expect(scanning).toEqual({ ...under, scanning: true });
+  }
+  const creating = canvasLayout({
+    scene: HOME,
+    stack: [],
+    overlay: { name: 'create', restoring: false, key: 1 },
+  });
+  expect(creating.scanning).toBe(false);
+});
+
 test('two poses are the same when every value is', () => {
   const home = canvasLayout({ scene: HOME, stack: [] });
   expect(sameLayout(home, { ...home })).toBe(true);
   expect(sameLayout(home, { ...home, covered: true })).toBe(false);
+  expect(sameLayout(home, { ...home, scanning: true })).toBe(false);
   expect(sameLayout(home, { ...home, seam: 'compact' })).toBe(false);
   expect(sameLayout(home, { ...home, hero: 0 })).toBe(false);
   expect(sameLayout(home, { ...home, bar: 0 })).toBe(false);
