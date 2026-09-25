@@ -281,6 +281,24 @@ export function allText(tree: ReactTestRenderer): string {
 }
 
 /**
+ * What each Whisper in the tree says when held (REDESIGN.md rule 3), in tree
+ * order, and whether it is on: one switched off with `enabled` says nothing.
+ */
+export function whispers(
+  tree: ReactTestRenderer,
+): Array<{ label: string; on: boolean }> {
+  return tree.root
+    .findAll(
+      node =>
+        typeof node.type !== 'string' && componentName(node.type) === 'Whisper',
+    )
+    .map(node => ({
+      label: String(node.props.label),
+      on: node.props.enabled !== false,
+    }));
+}
+
+/**
  * What each alert says, in tree order: its label when it has one, since that
  * is what a screen reader reads, else the text inside it. Like a screen
  * reader, it skips an alert in a pane out of use, and any part of an alert

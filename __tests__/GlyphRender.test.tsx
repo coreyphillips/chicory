@@ -1,5 +1,5 @@
 import React from 'react';
-import { AccessibilityInfo, StyleSheet, Text } from 'react-native';
+import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
 import { LayoutAnimationConfig } from 'react-native-reanimated';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -1114,6 +1114,50 @@ describe('Whisper', () => {
       await act(async () => tree.update(after));
       expect(pill(tree)).toEqual([]);
     }
+  });
+
+  test('one that is off keeps its place and says nothing until it is on', async () => {
+    const pill = (tree: ReactTestRenderer) =>
+      hosts(tree, node => flat(node).backgroundColor === palette.cocoa);
+    const app = (enabled: boolean) => (
+      <GestureHandlerRootView>
+        <WhisperProvider>
+          <Whisper label="Balance not confirmed recently." enabled={enabled}>
+            <Text>1</Text>
+          </Whisper>
+        </WhisperProvider>
+      </GestureHandlerRootView>
+    );
+    const tree = await render(app(false));
+    const detector = () => tree.root.findByType(GestureDetector);
+    const before = detector();
+    expect(before.props.gesture.config.enabled).toBe(false);
+    await act(async () => tree.update(app(true)));
+    // The same wrapper, now asked.
+    expect(detector() === before).toBe(true);
+    await act(async () =>
+      fireGestureHandler(detector().props.gesture, [
+        { state: State.BEGAN },
+        { state: State.ACTIVE, absoluteX: 100, absoluteY: 300 },
+        { state: State.END },
+      ]),
+    );
+    expect(pill(tree)).toHaveLength(1);
+    // Turned off again, it takes its pill back.
+    await act(async () => tree.update(app(false)));
+    expect(pill(tree)).toEqual([]);
+  });
+
+  test('its style lays out the place that is held', async () => {
+    const { tree } = await held(
+      <Whisper label="Connected." style={{ flex: 1 }}>
+        <Text>1</Text>
+      </Whisper>,
+    );
+    const place = tree.root
+      .findByType(GestureDetector)
+      .find(node => node.type === View && node.props.collapsable === false);
+    expect(flat(place).flex).toBe(1);
   });
 
   test('a pane out of use asks nothing', async () => {

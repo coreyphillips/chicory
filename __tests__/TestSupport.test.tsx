@@ -8,6 +8,7 @@ import type { Phase } from '../src/stage/phase';
 import { initialStage, stageReducer } from '../src/stage/scene';
 import type { Scene } from '../src/stage/scene';
 import { chipText } from '../src/glyphs/CopyChip';
+import { Whisper } from '../src/glyphs/Whisper';
 import { dateLabel, dayLabel } from '../src/theme';
 import { copyViolations } from '../test-support/copyGuard';
 import {
@@ -30,6 +31,7 @@ import {
   press,
   pressableLabels,
   visibleText,
+  whispers,
 } from '../test-support/query';
 import { activePhase, activeScene } from '../test-support/scene';
 
@@ -226,6 +228,24 @@ describe('query', () => {
       </View>,
     );
     expect(alerts(tree)).toEqual(['Payment failed.']);
+    await act(async () => tree.unmount());
+  });
+
+  test('whispers reads what each whisper says, and whether it is on', async () => {
+    const tree = await render(
+      <View>
+        <Whisper label="Connected.">
+          <Text>1</Text>
+        </Whisper>
+        <Whisper label="Review payment" enabled={false}>
+          <Text>2</Text>
+        </Whisper>
+      </View>,
+    );
+    expect(whispers(tree)).toEqual([
+      { label: 'Connected.', on: true },
+      { label: 'Review payment', on: false },
+    ]);
     await act(async () => tree.unmount());
   });
 });

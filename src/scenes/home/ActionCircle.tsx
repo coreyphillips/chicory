@@ -148,7 +148,12 @@ export function ActionCircle({
     </Reanimated.View>
   );
   // Only a gated circle whispers: a live one says what it does by doing it.
-  return stale ? <Whisper label={copy.health.stale}>{circle}</Whisper> : circle;
+  // The whisper stays in place either way, so the gate never redraws it.
+  return (
+    <Whisper label={copy.health.stale} enabled={stale}>
+      {circle}
+    </Whisper>
+  );
 }
 
 const styles = StyleSheet.create({

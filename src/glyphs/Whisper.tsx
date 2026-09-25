@@ -12,7 +12,9 @@ import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import type {
   HostInstance,
   LayoutChangeEvent,
+  StyleProp,
   ViewInstance,
+  ViewStyle,
 } from 'react-native';
 import {
   GestureDetector,
@@ -46,6 +48,11 @@ import { radius, space } from '../theme';
  * when that leaves the screen or its pane goes out of use, the pill goes
  * too. `Whisper` wraps what can be asked about; outside a provider it only
  * renders its children.
+ *
+ * `enabled` false keeps the wrapper and turns only the long press off, for
+ * a control that whispers while it is disabled and not once it is enabled,
+ * so it is not drawn again as it changes. `style` lays out the wrapper that
+ * catches the press, such as filling a badge rather than only its glyph.
  */
 const DELAY_MS = 400;
 const SHOWN_MS = 2400;
@@ -220,16 +227,24 @@ export function WhisperProvider({ children }: PropsWithChildren) {
   );
 }
 
+interface WhisperProps {
+  label: string;
+  enabled?: boolean;
+  style?: StyleProp<ViewStyle>;
+}
+
 /** A long press on `children` whispers `label` above them. */
 function Heard({
   label,
+  enabled = true,
+  style,
   whispers,
   children,
-}: PropsWithChildren<{ label: string; whispers: Whispers }>) {
+}: PropsWithChildren<WhisperProps & { whispers: Whispers }>) {
   const source = useRef<ViewInstance>(null);
   // This whisper's own identity, kept for its lifetime.
   const [owner] = useState<Owner>(() => ({}));
-  const active = usePaneActive();
+  const active = usePaneActive() && enabled;
   const { show, hide } = whispers;
   useEffect(() => {
     if (!active) hide(owner);
@@ -253,7 +268,7 @@ function Heard({
   });
   return (
     <GestureDetector gesture={hold}>
-      <View ref={source} collapsable={false}>
+      <View ref={source} collapsable={false} style={style}>
         {children}
       </View>
     </GestureDetector>
@@ -261,13 +276,13 @@ function Heard({
 }
 
 export function Whisper({
-  label,
   children,
-}: PropsWithChildren<{ label: string }>) {
+  ...props
+}: PropsWithChildren<WhisperProps>) {
   const whispers = useContext(WhisperContext);
   if (!whispers) return <>{children}</>;
   return (
-    <Heard label={label} whispers={whispers}>
+    <Heard {...props} whispers={whispers}>
       {children}
     </Heard>
   );
