@@ -7,7 +7,12 @@ import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
 import type { WalletAdapter } from '../../../services/wallet';
 import type { CanvasSession, CanvasView } from '../../../stage/Canvas';
+import {
+  CORNER_REACH,
+  CORNER_TARGET,
+} from '../../../stage/panes/CornerControl';
 import { StageProvider, useStageStore } from '../../../stage/StageContext';
+import { space } from '../../../theme';
 import { snapshotOf } from '../../../../test-support/fixtures';
 import { mount } from '../../../../test-support/guard';
 import { press } from '../../../../test-support/query';
@@ -167,6 +172,24 @@ describe('at the largest text size', () => {
       bar.findAll(node => node.props.accessibilityLabel === copy.home.close)
         .length,
     ).toBeGreaterThan(0);
+    await unmount(tree);
+  });
+
+  test("the close's 48pt target reaches past the page edge, its glyph where the canvas's cog is", async () => {
+    const tree = await settings(regtest);
+    const title = tree.root.find(
+      node => node.type === Text && node.props.children === copy.settings.title,
+    );
+    const bar = flat(title.parent!);
+    // The canvas hangs its corner control CORNER_REACH nearer the edge.
+    expect(bar.paddingRight).toBe(space.xl - CORNER_REACH);
+    expect(bar.paddingLeft).toBe(space.xl);
+    const close = tree.root.find(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === copy.home.close,
+    );
+    expect(flat(close).width).toBe(CORNER_TARGET);
     await unmount(tree);
   });
 

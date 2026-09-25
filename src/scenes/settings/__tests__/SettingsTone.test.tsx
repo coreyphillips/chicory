@@ -12,6 +12,9 @@ import type { WalletAdapter } from '../../../services/wallet';
 import type { Backup, CanvasSession, CanvasView } from '../../../stage/Canvas';
 import { BackupPanel } from '../../../stage/layers/BackupPanel';
 import { CreateSheet } from '../../../stage/layers/CreateSheet';
+import { STATUS_ROW } from '../../../stage/layout';
+import { CORNER_REACH } from '../../../stage/panes/CornerControl';
+import { space } from '../../../theme';
 import { OfflineWallet } from '../../phases/Offline';
 import { SetupPanel } from '../../phases/parts';
 import { Picker } from '../../phases/Picker';
@@ -199,6 +202,13 @@ describe('a test network', () => {
       );
       const create = host(tree, copy.settings.create.create(network));
       expect(flat(create).backgroundColor).toBe(accent);
+      // Its close sits where the canvas's cog does, its target reaching
+      // past the page edge.
+      let header: ReactTestInstance | null = host(tree, copy.home.close);
+      while (header && flat(header).height !== STATUS_ROW) {
+        header = header.parent;
+      }
+      expect(flat(header!).paddingRight).toBe(space.xl - CORNER_REACH);
       await unmount(tree);
     }
   });

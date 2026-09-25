@@ -6,7 +6,7 @@ import { palette } from '../../design/palette';
 import { SettingsScreen } from '../../screens/Settings';
 import type { RegionProps } from '../../stage/Canvas';
 import { STATUS_ROW } from '../../stage/layout';
-import { CornerControl } from '../../stage/panes/CornerControl';
+import { CORNER_REACH, CornerControl } from '../../stage/panes/CornerControl';
 import { SceneSlot } from '../../stage/panes/SceneSlot';
 import { space, type } from '../../theme';
 import { Note, SettingsSurface, accentFor, testNetwork } from './ui';
@@ -96,9 +96,12 @@ export function SettingsLayer({
 const styles = StyleSheet.create({
   layer: { flex: 1 },
   // At least the status row's height, and taller when the title is.
+  // The close's 48pt target reaches past the page edge by CORNER_REACH, as
+  // the canvas's cog does, so its glyph sits where the cog's sat.
   bar: {
     minHeight: STATUS_ROW,
-    paddingHorizontal: space.xl,
+    paddingLeft: space.xl,
+    paddingRight: space.xl - CORNER_REACH,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',

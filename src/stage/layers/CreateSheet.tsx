@@ -9,7 +9,7 @@ import type { NetworkProfile } from '../../services/networks';
 import type { WalletAdapter } from '../../services/wallet';
 import { space } from '../../theme';
 import { STATUS_ROW } from '../layout';
-import { CornerControl } from '../panes/CornerControl';
+import { CORNER_REACH, CornerControl } from '../panes/CornerControl';
 import { SceneSlot } from '../panes/SceneSlot';
 import { useStage } from '../StageContext';
 
@@ -60,9 +60,12 @@ export function CreateSheet({
 
 const styles = StyleSheet.create({
   sheet: { ...StyleSheet.absoluteFill, backgroundColor: palette.roast },
+  // The close's 48pt target reaches past the page edge by CORNER_REACH, as
+  // the canvas's cog does, so its glyph sits where the cog's sat.
   header: {
     height: STATUS_ROW,
-    paddingHorizontal: space.xl,
+    paddingLeft: space.xl,
+    paddingRight: space.xl - CORNER_REACH,
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
