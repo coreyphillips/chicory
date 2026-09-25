@@ -17,24 +17,28 @@ const KEYBOARD_AVOIDING = 'padding' as const;
  * keyboard.
  *
  * `label` names the scene for a screen reader where a title bar used to.
+ * `offset` is how far below the top of the safe area the slot's parent
+ * starts, for a slot the canvas places lower down.
  */
 export function SceneSlot({
   label,
+  offset = 0,
   refreshControl,
   children,
 }: PropsWithChildren<{
   label?: string;
+  offset?: number;
   refreshControl?: ReactElement<RefreshControlProps>;
 }>) {
   // The view measures itself against its parent, and the keyboard against the
-  // window. Every slot's parent starts below the top inset, so that is the
-  // distance between the two.
+  // window. Every slot's parent starts below the top inset, and `offset` below
+  // that, so together they are the distance between the two.
   const insets = useSafeAreaInsets();
   return (
     <KeyboardAvoidingView
       style={styles.slot}
       behavior={KEYBOARD_AVOIDING}
-      keyboardVerticalOffset={insets.top}
+      keyboardVerticalOffset={insets.top + offset}
       accessibilityLabel={label}
     >
       <ScrollView

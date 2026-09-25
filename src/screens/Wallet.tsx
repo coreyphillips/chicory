@@ -42,6 +42,7 @@ import {
   activityStatus,
 } from '../scenes/activity/model';
 import type { ActivitySection } from '../scenes/activity/model';
+import { usePaneActive } from '../stage/panes/Pane';
 
 // Re-exported so existing imports of it from this module keep working.
 export { activityStatus };
@@ -64,6 +65,7 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   hidden?: boolean;
   unit?: Unit;
 }) {
+  const live = usePaneActive();
   const incoming = item.kind === 'received';
   const failed = item.status === 'failed' || item.status === 'expired';
   const amount = amountIn(item.amountSats, unit);
@@ -81,7 +83,7 @@ export const ActivityRow = React.memo(function ActivityRowItem({
             )}`
       }
       accessibilityHint="Opens the payment details."
-      onPress={() => onPress(item)}
+      onPress={live ? () => onPress(item) : undefined}
       style={({ pressed }) => [styles.activityRow, pressed && styles.pressed]}
     >
       <View style={[styles.activityIcon, incoming && styles.incomingIcon]}>
@@ -132,6 +134,7 @@ function BalanceHero({
   unit: Unit;
   onToggleUnit: () => void;
 }) {
+  const live = usePaneActive();
   const balance = snapshot.balance;
   const counted = useCountUp(balance.totalSats);
   const total = amountIn(unit === 'btc' ? balance.totalSats : counted, unit);
@@ -150,7 +153,7 @@ function BalanceHero({
             : `Total balance ${total.value} ${total.suffix}`
         }
         accessibilityHint="Switches between satoshis and BTC."
-        onPress={onToggleUnit}
+        onPress={live ? onToggleUnit : undefined}
         style={styles.balanceValueRow}
       >
         <Text
@@ -208,6 +211,9 @@ export function HomeScreen({
   onDetail: (item: Activity) => void;
   onToggleUnit?: () => void;
 }) {
+  // On the canvas, Home stays drawn while other scenes show, so its controls
+  // only get their handlers while its pane is the one in use.
+  const live = usePaneActive();
   return (
     <View style={styles.stack}>
       <BalanceHero
@@ -223,7 +229,7 @@ export function HomeScreen({
             icon="arrowUp"
             disabled={stale}
             accessibilityHint="Paste or scan a payment request."
-            onPress={onSend}
+            onPress={live ? onSend : undefined}
           />
         </View>
         <View style={styles.action}>
@@ -233,7 +239,7 @@ export function HomeScreen({
             disabled={stale}
             secondary
             accessibilityHint="Creates a request others can pay."
-            onPress={onReceive}
+            onPress={live ? onReceive : undefined}
           />
         </View>
         {onScan ? (
@@ -243,7 +249,7 @@ export function HomeScreen({
             accessibilityLabel="Scan a payment request"
             accessibilityHint="Opens the camera to read a QR code."
             disabled={stale}
-            onPress={onScan}
+            onPress={live ? onScan : undefined}
           />
         ) : null}
       </View>
@@ -252,7 +258,7 @@ export function HomeScreen({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="View all activity"
-          onPress={onActivity}
+          onPress={live ? onActivity : undefined}
         >
           <Text style={styles.viewAll}>View all</Text>
         </Pressable>
@@ -320,6 +326,7 @@ export function ActivityScreen({
   /** Something that must stay above the list, such as a pending backup. */
   banner?: React.ReactNode;
 }) {
+  const live = usePaneActive();
   // Filtering trails typing by a frame. The field itself still binds `query`,
   // so it never feels behind; only the list waits.
   const needle = useDeferredValue(query).trim().toLowerCase();
@@ -368,7 +375,8 @@ export function ActivityScreen({
               accessibilityLabel="Search activity"
               style={styles.searchInput}
               value={query}
-              onChangeText={onQuery}
+              editable={live}
+              onChangeText={live ? onQuery : undefined}
               placeholder="Search payments"
               placeholderTextColor={colors.faint}
               selectionColor={colors.primary}
@@ -382,7 +390,7 @@ export function ActivityScreen({
                 size={15}
                 tone="plain"
                 accessibilityLabel="Clear search"
-                onPress={() => onQuery('')}
+                onPress={live ? () => onQuery('') : undefined}
               />
             ) : null}
           </View>
@@ -393,13 +401,13 @@ export function ActivityScreen({
               key={value}
               label={value}
               selected={filter === value}
-              onPress={() => onFilter(value)}
+              onPress={live ? () => onFilter(value) : undefined}
             />
           ))}
         </View>
       </View>
     ),
-    [banner, onQuery, query, filter, onFilter],
+    [banner, onQuery, query, live, filter, onFilter],
   );
 
   return (

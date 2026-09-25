@@ -131,3 +131,18 @@ test('a stack left under another phase, or a locked app, never takes the press',
   expect(stage.state.scene.name).toBe('settings');
   await act(async () => tree.unmount());
 });
+
+test('a pane still on its way swallows the press and moves nothing', async () => {
+  const tree = await render('wallet');
+  await act(async () => stage.actions.openActivity());
+  let moving = true;
+  stage.panes.current = { moving: () => moving, follow: jest.fn() };
+  expect(await backPress()).toBe(true);
+  expect(stage.state.scene.name).toBe('activity');
+  // Nothing was refused that matters, so nothing is felt either.
+  expect(jest.mocked(HapticFeedback.trigger)).not.toHaveBeenCalled();
+  moving = false;
+  expect(await backPress()).toBe(true);
+  expect(stage.state.scene.name).toBe('home');
+  await act(async () => tree.unmount());
+});

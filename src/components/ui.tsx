@@ -85,6 +85,11 @@ function usePressScale() {
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
+/**
+ * A control without an `onPress` keeps its look but takes no touches, which
+ * is how a control on a canvas pane that is not in use is drawn (REDESIGN.md
+ * 2.4): its handlers are only passed while the pane is.
+ */
 export function Button({
   label,
   onPress,
@@ -100,7 +105,7 @@ export function Button({
   style,
 }: {
   label: string;
-  onPress: () => void;
+  onPress?: () => void;
   disabled?: boolean;
   busy?: boolean;
   /** Retained shorthand for `variant="secondary"`. */
@@ -139,12 +144,15 @@ export function Button({
         accessibilityHint={accessibilityHint}
         accessibilityState={{ disabled: !!inactive, busy: !!busy }}
         disabled={inactive}
-        onPressIn={press.onPressIn}
-        onPressOut={press.onPressOut}
-        onPress={() => {
-          if (haptics) haptic(haptics);
-          onPress();
-        }}
+        onPressIn={onPress && press.onPressIn}
+        onPressOut={onPress && press.onPressOut}
+        onPress={
+          onPress &&
+          (() => {
+            if (haptics) haptic(haptics);
+            onPress();
+          })
+        }
         style={[
           styles.button,
           kind === 'secondary' && styles.secondaryButton,
@@ -169,7 +177,10 @@ export function Button({
   );
 }
 
-/** A square, icon-only control. Always carries its own label for screen readers. */
+/**
+ * A square, icon-only control. Always carries its own label for screen
+ * readers. Like `Button`, it takes no touches without an `onPress`.
+ */
 export function IconButton({
   name,
   onPress,
@@ -180,7 +191,7 @@ export function IconButton({
   disabled,
 }: {
   name: IconName;
-  onPress: () => void;
+  onPress?: () => void;
   accessibilityLabel: string;
   accessibilityHint?: string;
   size?: number;
@@ -197,12 +208,15 @@ export function IconButton({
         accessibilityState={{ disabled: !!disabled }}
         disabled={disabled}
         hitSlop={HIT_SLOP}
-        onPressIn={press.onPressIn}
-        onPressOut={press.onPressOut}
-        onPress={() => {
-          haptic('selection');
-          onPress();
-        }}
+        onPressIn={onPress && press.onPressIn}
+        onPressOut={onPress && press.onPressOut}
+        onPress={
+          onPress &&
+          (() => {
+            haptic('selection');
+            onPress();
+          })
+        }
         style={[
           styles.iconButton,
           tone === 'plain' && styles.iconButtonPlain,
@@ -409,7 +423,10 @@ export function LinkButton({
   );
 }
 
-/** Filter and option pills. `Segmented` lays a set of them out in a row. */
+/**
+ * Filter and option pills. `Segmented` lays a set of them out in a row. Like
+ * `Button`, a chip takes no touches without an `onPress`.
+ */
 export function Chip({
   label,
   selected,
@@ -418,7 +435,7 @@ export function Chip({
 }: {
   label: string;
   selected: boolean;
-  onPress: () => void;
+  onPress?: () => void;
   disabled?: boolean;
 }) {
   return (
@@ -427,10 +444,13 @@ export function Chip({
       accessibilityLabel={label}
       accessibilityState={{ selected, disabled: !!disabled }}
       disabled={disabled}
-      onPress={() => {
-        haptic('selection');
-        onPress();
-      }}
+      onPress={
+        onPress &&
+        (() => {
+          haptic('selection');
+          onPress();
+        })
+      }
       style={[styles.chip, selected && styles.chipSelected]}
     >
       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>

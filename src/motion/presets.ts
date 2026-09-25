@@ -3,14 +3,17 @@ import {
   LinearTransition,
   ReduceMotion,
   withDelay,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import type {
+  EntryAnimationsValues,
   EntryExitAnimationFunction,
+  ExitAnimationsValues,
   WithTimingConfig,
 } from 'react-native-reanimated';
 import { motionReduced } from '../services/motion';
-import { curves, durations, overlap } from './tokens';
+import { curves, durations, overlap, springs } from './tokens';
 
 /**
  * Layout-animation presets for keyed children, so the incoming view mounts
@@ -101,6 +104,38 @@ export function sceneOut() {
 export function dropOut(distance: number) {
   if (motionReduced()) return crossfade(SHOWN, HIDDEN, durations.exit);
   return tween(SHOWN, { ...HIDDEN, translateY: distance }, EXIT);
+}
+
+/**
+ * A layer arriving over the canvas from its right edge on the pane spring, as
+ * Settings does. It starts in the same frame as the pane springs, so the two
+ * read as one move.
+ */
+export function slideIn(): EntryExitAnimationFunction {
+  if (motionReduced()) return crossfade(HIDDEN, SHOWN);
+  return (values: EntryAnimationsValues) => {
+    'worklet';
+    return {
+      initialValues: { transform: [{ translateX: values.windowWidth }] },
+      animations: { transform: [{ translateX: withSpring(0, springs.pane) }] },
+    };
+  };
+}
+
+/** The same layer leaving back off the right edge. */
+export function slideOut(): EntryExitAnimationFunction {
+  if (motionReduced()) return crossfade(SHOWN, HIDDEN, durations.exit);
+  return (values: ExitAnimationsValues) => {
+    'worklet';
+    return {
+      initialValues: { transform: [{ translateX: 0 }] },
+      animations: {
+        transform: [
+          { translateX: withSpring(values.windowWidth, springs.pane) },
+        ],
+      },
+    };
+  };
 }
 
 /** For the few containers that change size: never LayoutAnimation. */

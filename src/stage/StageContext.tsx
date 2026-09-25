@@ -6,7 +6,7 @@ import React, {
   useReducer,
   useRef,
 } from 'react';
-import type { Dispatch, PropsWithChildren } from 'react';
+import type { Dispatch, PropsWithChildren, RefObject } from 'react';
 import type { Activity } from '@beignet/wallet-core';
 import { initialStage, stageReducer } from './scene';
 import type { Rect, StageAction, StageState } from './scene';
@@ -29,10 +29,25 @@ export interface StageActions {
   setBusy: (busy: boolean) => void;
 }
 
+/**
+ * What the canvas tells the stage about its panes, while it is drawn.
+ */
+export interface PaneMotion {
+  /** A pane is still on its way, so a tap now would land on a moving target. */
+  moving: () => boolean;
+  /** Starts the panes toward `next`, in the tick a tap asked for it. */
+  follow: (next: StageState) => void;
+}
+
 export interface StageStore {
   state: StageState;
   dispatch: Dispatch<StageAction>;
   actions: StageActions;
+  /**
+   * The canvas's panes, or null when no canvas is drawn. With none, as under
+   * a shell phase, nothing is moving and taps go straight through.
+   */
+  panes: RefObject<PaneMotion | null>;
 }
 
 const StageContext = createContext<StageStore | null>(null);
@@ -44,47 +59,59 @@ const StageContext = createContext<StageStore | null>(null);
  */
 export function useStageStore(): StageStore {
   const [state, dispatch] = useReducer(stageReducer, undefined, initialStage);
-  // A scan started inside Send hands its code to that Send, so the stable
-  // action reads the scene it was started from.
-  const scene = useRef(state.scene.name);
+  const panes = useRef<PaneMotion | null>(null);
+  // The state as of the last tap, ahead of React while a render is pending,
+  // so two taps in one tick each start from where the one before led. A scan
+  // started inside Send also reads it, to hand its code to that Send.
+  const latest = useRef(state);
   useLayoutEffect(() => {
-    scene.current = state.scene.name;
-  }, [state.scene.name]);
-  const actions = useMemo<StageActions>(
-    () => ({
+    latest.current = state;
+  }, [state]);
+  const actions = useMemo<StageActions>(() => {
+    // A tap is refused while a pane is still moving. Otherwise the panes start
+    // toward where it leads in the same tick, rather than a frame later when
+    // the canvas renders the new scene.
+    const tap = (action: StageAction) => {
+      const motion = panes.current;
+      if (motion?.moving()) return;
+      const before = latest.current;
+      latest.current = stageReducer(before, action);
+      dispatch(action);
+      if (latest.current !== before) motion?.follow(latest.current);
+    };
+    return {
       openSend: (prefill = '', scanning = false) =>
-        dispatch({
+        tap({
           type: 'open',
           scene: { name: 'send', prefill, scanning },
         }),
-      openReceive: () => dispatch({ type: 'open', scene: { name: 'receive' } }),
+      openReceive: () => tap({ type: 'open', scene: { name: 'receive' } }),
       openScan: origin =>
-        dispatch({
+        tap({
           type: 'overlay',
           overlay: {
             name: 'scan',
-            target: scene.current === 'send' ? 'send' : 'home',
+            target: latest.current.scene.name === 'send' ? 'send' : 'home',
             origin: origin ?? null,
           },
         }),
       openDetail: (item, rect) =>
-        dispatch({
+        tap({
           type: 'open',
           scene: { name: 'detail', item, from: rect ?? null },
         }),
-      openActivity: () =>
-        dispatch({ type: 'open', scene: { name: 'activity' } }),
-      openSettings: () =>
-        dispatch({ type: 'open', scene: { name: 'settings' } }),
+      openActivity: () => tap({ type: 'open', scene: { name: 'activity' } }),
+      openSettings: () => tap({ type: 'open', scene: { name: 'settings' } }),
       openCreate: restoring =>
-        dispatch({ type: 'overlay', overlay: { name: 'create', restoring } }),
-      back: () => dispatch({ type: 'back' }),
-      home: () => dispatch({ type: 'home' }),
+        tap({ type: 'overlay', overlay: { name: 'create', restoring } }),
+      back: () => tap({ type: 'back' }),
+      home: () => tap({ type: 'home' }),
+      // A screen's own state, not a tap: a payment that starts while a pane
+      // settles must still hold the user in it.
       setBusy: busy => dispatch({ type: 'busy', busy }),
-    }),
-    [],
-  );
-  return useMemo(() => ({ state, dispatch, actions }), [state, actions]);
+    };
+  }, []);
+  return useMemo(() => ({ state, dispatch, actions, panes }), [state, actions]);
 }
 
 export function StageProvider({

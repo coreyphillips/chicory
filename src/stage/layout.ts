@@ -1,0 +1,110 @@
+import type { Scene, StageState } from './scene';
+
+/**
+ * Where the canvas's panes rest for each scene (REDESIGN.md 2.3), as pure
+ * data, so the layout is a table test and the canvas only animates between
+ * answers it is given.
+ *
+ * The bottom sheet moves by one number, its top edge (the seam). The top pane
+ * never moves; what it shows grows and fades with `hero` and `bar`.
+ */
+
+/** A place the seam rests, named for what it leaves showing. */
+export type Stop = 'full' | 'compact' | 'home' | 'gone';
+
+/** Every stop in points from the top of the canvas. */
+export type Stops = Record<Stop, number>;
+
+/** The status row across the top of the canvas, which no pane covers. */
+export const STATUS_ROW = 56;
+
+/** The hero's scale as the mini strip, the smallest it gets. */
+export const HERO_MINI = 0.34;
+
+/** What Settings does to the canvas it slides over. */
+export const COVERED = { scale: 0.94, opacity: 0.5 };
+
+/**
+ * About how long the pane spring takes to come to rest. Taps wait this long
+ * at most, and only while a pane is actually moving.
+ */
+export const PANE_SETTLE_MS = 340;
+
+/**
+ * The stops for a canvas `height` points tall whose top edge sits `top`
+ * points below the system status bar's.
+ *
+ * Home leaves the balance at least 380 points and never less than half the
+ * canvas. Compact leaves the status row and a little air. Gone is past the
+ * bottom edge, far enough that the sheet's rounded corners are gone too.
+ */
+export function stops(height: number, insets: { top: number }): Stops {
+  return {
+    full: insets.top,
+    compact: insets.top + 72,
+    home: Math.max(insets.top + 380, 0.5 * height),
+    gone: height + 24,
+  };
+}
+
+/**
+ * One pose of the panes: where the seam rests, how far the hero is expanded
+ * (1 is the full balance, 0 the mini strip), and the action row's opacity.
+ */
+export interface PaneLayout {
+  seam: Stop;
+  hero: number;
+  bar: number;
+}
+
+/** The scenes the canvas itself draws, as opposed to sliding over it. */
+export type CanvasSceneName = Exclude<Scene['name'], 'settings'>;
+
+/**
+ * Each scene's pose. Settings has none: it slides over the canvas and leaves
+ * the canvas exactly as the scene under it had it.
+ */
+export const SCENE_LAYOUT: Record<CanvasSceneName, PaneLayout> & {
+  settings: null;
+} = {
+  home: { seam: 'home', hero: 1, bar: 1 },
+  activity: { seam: 'compact', hero: 0, bar: 0 },
+  detail: { seam: 'compact', hero: 0, bar: 0 },
+  send: { seam: 'gone', hero: 0, bar: 0 },
+  receive: { seam: 'gone', hero: 0, bar: 0 },
+  settings: null,
+};
+
+/**
+ * The scene the canvas shows: the stage's own scene, or under Settings the
+ * one it covers. The stack under Settings always rests on home, so home is
+ * also the answer when there is nothing else to go on.
+ */
+export function canvasScene(
+  state: Pick<StageState, 'scene' | 'stack'>,
+): CanvasSceneName {
+  for (const scene of [state.scene, ...[...state.stack].reverse()]) {
+    if (scene.name !== 'settings') return scene.name;
+  }
+  return 'home';
+}
+
+/** The panes' pose for a stage, plus whether Settings covers the canvas. */
+export interface CanvasLayout extends PaneLayout {
+  covered: boolean;
+}
+
+export function canvasLayout(
+  state: Pick<StageState, 'scene' | 'stack'>,
+): CanvasLayout {
+  return {
+    ...SCENE_LAYOUT[canvasScene(state)],
+    covered: state.scene.name === 'settings',
+  };
+}
+
+export const sameLayout = (a: CanvasLayout, b: CanvasLayout) =>
+  a.seam === b.seam &&
+  a.hero === b.hero &&
+  a.bar === b.bar &&
+  a.covered === b.covered;
