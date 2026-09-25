@@ -390,7 +390,7 @@ export function ReceiveScreen({
     <TestNetwork.Provider value={test}>
       <View style={styles.root}>
         {/* Under a lifted code, the step it covers is out of a screen
-          reader's reach, as it is out of a finger's. */}
+            reader's reach, as it is out of a finger's. */}
         <Reanimated.View
           key={step}
           entering={sceneIn()}
