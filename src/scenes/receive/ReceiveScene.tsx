@@ -1,28 +1,24 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
-import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import { ReceiveScreen } from '../../screens/Receive';
-import type { WalletAdapter } from '../../services/wallet';
-import type { CanvasSession } from '../../stage/Canvas';
+import type { RegionProps } from '../../stage/Canvas';
 import { STATUS_ROW } from '../../stage/layout';
 import { Arriving } from '../../stage/panes/Arriving';
 import { SceneSlot } from '../../stage/panes/SceneSlot';
 import { useStage } from '../../stage/StageContext';
 import { colors } from '../../theme';
 
-/** Receive, in the top slot under the status row. */
+/**
+ * Receive, in the top slot under the status row. `sceneKey` is the key of
+ * the scene this Receive is.
+ */
 export function ReceiveScene({
   snapshot,
   client,
   stale,
   session,
-}: {
-  snapshot: WalletSnapshot;
-  client: WalletAdapter;
-  stale: boolean;
-  session: Pick<CanvasSession, 'refresh'>;
-}) {
+}: RegionProps & { sceneKey: number }) {
   const { actions } = useStage();
   return (
     <Arriving style={styles.ground}>

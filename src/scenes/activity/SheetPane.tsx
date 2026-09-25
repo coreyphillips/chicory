@@ -1,11 +1,10 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import type { WalletSnapshot } from '@beignet/wallet-core';
 import { Notice } from '../../components/ui';
 import { copy } from '../../design/copy';
 import { haptics } from '../../design/haptics';
 import { ActivityScreen } from '../../screens/wallet/Activity';
-import type { Backup, CanvasSession, CanvasView } from '../../stage/Canvas';
+import type { RegionProps } from '../../stage/Canvas';
 import type { CanvasSceneName } from '../../stage/layout';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
@@ -24,13 +23,9 @@ export function SheetPane({
   session,
   view,
   backup,
-}: {
+}: RegionProps & {
   /** The scene the canvas shows. */
   shown: CanvasSceneName;
-  snapshot: WalletSnapshot;
-  session: Pick<CanvasSession, 'error' | 'refreshing' | 'manualRefresh'>;
-  view: CanvasView;
-  backup: Backup | null;
 }) {
   const { actions } = useStage();
   const live = usePaneActive();

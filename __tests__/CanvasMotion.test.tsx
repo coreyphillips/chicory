@@ -11,6 +11,7 @@ import { SettingsLayer } from '../src/scenes/settings/SettingsLayer';
 import { BackupBanner } from '../src/scenes/shared/BackupBanner';
 import { ActivityScreen, HomeScreen } from '../src/screens/Wallet';
 import { SettingsScreen } from '../src/screens/Settings';
+import { copy } from '../src/design/copy';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import type { Backup } from '../src/stage/Canvas';
 import {
@@ -22,10 +23,11 @@ import {
   stops,
 } from '../src/stage/layout';
 import type { CanvasSceneName } from '../src/stage/layout';
+import { CornerControl } from '../src/stage/panes/CornerControl';
 import { Pane } from '../src/stage/panes/Pane';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
 import type { StageStore } from '../src/stage/StageContext';
-import { field, pressableLabels } from '../test-support/query';
+import { a11yText, field, pressableLabels } from '../test-support/query';
 
 /**
  * The canvas's motion (REDESIGN.md 2.3). Under Jest a spring lands on its
@@ -416,6 +418,11 @@ describe('the canvas', () => {
       height: insets.top + STATUS_ROW,
     });
     expect(flat(host(panes(tree).home)).top).toBe(insets.top + STATUS_ROW);
+    const corner = tree.root.findByType(CornerControl).parent!;
+    expect(flat(corner)).toMatchObject({
+      top: insets.top,
+      height: STATUS_ROW,
+    });
     await act(async () => stage.actions.openActivity());
     expect(transformOf(panes(tree).sheet, 'translateY')).toBe(inset.compact);
     await act(async () => stage.actions.home());
@@ -425,6 +432,21 @@ describe('the canvas', () => {
       marginTop: insets.top,
       paddingBottom: insets.bottom,
     });
+    await act(async () => tree.unmount());
+  });
+
+  test('at home a screen reader reaches the corner after the actions and before the sheet', async () => {
+    // REDESIGN.md 9: mark, hero, vessel, Send, Scan, Receive, cog, sheet.
+    const tree = await render(<OnCanvas />);
+    const spoken = a11yText(tree);
+    const place = (label: string) => {
+      expect(spoken).toContain(label);
+      return spoken.indexOf(label);
+    };
+    const actions = ['Send', copy.send.scan, 'Receive'].map(place);
+    const corner = place(copy.home.settings);
+    expect(corner).toBeGreaterThan(Math.max(...actions));
+    expect(corner).toBeLessThan(place(copy.home.activity));
     await act(async () => tree.unmount());
   });
 

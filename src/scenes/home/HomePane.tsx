@@ -1,9 +1,8 @@
 import React, { useCallback } from 'react';
 import { RefreshControl, ScrollView, StyleSheet } from 'react-native';
 import { useAnimatedStyle } from 'react-native-reanimated';
-import type { WalletSnapshot } from '@beignet/wallet-core';
 import { HomeScreen } from '../../screens/wallet/Home';
-import type { Backup, CanvasSession, CanvasView } from '../../stage/Canvas';
+import type { RegionProps } from '../../stage/Canvas';
 import { HERO_MINI } from '../../stage/layout';
 import { usePaneActive, usePanes } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
@@ -26,21 +25,18 @@ export function HomePane({
   view,
   stale,
   backup,
-}: {
+}: RegionProps & {
   /** Home is the scene the canvas shows, whether or not Settings covers it. */
   home: boolean;
-  snapshot: WalletSnapshot;
-  session: Pick<CanvasSession, 'error' | 'refreshing' | 'manualRefresh'>;
-  view: CanvasView;
-  stale: boolean;
-  backup: Backup | null;
 }) {
   const { actions } = useStage();
   const panes = usePanes();
   const live = usePaneActive();
   const { hidden, unit, setUnit } = view;
-  // The scan overlay grows from the scan button; until Home measures it,
-  // from nowhere in particular.
+  // Send opens empty, whatever a control passes its handler. The scan
+  // overlay grows from the scan button; until Home measures it, from nowhere
+  // in particular.
+  const openSend = useCallback(() => actions.openSend(), [actions]);
   const openScan = useCallback(() => actions.openScan(), [actions]);
   const toggleUnit = useCallback(
     () => setUnit(value => (value === 'sats' ? 'btc' : 'sats')),
@@ -73,7 +69,7 @@ export function HomePane({
         hidden={hidden}
         unit={unit}
         stale={stale}
-        onSend={actions.openSend}
+        onSend={openSend}
         onReceive={actions.openReceive}
         onScan={openScan}
         onActivity={actions.openActivity}

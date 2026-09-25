@@ -753,11 +753,13 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
   - The stage actions are taps. A tap is refused while a pane moves, and otherwise starts the panes in its own tick. `setBusy`, the session's `tab` and `reset`, and payment links never wait on the lock. Android back is swallowed while a pane moves.
   - `SceneSlot` takes `offset`, how far below the top of the safe area its parent starts, so a lower slot still clears the keyboard.
 
-- **Regions.** The canvas places the regions, activates the panes and runs the motion; what each region draws lives with its scene under `src/scenes`. Each takes typed props (`snapshot`, `client`, the subset of `CanvasSession` it uses, `view`, `stale`, `backup`) and reads the stage actions from `useStage()`:
-  - `scenes/home/StatusRow` (with `RefreshFailed`, the refresh notice Home still writes), `scenes/home/HomePane` (`hero` scales the balance, `bar` fades only the action row);
-  - `scenes/activity/SheetPane` (the grip at home, the one Activity list);
-  - `scenes/detail/DetailLayer` (the `DetailCard` in the slot at the compact stop);
-  - `scenes/send/SendScene` and `scenes/receive/ReceiveScene` (in the top slot, arriving through `panes/Arriving`);
+- **Regions.** The canvas places the regions, activates the panes and runs the motion; what each region draws lives with its scene under `src/scenes`. Every region takes the same `RegionProps` from `stage/Canvas`, whole: `snapshot`, `client`, `session` (the `CanvasSession`), `view` (the `CanvasView`, with `hidden`, `setHidden`, `unit` and `setUnit`), `stale` and `backup`. It adds only what is its own, reads the stage actions from `useStage()`, and computes the rest itself, so a region that needs more of these never needs the canvas changed. In the top pane's order:
+  - `scenes/home/Backdrop` (the ground, drawn first, behind everything and full bleed, under the status bar too; it will draw the 3.2 gradients and the G3 tints from `snapshot`, `stale`, `backup` and `session`);
+  - `scenes/home/StatusRow` (`shown`; the mark and the connection at the left, with `RefreshFailed`, the refresh notice Home still writes), `scenes/home/HomePane` (`home`; `hero` scales the balance, `bar` fades only the action row);
+  - `panes/CornerControl`, which the canvas draws itself after Home, at the top right inside the top inset, so a screen reader reaches it in the home order (9). The status row leaves it `CORNER_ROOM`;
+  - `scenes/send/SendScene` (`sceneKey`, `prefill`) and `scenes/receive/ReceiveScene` (`sceneKey`), in the top slot, arriving through `panes/Arriving`;
+  - `scenes/activity/SheetPane` (`shown`; the grip at home, the one Activity list);
+  - `scenes/detail/DetailLayer` (`item`, `from`; the `DetailCard` in the slot at the compact stop);
   - `scenes/settings/SettingsLayer`, whose root carries the copy guard's marker, `testID="scene-settings"`. `SettingsScreen` takes `backupPending` and `onBackupSaved` for the recovery phrase flow.
 - **Backup.** A pending backup reaches the regions as data, `backup: { pending, loadPhrase, onSaved } | null`, never as a rendered node. `scenes/shared/BackupBanner` draws it as the old screens did until Home and Settings replace it.
 - **Responders.** `useSceneBack(handler, active)` and `usePhaseBack(handler)` from `StageContext` answer Android back (2.2). `useScanReceiver(receiver, active)` takes a code scanned for the Send already open (2.3).

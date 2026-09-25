@@ -9,6 +9,7 @@ import { slideIn, slideOut } from '../motion/presets';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { SheetPane } from '../scenes/activity/SheetPane';
 import { DetailLayer } from '../scenes/detail/DetailLayer';
+import { Backdrop } from '../scenes/home/Backdrop';
 import { HomePane } from '../scenes/home/HomePane';
 import { StatusRow } from '../scenes/home/StatusRow';
 import { ReceiveScene } from '../scenes/receive/ReceiveScene';
@@ -16,10 +17,11 @@ import { SendScene } from '../scenes/send/SendScene';
 import { SettingsLayer } from '../scenes/settings/SettingsLayer';
 import type { useWalletSession } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
-import { colors, radius } from '../theme';
+import { colors, radius, space } from '../theme';
 import type { Unit } from '../theme';
 import { ScanReveal } from './layers/ScanReveal';
 import { COVERED, STATUS_ROW, canvasLayout, canvasScene } from './layout';
+import { CornerControl } from './panes/CornerControl';
 import { Pane, PanesProvider } from './panes/Pane';
 import { usePaneMotion } from './panes/usePaneMotion';
 import type { Overlay, Scene } from './scene';
@@ -77,8 +79,25 @@ export function useCanvasView() {
 export type CanvasView = ReturnType<typeof useCanvasView>;
 
 /**
+ * What the canvas gives every region it draws, whole, plus what is the
+ * region's own. A region reads what it needs of it, so a region that comes
+ * to need more of the wallet, the session or the view takes it without the
+ * canvas changing.
+ */
+export interface RegionProps {
+  snapshot: WalletSnapshot;
+  client: WalletAdapter;
+  session: CanvasSession;
+  view: CanvasView;
+  /** The balance is too old to spend against. */
+  stale: boolean;
+  backup: Backup | null;
+}
+
+/**
  * The wallet as one surface (REDESIGN.md 2.3). A top pane at the back holds
- * the status row and Home, and takes Send and Receive in its slot. A sheet
+ * the backdrop, the status row, Home and the corner control, and takes Send
+ * and Receive in its slot. A sheet
  * over it holds the one Activity list and moves only by its top edge, the
  * seam. A payment's detail is a card on the sheet at its compact stop, and
  * Settings slides over the whole canvas from the right.
@@ -115,7 +134,14 @@ export function Canvas({
 }) {
   const { state, dispatch, responders } = useStage();
   const { reduced } = useMotionPrefs();
-  const { hidden, setHidden } = view;
+  const region: RegionProps = {
+    snapshot,
+    client,
+    session,
+    view,
+    stale,
+    backup,
+  };
 
   // Measured rather than assumed. The canvas draws edge to edge, top to
   // bottom under the system bars, and each region keeps its own content
@@ -183,22 +209,13 @@ export function Canvas({
     top = (
       <SendScene
         key={scene.key}
+        {...region}
+        sceneKey={scene.key}
         prefill={scene.prefill}
-        client={client}
-        stale={stale}
-        session={session}
       />
     );
   } else if (scene.name === 'receive') {
-    top = (
-      <ReceiveScene
-        key={scene.key}
-        snapshot={snapshot}
-        client={client}
-        stale={stale}
-        session={session}
-      />
-    );
+    top = <ReceiveScene key={scene.key} {...region} sceneKey={scene.key} />;
   }
 
   return (
@@ -211,14 +228,9 @@ export function Canvas({
         onLayout={onLayout}
       >
         <Pane active={live} style={[styles.fill, coveredStyle]}>
-          <StatusRow
-            snapshot={snapshot}
-            hidden={hidden}
-            refreshing={session.refreshing || session.connecting}
-            home={home}
-            onToggleHidden={() => setHidden(!hidden)}
-            onRefresh={session.manualRefresh}
-          />
+          {/* The ground, behind everything, under the status bar too. */}
+          <Backdrop {...region} />
+          <StatusRow {...region} shown={shown} />
           <Pane
             active={home}
             style={[
@@ -226,15 +238,14 @@ export function Canvas({
               { top: belowStatus, height: panes.stops.home - belowStatus },
             ]}
           >
-            <HomePane
-              home={home}
-              snapshot={snapshot}
-              session={session}
-              view={view}
-              stale={stale}
-              backup={backup}
-            />
+            <HomePane {...region} home={home} />
           </Pane>
+          {/* Drawn at the right of the status row, but after Home, so a
+              screen reader reaches it after the actions and before the
+              sheet (REDESIGN.md 9). */}
+          <View style={[styles.corner, { top: insets.top }]}>
+            <CornerControl home={home} />
+          </View>
           <View
             style={[styles.topSlot, { top: belowStatus }]}
             pointerEvents={blocking ? 'none' : 'box-none'}
@@ -249,13 +260,7 @@ export function Canvas({
                 the end of the list is reachable there. Lower down the rest
                 simply runs past the bottom edge. */}
             <View style={{ height: height - panes.stops.compact }}>
-              <SheetPane
-                shown={shown}
-                snapshot={snapshot}
-                session={session}
-                view={view}
-                backup={backup}
-              />
+              <SheetPane {...region} shown={shown} />
             </View>
           </Pane>
           <View
@@ -265,11 +270,9 @@ export function Canvas({
             {scene.name === 'detail' && detail ? (
               <DetailLayer
                 key={scene.key}
+                {...region}
                 item={detail}
                 from={scene.from}
-                client={client}
-                view={view}
-                session={session}
               />
             ) : null}
           </View>
@@ -286,12 +289,7 @@ export function Canvas({
               style={styles.settings}
             >
               <Pane active={!overlay} style={styles.flex}>
-                <SettingsLayer
-                  snapshot={snapshot}
-                  client={client}
-                  session={session}
-                  backup={backup}
-                />
+                <SettingsLayer {...region} />
               </Pane>
             </Reanimated.View>
           ) : null}
@@ -316,6 +314,12 @@ const styles = StyleSheet.create({
   fill: StyleSheet.absoluteFill,
   flex: { flex: 1 },
   home: { position: 'absolute', left: 0, right: 0 },
+  corner: {
+    position: 'absolute',
+    right: space.xl,
+    height: STATUS_ROW,
+    justifyContent: 'center',
+  },
   topSlot: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   sheet: {
     position: 'absolute',

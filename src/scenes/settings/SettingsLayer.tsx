@@ -1,12 +1,10 @@
 import React from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { WalletSnapshot } from '@beignet/wallet-core';
 import { Notice } from '../../components/ui';
 import { copy } from '../../design/copy';
 import { SettingsScreen } from '../../screens/Settings';
-import type { WalletAdapter } from '../../services/wallet';
-import type { Backup, CanvasSession } from '../../stage/Canvas';
+import type { RegionProps } from '../../stage/Canvas';
 import { STATUS_ROW } from '../../stage/layout';
 import { CornerControl } from '../../stage/panes/CornerControl';
 import { SceneSlot } from '../../stage/panes/SceneSlot';
@@ -26,22 +24,7 @@ export function SettingsLayer({
   client,
   session,
   backup,
-}: {
-  snapshot: WalletSnapshot;
-  client: WalletAdapter;
-  session: Pick<
-    CanvasSession,
-    | 'error'
-    | 'switchError'
-    | 'refreshing'
-    | 'manualRefresh'
-    | 'disconnect'
-    | 'chooseWallet'
-    | 'switchNetwork'
-    | 'eraseDevice'
-  >;
-  backup: Backup | null;
-}) {
+}: RegionProps) {
   // Settings covers the whole canvas, under the system bars too, so it
   // starts below the status bar and ends above the home indicator. Starting
   // there, rather than padding down to it, keeps the slot's keyboard offset

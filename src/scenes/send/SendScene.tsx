@@ -2,8 +2,7 @@ import React from 'react';
 import { StyleSheet } from 'react-native';
 import { copy } from '../../design/copy';
 import { SendScreen } from '../../screens/Send';
-import type { WalletAdapter } from '../../services/wallet';
-import type { CanvasSession } from '../../stage/Canvas';
+import type { RegionProps } from '../../stage/Canvas';
 import { STATUS_ROW } from '../../stage/layout';
 import { Arriving } from '../../stage/panes/Arriving';
 import { SceneSlot } from '../../stage/panes/SceneSlot';
@@ -13,18 +12,16 @@ import { colors } from '../../theme';
 /**
  * Send, in the top slot under the status row. `prefill` is the request a
  * scanned code or a tapped link brought with the scene, never sent without a
- * review.
+ * review. `sceneKey` is the key of the scene this Send is.
  */
 export function SendScene({
   prefill,
   client,
   stale,
   session,
-}: {
+}: RegionProps & {
+  sceneKey: number;
   prefill: string;
-  client: WalletAdapter;
-  stale: boolean;
-  session: Pick<CanvasSession, 'refresh'>;
 }) {
   const { actions } = useStage();
   return (

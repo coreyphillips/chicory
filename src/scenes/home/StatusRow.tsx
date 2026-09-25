@@ -1,37 +1,37 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { WalletSnapshot } from '@beignet/wallet-core';
 import { IconButton, Notice, StatusDot } from '../../components/ui';
 import { copy } from '../../design/copy';
+import type { RegionProps } from '../../stage/Canvas';
+import type { CanvasSceneName } from '../../stage/layout';
 import { STATUS_ROW } from '../../stage/layout';
-import { CornerControl } from '../../stage/panes/CornerControl';
+import { CORNER_ROOM } from '../../stage/panes/CornerControl';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { colors, space, type as typography } from '../../theme';
 
 /**
- * The wallet's name and connection, the two controls every scene keeps, and
- * the corner control. The canvas runs under the system status bar, so the
- * row starts below it.
+ * The status row, which every scene on the canvas keeps: the wallet's name
+ * and its connection, and for now the two controls that hide the balance and
+ * refresh. The canvas runs under the system status bar, so the row starts
+ * below it.
+ *
+ * The corner control at its right is the canvas's own, drawn after Home so a
+ * screen reader reaches it in order (REDESIGN.md 9); the row leaves it room.
  */
 export function StatusRow({
   snapshot,
-  hidden,
-  refreshing,
-  home,
-  onToggleHidden,
-  onRefresh,
-}: {
-  snapshot: WalletSnapshot;
-  hidden: boolean;
-  refreshing: boolean;
-  home: boolean;
-  onToggleHidden: () => void;
-  onRefresh: () => void;
+  session,
+  view,
+}: RegionProps & {
+  /** The scene the canvas shows. */
+  shown: CanvasSceneName;
 }) {
   const live = usePaneActive();
   const { top } = useSafeAreaInsets();
   const { wallet, primary } = snapshot;
+  const { hidden, setHidden } = view;
+  const refreshing = session.refreshing || session.connecting;
   return (
     <View
       style={[styles.status, { paddingTop: top, height: top + STATUS_ROW }]}
@@ -58,16 +58,15 @@ export function StatusRow({
             hidden ? copy.home.showBalance : copy.home.hideBalance
           }
           accessibilityHint={copy.home.hideHint}
-          onPress={live ? onToggleHidden : undefined}
+          onPress={live ? () => setHidden(!hidden) : undefined}
         />
         <IconButton
           name="refresh"
           tone="plain"
           disabled={refreshing}
           accessibilityLabel={copy.home.refresh}
-          onPress={live ? onRefresh : undefined}
+          onPress={live ? session.manualRefresh : undefined}
         />
-        <CornerControl home={home} />
       </View>
     </View>
   );
@@ -88,7 +87,8 @@ export function RefreshFailed({ error }: { error: string }) {
 
 const styles = StyleSheet.create({
   status: {
-    paddingHorizontal: space.xl,
+    paddingLeft: space.xl,
+    paddingRight: space.xl + CORNER_ROOM,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',

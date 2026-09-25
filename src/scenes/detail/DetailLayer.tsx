@@ -3,8 +3,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Activity } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import { DetailScreen } from '../../screens/wallet/Detail';
-import type { WalletAdapter } from '../../services/wallet';
-import type { CanvasSession, CanvasView } from '../../stage/Canvas';
+import type { RegionProps } from '../../stage/Canvas';
 import { DetailCard } from '../../stage/layers/DetailCard';
 import { usePanes } from '../../stage/panes/Pane';
 import { SceneSlot } from '../../stage/panes/SceneSlot';
@@ -23,12 +22,9 @@ export function DetailLayer({
   client,
   view,
   session,
-}: {
+}: RegionProps & {
   item: Activity;
   from: Rect | null;
-  client: WalletAdapter;
-  view: Pick<CanvasView, 'hidden' | 'unit'>;
-  session: Pick<CanvasSession, 'refresh'>;
 }) {
   const { actions } = useStage();
   const panes = usePanes();
