@@ -13,7 +13,7 @@ import { copy } from '../design/copy';
 import { Glyph } from '../design/glyphs';
 import { palette } from '../design/palette';
 import { riseIn } from '../motion/presets';
-import { curves, springs } from '../motion/tokens';
+import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { usePaneActive } from '../stage/panes/Pane';
 import { radius } from '../theme';
@@ -211,6 +211,9 @@ export function layerMotion(layer: number, state: QrState): LayerMotion {
   }
 }
 
+/** Under Reduce Motion a code only fades, in or out, and never travels. */
+const CROSSFADE = { duration: durations.crossfade, easing: curves.standard };
+
 /** How long every layer takes to leave `state`'s way, all told. */
 export function leaveMs(state: Exclude<QrState, 'shown'>): number {
   return Math.max(
@@ -245,16 +248,17 @@ const Layer = memo(function QrLayer({
   viewBox: string;
   d: string;
 }) {
-  const opacity = useSharedValue(reduced ? 1 : 0);
+  const opacity = useSharedValue(0);
   const scale = useSharedValue(reduced ? 1 : layer === FINDERS ? 0.6 : 0.9);
   const spread = useSharedValue(0);
   useEffect(() => {
     const motion = layerMotion(layer, state);
     if (reduced) {
-      opacity.set(motion.opacity);
+      // Nothing travels: every layer crossfades at once (REDESIGN.md 8).
       scale.set(1);
       spread.set(0);
-      return;
+      opacity.set(withTiming(motion.opacity, CROSSFADE));
+      return () => cancelAnimation(opacity);
     }
     const timing = {
       duration: motion.duration,
@@ -325,13 +329,16 @@ export const QrBloom = memo(function QrCode({
   const [wasShown, setWasShown] = useState(shown);
   if (wasShown !== shown) {
     setWasShown(shown);
-    setLeaving(!shown && !reduced);
+    setLeaving(!shown);
   }
   useEffect(() => {
     if (!leaving || state === 'shown') return;
-    const timer = setTimeout(() => setLeaving(false), leaveMs(state));
+    const timer = setTimeout(
+      () => setLeaving(false),
+      reduced ? CROSSFADE.duration : leaveMs(state),
+    );
     return () => clearTimeout(timer);
-  }, [leaving, state]);
+  }, [leaving, state, reduced]);
 
   const card = useSharedValue(reduced ? 1 : 0.92);
   const cream = useSharedValue(shown ? 1 : 0);
@@ -341,8 +348,10 @@ export const QrBloom = memo(function QrCode({
   useEffect(() => {
     const target = shown ? 1 : 0;
     cream.set(
-      reduced || shown
+      shown
         ? target
+        : reduced
+        ? withTiming(target, CROSSFADE)
         : withDelay(
             QR_TIMING.step * BANDS,
             withTiming(target, {

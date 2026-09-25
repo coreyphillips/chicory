@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import type { PropsWithChildren } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Reanimated, {
@@ -15,7 +15,7 @@ import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { riseIn } from '../../motion/presets';
-import { shake, springs } from '../../motion/tokens';
+import { curves, shake, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { space, type as typography } from '../../theme';
@@ -36,6 +36,42 @@ function useOnce(key: number | undefined, play: () => void) {
     seen.current = key;
     play();
   });
+}
+
+/**
+ * A refusal, each time `play` is called: a shake, or under Reduce Motion a
+ * radish tint that fades over 400ms, since a shake moves through space
+ * (REDESIGN.md 8). `shaken` goes on the view that moves, or `x` into a
+ * transform of its own, and `tinted` on a radish layer over the control.
+ */
+export function useRefusal() {
+  const { reduced } = useMotionPrefs();
+  const x = useSharedValue(0);
+  const tint = useSharedValue(0);
+  const play = useCallback(() => {
+    if (reduced) {
+      tint.set(
+        withSequence(
+          withTiming(1, { duration: 0 }),
+          withTiming(0, { duration: TINT_MS, easing: curves.standard }),
+        ),
+      );
+    } else {
+      x.set(shake());
+    }
+  }, [reduced, x, tint]);
+  useEffect(
+    () => () => {
+      cancelAnimation(x);
+      cancelAnimation(tint);
+    },
+    [x, tint],
+  );
+  const shaken = useAnimatedStyle(() => ({
+    transform: [{ translateX: x.get() }],
+  }));
+  const tinted = useAnimatedStyle(() => ({ opacity: tint.get() }));
+  return { play, x, shaken, tinted };
 }
 
 /**
@@ -88,21 +124,9 @@ export function GlyphButton({
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
   const press = useSharedValue(1);
-  const x = useSharedValue(0);
   const swell = useSharedValue(1);
-  const tint = useSharedValue(0);
-  useOnce(shakeKey, () => {
-    if (reduced) {
-      tint.set(
-        withSequence(
-          withTiming(1, { duration: 0 }),
-          withTiming(0, { duration: TINT_MS }),
-        ),
-      );
-    } else {
-      x.set(shake());
-    }
-  });
+  const { play: refuse, x, tinted } = useRefusal();
+  useOnce(shakeKey, refuse);
   useOnce(pulseKey, () => {
     if (reduced) return;
     swell.set(
@@ -114,17 +138,14 @@ export function GlyphButton({
   });
   useEffect(
     () => () => {
-      cancelAnimation(x);
       cancelAnimation(swell);
-      cancelAnimation(tint);
       cancelAnimation(press);
     },
-    [x, swell, tint, press],
+    [swell, press],
   );
   const moved = useAnimatedStyle(() => ({
     transform: [{ translateX: x.get() }, { scale: swell.get() * press.get() }],
   }));
-  const tinted = useAnimatedStyle(() => ({ opacity: tint.get() }));
 
   const quiet = disabled || blocked;
   const primary = tone === 'primary' && !quiet;

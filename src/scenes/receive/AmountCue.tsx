@@ -1,18 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import Reanimated, {
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-} from 'react-native-reanimated';
+import Reanimated from 'react-native-reanimated';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { riseIn, sceneOut } from '../../motion/presets';
-import { shake } from '../../motion/tokens';
-import { useMotionPrefs } from '../../motion/useMotionPrefs';
-import { number, space, type as typography } from '../../theme';
+import { number, radius, space, type as typography } from '../../theme';
+import { useRefusal } from './controls';
 import { Pulse } from './loops';
 import type { AmountCue as Cue } from './model';
 
@@ -36,8 +31,7 @@ export function AmountCue({
   /** What the engine said when it asked for an amount. */
   message?: string;
 }) {
-  const { reduced } = useMotionPrefs();
-  const x = useSharedValue(0);
+  const { play: refuse, shaken, tinted } = useRefusal();
   // A refusal is news once: passing the cap, which the finger feels too, or
   // an amount turning required.
   const refused = cue.over || cue.kind === 'required';
@@ -45,14 +39,10 @@ export function AmountCue({
   useEffect(() => {
     if (refused && !was.current) {
       if (cue.over) haptics.rigid();
-      if (!reduced) x.set(shake());
+      refuse();
     }
     was.current = refused;
-  }, [refused, cue.over, reduced, x]);
-  useEffect(() => () => cancelAnimation(x), [x]);
-  const shaken = useAnimatedStyle(() => ({
-    transform: [{ translateX: x.get() }],
-  }));
+  }, [refused, cue.over, refuse]);
 
   let label: string | undefined;
   let hint: string | undefined;
@@ -118,6 +108,7 @@ export function AmountCue({
           accessibilityValue={message ? { text: message } : undefined}
           style={styles.face}
         >
+          <Reanimated.View pointerEvents="none" style={[styles.tint, tinted]} />
           {face}
         </Reanimated.View>
       ) : null}
@@ -127,7 +118,18 @@ export function AmountCue({
 
 const styles = StyleSheet.create({
   strip: { height: 40, alignItems: 'center', justifyContent: 'center' },
-  face: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  face: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    paddingHorizontal: space.sm,
+    minHeight: 32,
+  },
+  tint: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: radius.round,
+    backgroundColor: palette.radishSoft,
+  },
   caret: {
     width: 2,
     height: 24,
