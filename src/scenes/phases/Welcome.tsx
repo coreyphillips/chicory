@@ -1,11 +1,19 @@
-import React from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { Body, Button, LinkButton, Notice, Title } from '../../components/ui';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import Reanimated from 'react-native-reanimated';
+import { LinkButton } from '../../components/ui';
+import { copy } from '../../design/copy';
+import { Bloom } from '../../glyphs/Bloom';
+import type { BloomEvent } from '../../glyphs/Bloom';
+import { Whisper } from '../../glyphs/Whisper';
+import { riseIn, sceneOut } from '../../motion/presets';
 import { DeviceSetup } from '../../screens/DeviceSetup';
 import { errorMessage } from '../../services/useWalletSession';
 import type { useWalletSession } from '../../services/useWalletSession';
 import { usePhaseBack } from '../../stage/StageContext';
-import { colors, space } from '../../theme';
+import { space } from '../../theme';
+import { GlyphButton, PhaseRoot, SetupPanel, StatusPip } from './parts';
+import { SIZES, welcomeVisual } from './visual';
 
 type Session = ReturnType<typeof useWalletSession>;
 
@@ -13,7 +21,13 @@ type Session = ReturnType<typeof useWalletSession>;
  * Nothing is open and nothing is saved. There is no question left to ask: the
  * wallet runs on this phone, so the restore effect is already opening it. This
  * screen is the wait, and on the far side of a failure it is the one place
- * that says so and offers the ways back in.
+ * that shows so and offers the ways back in.
+ *
+ * The bloom unfolds the first time it appears and then breathes. While the
+ * wallet opens its chase stands in for the controls. A failure half wilts it,
+ * leaves a radish pip holding the reason, and turns the big control into a
+ * refresh. Restore and the network settings sit either side, and the network
+ * settings open the device setup, a setup surface in the Settings language.
  */
 export function Welcome({
   error,
@@ -55,106 +69,124 @@ export function Welcome({
     if (!connecting) closeDevice();
     return true;
   });
-  return (
-    <View style={styles.welcome}>
-      {!deviceVisible ? (
-        <>
-          <View style={styles.mark}>
-            <Text style={styles.markText}>b.</Text>
-          </View>
-          <Title>Bitcoin, with less to think about.</Title>
-        </>
-      ) : null}
-      {deviceVisible ? (
-        <DeviceSetup
-          busy={connecting}
-          error={error}
-          onOpen={settings =>
-            openDevice(settings, {
-              existingOnly: deviceHint || !!rememberedSession,
-              ...(rememberedSession
-                ? {
-                    walletId: rememberedSession.walletId,
-                    prepared: rememberedSession.prepared,
-                    backupPending: rememberedSession.backupPending,
-                  }
-                : { allowEmpty: deviceHint }),
-            })
-          }
-        />
-      ) : (
-        <>
-          {opening ? (
-            <View style={styles.opening}>
-              <ActivityIndicator color={colors.primary} />
-              <Body>Opening your wallet…</Body>
-            </View>
-          ) : (
-            <>
-              {error ? <Notice kind="error">{error}</Notice> : null}
-              <Button
-                label="Try again"
-                busy={connecting}
-                onPress={() => {
-                  openWallet().catch(e => setError(errorMessage(e)));
-                }}
-              />
-            </>
-          )}
+  const look = welcomeVisual({
+    error,
+    opening,
+    returning: !!rememberedSession,
+  });
+
+  // Closed on the first frame, so the bloom unfolds as the screen arrives.
+  const [unfolded, setUnfolded] = useState(false);
+  useEffect(() => setUnfolded(true), []);
+  // Each new failure wilts it again.
+  const [wilt, setWilt] = useState<BloomEvent | undefined>();
+  useEffect(() => {
+    if (!look.wilted) return;
+    setWilt(last => ({ kind: 'wilt', key: (last?.key ?? 0) + 1 }));
+  }, [look.wilted, error]);
+
+  if (deviceVisible) {
+    return (
+      <PhaseRoot key="device" style={styles.device}>
+        <SetupPanel>
+          <DeviceSetup
+            busy={connecting}
+            error={error}
+            onOpen={settings =>
+              openDevice(settings, {
+                existingOnly: deviceHint || !!rememberedSession,
+                ...(rememberedSession
+                  ? {
+                      walletId: rememberedSession.walletId,
+                      prepared: rememberedSession.prepared,
+                      backupPending: rememberedSession.backupPending,
+                    }
+                  : { allowEmpty: deviceHint }),
+              })
+            }
+          />
           <LinkButton
-            label="Restore from recovery phrase"
+            label={copy.phase.back}
+            tone="muted"
             disabled={connecting}
+            onPress={closeDevice}
+          />
+        </SetupPanel>
+      </PhaseRoot>
+    );
+  }
+
+  return (
+    <PhaseRoot key="welcome">
+      <View style={styles.bloom}>
+        <Whisper
+          label={opening ? copy.phase.openingWallet : copy.phase.tagline}
+        >
+          <View
+            accessible
+            accessibilityRole={opening ? 'progressbar' : 'image'}
+            accessibilityLabel={copy.phase.tagline}
+            accessibilityValue={
+              opening ? { text: copy.phase.openingWallet } : undefined
+            }
+            accessibilityState={{ busy: opening }}
+          >
+            <Bloom
+              size={SIZES.welcome}
+              open={unfolded ? look.open : 0}
+              mode={look.mode}
+              event={wilt}
+            />
+          </View>
+        </Whisper>
+        {error ? (
+          <View style={styles.pip}>
+            <StatusPip tone="radish" label={error} />
+          </View>
+        ) : null}
+      </View>
+      {/* Only while nothing is opening, so there is nothing to disable. */}
+      {look.primary ? (
+        <Reanimated.View
+          entering={riseIn()}
+          exiting={sceneOut()}
+          style={styles.controls}
+        >
+          <GlyphButton
+            glyph="restore"
+            look="outline"
+            size={SIZES.secondary}
+            label={copy.phase.restore}
             onPress={() => {
               openWallet({ restore: true })
                 .then(() => onCreateWallet(true))
                 .catch(e => setError(errorMessage(e)));
             }}
           />
-          <LinkButton
-            label="Network settings"
-            tone="muted"
-            disabled={connecting}
+          <GlyphButton
+            glyph={look.primary.glyph}
+            look="fill"
+            size={SIZES.primary}
+            label={look.primary.label}
+            onPress={() => {
+              openWallet().catch(e => setError(errorMessage(e)));
+            }}
+          />
+          <GlyphButton
+            glyph="cog"
+            size={SIZES.cog}
+            label={copy.phase.networkSettings}
             onPress={() => setDeviceVisible(true)}
           />
-        </>
-      )}
-      {deviceVisible ? (
-        <LinkButton
-          label="Back"
-          tone="muted"
-          disabled={connecting}
-          onPress={closeDevice}
-        />
+        </Reanimated.View>
       ) : null}
-    </View>
+    </PhaseRoot>
   );
 }
 
 const styles = StyleSheet.create({
-  opening: { gap: space.md, alignItems: 'center' },
-  welcome: {
-    gap: space.xl,
-    paddingTop: space.lg,
-    flex: 1,
-    justifyContent: 'center',
-    paddingBottom: space.xxl,
-  },
-  mark: {
-    height: 96,
-    width: 96,
-    backgroundColor: colors.primary,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: space.md,
-    transform: [{ rotate: '-8deg' }],
-  },
-  markText: {
-    fontSize: 68,
-    color: colors.ink,
-    letterSpacing: -6,
-    fontWeight: '600',
-    marginTop: -8,
-    marginLeft: -5,
-  },
+  device: { justifyContent: 'flex-start' },
+  bloom: { width: SIZES.welcome, height: SIZES.welcome },
+  pip: { position: 'absolute', right: space.xs, bottom: space.xs },
+  controls: { flexDirection: 'row', alignItems: 'center', gap: space.xl },
 });

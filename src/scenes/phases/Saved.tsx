@@ -1,23 +1,35 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import type { Network } from '@beignet/wallet-core';
-import {
-  Body,
-  Button,
-  LinkButton,
-  Notice,
-  Skeleton,
-  Title,
-} from '../../components/ui';
+import { LinkButton } from '../../components/ui';
+import { copy } from '../../design/copy';
+import { Bloom } from '../../glyphs/Bloom';
 import { NetworkSettings } from '../../screens/NetworkSettings';
 import { errorMessage } from '../../services/useWalletSession';
 import type { useWalletSession } from '../../services/useWalletSession';
 import { usePhaseBack } from '../../stage/StageContext';
 import { space } from '../../theme';
+import {
+  GlyphButton,
+  nameStyle,
+  PhaseRoot,
+  SetupPanel,
+  StatusPip,
+} from './parts';
+import { bloomTone, SIZES } from './visual';
 
 type Session = ReturnType<typeof useWalletSession>;
 
-/** The wallet saved on this device, when it could not be opened, and the ways back into it. */
+/** A bloom at rest, most of the way open, in husk and bark. */
+const DORMANT_OPEN = 0.7;
+
+/**
+ * The wallet saved on this device, when it could not be opened, and the ways
+ * back into it: a dormant bloom over the wallet's name, a radish pip that
+ * holds the reason when there is one, a refresh that opens it again, and a
+ * cog for the network editor, which opens as a setup panel in the Settings
+ * language with the device's connection settings under it.
+ */
 export function Saved({
   name,
   network,
@@ -51,54 +63,74 @@ export function Saved({
     setNetworkEditor(false);
     return true;
   });
+  const reason = switchError || error;
+  // The bloom speaks for what the screen no longer writes: whose wallet it is
+  // when there is no name to show, and that it is still here.
+  const spoken = [
+    name ? '' : copy.phase.yourWallet,
+    reason ? copy.phase.saved : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
   return (
-    <View style={styles.stack}>
-      <Title>{name || 'Your wallet'}</Title>
-      {error || switchError ? (
-        <Body>
-          This wallet is still on your phone. It could not be opened just now.
-        </Body>
-      ) : null}
-      {switchError || error ? (
-        <Notice kind="error" icon="alert">
-          {switchError || error}
-        </Notice>
-      ) : (
-        <View style={styles.skeletons}>
-          <Skeleton width="55%" height={22} />
-          <Skeleton width="80%" height={14} />
+    <PhaseRoot>
+      <View style={styles.identity}>
+        <View style={styles.bloom}>
+          <Bloom
+            size={SIZES.loader}
+            open={DORMANT_OPEN}
+            tone="dormant"
+            accessibilityLabel={spoken || undefined}
+          />
+          {reason ? (
+            <View style={styles.pip}>
+              <StatusPip tone="radish" label={reason} />
+            </View>
+          ) : null}
         </View>
-      )}
-      <Button
-        label="Open device wallet"
-        busy={connecting}
-        onPress={() => {
-          openWallet().catch(e => setError(errorMessage(e)));
-        }}
-      />
-      <LinkButton
-        label={
-          networkEditor
-            ? 'Hide network settings'
-            : 'Change network or Bitcoin server'
-        }
-        disabled={connecting}
-        onPress={() => setNetworkEditor(!networkEditor)}
-      />
+        {name ? <Text style={styles.name}>{name}</Text> : null}
+      </View>
+      <View style={styles.controls}>
+        <GlyphButton
+          glyph="refresh"
+          look="fill"
+          tone={bloomTone(network)}
+          size={SIZES.retry}
+          label={copy.phase.openDevice}
+          busy={connecting}
+          onPress={() => {
+            openWallet().catch(e => setError(errorMessage(e)));
+          }}
+        />
+        <GlyphButton
+          glyph={networkEditor ? 'close' : 'cog'}
+          size={SIZES.cog}
+          label={
+            networkEditor ? copy.phase.hideNetwork : copy.phase.changeNetwork
+          }
+          disabled={connecting}
+          onPress={() => setNetworkEditor(!networkEditor)}
+        />
+      </View>
       {networkEditor ? (
-        <NetworkSettings initialNetwork={network} onApply={switchNetwork} />
+        <SetupPanel>
+          <NetworkSettings initialNetwork={network} onApply={switchNetwork} />
+          <LinkButton
+            label={copy.phase.deviceSettings}
+            tone="muted"
+            disabled={connecting}
+            onPress={() => setDeviceVisible(true)}
+          />
+        </SetupPanel>
       ) : null}
-      <LinkButton
-        label="Device connection settings"
-        tone="muted"
-        disabled={connecting}
-        onPress={() => setDeviceVisible(true)}
-      />
-    </View>
+    </PhaseRoot>
   );
 }
 
 const styles = StyleSheet.create({
-  stack: { gap: space.lg },
-  skeletons: { gap: space.sm },
+  identity: { alignItems: 'center', gap: space.md },
+  bloom: { width: SIZES.loader, height: SIZES.loader },
+  pip: { position: 'absolute', right: 0, bottom: 0 },
+  name: nameStyle,
+  controls: { flexDirection: 'row', alignItems: 'center', gap: space.xl },
 });

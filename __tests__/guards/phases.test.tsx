@@ -1,13 +1,669 @@
-import { guard } from '../../test-support/guard';
+import React from 'react';
+import type { PropsWithChildren, ReactElement } from 'react';
+import { AccessibilityInfo } from 'react-native';
+import { act } from 'react-test-renderer';
+import type { ReactTestRenderer } from 'react-test-renderer';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as Keychain from 'react-native-keychain';
+import HapticFeedback from 'react-native-haptic-feedback';
+import { copy } from '../../src/design/copy';
+import { Bloom } from '../../src/glyphs/Bloom';
+import { OpeningWallet } from '../../src/scenes/phases/Loading';
+import { LockScreen } from '../../src/scenes/phases/Locked';
+import { OfflineWallet } from '../../src/scenes/phases/Offline';
+import { Opening } from '../../src/scenes/phases/Opening';
+import { Picker } from '../../src/scenes/phases/Picker';
+import { Saved } from '../../src/scenes/phases/Saved';
+import { Transit } from '../../src/scenes/phases/Transit';
+import {
+  bloomTone,
+  lockVisual,
+  markFlight,
+  markPoint,
+  SIZES,
+  transitVisual,
+  unlockGlyph,
+  welcomeVisual,
+} from '../../src/scenes/phases/visual';
+import { Welcome } from '../../src/scenes/phases/Welcome';
+import { defaultProfile } from '../../src/services/networks';
+import type { WalletSession } from '../../src/services/session';
+import { STATUS_ROW } from '../../src/stage/layout';
+import {
+  newestFirst,
+  StageProvider,
+  useStageStore,
+} from '../../src/stage/StageContext';
+import type { StageStore } from '../../src/stage/StageContext';
+import { guardData, snapshotOf, walletOf } from '../../test-support/fixtures';
+import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
+import { find, meaning, press } from '../../test-support/query';
 
 /**
  * The shell phases under the copy guard (REDESIGN.md rule 1) and the
  * accessibility check (section 9): the lock, opening, closing, switching,
- * erasing, and the ways back into a wallet. The phases track adds each state
- * it redraws, drawn from test-support/fixtures.ts with `guardData` as its
- * data.
+ * erasing, and the ways back into a wallet, each in every state it draws.
+ * Their setup panels are Settings-class surfaces and carry the Settings
+ * marker, so the guard reads their words as allowed and still checks that
+ * every control in them is named.
  */
-const GUARDED: GuardedState[] = [];
+
+/**
+ * The shell phases answer Android back through the stage, and their status
+ * glyphs whisper through the gesture handler, so they are drawn inside both,
+ * as the app draws them.
+ */
+let stage!: StageStore;
+
+function Staged({ children }: PropsWithChildren) {
+  stage = useStageStore();
+  return (
+    <GestureHandlerRootView>
+      <StageProvider value={stage}>{children}</StageProvider>
+    </GestureHandlerRootView>
+  );
+}
+
+const staged = (element: ReactElement) => mount(<Staged>{element}</Staged>);
+
+const everyday = walletOf();
+const savings = walletOf({
+  id: 'savings',
+  name: 'Savings',
+  network: 'mainnet',
+});
+const DATA = guardData(snapshotOf(), [savings.name]);
+
+const remembered: WalletSession = {
+  mode: 'device',
+  network: 'regtest',
+  walletId: everyday.id,
+  locked: true,
+};
+
+const lock = (props: Partial<React.ComponentProps<typeof LockScreen>> = {}) =>
+  staged(
+    <LockScreen prompting={false} error="" onUnlock={jest.fn()} {...props} />,
+  );
+
+const saved = (props: Partial<React.ComponentProps<typeof Saved>> = {}) =>
+  staged(
+    <Saved
+      name={everyday.name}
+      network="regtest"
+      error=""
+      switchError=""
+      connecting={false}
+      networkEditor={false}
+      openWallet={jest.fn(async () => {})}
+      setError={jest.fn()}
+      setNetworkEditor={jest.fn()}
+      setDeviceVisible={jest.fn()}
+      switchNetwork={jest.fn(async () => {})}
+      {...props}
+    />,
+  );
+
+const welcome = (props: Partial<React.ComponentProps<typeof Welcome>> = {}) =>
+  staged(
+    <Welcome
+      error=""
+      connecting={false}
+      initializing={false}
+      deviceVisible={false}
+      deviceHint={false}
+      rememberedSession={null}
+      openDevice={jest.fn(async () => {})}
+      openWallet={jest.fn(async () => {})}
+      setError={jest.fn()}
+      setDeviceVisible={jest.fn()}
+      onCreateWallet={jest.fn()}
+      {...props}
+    />,
+  );
+
+const picker = (props: Partial<React.ComponentProps<typeof Picker>> = {}) =>
+  staged(
+    <Picker
+      wallets={[everyday, savings]}
+      activeProfile={{
+        ...defaultProfile('regtest'),
+        primaryUri: `02${'a'.repeat(64)}@127.0.0.1:19846`,
+      }}
+      error=""
+      switchError=""
+      networkEditor={false}
+      selecting={false}
+      switchNetwork={jest.fn(async () => {})}
+      setNetworkEditor={jest.fn()}
+      selectWallet={jest.fn(async () => {})}
+      createDefaultWallet={jest.fn(async () => {})}
+      disconnect={jest.fn(async () => {})}
+      onCreateWallet={jest.fn()}
+      {...props}
+    />,
+  );
+
+const loading = (
+  props: Partial<React.ComponentProps<typeof OpeningWallet>> = {},
+) =>
+  staged(
+    <OpeningWallet
+      name={everyday.name}
+      network="regtest"
+      busy={false}
+      onDisconnect={jest.fn()}
+      {...props}
+    />,
+  );
+
+const offlineWallet = (
+  props: Partial<React.ComponentProps<typeof OfflineWallet>> = {},
+) => (
+  <Staged>
+    <OfflineWallet
+      name={everyday.name}
+      network="regtest"
+      error="Electrum is offline."
+      busy={false}
+      networkEditor={false}
+      onRetryConnection={jest.fn()}
+      onRetrySetup={jest.fn()}
+      onToggleNetwork={jest.fn()}
+      onApplyNetwork={jest.fn(async () => {})}
+      onChooseWallet={jest.fn()}
+      onDisconnect={jest.fn()}
+      loadPhrase={jest.fn(async () => 'never shown')}
+      {...props}
+    />
+  </Staged>
+);
+
+const offline = (
+  props: Partial<React.ComponentProps<typeof OfflineWallet>> = {},
+) => mount(offlineWallet(props));
+
+/** Renders a state, then opens what it keeps behind the control `label`. */
+const opened = async (
+  render: () => Promise<ReactTestRenderer>,
+  label: string,
+) => {
+  const tree = await render();
+  await press(tree, label);
+  return tree;
+};
+
+const GUARDED: GuardedState[] = [
+  { name: 'lock, waiting', render: () => lock(), data: DATA },
+  {
+    name: 'lock, prompting',
+    render: () => lock({ prompting: true }),
+    data: DATA,
+  },
+  {
+    name: 'lock, refused',
+    render: () => lock({ error: copy.phase.lockRefused }),
+    data: DATA,
+  },
+  {
+    name: 'lock with Face ID',
+    render: () => {
+      jest
+        .mocked(Keychain.getSupportedBiometryType)
+        .mockResolvedValueOnce('FaceID' as never);
+      return lock();
+    },
+    data: DATA,
+  },
+  {
+    name: 'transit, closing',
+    render: () =>
+      staged(<Transit erasing={false} closing switchTarget={null} />),
+    data: DATA,
+  },
+  {
+    name: 'transit, switching to mainnet',
+    render: () =>
+      staged(
+        <Transit
+          erasing={false}
+          closing={false}
+          switchTarget="mainnet"
+          network="regtest"
+        />,
+      ),
+    data: DATA,
+  },
+  {
+    name: 'transit, switching with no target',
+    render: () =>
+      staged(<Transit erasing={false} closing={false} switchTarget={null} />),
+    data: DATA,
+  },
+  {
+    name: 'transit, erasing',
+    render: () => staged(<Transit erasing closing switchTarget={null} />),
+    data: DATA,
+  },
+  { name: 'opening', render: () => staged(<Opening />), data: DATA },
+  { name: 'saved', render: () => saved(), data: DATA },
+  {
+    name: 'saved, unnamed',
+    render: () => saved({ name: undefined }),
+    data: DATA,
+  },
+  {
+    name: 'saved, open failed',
+    render: () => saved({ error: 'Electrum is offline.' }),
+    data: DATA,
+  },
+  {
+    name: 'saved, switch failed',
+    render: () => saved({ switchError: 'The Electrum server did not answer.' }),
+    data: DATA,
+  },
+  {
+    name: 'saved, opening',
+    render: () => saved({ connecting: true }),
+    data: DATA,
+  },
+  {
+    name: 'saved, network editor',
+    render: () => saved({ networkEditor: true }),
+    data: DATA,
+  },
+  { name: 'welcome, first run', render: () => welcome(), data: DATA },
+  {
+    name: 'welcome, after a lock',
+    render: () => welcome({ rememberedSession: remembered }),
+    data: DATA,
+  },
+  {
+    name: 'welcome, opening',
+    render: () => welcome({ connecting: true }),
+    data: DATA,
+  },
+  {
+    name: 'welcome, open failed',
+    render: () => welcome({ error: 'Electrum is offline.' }),
+    data: DATA,
+  },
+  {
+    name: 'welcome, device setup',
+    render: () => welcome({ deviceVisible: true, deviceHint: true }),
+    data: DATA,
+  },
+  {
+    name: 'welcome, device setup opening',
+    render: () =>
+      welcome({ deviceVisible: true, connecting: true, error: 'Refused.' }),
+    data: DATA,
+  },
+  { name: 'picker', render: () => picker(), data: DATA },
+  { name: 'picker, empty', render: () => picker({ wallets: [] }), data: DATA },
+  {
+    name: 'picker, empty and creating',
+    render: () => picker({ wallets: [], selecting: true }),
+    data: DATA,
+  },
+  {
+    name: 'picker, choosing',
+    render: () =>
+      opened(
+        () => picker({ selectWallet: jest.fn(() => new Promise(() => {})) }),
+        'Open Everyday',
+      ),
+    data: DATA,
+  },
+  {
+    name: 'picker, failed',
+    render: () =>
+      picker({
+        wallets: [],
+        error: 'Add a primary node for regtest.',
+        switchError: 'The Electrum server did not answer.',
+      }),
+    data: DATA,
+  },
+  {
+    name: 'picker, network editor',
+    render: () => picker({ networkEditor: true }),
+    data: DATA,
+  },
+  { name: 'loading', render: () => loading(), data: DATA },
+  {
+    name: 'loading, unnamed and busy',
+    render: () => loading({ name: undefined, busy: true }),
+    data: DATA,
+  },
+  { name: 'offline', render: () => offline(), data: DATA },
+  {
+    name: 'offline, setup failed',
+    render: () => offline({ setupError: 'Liquidity provider is unavailable.' }),
+    data: DATA,
+  },
+  {
+    name: 'offline, retrying',
+    render: () => offline({ busy: true }),
+    data: DATA,
+  },
+  {
+    name: 'offline, connecting',
+    render: () => offline({ error: '' }),
+    data: DATA,
+  },
+  {
+    name: 'offline, settings',
+    render: () => opened(() => offline(), copy.phase.settings),
+    data: DATA,
+  },
+  {
+    name: 'offline, network editor',
+    render: () => offline({ networkEditor: true }),
+    data: DATA,
+  },
+];
 
 guard('phases', GUARDED);
+
+describe('phase visuals', () => {
+  test('slate stands in for bloom on every network but mainnet', () => {
+    expect(bloomTone('mainnet')).toBe('live');
+    expect(bloomTone('regtest')).toBe('test');
+    expect(bloomTone('testnet')).toBe('test');
+    expect(bloomTone(null)).toBe('live');
+  });
+
+  test('the unlock glyph follows the way the phone proves its owner', () => {
+    expect(unlockGlyph('face')).toBe('faceScan');
+    expect(unlockGlyph('fingerprint')).toBe('fingerprint');
+    expect(unlockGlyph('iris')).toBe('eye');
+    expect(unlockGlyph('passcode')).toBe('passcode');
+    expect(unlockGlyph(null)).toBe('passcode');
+  });
+
+  test('a refusal holds until the next prompt, and the lock is always said', () => {
+    expect(lockVisual({ prompting: false, error: '' })).toEqual({
+      status: 'Locked',
+      value: 'Locked',
+      drawing: false,
+      refused: false,
+    });
+    expect(lockVisual({ prompting: true, error: '' })).toMatchObject({
+      drawing: true,
+      refused: false,
+    });
+    const refused = lockVisual({
+      prompting: false,
+      error: copy.phase.lockRefused,
+    });
+    expect(refused).toMatchObject({
+      status: copy.phase.lockRefused,
+      drawing: false,
+      refused: true,
+    });
+    expect(refused.value).toContain('Locked');
+    expect(refused.value).toContain(copy.phase.lockRefused);
+  });
+
+  test('each transit says what it is and moves its own way', () => {
+    const closing = transitVisual({
+      erasing: false,
+      closing: true,
+      switchTarget: null,
+      network: 'regtest',
+    });
+    expect(closing).toEqual({
+      kind: 'closing',
+      label: 'Closing your wallet…',
+      from: 'test',
+      to: 'test',
+      mode: 'still',
+    });
+    // Erasing closes too, and says the more serious thing.
+    expect(
+      transitVisual({ erasing: true, closing: true, switchTarget: null }),
+    ).toMatchObject({ kind: 'erasing', to: 'dormant', mode: 'still' });
+    expect(
+      transitVisual({
+        erasing: false,
+        closing: false,
+        switchTarget: 'mainnet',
+        network: 'regtest',
+      }),
+    ).toEqual({
+      kind: 'switching',
+      label: 'Closing this wallet and opening mainnet…',
+      from: 'test',
+      to: 'live',
+      mode: 'ratchet',
+    });
+    // Without the network it leaves, it starts in the tone it will end in.
+    expect(
+      transitVisual({
+        erasing: false,
+        closing: false,
+        switchTarget: 'regtest',
+      }),
+    ).toMatchObject({ from: 'test', to: 'test' });
+    expect(
+      transitVisual({ erasing: false, closing: false, switchTarget: null })
+        .label,
+    ).toBe('Closing this wallet and opening the selected network…');
+  });
+
+  test('welcome offers one big control, or the chase in its place', () => {
+    expect(
+      welcomeVisual({ error: '', opening: true, returning: false }),
+    ).toEqual({ open: 1, mode: 'chase', wilted: false, primary: null });
+    expect(
+      welcomeVisual({ error: 'Refused.', opening: false, returning: true }),
+    ).toEqual({
+      open: 0.5,
+      mode: 'still',
+      wilted: true,
+      primary: { glyph: 'refresh', label: 'Try again' },
+    });
+    expect(
+      welcomeVisual({ error: '', opening: false, returning: true }).primary,
+    ).toEqual({ glyph: 'unlock', label: 'Try again' });
+    expect(
+      welcomeVisual({ error: '', opening: false, returning: false }),
+    ).toEqual({
+      open: 1,
+      mode: 'breathe',
+      wilted: false,
+      primary: { glyph: 'sprout', label: 'Create a wallet' },
+    });
+  });
+
+  test('the mark sits in the status row, and a flight lands a bloom on it', () => {
+    const mark = markPoint({ top: 47, left: 0 });
+    expect(mark).toEqual({ x: 24 + SIZES.mark / 2, y: 47 + STATUS_ROW / 2 });
+    const flight = markFlight(mark, { x: 200, y: 400 }, SIZES.loader);
+    expect(flight.dx).toBe(mark.x - 200);
+    expect(flight.dy).toBe(mark.y - 400);
+    expect(flight.scale).toBeCloseTo(28 / 96);
+    // A bloom already on the mark does not move.
+    expect(markFlight(mark, mark, SIZES.mark)).toEqual({
+      dx: 0,
+      dy: 0,
+      scale: 1,
+    });
+  });
+});
+
+describe('phase behaviour', () => {
+  const haptic = jest.mocked(HapticFeedback.trigger);
+  const spoken = jest.mocked(
+    AccessibilityInfo.announceForAccessibilityWithOptions,
+  );
+
+  beforeEach(() => {
+    haptic.mockClear();
+    spoken.mockClear();
+  });
+
+  test('the whole lock screen is the unlock control, held while it prompts', async () => {
+    const onUnlock = jest.fn();
+    const tree = await lock({ onUnlock });
+    await press(tree, copy.phase.unlock);
+    expect(onUnlock).toHaveBeenCalledTimes(1);
+    await act(async () =>
+      tree.update(
+        <Staged>
+          <LockScreen prompting error="" onUnlock={onUnlock} />
+        </Staged>,
+      ),
+    );
+    expect(find(tree, copy.phase.unlock)?.props.accessibilityState).toEqual({
+      busy: true,
+    });
+    expect(find(tree, copy.phase.unlock)?.props.disabled).toBe(true);
+    await act(async () => tree.unmount());
+  });
+
+  test('a refused unlock is felt and spoken at once, and stays on the glyph', async () => {
+    // The guard above spoke this already; a repeat within 2s is dropped.
+    const later = Date.now() + 60_000;
+    jest.spyOn(Date, 'now').mockReturnValue(later);
+    const tree = await lock({ error: copy.phase.lockRefused });
+    jest.restoreAllMocks();
+    expect(haptic).toHaveBeenCalledWith('notificationError', expect.anything());
+    expect(spoken).toHaveBeenCalledWith(copy.phase.lockRefused, {
+      queue: false,
+    });
+    const glyph = tree.root.find(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityRole === 'image' &&
+        node.props.accessibilityLabel === copy.phase.lockRefused,
+    );
+    expect(glyph).toBeDefined();
+    // The bud shakes: its event is a shake, keyed to play once.
+    const [bud] = tree.root
+      .findAllByType(Bloom)
+      .filter(node => node.props.mode === 'breathe');
+    expect(bud.props.event).toEqual({ kind: 'shake', key: 1 });
+    await act(async () => tree.unmount());
+  });
+
+  test('leaving the lock right after a prompt is an unlock the hand can feel', async () => {
+    const tree = await lock({ prompting: true });
+    haptic.mockClear();
+    await act(async () => tree.unmount());
+    expect(haptic).toHaveBeenCalledWith(
+      'notificationSuccess',
+      expect.anything(),
+    );
+  });
+
+  test('choosing a wallet chases its mark and dims the rest', async () => {
+    const selectWallet = jest.fn(() => new Promise<void>(() => {}));
+    const tree = await picker({ selectWallet });
+    await press(tree, 'Open Everyday');
+    expect(selectWallet).toHaveBeenCalledWith(everyday);
+    await act(async () =>
+      tree.update(
+        <Staged>
+          <Picker
+            wallets={[everyday, savings]}
+            activeProfile={defaultProfile('regtest')}
+            error=""
+            switchError=""
+            networkEditor={false}
+            selecting
+            switchNetwork={jest.fn(async () => {})}
+            setNetworkEditor={jest.fn()}
+            selectWallet={selectWallet}
+            createDefaultWallet={jest.fn(async () => {})}
+            disconnect={jest.fn(async () => {})}
+            onCreateWallet={jest.fn()}
+          />
+        </Staged>,
+      ),
+    );
+    const modes = tree.root
+      .findAllByType(Bloom)
+      .filter(node => node.props.size === SIZES.mark)
+      .map(node => node.props.mode);
+    expect(modes).toEqual(['chase', 'still']);
+    expect(find(tree, 'Open Everyday')?.props.accessibilityState).toMatchObject(
+      { busy: true, disabled: true },
+    );
+    expect(find(tree, 'Open Savings')?.props.accessibilityState).toMatchObject({
+      busy: false,
+      disabled: true,
+    });
+    await act(async () => tree.unmount());
+  });
+
+  test('a test network wears its flask and says so', async () => {
+    const tree = await picker();
+    expect(meaning(tree)).toContain('regtest');
+    expect(meaning(tree)).toContain(copy.phase.testNetwork('regtest'));
+    expect(meaning(tree)).toContain('regtest · running');
+    await act(async () => tree.unmount());
+  });
+
+  test('offline keeps its setup behind the cog', async () => {
+    const onToggleNetwork = jest.fn();
+    const tree = await offline({ onToggleNetwork });
+    expect(meaning(tree)).toContain(copy.phase.offline);
+    expect(meaning(tree)).toContain('Electrum is offline.');
+    expect(find(tree, copy.phase.lockDevice)).toBeUndefined();
+    await press(tree, copy.phase.settings);
+    expect(find(tree, copy.phase.lockDevice)).toBeDefined();
+    expect(find(tree, copy.phase.chooseWallet)).toBeDefined();
+    expect(find(tree, 'Reveal recovery phrase')).toBeDefined();
+    await press(tree, copy.phase.close);
+    expect(find(tree, copy.phase.lockDevice)).toBeUndefined();
+    expect(onToggleNetwork).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('back on offline closes the editor, then the panel, then lets go', async () => {
+    const onToggleNetwork = jest.fn();
+    const tree = await offline({ networkEditor: true, onToggleNetwork });
+    const back = async () => {
+      let took = false;
+      await act(async () => {
+        took = newestFirst(stage.responders.phaseBack)[0]();
+      });
+      return took;
+    };
+    // An editor already open brings its panel with it.
+    expect(find(tree, copy.phase.lockDevice)).toBeDefined();
+    expect(await back()).toBe(true);
+    expect(onToggleNetwork).toHaveBeenCalledTimes(1);
+    await act(async () =>
+      tree.update(offlineWallet({ networkEditor: false, onToggleNetwork })),
+    );
+    expect(await back()).toBe(true);
+    expect(find(tree, copy.phase.lockDevice)).toBeUndefined();
+    expect(await back()).toBe(false);
+    expect(onToggleNetwork).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('a failed wallet setup puts a honey pip on its retry and says why', async () => {
+    const tree = await offline({
+      setupError: 'Liquidity provider is unavailable.',
+    });
+    const retry = find(tree, copy.phase.retrySetup);
+    expect(retry?.props.accessibilityValue).toEqual({
+      text: 'Liquidity provider is unavailable.',
+    });
+    expect(retry?.props.accessibilityHint).toBe(copy.phase.retrySetupHint);
+    await act(async () => tree.unmount());
+  });
+
+  test('a busy retry turns and cannot be pressed again', async () => {
+    const tree = await offline({ busy: true });
+    expect(
+      find(tree, copy.phase.retryConnection)?.props.accessibilityState,
+    ).toEqual({ disabled: true, busy: true });
+    await act(async () => tree.unmount());
+  });
+});
