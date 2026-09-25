@@ -24,6 +24,7 @@ import { gradients } from '../../src/design/palette';
 import { Bloom, PETALS, pulledPetal } from '../../src/glyphs/Bloom';
 import { Odometer } from '../../src/glyphs/Odometer';
 import { Vessel } from '../../src/glyphs/Vessel';
+import { barFor } from '../../src/scenes/activity/sheet';
 import { ActionCircle } from '../../src/scenes/home/ActionCircle';
 import { Backdrop, glowBleed } from '../../src/scenes/home/Backdrop';
 import { HomePane, LIVE_OVERDUE_MS } from '../../src/scenes/home/HomePane';
@@ -38,6 +39,7 @@ import {
   miniLanding,
   pullOffset,
   pullProgress,
+  rowBack,
   tintTiming,
   vesselOpacity,
 } from '../../src/scenes/home/motion';
@@ -685,6 +687,17 @@ describe('the motion', () => {
     expect(circleOpacity(0.25, true, 'none')).toBe(0.75);
   });
 
+  test('the row is back once it is whole, or once a hand takes it on the way', () => {
+    // The canvas brings it home from rest, rising all the way.
+    expect(rowBack(0, null)).toBe(false);
+    expect(rowBack(0.4, 0.2)).toBe(false);
+    expect(rowBack(0.99, 0.98)).toBe(false);
+    expect(rowBack(1, 0.99)).toBe(true);
+    expect(rowBack(1, null)).toBe(true);
+    // The sheet's drag takes it back down before it gets there.
+    expect(rowBack(0.9, 0.95)).toBe(true);
+  });
+
   test('the tapped circle grows toward the 88pt control, and the rest shrink', () => {
     const rest = { scale: 1, translateX: 0, translateY: 0 };
     expect(launchPose(1, true, 'none', 120)).toEqual(rest);
@@ -810,24 +823,122 @@ describe('on the way to Send', () => {
 });
 
 describe('coming back from Send or Receive', () => {
-  test('the circle that opened it is kept until the canvas goes elsewhere', async () => {
-    const tree = await draw({ snapshot: snapshotOf({ wallet: MAINNET }) });
-    const launching = () =>
-      tree.root.findByType(HomeScreen).props.launching as Launch;
-    expect(launching()).toBe('none');
-    await act(async () => stage.actions.openSend());
-    expect(launching()).toBe('send');
-    // Home again: the Send circle travels back into the row, so it is kept.
+  // Shared values live as long as their component, as on a device, and a
+  // reaction runs as each render lands, with what it read then and at the
+  // render before: under the mock a render is the only frame there is.
+  beforeEach(() => {
+    const made = Reanimated.useSharedValue;
+    jest
+      .spyOn(Reanimated, 'useSharedValue')
+      .mockImplementation(init => React.useState(() => made(init))[0]);
+    jest
+      .spyOn(Reanimated, 'useAnimatedReaction')
+      .mockImplementation((prepare, react) => {
+        const now = prepare();
+        const last = React.useRef<typeof now | null>(null);
+        React.useEffect(() => {
+          const before = last.current;
+          last.current = now;
+          react(now, before);
+        });
+      });
+  });
+
+  const drawn = { snapshot: snapshotOf({ wallet: MAINNET }) };
+  const launchingIn = (tree: ReactTestRenderer) =>
+    tree.root.findByType(HomeScreen).props.launching as Launch;
+
+  /** Home drawn again with the panes at `hero` and `bar`, as a frame is. */
+  async function frame(tree: ReactTestRenderer, hero: number, bar = hero) {
+    await act(async () => {
+      panes.hero.set(hero);
+      panes.bar.set(bar);
+      tree.update(<HomeRegions {...drawn} />);
+    });
+    // What the reaction hands back to JS.
+    await act(async () => {});
+  }
+
+  /** The canvas carrying the row off to a scene, and bringing it home. */
+  async function away(tree: ReactTestRenderer, open: () => void) {
+    await act(async () => open());
+    await frame(tree, 0);
     await act(async () => stage.actions.back());
     expect(canvasScene(stage.state)).toBe('home');
-    expect(launching()).toBe('send');
-    await act(async () => stage.actions.openReceive());
-    expect(launching()).toBe('receive');
-    await act(async () => stage.actions.back());
-    expect(launching()).toBe('receive');
-    // Anywhere else it is let go.
+  }
+
+  const OPENS: Array<[Launch, () => void]> = [
+    ['send', () => stage.actions.openSend()],
+    ['receive', () => stage.actions.openReceive()],
+  ];
+
+  test('the circle that opened it is kept until the row is back', async () => {
+    const tree = await draw(drawn);
+    expect(launchingIn(tree)).toBe('none');
+    for (const [launch, open] of OPENS) {
+      await away(tree, open);
+      // Home again: the circle travels back into the row, so it is kept.
+      expect(launchingIn(tree)).toBe(launch);
+      await frame(tree, 0.5);
+      expect(launchingIn(tree)).toBe(launch);
+      // Once the row is back it is let go.
+      await frame(tree, 1);
+      expect(launchingIn(tree)).toBe('none');
+    }
+    // Anywhere else it is let go at once.
+    await away(tree, () => stage.actions.openSend());
     await act(async () => stage.actions.openActivity());
-    expect(launching()).toBe('none');
+    expect(launchingIn(tree)).toBe('none');
+    await act(async () => tree.unmount());
+  });
+
+  test('a sheet drag from home afterwards moves the row as a whole', async () => {
+    const tree = await draw(drawn);
+    /** What the sheet's drag writes as it takes the seam to `progress`. */
+    const drag = (progress: number) =>
+      frame(tree, 1 - progress, barFor(progress));
+    const PROGRESS = 0.3;
+    const atHome = () => {
+      expect(launchingIn(tree)).toBe('none');
+      const [send, , receive] = circles(tree);
+      for (const circle of [send, receive]) {
+        expect(flat(circle).transform).toEqual([
+          { translateX: 0 },
+          { translateY: 0 },
+          { scale: 1 },
+        ]);
+        expect(flat(circle).opacity).toBeCloseTo(barFor(PROGRESS));
+      }
+      // The strip heads for the status row, as it does under Activity.
+      const hero = tree.root.find(
+        node =>
+          typeof node.type === 'string' && node.props.testID === 'home-hero',
+      );
+      const lift = flat(hero).transform?.find(
+        step => 'translateY' in step,
+      )?.translateY;
+      expect(lift).toBeCloseTo(
+        heroPose(1 - PROGRESS, { y: 0, height: 0 }).translateY,
+      );
+    };
+    for (const [, open] of OPENS) {
+      await away(tree, open);
+      await frame(tree, 1);
+      await drag(PROGRESS);
+      atHome();
+      await frame(tree, 1);
+    }
+    // A drag that takes the row before it is all the way home takes the
+    // circle with it too. The strip's landing then moves on its spring, so
+    // it is read once the finger has moved on.
+    for (const [, open] of OPENS) {
+      await away(tree, open);
+      await frame(tree, 0.9);
+      await drag(PROGRESS / 2);
+      await drag(PROGRESS);
+      atHome();
+      await frame(tree, 1);
+    }
     await act(async () => tree.unmount());
   });
 });

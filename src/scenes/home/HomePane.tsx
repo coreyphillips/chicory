@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import { useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import {
+  useAnimatedReaction,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import { announce } from '../../design/announce';
@@ -14,6 +19,7 @@ import { useBuild } from '../../stage/panes/Build';
 import { usePanes } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
 import type { Point } from './ActionCircle';
+import { rowBack } from './motion';
 import type { Launch } from './motion';
 import { useOverdue, useSafetySignal } from './signals';
 import { isTestNetwork } from './visual';
@@ -66,8 +72,10 @@ export function HomePane({
   const spending = shown === 'send' || shown === 'receive';
   // The circle that opened Send or Receive is kept while the canvas comes
   // home, so it travels back into the row rather than snapping there, and
-  // the mini strip grows from the band it rested in. At home with the row
-  // back it is at rest either way; anywhere else it is let go.
+  // the mini strip grows from the band it rested in. It is let go once the
+  // row is back (`rowBack`): from then on the three circles move as one
+  // row, as the sheet's drag moves them, and the strip heads for the status
+  // row. Anywhere else it is let go at once.
   const [launched, setLaunched] = useState<Launch>('none');
   const launching: Launch = spending
     ? shown
@@ -75,6 +83,14 @@ export function HomePane({
     ? launched
     : 'none';
   if (launching !== launched) setLaunched(launching);
+  const returning = shown === 'home' && launching !== 'none';
+  useAnimatedReaction(
+    () => panes.bar.get(),
+    (bar, before) => {
+      if (returning && rowBack(bar, before)) scheduleOnRN(setLaunched, 'none');
+    },
+    [returning, panes.bar],
+  );
 
   // As the canvas builds in, the hero counts up from 0 on its beat (R-1):
   // it holds 0 until then, unseen, and rolls to the balance as it fades

@@ -111,6 +111,20 @@ export function vesselOpacity(hero: number): number {
 /** Which action circle opened the scene the canvas is heading to. */
 export type Launch = 'none' | 'send' | 'receive';
 
+/**
+ * Whether the action row is back from Send or Receive, with the bar at `bar`
+ * and, the frame before, at `before`: once it is whole again, or once it
+ * falls back on the way, which the canvas never does, since it brings the
+ * row home from rest on the pane spring. Only a hand does, as when the
+ * sheet's drag takes the row before the canvas has brought it all the way.
+ * Either way the circle that opened the scene has come home, and from then
+ * on it moves with the row.
+ */
+export function rowBack(bar: number, before: number | null): boolean {
+  'worklet';
+  return bar >= 1 || (before !== null && bar < before);
+}
+
 /** The Send and Receive circles are 56pt; the scene's hold control is 88. */
 const LAUNCH_GROWTH = 88 / 56 - 1;
 
