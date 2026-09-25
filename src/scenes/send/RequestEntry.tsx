@@ -15,6 +15,7 @@ import { radius, space, type as typography } from '../../theme';
 import { FailureMark } from './FailureMark';
 import { GlyphButton } from './GlyphButton';
 import { requestRail, shortRequest } from './model';
+import { useBloom } from './tone';
 import type { Failure } from './model';
 
 /** Where a scan starts from on screen, for the reveal to grow out of. */
@@ -74,6 +75,7 @@ export function RequestEntry({
   onScan,
 }: RequestEntryProps) {
   const live = usePaneActive() && !busy;
+  const bloom = useBloom();
   // The well pops back in when a chip opens or dissolves into it, but not
   // when the scene first arrives: the scene rises in as a whole.
   const settled = useRef(false);
@@ -102,7 +104,7 @@ export function RequestEntry({
         }
         style={styles.chip}
       >
-        {rail ? <Glyph name={rail} size={16} color={palette.bloom} /> : null}
+        {rail ? <Glyph name={rail} size={16} color={bloom.tone} /> : null}
         <Text
           style={styles.chipText}
           numberOfLines={1}
@@ -164,6 +166,7 @@ function Well({
   // The dashed edge breathes only while the well waits for something, in
   // and out once each 4200ms.
   const breath = useLoop(durations.breathe, !value && !refused);
+  const bloom = useBloom();
   const edge = useAnimatedStyle(() => ({
     opacity: 0.4 + 0.6 * wave(breath.get()),
   }));
@@ -204,7 +207,7 @@ function Well({
         multiline
         autoFocus={focus}
         editable={live}
-        selectionColor={palette.bloom}
+        selectionColor={bloom.tone}
         style={styles.input}
       />
       {refused ? <FailureMark failure={refused} /> : null}

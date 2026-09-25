@@ -16,6 +16,7 @@ import { BANG, DrawnGlyph } from './DrawnGlyph';
 import type { Stroke } from './DrawnGlyph';
 import type { ResultVisual } from './model';
 import { Orbit } from './Orbit';
+import { useBloom } from './tone';
 
 const SIZE = 120;
 const STROKE = 5;
@@ -57,13 +58,14 @@ function Disc() {
   );
 }
 
-/** On its way: an orbit round the arrow that left. */
+/** On its way: an orbit round the arrow that left, slate on a test network. */
 function Moving() {
+  const bloom = useBloom();
   return (
     <>
       <Ring color={palette.husk} />
-      <Orbit size={SIZE} stroke={STROKE} color={palette.bloom} />
-      <Glyph name="send" size={44} color={palette.bloom} />
+      <Orbit size={SIZE} stroke={STROKE} color={bloom.tone} />
+      <Glyph name="send" size={44} color={bloom.tone} />
     </>
   );
 }

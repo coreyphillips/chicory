@@ -7,6 +7,7 @@ import { Whisper } from '../../glyphs/Whisper';
 import { amountIn, space, type as typography } from '../../theme';
 import type { Unit } from '../../theme';
 import { reviewFigures, reviewRail } from './model';
+import { useBloom } from './tone';
 import type { ReviewFigure } from './model';
 
 /** The sum's lines are line text, which stops growing at 1.4 (REDESIGN.md 3.3). */
@@ -65,6 +66,7 @@ export function ReviewLines({
   unit?: Unit;
 }) {
   const rail = reviewRail(review);
+  const bloom = useBloom();
   return (
     <View style={styles.lines}>
       {reviewFigures(review).map((figure, index) => (
@@ -76,7 +78,7 @@ export function ReviewLines({
               accessibilityLabel={rail.label}
               style={styles.rail}
             >
-              <Glyph name={rail.glyph} size={20} color={palette.bloom} />
+              <Glyph name={rail.glyph} size={20} color={bloom.tone} />
             </View>
           ) : (
             <View style={styles.rail} />

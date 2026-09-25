@@ -6,6 +6,7 @@ import { ExpiryRing } from '../../glyphs/ExpiryRing';
 import { HoldButton } from '../../glyphs/HoldButton';
 import { useNow } from '../../services/clock';
 import { CONTROL, CircleControl, QuoteRefresh } from './Controls';
+import { useTestNetwork } from './tone';
 
 /** The ring round the hold, at r+8 from the control (REDESIGN.md 5). */
 const RING = CONTROL + 16;
@@ -51,12 +52,18 @@ export function Commit({
   onRefresh?: () => void;
   ref?: Ref<ComponentRef<typeof View>>;
 }) {
+  const test = useTestNetwork();
   // Only the words need the second: the ring runs down on its own timing.
   const now = useNow(1000, !expired && !stale);
   const left = Math.max(0, Math.ceil((expiresAt - now) / 1000));
   return (
     <View style={styles.commit}>
-      <ExpiryRing size={RING} expiresAt={expiresAt} createdAt={createdAt} />
+      <ExpiryRing
+        size={RING}
+        expiresAt={expiresAt}
+        createdAt={createdAt}
+        test={test}
+      />
       <View style={styles.control}>
         {expired ? (
           <QuoteRefresh ref={ref} onPress={onRefreshQuote} busy={busy} />
@@ -78,6 +85,7 @@ export function Commit({
             onCommit={onCommit}
             warning={warning}
             busy={busy}
+            test={test}
           />
         )}
       </View>

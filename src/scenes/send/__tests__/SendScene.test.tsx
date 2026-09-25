@@ -12,6 +12,7 @@ import type {
 import { copy } from '../../../design/copy';
 import { Odometer } from '../../../glyphs/Odometer';
 import { SendScreen } from '../../../screens/Send';
+import { isTestNetwork } from '../../home/visual';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
 import type { CanvasView } from '../../../stage/Canvas';
 import { holdRequest } from '../../../stage/heldRequests';
@@ -255,6 +256,23 @@ test('amounts follow the balance, hidden and in its unit, except on a review', a
   );
   expect(fee.props.accessibilityValue.text).toBe(copy.amount.spoken(20));
   await act(async () => tree.unmount());
+});
+
+test("draws in slate on a test network, as the wallet's network says", async () => {
+  const tree = await openSend();
+  const drawn = () => tree.root.findByType(SendScreen).props.test;
+  expect(drawn()).toBe(isTestNetwork(snapshot.wallet.network));
+  await act(async () => tree.unmount());
+  const network = snapshot.wallet.network;
+  for (const each of ['mainnet', 'regtest']) {
+    snapshot.wallet.network = each as typeof network;
+    const again = await openSend();
+    expect(again.root.findByType(SendScreen).props.test).toBe(
+      each !== 'mainnet',
+    );
+    await act(async () => again.unmount());
+  }
+  snapshot.wallet.network = network;
 });
 
 test('an unknown outcome holds honey on the ground, and a failure flashes radish', async () => {

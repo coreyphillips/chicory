@@ -54,6 +54,7 @@ import { ResultMark } from '../scenes/send/ResultMark';
 import { LINE_SCALE, ReviewLines } from '../scenes/send/ReviewLines';
 import { useLanding } from '../scenes/send/useLanding';
 import { useScreenReader } from '../scenes/send/useScreenReader';
+import { TestNetwork } from '../scenes/send/tone';
 import type { Landing } from '../scenes/send/useLanding';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { errorMessage } from '../services/useWalletSession';
@@ -156,6 +157,7 @@ export function SendScreen({
   onDone,
   masked = false,
   unit = 'sats',
+  test = false,
   ref,
 }: {
   client: WalletAdapter;
@@ -179,6 +181,8 @@ export function SendScreen({
   masked?: boolean;
   /** The unit the balance is shown in. */
   unit?: Unit;
+  /** A test network, where slate stands in for bloom throughout. */
+  test?: boolean;
   ref?: Ref<SendHandle>;
 }) {
   const live = usePaneActive();
@@ -836,39 +840,43 @@ export function SendScreen({
 
   const composing = step === 'compose';
   return (
-    <View style={styles.screen}>
-      {/* The request stays in place from step to step, a well while it is
+    <TestNetwork.Provider value={test}>
+      <View style={styles.screen}>
+        {/* The request stays in place from step to step, a well while it is
           composed and a chip after, so only what changes crossfades. A
           chip past compose opens back to compose: from a review to edit
           the payment, from the held ring to take another request. */}
-      {result ? null : (
-        <RequestEntry
-          accessibilityLabel={copy.send.request}
-          value={request}
-          onChangeText={composing && live ? typed : undefined}
-          collapsed={!composing || collapsed}
-          onExpand={
-            busy ? undefined : review ? edit : () => setCollapsed(false)
-          }
-          onCollapse={() => setCollapsed(request.trim() !== '')}
-          fixed={fixedSats !== null}
-          refused={composing && failure?.target === 'request' ? failure : null}
-          busy={busy}
-          onPaste={composing ? paste : undefined}
-          onScan={composing ? scan : undefined}
-        />
-      )}
-      <Reanimated.View
-        key={step}
-        entering={sceneIn()}
-        exiting={sceneOut()}
-        onTouchStart={result ? stay : undefined}
-        onFocus={result ? stay : undefined}
-        style={styles.step}
-      >
-        {content}
-      </Reanimated.View>
-    </View>
+        {result ? null : (
+          <RequestEntry
+            accessibilityLabel={copy.send.request}
+            value={request}
+            onChangeText={composing && live ? typed : undefined}
+            collapsed={!composing || collapsed}
+            onExpand={
+              busy ? undefined : review ? edit : () => setCollapsed(false)
+            }
+            onCollapse={() => setCollapsed(request.trim() !== '')}
+            fixed={fixedSats !== null}
+            refused={
+              composing && failure?.target === 'request' ? failure : null
+            }
+            busy={busy}
+            onPaste={composing ? paste : undefined}
+            onScan={composing ? scan : undefined}
+          />
+        )}
+        <Reanimated.View
+          key={step}
+          entering={sceneIn()}
+          exiting={sceneOut()}
+          onTouchStart={result ? stay : undefined}
+          onFocus={result ? stay : undefined}
+          style={styles.step}
+        >
+          {content}
+        </Reanimated.View>
+      </View>
+    </TestNetwork.Provider>
   );
 }
 
