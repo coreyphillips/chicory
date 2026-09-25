@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { slideIn, slideOut } from '../motion/presets';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
@@ -116,9 +117,14 @@ export function Canvas({
   const { reduced } = useMotionPrefs();
   const { hidden, setHidden } = view;
 
-  // Measured rather than assumed: the canvas is whatever the safe area
-  // leaves. The window's height stands in until the first layout.
+  // Measured rather than assumed. The canvas draws edge to edge, top to
+  // bottom under the system bars, and each region keeps its own content
+  // clear of them. Only a side cutout, in landscape, narrows it. The
+  // window's height stands in until the first layout.
   const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  // Where the regions under the status row start.
+  const belowStatus = insets.top + STATUS_ROW;
   const [measured, setMeasured] = useState(0);
   const height = measured || windowHeight;
   const onLayout = useCallback(
@@ -198,7 +204,13 @@ export function Canvas({
 
   return (
     <PanesProvider value={panes}>
-      <View style={styles.canvas} onLayout={onLayout}>
+      <View
+        style={[
+          styles.canvas,
+          { marginLeft: insets.left, marginRight: insets.right },
+        ]}
+        onLayout={onLayout}
+      >
         <Pane active={live} style={[styles.fill, coveredStyle]}>
           <StatusRow
             snapshot={snapshot}
@@ -210,7 +222,10 @@ export function Canvas({
           />
           <Pane
             active={home}
-            style={[styles.home, { height: panes.stops.home - STATUS_ROW }]}
+            style={[
+              styles.home,
+              { top: belowStatus, height: panes.stops.home - belowStatus },
+            ]}
           >
             <HomePane
               home={home}
@@ -222,7 +237,7 @@ export function Canvas({
             />
           </Pane>
           <View
-            style={styles.topSlot}
+            style={[styles.topSlot, { top: belowStatus }]}
             pointerEvents={blocking ? 'none' : 'box-none'}
           >
             {top}
@@ -301,14 +316,8 @@ const styles = StyleSheet.create({
   canvas: { flex: 1, overflow: 'hidden' },
   fill: StyleSheet.absoluteFill,
   flex: { flex: 1 },
-  home: { position: 'absolute', top: STATUS_ROW, left: 0, right: 0 },
-  topSlot: {
-    position: 'absolute',
-    top: STATUS_ROW,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
+  home: { position: 'absolute', left: 0, right: 0 },
+  topSlot: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   sheet: {
     position: 'absolute',
     top: 0,

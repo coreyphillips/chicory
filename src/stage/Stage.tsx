@@ -230,15 +230,14 @@ export function Stage({
   // the window's own origin, so it lands where the finger is.
   return (
     <WhisperProvider>
-      <SafeAreaView
-        style={styles.root}
-        edges={['top', 'bottom', 'left', 'right']}
-      >
-        <StatusBar barStyle="light-content" />
-        <View style={styles.root}>
-          {phase.kind === 'wallet' ? (
-            content
-          ) : (
+      <StatusBar barStyle="light-content" />
+      <View style={styles.root}>
+        {phase.kind === 'wallet' ? (
+          // The canvas draws edge to edge, under the system bars, and keeps
+          // its own content clear of them.
+          content
+        ) : (
+          <SafeAreaView style={styles.root} edges={EDGES}>
             <View
               style={styles.root}
               importantForAccessibility={
@@ -266,16 +265,25 @@ export function Stage({
                 </Animated.View>
               </SceneSlot>
             </View>
-          )}
-          {creating}
-        </View>
-      </SafeAreaView>
+          </SafeAreaView>
+        )}
+        {creating ? (
+          <SafeAreaView style={styles.layer} edges={EDGES}>
+            <View style={styles.flex}>{creating}</View>
+          </SafeAreaView>
+        ) : null}
+      </View>
     </WhisperProvider>
   );
 }
 Stage.displayName = 'Stage';
 
+/** Every edge of the window that the phase views and the sheet keep clear of. */
+const EDGES = ['top', 'bottom', 'left', 'right'] as const;
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
+  layer: { ...StyleSheet.absoluteFill, backgroundColor: colors.background },
+  flex: { flex: 1 },
   stack: { gap: space.lg },
 });

@@ -1,10 +1,13 @@
 import React from 'react';
 import { AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
 import * as Reanimated from 'react-native-reanimated';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
+import { StatusRow } from '../src/scenes/home/StatusRow';
+import { SettingsLayer } from '../src/scenes/settings/SettingsLayer';
 import { BackupBanner } from '../src/scenes/shared/BackupBanner';
 import { ActivityScreen, HomeScreen } from '../src/screens/Wallet';
 import { SettingsScreen } from '../src/screens/Settings';
@@ -15,6 +18,7 @@ import {
   HERO_MINI,
   PANE_SETTLE_MS,
   SCENE_LAYOUT,
+  STATUS_ROW,
   stops,
 } from '../src/stage/layout';
 import type { CanvasSceneName } from '../src/stage/layout';
@@ -113,6 +117,10 @@ const flat = (node: ReactTestInstance) =>
   StyleSheet.flatten(node.props.style) as {
     opacity?: number;
     transform?: Transform;
+    top?: number;
+    height?: number;
+    paddingTop?: number;
+    paddingBottom?: number;
   };
 const transformOf = (node: ReactTestInstance, key: string) =>
   flat(node).transform?.find(step => key in step)?.[key];
@@ -384,6 +392,38 @@ describe('the canvas', () => {
     await act(async () => stage.dispatch({ type: 'reset' }));
     await settle();
     expect(transformOf(panes(tree).sheet, 'translateY')).toBe(at().home);
+    await act(async () => tree.unmount());
+  });
+
+  test('the canvas runs under the status bar, and keeps its content below it', async () => {
+    const insets = { top: 47, bottom: 34, left: 0, right: 0 };
+    const tree = await render(
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets,
+        }}
+      >
+        <OnCanvas />
+      </SafeAreaProvider>,
+    );
+    const inset = stops(Dimensions.get('window').height, insets);
+    expect(transformOf(panes(tree).sheet, 'translateY')).toBe(inset.home);
+    const row = host(tree.root.findByType(StatusRow));
+    expect(flat(row)).toMatchObject({
+      paddingTop: insets.top,
+      height: insets.top + STATUS_ROW,
+    });
+    expect(flat(host(panes(tree).home)).top).toBe(insets.top + STATUS_ROW);
+    await act(async () => stage.actions.openActivity());
+    expect(transformOf(panes(tree).sheet, 'translateY')).toBe(inset.compact);
+    await act(async () => stage.actions.home());
+    await act(async () => stage.actions.openSettings());
+    const settings = host(tree.root.findByType(SettingsLayer));
+    expect(flat(settings).paddingBottom).toBe(insets.bottom);
+    expect(flat(host(settings.children[0] as ReactTestInstance))).toMatchObject(
+      { paddingTop: insets.top },
+    );
     await act(async () => tree.unmount());
   });
 

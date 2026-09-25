@@ -1,4 +1,5 @@
 import React from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Activity } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import { DetailScreen } from '../../screens/wallet/Detail';
@@ -31,9 +32,10 @@ export function DetailLayer({
 }) {
   const { actions } = useStage();
   const panes = usePanes();
+  const { top } = useSafeAreaInsets();
   return (
     <DetailCard item={item} from={from}>
-      <SceneSlot label={copy.scene.detail} offset={panes.stops.compact}>
+      <SceneSlot label={copy.scene.detail} offset={panes.stops.compact - top}>
         <DetailScreen
           item={item}
           client={client}

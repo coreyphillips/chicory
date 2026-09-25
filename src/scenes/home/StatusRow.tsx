@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { IconButton, Notice, StatusDot } from '../../components/ui';
 import { copy } from '../../design/copy';
@@ -10,7 +11,8 @@ import { colors, space, type as typography } from '../../theme';
 
 /**
  * The wallet's name and connection, the two controls every scene keeps, and
- * the corner control.
+ * the corner control. The canvas runs under the system status bar, so the
+ * row starts below it.
  */
 export function StatusRow({
   snapshot,
@@ -28,9 +30,12 @@ export function StatusRow({
   onRefresh: () => void;
 }) {
   const live = usePaneActive();
+  const { top } = useSafeAreaInsets();
   const { wallet, primary } = snapshot;
   return (
-    <View style={styles.status}>
+    <View
+      style={[styles.status, { paddingTop: top, height: top + STATUS_ROW }]}
+    >
       <View style={styles.identity}>
         <Text numberOfLines={1} style={styles.wallet}>
           {wallet.name}
@@ -83,7 +88,6 @@ export function RefreshFailed({ error }: { error: string }) {
 
 const styles = StyleSheet.create({
   status: {
-    height: STATUS_ROW,
     paddingHorizontal: space.xl,
     flexDirection: 'row',
     justifyContent: 'space-between',

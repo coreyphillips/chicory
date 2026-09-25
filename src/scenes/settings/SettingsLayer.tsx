@@ -1,5 +1,6 @@
 import React from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { Notice } from '../../components/ui';
 import { copy } from '../../design/copy';
@@ -41,9 +42,16 @@ export function SettingsLayer({
   >;
   backup: Backup | null;
 }) {
+  // Settings covers the whole canvas, under the system bars too, so its
+  // bar starts below the status bar and its content above the home
+  // indicator.
+  const { top, bottom } = useSafeAreaInsets();
   return (
-    <View testID="scene-settings" style={styles.layer}>
-      <View style={styles.bar}>
+    <View
+      testID="scene-settings"
+      style={[styles.layer, { paddingBottom: bottom }]}
+    >
+      <View style={[styles.bar, { paddingTop: top, height: top + STATUS_ROW }]}>
         <CornerControl home={false} />
       </View>
       <SceneSlot
@@ -84,7 +92,6 @@ export function SettingsLayer({
 const styles = StyleSheet.create({
   layer: { flex: 1 },
   bar: {
-    height: STATUS_ROW,
     paddingHorizontal: space.xl,
     flexDirection: 'row',
     justifyContent: 'flex-end',

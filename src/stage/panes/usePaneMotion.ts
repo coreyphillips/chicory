@@ -5,6 +5,7 @@ import {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -13,12 +14,6 @@ import { PANE_SETTLE_MS, canvasLayout, sameLayout, stops } from '../layout';
 import type { CanvasLayout } from '../layout';
 import { useStage } from '../StageContext';
 import type { Panes } from './Pane';
-
-/**
- * The canvas is drawn inside the safe area, so its own top edge already
- * clears the system status bar and every stop measures from zero.
- */
-const CANVAS_INSETS = { top: 0 };
 
 /**
  * A crossfade that still runs under Reduce Motion, which would otherwise cut
@@ -39,7 +34,8 @@ const SETTLE = { duration: PANE_SETTLE_MS, easing: curves.linear };
 
 /**
  * Drives the canvas's panes toward `layout`, the pose of the scene it shows
- * (REDESIGN.md 2.3), for a canvas `height` points tall.
+ * (REDESIGN.md 2.3), for a canvas `height` points tall from the top of the
+ * window.
  *
  * A move starts from one of two places. A tap starts it in its own tick,
  * through the stage store, before React has rendered the new scene. Anything
@@ -62,7 +58,10 @@ export function usePaneMotion(
   const { reduced } = useMotionPrefs();
   const { active, blocking, begin } = useTransitionLock();
   const { panes: registry } = useStage();
-  const at = useMemo(() => stops(height, CANVAS_INSETS), [height]);
+  // The canvas draws edge to edge, under the system status bar, so every
+  // stop measures from the top inset.
+  const { top } = useSafeAreaInsets();
+  const at = useMemo(() => stops(height, { top }), [height, top]);
   const seam = useSharedValue(at[layout.seam]);
   const hero = useSharedValue(layout.hero);
   const bar = useSharedValue(layout.bar);

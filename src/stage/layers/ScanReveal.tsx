@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Scanner } from '../../components/Scanner';
 import { colors, space } from '../../theme';
 
@@ -24,8 +25,20 @@ export interface ScanRevealProps {
 }
 
 export function ScanReveal({ onDetected, onCancel }: ScanRevealProps) {
+  // The canvas it covers runs under the system bars; the scanner keeps
+  // clear of them.
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.layer} accessibilityViewIsModal>
+    <View
+      style={[
+        styles.layer,
+        {
+          paddingTop: insets.top + space.xl,
+          paddingBottom: insets.bottom + space.xl,
+        },
+      ]}
+      accessibilityViewIsModal
+    >
       <Scanner onDetected={onDetected} onCancel={onCancel} />
     </View>
   );

@@ -87,6 +87,7 @@ This branch (`redesign`) is an experimental redesign of the Chicory app. It is n
   - The top pane is full-height and sits at the back. It holds the status row, the hero, the vessel and the action row, plus the top-slot scenes (send, receive).
   - The bottom sheet is full-height and moves only by `translateY` from one `seam` shared value.
 - **Seam stops.** `home` = `max(insetTop + 380, 0.5H)`, `compact` = `insetTop + 72` (activity, detail), `gone` = `H + 24` (send, receive).
+- **Edge to edge.** The canvas runs under the system bars, so the top pane's gradient reaches the top edge. The insets apply inside it: the status row pads the top inset, the slots start below the status row, Settings pads both bars, and only a side cutout narrows the canvas itself. The shell phases and the new wallet sheet keep a safe area.
 - **Panes animate transforms and opacity only**, never flex, height or width.
 - **Keyed children with `entering`/`exiting`** give "mount incoming first, unmount outgoing after the fade".
 - **Tap lock.** A transition lock blocks taps while a pane moves. It lifts when the panes look settled, `PANE_SETTLE_MS` (340ms) after the move starts, timed by a clock of its own on the UI thread: the pane spring's rest callback only arrives near 630ms. A safety timeout ends it regardless.
@@ -737,7 +738,7 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
 ### 10.1 Canvas
 
 - **`src/stage/layout.ts`** (pure).
-  - `stops(H, insets)`: `full` = `insets.top`, `compact` = `insets.top + 72`, `home` = `max(insets.top + 380, 0.5H)`, `gone` = `H + 24`. The canvas sits inside the safe area, so it passes `{ top: 0 }` and measures `H` from its root `onLayout`.
+  - `stops(H, insets)`: `full` = `insets.top`, `compact` = `insets.top + 72`, `home` = `max(insets.top + 380, 0.5H)`, `gone` = `H + 24`. The canvas draws edge to edge, under the status bar, so it passes the real safe-area insets and measures `H` from its root `onLayout`.
   - `SCENE_LAYOUT`: each scene's `{ seam, hero, bar }`. Home is `home`/1/1; activity and detail are `compact`/0/0; send and receive are `gone`/0/0. Settings has none.
   - `canvasScene(state)` and `canvasLayout(state)`: under Settings the canvas keeps the pose of the scene it covers, plus `covered`.
   - `STATUS_ROW` (56), `HERO_MINI` (.34), `COVERED` (scale .94, opacity .5) and `PANE_SETTLE_MS` (340).
