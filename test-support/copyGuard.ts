@@ -4,13 +4,17 @@
  * Outside Settings, the screen may show data and nothing else: amounts and
  * their units, dates, recovery words, request strings, wallet names and
  * notes. Words that explain belong in accessibility props, where the guard
- * does not look. Settings is the one place prose may stay, so its scene root
- * carries a marker and the guard skips everything under it.
+ * does not look. Settings and the settings-class surfaces (rule 2) are the
+ * places prose may stay, so each root carries a marker and the guard skips
+ * everything under it.
  */
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { componentPath, ownText } from './query';
 
-/** The testID the settings scene root renders, and the only one allowed text. */
+/**
+ * The testID a settings-class root renders: the settings scene, the new
+ * wallet sheet and a phase's setup panel. Only one is ever drawn at a time.
+ */
 export const SETTINGS_MARKER = 'scene-settings';
 
 export interface CopyViolation {
@@ -50,7 +54,7 @@ const isMarker = (node: ReactTestInstance) =>
  * merely contains a wallet name still fails.
  *
  * Throws when the tree holds more than one settings marker, since a second one
- * would switch the guard off for a scene that is not Settings.
+ * would switch the guard off for a surface that is not settings-class.
  */
 export function copyViolations(
   tree: ReactTestRenderer,
@@ -60,7 +64,7 @@ export function copyViolations(
   if (markers.length > 1) {
     const where = markers.map(componentPath).join('; ');
     throw new Error(
-      `Found ${markers.length} "${SETTINGS_MARKER}" markers, at ${where}. Only the settings scene may render one.`,
+      `Found ${markers.length} "${SETTINGS_MARKER}" markers, at ${where}. Only one settings-class surface is drawn at a time.`,
     );
   }
   const allowed = new Set(data);

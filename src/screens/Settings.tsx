@@ -1,40 +1,34 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
+import React, { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import Reanimated from 'react-native-reanimated';
 import { DEFAULT_PRIMARY_URI } from '@beignet/wallet-core';
-import type {
-  CreatedWallet,
-  HostConfig,
-  Network,
-  WalletDiagnostics,
-  WalletRecord,
-  WalletSnapshot,
-} from '@beignet/wallet-core';
-import {
-  Body,
-  Button,
-  Card,
-  Divider,
-  Eyebrow,
-  Field,
-  Icon,
-  LinkButton,
-  ListRow,
-  Notice,
-  Row,
-  Segmented,
-  StatusDot,
-  Title,
-} from '../components/ui';
-import { CopyValue } from '../components/CopyValue';
+import type { Network, WalletSnapshot } from '@beignet/wallet-core';
 import { RecoveryPhrase } from '../components/RecoveryPhrase';
-import { colors, number, radius, space, type as typography } from '../theme';
-import type { WalletAdapter } from '../services/wallet';
+import { announce } from '../design/announce';
+import { copy } from '../design/copy';
+import { haptics } from '../design/haptics';
+import { palette } from '../design/palette';
+import { dropOut, riseIn } from '../motion/presets';
+import { Diagnostics } from '../scenes/settings/Diagnostics';
 import {
-  NETWORKS,
-  defaultProfile,
-  loadNetworkPreferences,
-} from '../services/networks';
+  Action,
+  Body,
+  Breathe,
+  CopyLine,
+  Field,
+  Line,
+  Link,
+  NetworkChoice,
+  Note,
+  Row,
+  Section,
+  Toggle,
+  testNetwork,
+} from '../scenes/settings/ui';
+import { useHapticsPreference } from '../services/hapticsPreference';
+import type { WalletAdapter } from '../services/wallet';
+import { NETWORKS, loadNetworkPreferences } from '../services/networks';
 import type { NetworkProfile } from '../services/networks';
 import { NetworkSettings } from './NetworkSettings';
 import { useSettingsOutcome } from '../services/settingsOutcome';
@@ -48,546 +42,258 @@ import {
 } from '../services/lock';
 import type { BiometryKind } from '../services/lock';
 import { APP_VERSION } from '../version';
-import { seedSourceNetwork } from '../embedded/seed';
-import { recentDiagnostics } from '../services/diagnosticLog';
+import { space, type } from '../theme';
 
-export function WalletPicker({
-  wallets,
-  busy = false,
-  onSelect,
-  onCreate,
-}: {
-  wallets: WalletRecord[];
-  busy?: boolean;
-  onSelect: (wallet: WalletRecord) => void;
-  onCreate: () => void;
-}) {
-  return (
-    <View style={styles.stack}>
-      <Title>
-        {wallets.length ? 'Choose your wallet.' : 'Create a wallet.'}
-      </Title>
-      {wallets.map(wallet => (
-        <Pressable
-          key={wallet.id}
-          accessibilityRole="button"
-          accessibilityLabel={`Open ${wallet.name}`}
-          accessibilityHint="Starts this wallet and opens it."
-          disabled={busy}
-          accessibilityState={{ disabled: busy }}
-          onPress={() => onSelect(wallet)}
-          style={({ pressed }) => [styles.wallet, pressed && styles.pressed]}
-        >
-          <View style={styles.walletIcon}>
-            <Icon name="wallet" color={colors.primary} size={21} />
-          </View>
-          <View style={styles.flex}>
-            <Text style={styles.walletName}>{wallet.name}</Text>
-            <Text style={styles.walletMeta}>
-              {wallet.network} · {wallet.status}
-            </Text>
-          </View>
-          <Icon name="chevron" size={17} color={colors.faint} />
-        </Pressable>
-      ))}
-      {wallets.length === 0 ? (
-        <Button
-          label={busy ? 'Opening wallet…' : 'Create a wallet'}
-          accessibilityLabel="Create a wallet"
-          disabled={busy}
-          busy={busy}
-          secondary={wallets.length > 0}
-          icon="plus"
-          onPress={onCreate}
-        />
-      ) : null}
-    </View>
-  );
-}
+// The new wallet sheet and the picker are drawn in the Settings language
+// too, and the suites find them here.
+export { CreateWalletScreen } from '../scenes/settings/CreateWallet';
+export { WalletPicker } from '../scenes/settings/WalletPicker';
 
-export function CreateWalletScreen({
-  client,
-  profile,
-  initialRestoring = false,
-  onCreated,
-  onBusy,
-}: {
-  client: WalletAdapter;
-  profile?: NetworkProfile;
-  /** Open straight into the recovery-phrase form. */
-  initialRestoring?: boolean;
-  onCreated: (wallet: WalletRecord) => Promise<void>;
-  onBusy: (busy: boolean) => void;
-}) {
-  const [name, setName] = useState('Everyday wallet');
-  const [network, setNetwork] = useState<'mainnet' | 'regtest' | 'testnet'>(
-    profile?.network || 'mainnet',
-  );
-  const [primary, setPrimary] = useState(
-    profile?.primaryUri ?? DEFAULT_PRIMARY_URI,
-  );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [created, setCreated] = useState<CreatedWallet | null>(null);
-  // Restoring means the owner already holds the phrase: it is typed in here,
-  // sent once, and never shown back.
-  const [restoring, setRestoring] = useState(initialRestoring);
-  const [phrase, setPhrase] = useState('');
-  const phraseWords = phrase.trim().split(/\s+/).filter(Boolean).length;
-  const phraseReady = phraseWords === 12 || phraseWords === 24;
-  const [config, setConfig] = useState<HostConfig | null>(null);
-  // Which existing wallet, if any, will supply this one's recovery phrase.
-  // Creating a wallet on another network reuses the original seed, but the flow
-  // said nothing about it, so it read as an entirely new wallet.
-  const [seedSource, setSeedSource] = useState<
-    'mainnet' | 'testnet' | 'regtest' | null
-  >(null);
-  const working = useRef(false);
-  useEffect(() => {
-    let active = true;
-    seedSourceNetwork()
-      .then(value => active && setSeedSource(value))
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, []);
-  const reusesPhrase = !restoring && !!seedSource && seedSource !== network;
-  useEffect(() => {
-    let active = true;
-    client
-      .getConfig()
-      .then(value => {
-        if (active) setConfig(value);
-      })
-      .catch(e => {
-        if (active)
-          setError(
-            e instanceof Error
-              ? e.message
-              : "Could not read this wallet's server settings.",
-          );
-      });
-    return () => {
-      active = false;
-    };
-  }, [client]);
-  useEffect(() => {
-    onBusy(busy || !!created);
-    return () => onBusy(false);
-  }, [busy, created, onBusy]);
-  function chooseNetwork(value: 'mainnet' | 'regtest' | 'testnet') {
-    setNetwork(value);
-    // One source for what a network starts with, so this form and the network
-    // settings cannot disagree about a default.
-    setPrimary(defaultProfile(value).primaryUri);
-  }
-  async function create() {
-    if (working.current) {
-      return;
-    }
-    working.current = true;
-    setBusy(true);
-    setError('');
-    try {
-      const wallet = await client.createWallet({
-        name: name.trim(),
-        network,
-        primaryUri: primary.trim(),
-        // The engine is already configured for this network's server. The
-        // record keeps it so a later open knows where this wallet was reading
-        // the chain from.
-        ...(profile?.electrum.host.trim()
-          ? { electrum: profile.electrum }
-          : {}),
-        ...(restoring ? { mnemonic: phrase } : {}),
-      });
-      if (restoring) {
-        // The phrase came from the owner; there is nothing new to write down.
-        setPhrase('');
-        const record = { ...wallet };
-        delete record.mnemonic;
-        if (record.warnings?.length) setCreated(record);
-        else await onCreated(record);
-      } else if (wallet.mnemonic) {
-        setCreated(wallet);
-      } else {
-        // A wallet that committed without returning a phrase still carries any
-        // warning the engine raised; surface it rather than dropping it.
-        if (wallet.warnings?.length) setCreated(wallet);
-        else await onCreated(wallet);
-      }
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : restoring
-          ? 'Could not restore the wallet.'
-          : 'Could not create the wallet.',
-      );
-    } finally {
-      working.current = false;
-      setBusy(false);
-    }
-  }
-  async function finishBackup() {
-    if (!created || working.current) {
-      return;
-    }
-    working.current = true;
-    setBusy(true);
-    try {
-      const record = { ...created };
-      delete record.mnemonic;
-      delete record.warnings;
-      await onCreated(record);
-      setCreated(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not open the wallet.');
-    } finally {
-      working.current = false;
-      setBusy(false);
-    }
-  }
-  if (created) {
-    if (reusesPhrase)
-      return (
-        <View style={styles.stack}>
-          <Title>Wallet created.</Title>
-          <Body>
-            {`Your ${network} wallet uses the same recovery phrase as your ${seedSource} wallet. A phrase does not restore Lightning channel state.`}
-          </Body>
-          {created.warnings?.map((warning, index) => (
-            <Notice key={index} kind="warning" icon="alert">
-              {warning}
-            </Notice>
-          ))}
-          {error ? (
-            <Notice kind="error" icon="alert">
-              {error}
-            </Notice>
-          ) : null}
-          <Button
-            label={`Open ${network} wallet`}
-            onPress={finishBackup}
-            busy={busy}
-          />
-          <RecoveryPhrase initialPhrase={created.mnemonic} />
-        </View>
-      );
-    return (
-      <View style={styles.stack}>
-        <Title>Save your recovery phrase.</Title>
-        {created.warnings?.map((warning, index) => (
-          <Notice key={index} kind="warning" icon="alert">
-            {warning}
-          </Notice>
-        ))}
-        {error ? (
-          <Notice kind="error" icon="alert">
-            {error}
-          </Notice>
-        ) : null}
-        {created.mnemonic ? (
-          <RecoveryPhrase
-            initialPhrase={created.mnemonic}
-            onSaved={finishBackup}
-          />
-        ) : (
-          <Button label="Open wallet" onPress={finishBackup} busy={busy} />
-        )}
-      </View>
-    );
-  }
-  return (
-    <View style={styles.stack}>
-      <Title>{restoring ? 'Restore a wallet' : 'New wallet'}</Title>
-      {restoring ? (
-        <Body>
-          A phrase restores keys and on-chain funds, not Lightning channel
-          state.
-        </Body>
-      ) : null}
-      {restoring ? (
-        <Field
-          label="Recovery phrase"
-          placeholder="12 or 24 words, separated by spaces"
-          value={phrase}
-          onChangeText={setPhrase}
-          multiline
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry={false}
-          editable={!busy}
-          hint={
-            phraseWords && !phraseReady
-              ? `${phraseWords} words so far. A phrase has 12 or 24.`
-              : undefined
-          }
-        />
-      ) : null}
-      <Field
-        label="Wallet name"
-        value={name}
-        onChangeText={setName}
-        maxLength={60}
-        editable={!busy}
-      />
-      <Eyebrow>Network</Eyebrow>
-      {profile ? (
-        <Body>{network}</Body>
-      ) : (
-        <View style={styles.networks}>
-          {(['mainnet', 'regtest', 'testnet'] as const).map(value => (
-            <Pressable
-              key={value}
-              accessibilityRole="button"
-              accessibilityLabel={value}
-              accessibilityState={{ selected: value === network }}
-              disabled={busy}
-              onPress={() => chooseNetwork(value)}
-              style={[
-                styles.network,
-                value === network && styles.networkActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.networkText,
-                  value === network && styles.networkTextActive,
-                ]}
-              >
-                {value}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-      <Field
-        label="Primary node"
-        value={primary}
-        onChangeText={setPrimary}
-        multiline
-        autoCapitalize="none"
-        editable={!busy}
-      />
-      {reusesPhrase ? (
-        <Notice icon="key">
-          {`Uses the same recovery phrase as your ${seedSource} wallet.`}
-        </Notice>
-      ) : null}
-      <Notice kind={network === 'mainnet' ? 'warning' : 'info'} icon="info">
-        {network === 'mainnet'
-          ? 'This creates a real mainnet wallet. The primary node is trusted for instant funding.'
-          : 'Use a primary node on this test network.'}
-      </Notice>
-      <Row
-        label="Bitcoin server"
-        value={
-          config?.defaultElectrum
-            ? `${config.defaultElectrum.host}:${config.defaultElectrum.port}`
-            : 'Device setting'
-        }
-      />
-      {error ? (
-        <Notice kind="error" icon="alert">
-          {error}
-        </Notice>
-      ) : null}
-      <Button
-        label={
-          restoring ? `Restore ${network} wallet` : `Create ${network} wallet`
-        }
-        busy={busy}
-        disabled={
-          !name.trim() || !primary.trim() || (restoring && !phraseReady)
-        }
-        onPress={create}
-      />
-      <LinkButton
-        label={
-          restoring
-            ? 'Create a new wallet instead'
-            : 'I already have a recovery phrase'
-        }
-        disabled={busy}
-        onPress={() => {
-          setRestoring(!restoring);
-          setPhrase('');
-          setError('');
-        }}
-      />
-    </View>
-  );
-}
+const words = copy.settings;
 
 /**
- * Start over on this phone. The action sits behind a link and a second,
- * explicit button, and behind the app lock when one is on, because it deletes
- * keys and channel state that a phrase alone does not bring back.
+ * A setting's result, as the browser app reports it: in flight, saved, saved
+ * with a caveat, or refused with the reason. It rises in with its glyph
+ * drawing, is felt, and is read out, since it may land well after the tap.
  */
-function EraseWallet({ onErase }: { onErase: () => Promise<void> }) {
-  const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  if (!confirming)
-    return (
-      <LinkButton
-        label="Erase wallet from this phone"
-        tone="muted"
-        onPress={() => setConfirming(true)}
-      />
-    );
-  return (
-    <Card>
-      <Eyebrow>Erase wallet</Eyebrow>
-      <Notice kind="warning" icon="alert">
-        Deletes this wallet's keys, channel state and history from this phone,
-        on every network. Without the recovery phrase and current channel state,
-        funds are lost.
-      </Notice>
-      {error ? (
-        <Notice kind="error" icon="alert">
-          {error}
-        </Notice>
-      ) : null}
-      <Button
-        label="Erase wallet"
-        variant="danger"
-        icon="alert"
-        busy={busy}
-        onPress={async () => {
-          if (busy) return;
-          setBusy(true);
-          setError('');
-          try {
-            if (!(await requireUnlock('Confirm to erase this wallet')))
-              throw new Error(
-                'The wallet was not erased because this was not confirmed.',
-              );
-            await onErase();
-          } catch (e) {
-            setError(
-              e instanceof Error ? e.message : 'Could not erase the wallet.',
-            );
-          } finally {
-            setBusy(false);
-          }
-        }}
-      />
-      <LinkButton
-        label="Keep my wallet"
-        tone="muted"
-        disabled={busy}
-        onPress={() => {
-          setConfirming(false);
-          setError('');
-        }}
-      />
-    </Card>
-  );
-}
-
-/** The persistent per-card result strip, as the browser app renders it. */
-/**
- * What the engine reports about itself, on request. Figures only, the way
- * the shared client reads them: setup, the last channelize decision and the
- * last direct-funding offer, the chain tip, peers, channels, coins. It exists
- * so a stuck move or a refused payer can be read off the phone instead of
- * guessed at.
- */
-function DiagnosticsCard({ client }: { client: WalletAdapter }) {
-  const [open, setOpen] = useState(false);
-  const [report, setReport] = useState<WalletDiagnostics | null>(null);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const load = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      setReport(await client.diagnostics());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not read diagnostics.');
-    } finally {
-      setBusy(false);
-    }
-  };
-  // Serializing the whole report on every Settings render, collapsed or not.
-  const text = useMemo(
-    () =>
-      open && report
-        ? JSON.stringify({ ...report, events: recentDiagnostics() }, null, 1)
-        : '',
-    [open, report],
-  );
-  return (
-    <Card>
-      <View style={styles.cardHeading}>
-        <Eyebrow>Diagnostics</Eyebrow>
-        <LinkButton
-          label={open ? 'Hide' : 'Show'}
-          disabled={busy}
-          onPress={() => {
-            setOpen(!open);
-            if (!open && !report) load();
-          }}
-        />
-      </View>
-      {open ? (
-        <>
-          {error ? (
-            <Notice kind="error" icon="alert">
-              {error}
-            </Notice>
-          ) : null}
-          {report ? (
-            <Text selectable style={styles.diagnostics}>
-              {text}
-            </Text>
-          ) : null}
-          <View style={styles.networks}>
-            <LinkButton label="Refresh" disabled={busy} onPress={load} />
-            <LinkButton
-              label="Copy"
-              disabled={!report}
-              onPress={() => Clipboard.setString(text)}
-            />
-          </View>
-        </>
-      ) : null}
-    </Card>
-  );
-}
-
-function OutcomeStrip({ outcome }: { outcome: SettingsOutcome }) {
+function Outcome({ outcome }: { outcome: SettingsOutcome }) {
+  useEffect(() => {
+    if (outcome.phase === 'success') haptics.success();
+    if (outcome.phase === 'warning') haptics.warning();
+    if (outcome.phase === 'error') haptics.error();
+    if (outcome.phase === 'success' || outcome.phase === 'warning')
+      announce(outcome.message);
+  }, [outcome]);
   if (outcome.phase === 'idle') return null;
   return (
-    <Notice
-      kind={
-        outcome.phase === 'error'
-          ? 'error'
-          : outcome.phase === 'warning'
-          ? 'warning'
-          : outcome.phase === 'success'
-          ? 'success'
-          : 'info'
-      }
-      icon={
-        outcome.phase === 'error'
-          ? 'alert'
-          : outcome.phase === 'warning'
-          ? 'alert'
-          : outcome.phase === 'success'
-          ? 'check'
-          : 'clock'
-      }
-    >
+    <Note key={`${outcome.phase}:${outcome.message}`} tone={outcome.phase}>
       {outcome.message}
-    </Notice>
+    </Note>
   );
 }
 
-function AppLockRow() {
+/**
+ * The wallet this is: its name, the network it is on, and the way to another
+ * network. Choosing a network only proposes it; the switch is its own press,
+ * with the line about what the other network keeps. The servers behind each
+ * network open below, in place.
+ */
+function WalletSection({
+  snapshot,
+  index,
+  busy,
+  switchError,
+  onNetwork,
+}: {
+  snapshot: WalletSnapshot;
+  index: number;
+  busy: boolean;
+  switchError: string;
+  onNetwork: (profile: NetworkProfile) => Promise<void>;
+}) {
+  const current = snapshot.wallet.network;
+  const [editing, setEditing] = useState(false);
+  // Switching networks used to mean opening a settings sub-form, filling in
+  // server fields and pressing apply. The network itself is the thing people
+  // want to change, so it lives here; the servers stay behind the editor.
+  const [target, setTarget] = useState<Network>(current);
+  const [switching, setSwitching] = useState(false);
+  useEffect(() => {
+    setTarget(current);
+  }, [current]);
+  async function switchTo(network: Network) {
+    if (switching || network === current) return;
+    setSwitching(true);
+    try {
+      const preferences = await loadNetworkPreferences();
+      await onNetwork(preferences.profiles[network]);
+    } catch {
+      // The reason is held by the session, which outlives this screen: a
+      // switch replaces it with a full-page wait, so anything set here would
+      // be unmounted before it could be read.
+      setTarget(current);
+    } finally {
+      setSwitching(false);
+    }
+  }
+  return (
+    <Section glyph="wallet" title={words.wallet.heading} index={index}>
+      <Line label={words.wallet.name} value={snapshot.wallet.name} />
+      {editing ? null : (
+        <NetworkChoice
+          options={NETWORKS}
+          value={target}
+          disabled={switching || busy}
+          onChange={setTarget}
+        />
+      )}
+      {!editing && target !== current ? (
+        <Reanimated.View
+          entering={riseIn()}
+          exiting={dropOut(8)}
+          style={styles.stack}
+        >
+          <Note glyph={testNetwork(target) ? 'flask' : 'info'}>
+            {words.wallet.switchNote(target)}
+          </Note>
+          <Action
+            label={words.wallet.switchTo(target)}
+            glyph="swap"
+            busy={switching}
+            onPress={() => switchTo(target)}
+          />
+        </Reanimated.View>
+      ) : null}
+      {switchError ? <Note tone="error">{switchError}</Note> : null}
+      <Row
+        glyph="cog"
+        label={words.wallet.servers}
+        accessibilityLabel={words.wallet.serversLabel}
+        expanded={editing}
+        onPress={() => setEditing(!editing)}
+      />
+      {editing ? (
+        <Reanimated.View entering={riseIn()} exiting={dropOut(8)}>
+          <NetworkSettings
+            initialNetwork={current}
+            busy={busy}
+            onApply={onNetwork}
+          />
+        </Reanimated.View>
+      ) : null}
+    </Section>
+  );
+}
+
+/** Whether the primary node is connected: a sage dot, or a breathing honey one. */
+function Connection({ connected }: { connected: boolean }) {
+  return (
+    <View style={styles.connection}>
+      <Breathe on={!connected}>
+        <View
+          style={[
+            styles.dot,
+            { backgroundColor: connected ? palette.sage : palette.honey },
+          ]}
+        />
+      </Breathe>
+      <Text style={styles.connectionText}>
+        {connected ? words.primary.connected : words.primary.connecting}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * The node trusted for instant funding: whether it is connected, how its
+ * setup went, its address, and a change that reports saving and reconnecting
+ * as two separate outcomes.
+ */
+function PrimarySection({
+  snapshot,
+  index,
+  outcome,
+  busy,
+  onSave,
+  onRetry,
+}: {
+  snapshot: WalletSnapshot;
+  index: number;
+  outcome: SettingsOutcome;
+  busy: boolean;
+  onSave: (uri: string, done: () => void) => Promise<void>;
+  onRetry: () => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  // Closing the editor removes the field a screen reader was on, so it goes
+  // back to the control that opened it.
+  const [closed, setClosed] = useState(false);
+  const close = () => {
+    setEditing(false);
+    setClosed(true);
+  };
+  const [primary, setPrimary] = useState(
+    snapshot.primary.uri || DEFAULT_PRIMARY_URI,
+  );
+  // The node field follows the wallet it describes: a wallet whose primary is
+  // filled in once setup completes, or a different wallet altogether, must not
+  // leave the previous address one tap from being saved.
+  useEffect(() => {
+    setPrimary(snapshot.primary.uri || DEFAULT_PRIMARY_URI);
+  }, [snapshot.primary.uri]);
+  const p = words.primary;
+  return (
+    <Section
+      glyph="bolt"
+      title={p.heading}
+      index={index}
+      accessory={<Connection connected={snapshot.primary.connected} />}
+    >
+      <Line label={p.setup} value={snapshot.primary.setup || p.waiting} />
+      {snapshot.primary.setupError ? (
+        <Note tone="error">{snapshot.primary.setupError}</Note>
+      ) : null}
+      <Outcome outcome={outcome} />
+      {editing ? (
+        <Reanimated.View
+          entering={riseIn()}
+          exiting={dropOut(8)}
+          style={styles.stack}
+        >
+          <Field
+            label={p.address}
+            value={primary}
+            onChangeText={setPrimary}
+            autoCapitalize="none"
+            multiline
+            editable={!busy}
+            focus
+          />
+          <Note>{p.keeps}</Note>
+          <Action
+            label={p.save}
+            glyph="check"
+            onPress={() => onSave(primary.trim(), close)}
+            busy={busy}
+            disabled={!primary.trim()}
+          />
+          <Link label={p.cancel} tone="steam" disabled={busy} onPress={close} />
+        </Reanimated.View>
+      ) : (
+        <>
+          <CopyLine
+            label={p.address}
+            value={snapshot.primary.uri || p.none}
+            copyLabel={p.copy}
+            copiedLabel={p.copied}
+          />
+          <Link
+            label={p.change}
+            glyph="pencil"
+            disabled={busy}
+            focus={closed}
+            onPress={() => {
+              setEditing(true);
+              setClosed(false);
+            }}
+          />
+          {!snapshot.primary.connected ? (
+            <Action
+              label={p.retry}
+              glyph="refresh"
+              tone="quiet"
+              onPress={onRetry}
+              busy={busy}
+            />
+          ) : null}
+        </>
+      )}
+    </Section>
+  );
+}
+
+/** The app lock, when this device can offer one. */
+function AppLock() {
   const [kind, setKind] = useState<BiometryKind | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -605,46 +311,159 @@ function AppLockRow() {
       active = false;
     };
   }, []);
-  if (!kind)
-    return (
-      <Body>No biometric or passcode lock is available on this device.</Body>
-    );
+  if (!kind) return <Body>{words.phone.noLock}</Body>;
   const name = BIOMETRY_NAMES[kind];
   return (
     <>
-      <View style={styles.switchRow}>
-        <Text style={styles.walletName}>{`Require ${name}`}</Text>
-        <Switch
-          accessibilityLabel={`Require ${name} to open this wallet`}
-          value={enabled}
-          disabled={busy}
-          trackColor={{ true: colors.primary, false: colors.line }}
-          thumbColor={colors.text}
-          onValueChange={async next => {
-            setBusy(true);
-            setError('');
-            try {
-              await setLockEnabled(next);
-              setEnabled(next);
-            } catch (e) {
-              setError(
-                e instanceof Error ? e.message : 'Could not change the lock.',
-              );
-            } finally {
-              setBusy(false);
-            }
-          }}
-        />
-      </View>
-      {error ? (
-        <Notice kind="error" icon="alert">
-          {error}
-        </Notice>
-      ) : null}
+      <Toggle
+        label={words.phone.require(name)}
+        accessibilityLabel={words.phone.requireLabel(name)}
+        value={enabled}
+        disabled={busy}
+        onValueChange={async next => {
+          setBusy(true);
+          setError('');
+          try {
+            await setLockEnabled(next);
+            setEnabled(next);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : words.phone.lockFailed);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+      {error ? <Note tone="error">{error}</Note> : null}
     </>
   );
 }
 
+/**
+ * Settings > Haptics (REDESIGN.md rule 7), the only thing that silences
+ * them. Reading it here also applies it, until the app does so at launch.
+ */
+function Haptics() {
+  const { on, set } = useHapticsPreference();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <>
+      <Toggle
+        label={words.phone.haptics}
+        accessibilityLabel={words.phone.haptics}
+        value={on}
+        disabled={busy}
+        onValueChange={async next => {
+          setBusy(true);
+          setError('');
+          try {
+            await set(next);
+            // Turning them back on is felt at once, so it is known to work.
+            if (next) haptics.tick();
+          } catch (e) {
+            setError(
+              e instanceof Error ? e.message : words.phone.hapticsFailed,
+            );
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+      {error ? <Note tone="error">{error}</Note> : null}
+    </>
+  );
+}
+
+/**
+ * Start over on this phone. The action sits behind a link and a second,
+ * explicit button, and behind the app lock when one is on, because it deletes
+ * keys and channel state that a phrase alone does not bring back.
+ */
+function EraseWallet({ onErase }: { onErase: () => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false);
+  // Keeping the wallet removes the button a screen reader was on, so it goes
+  // back to the link that asked.
+  const [kept, setKept] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const e = words.erase;
+  if (!confirming)
+    return (
+      <Link
+        label={e.link}
+        tone="radish"
+        focus={kept}
+        onPress={() => {
+          haptics.warning();
+          setConfirming(true);
+        }}
+      />
+    );
+  return (
+    <Reanimated.View
+      entering={riseIn()}
+      exiting={dropOut(8)}
+      style={styles.stack}
+    >
+      <Note tone="warning" focus>
+        {e.warning}
+      </Note>
+      {error ? <Note tone="error">{error}</Note> : null}
+      <Action
+        label={e.confirm}
+        tone="danger"
+        glyph="alert"
+        busy={busy}
+        onPress={async () => {
+          if (busy) return;
+          setBusy(true);
+          setError('');
+          try {
+            if (!(await requireUnlock(e.prompt)))
+              throw new Error(e.unconfirmed);
+            await onErase();
+          } catch (reason) {
+            setError(reason instanceof Error ? reason.message : e.failed);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+      <Link
+        label={e.keep}
+        tone="steam"
+        disabled={busy}
+        onPress={() => {
+          setConfirming(false);
+          setKept(true);
+          setError('');
+        }}
+      />
+    </Reanimated.View>
+  );
+}
+
+/** Settings' sections, top to bottom, when no backup is waiting. */
+const ORDER = [
+  'wallet',
+  'recovery',
+  'primary',
+  'phone',
+  'diagnostics',
+  'leave',
+] as const;
+type Part = (typeof ORDER)[number];
+
+/**
+ * Settings, the one scene that keeps words (REDESIGN.md rule 2), trimmed to
+ * what a person comes here to do: the wallet and its network, the recovery
+ * phrase, the primary node, this phone's lock and haptics, diagnostics, and
+ * the ways out of this wallet. Every safety line stays.
+ *
+ * While the recovery phrase still has to be saved, its section leads the
+ * page in honey. Once the hold confirms it, it slides back to its place and
+ * the others close up around it, the same instance throughout.
+ */
 export function SettingsScreen({
   snapshot,
   client,
@@ -654,6 +473,8 @@ export function SettingsScreen({
   onRefresh,
   onNetwork,
   onErase,
+  backupPending = false,
+  onBackupSaved,
 }: {
   snapshot: WalletSnapshot;
   client: WalletAdapter;
@@ -665,48 +486,14 @@ export function SettingsScreen({
   onNetwork: (profile: NetworkProfile) => Promise<void>;
   /** Erase every device wallet from this phone. Device mode only. */
   onErase?: () => Promise<void>;
-  // The settings track draws the recovery phrase flow with these two.
+  /** The recovery phrase has not been confirmed as saved yet. */
   backupPending?: boolean;
+  /** The owner held to confirm the phrase is written down. */
   onBackupSaved?: () => void;
 }) {
-  const [editingNetwork, setEditingNetwork] = useState(false);
-  const [editingPrimary, setEditingPrimary] = useState(false);
-  const [primary, setPrimary] = useState(
-    snapshot.primary.uri || DEFAULT_PRIMARY_URI,
-  );
   // null while the wallet is being asked; '' when it reports no version.
   const [engineVersion, setEngineVersion] = useState<string | null>(null);
-  // Switching networks used to mean opening a settings sub-form, filling in
-  // server fields and pressing apply. The network itself is the thing people
-  // want to change, so it lives here; the servers stay behind the editor.
-  const [target, setTarget] = useState<Network>(snapshot.wallet.network);
-  const [switching, setSwitching] = useState(false);
-  useEffect(() => {
-    setTarget(snapshot.wallet.network);
-  }, [snapshot.wallet.network]);
-  // The node field follows the wallet it describes: a wallet whose primary is
-  // filled in once setup completes, or a different wallet altogether, must not
-  // leave the previous address one tap from being saved.
-  useEffect(() => {
-    setPrimary(snapshot.primary.uri || DEFAULT_PRIMARY_URI);
-  }, [snapshot.primary.uri]);
   const { outcome, run, busy } = useSettingsOutcome();
-
-  async function switchTo(network: Network) {
-    if (switching || network === snapshot.wallet.network) return;
-    setSwitching(true);
-    try {
-      const preferences = await loadNetworkPreferences();
-      await onNetwork(preferences.profiles[network]);
-    } catch {
-      // The reason is held by the session, which outlives this screen: a
-      // switch replaces it with a full-page wait, so anything set here would
-      // be unmounted before it could be read.
-      setTarget(snapshot.wallet.network);
-    } finally {
-      setSwitching(false);
-    }
-  }
 
   useEffect(() => {
     let active = true;
@@ -723,10 +510,10 @@ export function SettingsScreen({
     };
   }, [client]);
 
-  async function savePrimary() {
-    await run('Saving your primary node…', async () => {
-      await client.updatePrimary(primary.trim());
-      setEditingPrimary(false);
+  async function savePrimary(uri: string, done: () => void) {
+    await run(words.primary.saving, async () => {
+      await client.updatePrimary(uri);
+      done();
       onRefresh();
       // The change has committed. Whether the wallet has reconnected to it is a
       // separate question, answered by a fresh read rather than the snapshot
@@ -743,260 +530,109 @@ export function SettingsScreen({
         // warning, never an unsaved setting.
       }
       return connected
-        ? {
-            phase: 'success' as const,
-            message:
-              'Primary node updated. Existing channels remain available.',
-          }
-        : {
-            phase: 'warning' as const,
-            message:
-              'Primary node saved. Your wallet has not reconnected to it yet; existing channels remain available.',
-          };
+        ? { phase: 'success' as const, message: words.primary.updated }
+        : { phase: 'warning' as const, message: words.primary.notReconnected };
     });
   }
 
   async function retry() {
-    await run('Reconnecting…', async () => {
+    await run(words.primary.reconnecting, async () => {
       await client.retrySetup();
       onRefresh();
-      return {
-        phase: 'success' as const,
-        message: 'Connection setup requested. Your wallet will update shortly.',
-      };
+      return { phase: 'success' as const, message: words.primary.retried };
     });
   }
 
-  return (
-    <View style={styles.stack}>
-      <Title>Settings</Title>
-
-      <Card>
-        <Eyebrow>Wallet</Eyebrow>
-        <Row label="Name" value={snapshot.wallet.name} />
+  const saving = backupPending && !!onBackupSaved;
+  const order: Part[] = saving
+    ? ['recovery', ...ORDER.filter(part => part !== 'recovery')]
+    : [...ORDER];
+  const at = (part: Part) => order.indexOf(part);
+  const parts: Record<Part, ReactNode> = {
+    wallet: (
+      <WalletSection
+        key="wallet"
+        snapshot={snapshot}
+        index={at('wallet')}
+        busy={busy}
+        switchError={switchError}
+        onNetwork={onNetwork}
+      />
+    ),
+    recovery: (
+      <RecoveryPhrase
+        key="recovery"
+        index={at('recovery')}
+        loadPhrase={() => client.getRecoveryPhrase()}
+        onSaved={saving ? onBackupSaved : undefined}
+      />
+    ),
+    primary: (
+      <PrimarySection
+        key="primary"
+        snapshot={snapshot}
+        index={at('primary')}
+        outcome={outcome}
+        busy={busy}
+        onSave={savePrimary}
+        onRetry={retry}
+      />
+    ),
+    phone: (
+      <Section
+        key="phone"
+        glyph="lock"
+        title={words.phone.heading}
+        index={at('phone')}
+      >
+        <AppLock />
+        <Haptics />
+      </Section>
+    ),
+    diagnostics: (
+      <Diagnostics
+        key="diagnostics"
+        client={client}
+        index={at('diagnostics')}
+      />
+    ),
+    leave: (
+      <Section key="leave" index={at('leave')}>
         <Row
-          label="Ready to receive"
-          value={`${number(snapshot.balance.receivableSats)} sats`}
-        />
-        <Divider />
-        <Eyebrow>Network</Eyebrow>
-        <Segmented
-          options={NETWORKS}
-          value={target}
-          disabled={switching || busy}
-          onChange={setTarget}
-        />
-        {target !== snapshot.wallet.network ? (
-          <>
-            <Body>
-              {`${target} keeps its own balance and history. Same recovery phrase.`}
-            </Body>
-            <Button
-              label={`Switch to ${target}`}
-              icon="refresh"
-              busy={switching}
-              onPress={() => switchTo(target)}
-            />
-          </>
-        ) : null}
-        {switchError ? (
-          <Notice kind="error" icon="alert">
-            {switchError}
-          </Notice>
-        ) : null}
-        <ListRow
-          label="Network & servers"
-          icon="settings"
-          value={editingNetwork ? 'Open' : undefined}
-          accessibilityLabel="Change network or Bitcoin server"
-          onPress={() => setEditingNetwork(!editingNetwork)}
-        />
-        <ListRow
-          label="Choose another wallet"
-          icon="wallet"
+          glyph="wallet"
+          label={words.wallet.chooseAnother}
           onPress={onChooseWallet}
         />
-      </Card>
+        <Row glyph="lock" label={words.wallet.lock} onPress={onDisconnect} />
+        {onErase ? <EraseWallet onErase={onErase} /> : null}
+      </Section>
+    ),
+  };
 
-      {editingNetwork ? (
-        <NetworkSettings
-          initialNetwork={snapshot.wallet.network}
-          busy={busy}
-          onApply={onNetwork}
-        />
-      ) : null}
-
-      <Card>
-        <Eyebrow>Your connection</Eyebrow>
-        <Row label="Wallet runs" value="On this device" />
-        <Row label="Keys stored" value="Encrypted on this device" />
-      </Card>
-
-      <Card>
-        <View style={styles.cardHeading}>
-          <Eyebrow>Primary node</Eyebrow>
-          <View style={styles.statusPill}>
-            <StatusDot tone={snapshot.primary.connected ? 'good' : 'wait'} />
-            <Text style={styles.statusText}>
-              {snapshot.primary.connected ? 'Connected' : 'Connecting'}
-            </Text>
-          </View>
-        </View>
-        <Row label="Setup" value={snapshot.primary.setup || 'Waiting'} />
-        {snapshot.primary.setupError ? (
-          <Notice kind="error" icon="alert">
-            {snapshot.primary.setupError}
-          </Notice>
-        ) : null}
-        <OutcomeStrip outcome={outcome} />
-        {editingPrimary ? (
-          <>
-            <Field
-              label="Node address"
-              value={primary}
-              onChangeText={setPrimary}
-              autoCapitalize="none"
-              multiline
-              editable={!busy}
-            />
-            <Notice icon="info">
-              Existing channels and funds stay. The new node is trusted for
-              instant funding.
-            </Notice>
-            <Button
-              label="Save primary node"
-              onPress={savePrimary}
-              busy={busy}
-              disabled={!primary.trim()}
-            />
-            <LinkButton
-              label="Cancel"
-              tone="muted"
-              disabled={busy}
-              onPress={() => setEditingPrimary(false)}
-            />
-          </>
-        ) : (
-          <>
-            <CopyValue
-              label="Node address"
-              value={snapshot.primary.uri || 'No primary configured'}
-            />
-            <LinkButton
-              label="Change primary node"
-              disabled={busy}
-              onPress={() => setEditingPrimary(true)}
-            />
-            {!snapshot.primary.connected ? (
-              <Button
-                label="Retry connection"
-                secondary
-                onPress={retry}
-                busy={busy}
-              />
-            ) : null}
-          </>
-        )}
-      </Card>
-
-      <Card>
-        <Eyebrow>Security</Eyebrow>
-        <AppLockRow />
-      </Card>
-
-      <RecoveryPhrase loadPhrase={() => client.getRecoveryPhrase()} />
-
-      <DiagnosticsCard client={client} />
-
-      <Card>
-        <Eyebrow>About</Eyebrow>
-        <Row label="App" value={APP_VERSION} />
-        {engineVersion !== '' ? (
-          <Row label="Engine" value={engineVersion ?? 'Checking…'} />
-        ) : null}
-      </Card>
-
-      <Button
-        label="Lock device wallet"
-        variant="danger"
-        icon="lock"
-        onPress={onDisconnect}
-      />
-      {onErase ? <EraseWallet onErase={onErase} /> : null}
+  return (
+    <View style={styles.page}>
+      {order.map(part => parts[part])}
+      <Text style={styles.about}>
+        {engineVersion
+          ? `${words.about.app(APP_VERSION)} · ${words.about.engine(
+              engineVersion,
+            )}`
+          : words.about.app(APP_VERSION)}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  stack: { gap: space.lg },
-  flex: { flex: 1 },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space.xs + 2,
-    minHeight: 44,
-  },
-  cardHeading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xxs + 2,
-    backgroundColor: colors.raised,
-    paddingHorizontal: space.xs + 2,
-    paddingVertical: 5,
-    borderRadius: radius.pill,
-  },
-  statusText: { ...typography.micro, fontSize: 10, color: colors.muted },
-  networks: { flexDirection: 'row', gap: space.xs },
-  network: {
-    flex: 1,
-    padding: space.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  networkActive: { backgroundColor: colors.cream, borderColor: colors.cream },
-  networkText: { ...typography.caption, color: colors.muted },
-  networkTextActive: { color: colors.ink, fontWeight: '700' },
-  wallet: {
-    padding: space.md,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    flexDirection: 'row',
-    gap: space.sm,
-    alignItems: 'center',
-    minHeight: 72,
-  },
-  walletIcon: {
-    height: 42,
-    width: 42,
-    backgroundColor: colors.raised,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pressed: { opacity: 0.65 },
-  walletName: {
-    ...typography.body,
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.text,
-    flexShrink: 1,
-  },
-  walletMeta: { ...typography.caption, color: colors.muted, marginTop: 4 },
-  diagnostics: {
-    ...typography.caption,
-    fontFamily: 'Menlo',
-    fontSize: 11,
-    lineHeight: 15,
-    color: colors.muted,
+  page: { gap: space.md },
+  stack: { gap: space.md },
+  connection: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  dot: { width: 7, height: 7, borderRadius: 3.5 },
+  connectionText: { ...type.meta, color: palette.steam },
+  about: {
+    ...type.meta,
+    color: palette.steam,
+    textAlign: 'center',
+    marginTop: space.xs,
   },
 });

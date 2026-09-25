@@ -9,7 +9,7 @@ import { defaultPreferences } from '../src/services/networks';
 import { NetworkSettings } from '../src/screens/NetworkSettings';
 import { SettingsScreen } from '../src/screens/Settings';
 import { eraseDeviceStorage } from '../src/embedded/storage';
-import { allText, meaning } from '../test-support/query';
+import { allText, meaning, visibleText } from '../test-support/query';
 import { activePhase, activeScene } from '../test-support/scene';
 jest.mock('../src/embedded/storage', () => ({
   eraseDeviceStorage: jest.fn().mockResolvedValue(undefined),
@@ -764,6 +764,10 @@ test('a pending backup reminder sits above Activity rather than replacing it', a
     label(tree, 'Activity').props.onPress();
   });
   expect(text(tree)).toContain('Save your recovery phrase.');
+  // The phrase's own section carries the safety line, so it is drawn once.
+  expect(
+    visibleText(tree).filter(line => line === 'Save your recovery phrase.'),
+  ).toHaveLength(1);
   // Activity has no title on screen; the stage says it is showing.
   expect(activeScene(tree)).toBe('activity');
   expect(tree.root.findAllByType(FlatList)).toHaveLength(1);

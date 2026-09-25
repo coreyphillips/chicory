@@ -16,6 +16,12 @@ export interface DiagnosticEntry {
 
 const LIMIT = 80;
 const MESSAGE_LIMIT = 300;
+/**
+ * An error the redesign shows only as a glyph (phase 'ui') is read in full
+ * from Settings > Diagnostics, where it is the only place its words appear,
+ * so it keeps more of them than the engine's own chatter does.
+ */
+const UI_MESSAGE_LIMIT = 1000;
 const entries: DiagnosticEntry[] = [];
 
 export function recordDiagnostic(event: {
@@ -23,10 +29,11 @@ export function recordDiagnostic(event: {
   message: string;
   code?: string;
 }): void {
+  const limit = event.phase === 'ui' ? UI_MESSAGE_LIMIT : MESSAGE_LIMIT;
   entries.push({
     at: new Date().toISOString(),
     phase: event.phase,
-    message: String(event.message ?? '').slice(0, MESSAGE_LIMIT),
+    message: String(event.message ?? '').slice(0, limit),
     ...(event.code ? { code: event.code } : {}),
   });
   if (entries.length > LIMIT) entries.splice(0, entries.length - LIMIT);
