@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import Reanimated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
@@ -9,6 +10,7 @@ import { Bloom } from '../../glyphs/Bloom';
 import type { BloomEvent } from '../../glyphs/Bloom';
 import { PulseDot } from '../../glyphs/PulseDot';
 import { Whisper } from '../../glyphs/Whisper';
+import { riseIn } from '../../motion/presets';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import type { RegionProps } from '../../stage/Canvas';
 import type { CanvasSceneName } from '../../stage/layout';
@@ -111,8 +113,13 @@ export function StatusRow({
             {mark.droop ? <View style={styles.pip} /> : null}
           </Pressable>
         </Whisper>
+        {/* A test network is a safety state (REDESIGN.md rule 4): the slate
+            mark is its colour, the flask its shape, and the flask rising in
+            as the wallet opens its motion. */}
         {mark.flask ? (
-          <Glyph name="flask" size={14} color={palette.slate} />
+          <Reanimated.View entering={riseIn()}>
+            <Glyph name="flask" size={14} color={palette.slate} />
+          </Reanimated.View>
         ) : null}
         {/* The tile only leads anywhere from home; elsewhere the halo stays. */}
         {backup?.pending && shown === 'home' ? (
