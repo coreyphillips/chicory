@@ -325,6 +325,25 @@ describe('the list on the sheet', () => {
     await act(async () => tree.unmount());
   });
 
+  test('the field’s caret is slate on a test network, bloom on mainnet', async () => {
+    const caret = async (network: 'regtest' | 'mainnet') => {
+      const snapshot = snapshotOf({ activity: [coffee, salary] });
+      const tree = await render(
+        <OnCanvas
+          snapshot={{ ...snapshot, wallet: { ...snapshot.wallet, network } }}
+        />,
+      );
+      await act(async () => stage.actions.openActivity());
+      await settle();
+      await press(tree, copy.activity.search);
+      const color = field(tree, copy.activity.search).props.selectionColor;
+      await act(async () => tree.unmount());
+      return color;
+    };
+    expect(await caret('regtest')).toBe(palette.slate);
+    expect(await caret('mainnet')).toBe(palette.bloom);
+  });
+
   test('a screen reader lands on the field while a search is open', async () => {
     const sent = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent');
     // Under Jest a host ref holds the mocked component, props and all.

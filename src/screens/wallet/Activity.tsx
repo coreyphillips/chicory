@@ -187,6 +187,7 @@ export function ActivityScreen({
           onSearching={onSearching}
           refreshError={refreshError}
           onRetry={onRetry}
+          test={test}
           style={sheet?.barStyle}
         />
       </View>
