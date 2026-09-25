@@ -373,6 +373,7 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
   - opacity: .25 + .75q
 - **Modes.**
   - **Breathe:** the wrapper scales to 1.035 and rotates 1.5 degrees over 4200ms, sine.
+  - **Center breathe:** the petals hold still and the center alone swells to 1.25 and back over 4200ms, sine (setup pending).
   - **Chase:** petal opacity is .35 + .65 × max(0, 1 - ((head - i) mod 12) / 4), with head running 0 to 12 over 1320ms, linear.
   - **Ratchet:** +30 degrees every 600ms (snap spring).
   - **Burst:** q goes to 1.12; a clone scales to 1.6 and fades over 700ms; the center pops 1.3 (boing).
@@ -786,6 +787,10 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
 | `glyphs/Whisper`          | `WhisperProvider`; `Whisper({ label, enabled?, style?, children })`                                                                                                                                                                                                                                                        | The provider sits at the Stage root. A 400ms long press on a `Whisper` shows `label` in the pill for 2400ms with a `tick`; outside a provider it only renders its children. `enabled` false keeps its place and turns only the press off, for a control that whispers while disabled; `style` lays out the place that is held.                                                                                                                                                                                                                               |
 | `stage/layers/ScanReveal` | `origin` (`{ x, y }` or null), `target` `'home' \| 'send'`, `onDetected`, `onCancel`                                                                                                                                                                                                                                       | For the scan overlay. The placeholder is the existing `Scanner`, full screen.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `stage/layers/DetailCard` | `item`, `from` (`Rect` or null), `children`                                                                                                                                                                                                                                                                                | The canvas places it at the compact stop and keys it by scene; `children` are laid out from its top. Without `from` it fades.                                                                                                                                                                                                                                                                                                                                                                                                                                |
+
+The Bloom also takes props its row leaves out:
+
+- `breath?` `'whole' | 'center'`: what `breathe` moves. The whole flower is the default; `'center'` breathes the center alone while the petals hold still, for setup pending (6, Wallet health).
 
 ### 10.3 Keypad
 

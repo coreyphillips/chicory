@@ -6,6 +6,7 @@ import { springs } from '../src/motion/tokens';
 import type { RingVisual } from '../src/scenes/activity/visual';
 import {
   PETALS,
+  breathPose,
   breathe,
   burstPose,
   chaseOpacity,
@@ -94,6 +95,25 @@ describe('loops', () => {
     const peak = breathe(0.5);
     expect(peak.scale).toBeCloseTo(1.035);
     expect(peak.rotate).toBeCloseTo(1.5);
+  });
+
+  test('a breath of the centre alone swells it a quarter and holds the petals', () => {
+    // The whole flower breathes as one, its centre with it.
+    expect(breathPose(0.5, 'whole')).toEqual({
+      wrap: breathe(0.5),
+      center: 1,
+    });
+    // Setup pending: the petals hold still while the centre swells.
+    const peak = breathPose(0.5, 'center');
+    expect(peak.wrap).toEqual({ scale: 1, rotate: 0 });
+    expect(peak.center).toBeCloseTo(1.25);
+    expect(breathPose(0.25, 'center').center).toBeCloseTo(1.125);
+    for (const t of [0, 3]) {
+      expect(breathPose(t, 'center')).toEqual({
+        wrap: { scale: 1, rotate: 0 },
+        center: 1,
+      });
+    }
   });
 
   test('the halo pulses between 1 and .5', () => {

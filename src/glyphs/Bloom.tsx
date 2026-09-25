@@ -46,9 +46,11 @@ import { useMotionPrefs } from '../motion/useMotionPrefs';
  * full flower (1). When it changes each petal springs to it in turn, as the
  * unfold passes it. `mode` is the loop it runs while nothing else happens:
  * a slow breath, the chase that says it is loading, or the ratchet of a
- * refresh. `tone` follows the network and the wallet's state and crossfades
- * when it changes, and `halo` is the honey ring a pending backup puts around
- * it. `detail` 'mark' drops the veins and draws a plain centre, and is the
+ * refresh. `breath` 'center' keeps the petals still and breathes the centre
+ * alone, for a setup still under way (REDESIGN.md 6, setup pending). `tone`
+ * follows the network and the wallet's state and crossfades when it
+ * changes, and `halo` is the honey ring a pending backup puts around it.
+ * `detail` 'mark' drops the veins and draws a plain centre, and is the
  * default below 40pt, where the tips also keep three teeth instead of five.
  *
  * `event` plays when its `key` changes after the bloom has mounted. A burst
@@ -74,6 +76,7 @@ import { useMotionPrefs } from '../motion/useMotionPrefs';
  * the loops move only transforms and opacity, on the UI thread.
  */
 export type BloomMode = 'still' | 'breathe' | 'chase' | 'ratchet';
+export type BloomBreath = 'whole' | 'center';
 export type BloomTone = 'live' | 'test' | 'dormant';
 export type BloomEvent = {
   kind: 'burst' | 'wilt' | 'fold' | 'fall' | 'shake';
@@ -83,6 +86,8 @@ export type BloomEvent = {
 export interface BloomProps {
   size: number;
   mode?: BloomMode;
+  /** What a breath moves: the whole flower, or only its centre. */
+  breath?: BloomBreath;
   open?: number;
   tone?: BloomTone;
   halo?: boolean;
@@ -209,6 +214,18 @@ export function breathe(t: number) {
   'worklet';
   const depth = (1 - Math.cos(2 * Math.PI * t)) / 2;
   return { scale: 1 + 0.035 * depth, rotate: 1.5 * depth };
+}
+
+/**
+ * What a breath at clock `t` does to the wrapper and to the centre: the
+ * whole flower breathes as one, or the centre alone swells a quarter and
+ * settles while the petals hold still. Both rest on each whole cycle.
+ */
+export function breathPose(t: number, breath: BloomBreath) {
+  'worklet';
+  if (breath === 'whole') return { wrap: breathe(t), center: 1 };
+  const depth = (1 - Math.cos(2 * Math.PI * t)) / 2;
+  return { wrap: breathe(0), center: 1 + 0.25 * depth };
 }
 
 /** How far petal `i` has fallen at `f`, from 0 to gone. Reduced, it only fades. */
@@ -571,6 +588,7 @@ const Petal = memo(function BloomPetal({
 export function Bloom({
   size,
   mode = 'still',
+  breath = 'whole',
   open = 1,
   tone = 'live',
   halo = false,
@@ -610,7 +628,7 @@ export function Bloom({
   }, [behind, behindShown, reduced]);
 
   // Loops.
-  const breath = useLoop(
+  const inhale = useLoop(
     durations.breathe,
     mode === 'breathe' && awake && !reduced,
   );
@@ -720,7 +738,7 @@ export function Bloom({
   }, [wilt, wilted, reduced]);
 
   const wrapStyle = useAnimatedStyle(() => {
-    const b = breathe(breath.get());
+    const b = breathPose(inhale.get(), breath).wrap;
     return {
       transform: [
         { translateX: nudge.get() },
@@ -728,10 +746,15 @@ export function Bloom({
         { scale: b.scale },
       ],
     };
-  });
-  const centerStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: center.get() }],
-  }));
+  }, [breath]);
+  const centerStyle = useAnimatedStyle(
+    () => ({
+      transform: [
+        { scale: center.get() * breathPose(inhale.get(), breath).center },
+      ],
+    }),
+    [breath],
+  );
   const cloneStyle = useAnimatedStyle(() => {
     const b = burstPose(burst.get(), reduced);
     return {

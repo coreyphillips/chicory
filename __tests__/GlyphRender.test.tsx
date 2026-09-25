@@ -28,6 +28,7 @@ import { Vessel } from '../src/glyphs/Vessel';
 import { Whisper, WhisperProvider } from '../src/glyphs/Whisper';
 import { GLYPHS } from '../src/design/glyphs';
 import { palette } from '../src/design/palette';
+import * as loops from '../src/motion/loops';
 import { Pane } from '../src/stage/panes/Pane';
 import { MASK } from '../src/theme';
 import { copyViolations } from '../test-support/copyGuard';
@@ -205,6 +206,42 @@ describe('Bloom', () => {
       <Bloom size={96} event={{ kind: 'fall', key: 0 }} />,
     );
     for (const petal of petals(fallen)) expect(turned(petal).opacity).toBe(0);
+  });
+
+  test('a breath of the centre alone swells the centre and holds the petals', async () => {
+    // Every loop clock stands halfway through its cycle, a breath's peak.
+    jest
+      .spyOn(loops, 'useLoop')
+      .mockImplementation(() => ({ get: () => 0.5 } as never));
+    const scaleOf = (node: ReactTestInstance) =>
+      (flat(node).transform as Array<{ scale?: number }>).find(
+        step => step.scale !== undefined,
+      )!.scale;
+    /** The flower's wrapper, which turns and breathes every petal. */
+    const wrapper = (tree: ReactTestRenderer) =>
+      tree.root.find(
+        node =>
+          typeof node.type === 'string' &&
+          flat(node).transform !== undefined &&
+          (flat(node).transform as object[]).some(step => 'translateX' in step),
+      );
+    /** The view that scales the centre, around its circle. */
+    const centre = (tree: ReactTestRenderer) => {
+      let at = tree.root.findAllByType(Circle)[0].parent;
+      while (at && !(typeof at.type === 'string' && flat(at).transform)) {
+        at = at.parent;
+      }
+      return at!;
+    };
+    const whole = await render(<Bloom size={28} mode="breathe" />);
+    expect(scaleOf(wrapper(whole))).toBeCloseTo(1.035);
+    expect(scaleOf(centre(whole))).toBe(1);
+    const inner = await render(
+      <Bloom size={28} mode="breathe" breath="center" />,
+    );
+    expect(scaleOf(wrapper(inner))).toBe(1);
+    expect(scaleOf(centre(inner))).toBeCloseTo(1.25);
+    expect(petals(inner)).toHaveLength(12);
   });
 
   test('a labelled chase is busy', async () => {
