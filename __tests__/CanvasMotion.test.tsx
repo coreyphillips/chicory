@@ -321,8 +321,7 @@ describe('the tint channel', () => {
 
 describe('the canvas arriving', () => {
   /** The view that rises and drops the sheet as the canvas comes and goes. */
-  const sheetLayer = (tree: ReactTestRenderer) =>
-    panes(tree).sheet.parent!.parent!;
+  const sheetLayer = (tree: ReactTestRenderer) => byTestID(tree, 'sheet')[0];
   const figures = (tree: ReactTestRenderer) =>
     byTestID(tree, 'home-figures')[0];
 

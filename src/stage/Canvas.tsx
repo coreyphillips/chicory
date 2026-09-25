@@ -368,26 +368,30 @@ export function Canvas({
             >
               {top}
             </View>
-            <Reanimated.View
-              entering={sheetIn}
-              exiting={sheetOut}
-              pointerEvents="box-none"
-              style={styles.fill}
+            <Pane
+              active={home || shown === 'activity'}
+              style={[styles.sheet, { height }, sheetStyle]}
             >
-              <Pane
-                active={home || shown === 'activity'}
-                style={[styles.sheet, { height }, sheetStyle]}
+              {/* The sheet as it is seen, which rises in as the canvas
+                  builds and drops away as it leaves. It moves inside the
+                  pane rather than the pane moving, so the pane's own place,
+                  where VoiceOver orders it, is always the seam. */}
+              <Reanimated.View
+                testID="sheet"
+                entering={sheetIn}
+                exiting={sheetOut}
+                style={styles.sheetFace}
               >
-                {/* Sized for the compact stop, the highest the sheet rests, so
-                  the end of the list is reachable there. Lower down the rest
-                  simply runs past the bottom edge. */}
+                {/* Sized for the compact stop, the highest the sheet rests,
+                    so the end of the list is reachable there. Lower down the
+                    rest simply runs past the bottom edge. */}
                 <View style={{ height: height - panes.stops.compact }}>
                   <PrimaryFor primaries={primaries} scene="activity">
                     <SheetPane {...region} shown={shown} />
                   </PrimaryFor>
                 </View>
-              </Pane>
-            </Reanimated.View>
+              </Reanimated.View>
+            </Pane>
             <View
               testID="slot-detail"
               style={[styles.detailSlot, { top: panes.stops.compact }]}
@@ -468,6 +472,9 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
+  },
+  sheetFace: {
+    flex: 1,
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.pane,
     borderTopRightRadius: radius.pane,
