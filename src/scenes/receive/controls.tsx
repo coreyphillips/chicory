@@ -9,14 +9,16 @@ import Reanimated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import type { EntryExitAnimationFunction } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 import { Glyph } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { riseIn } from '../../motion/presets';
-import { curves, shake, springs } from '../../motion/tokens';
+import { curves, durations, shake, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
+import { motionReduced } from '../../services/motion';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { space, type as typography } from '../../theme';
 import type { Focus } from './focus';
@@ -25,11 +27,14 @@ import { Pulse, Spin } from './loops';
 /** How long a refusal tints a control instead of shaking it (REDESIGN.md 8). */
 const TINT_MS = 400;
 
+/** How long refresh takes to turn once as it arrives (REDESIGN.md 4). */
+const TURN_MS = 500;
+
 /**
  * Plays once each time `key` changes to a new truthy value, never on mount:
  * a shake or a pulse that answers something that just happened.
  */
-function useOnce(key: number | undefined, play: () => void) {
+export function useOnce(key: number | undefined, play: () => void) {
   const seen = useRef(key);
   useEffect(() => {
     if (!key || key === seen.current) return;
@@ -72,6 +77,35 @@ export function useRefusal() {
   }));
   const tinted = useAnimatedStyle(() => ({ opacity: tint.get() }));
   return { play, x, shaken, tinted };
+}
+
+/**
+ * A control arriving in place of another by turning once, as refresh does
+ * when a quote runs out (REDESIGN.md 4). Under Reduce Motion it only fades
+ * in.
+ */
+export function turnIn(): EntryExitAnimationFunction {
+  if (motionReduced()) return riseIn(0);
+  return () => {
+    'worklet';
+    return {
+      initialValues: { opacity: 0, transform: [{ rotate: '-360deg' }] },
+      animations: {
+        opacity: withTiming(1, {
+          duration: durations.enter,
+          easing: curves.enter,
+        }),
+        transform: [
+          {
+            rotate: withTiming('0deg', {
+              duration: TURN_MS,
+              easing: curves.standard,
+            }),
+          },
+        ],
+      },
+    };
+  };
 }
 
 /**

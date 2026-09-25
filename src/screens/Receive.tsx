@@ -118,12 +118,15 @@ export function ReceiveScreen({
   const [noteOpen, setNoteOpen] = useState(false);
   const [quote, setQuote] = useState<ReceiveQuote | null>(null);
   const [quotedAt, setQuotedAt] = useState(0);
+  // The engine can call a quote expired a moment before this clock does.
+  const [lapsed, setLapsed] = useState(false);
   const [request, setRequest] = useState<ReceiveRequest | null>(null);
   const [createdAt, setCreatedAt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   // Each refusal of a control shakes it once.
   const [refusals, setRefusals] = useState(0);
+  const [offlineRefusals, setOfflineRefusals] = useState(0);
   const [lifted, setLifted] = useState(false);
   const amountError = useRef('');
   useEffect(() => {
@@ -160,7 +163,7 @@ export function ReceiveScreen({
         createdAt: request.createdAt ?? createdAt,
       })
     : null;
-  const quoteExpired = quote ? now >= quote.expiresAt : false;
+  const quoteExpired = quote ? lapsed || now >= quote.expiresAt : false;
   const step = request ? 'request' : quote ? 'quote' : 'form';
   // Back to the ordinary request when an offline one no longer fits, but only
   // on the form: creating an offline request reserves its channel, which takes
@@ -190,7 +193,24 @@ export function ReceiveScreen({
       code: 'AMBIGUOUS_RECEIVE_ADDRESS',
     });
   });
-  useWarning(quoteExpired, () => announce(copy.receive.quoteExpired));
+  useWarning(quoteExpired, () => {
+    announce(copy.receive.quoteExpired, { assertive: true });
+    // One the engine refused was logged in its own words as it did.
+    if (!lapsed) {
+      recordDiagnostic({
+        phase: 'ui',
+        message: copy.receive.quoteExpired,
+        code: 'QUOTE_EXPIRED',
+      });
+    }
+  });
+  // A stale balance holds back making a request (REDESIGN.md rule 4), which
+  // a screen reader hears at once while there is one to make. The balance's
+  // own look and haptic are the canvas's.
+  const heldBack = disabled && live && step !== 'request';
+  useEffect(() => {
+    if (heldBack) announce(copy.receive.stale, { assertive: true });
+  }, [heldBack]);
 
   /**
    * Something asked for failed: the control that asked shakes, unless the
@@ -218,12 +238,20 @@ export function ReceiveScreen({
       });
       setQuote(next);
       setQuotedAt(Date.now());
+      setLapsed(false);
     } catch (e) {
       // The infinity shakes to a sprout instead: an amount is needed after all.
       const needsAmount = codeOf(e) === 'AMOUNT_REQUIRED';
       amountError.current = needsAmount ? message(e) : '';
       if (needsAmount) setCapacityChanged(true);
-      refuse(e, !needsAmount);
+      // Or the moon shakes off: the engine will not take this one offline,
+      // and never makes it an ordinary request by itself.
+      const offlineRefused = offline && codeOf(e) === 'RECEIVE_UNAVAILABLE';
+      if (offlineRefused) {
+        setOffline(false);
+        setOfflineRefusals(count => count + 1);
+      }
+      refuse(e, !needsAmount && !offlineRefused);
     } finally {
       working.current = false;
       setBusy(false);
@@ -242,8 +270,14 @@ export function ReceiveScreen({
       setQuote(null);
       onRefresh?.();
     } catch (e) {
-      refuse(e);
-      setQuote(null);
+      if (codeOf(e) === 'QUOTE_EXPIRED') {
+        // The quote stays, with refresh in place of create, as at zero.
+        setLapsed(true);
+        recordDiagnostic({ phase: 'ui', message: message(e), code: codeOf(e) });
+      } else {
+        refuse(e);
+        setQuote(null);
+      }
     } finally {
       working.current = false;
       setBusy(false);
@@ -374,6 +408,7 @@ export function ReceiveScreen({
             onNoteOpen={setNoteOpen}
             offlineOffered={offlineOffered}
             offline={offline}
+            offlineRefused={offlineRefusals}
             onOffline={next => {
               setOffline(next);
               setError('');

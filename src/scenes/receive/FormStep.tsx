@@ -36,6 +36,7 @@ export function FormStep({
   onNoteOpen,
   offlineOffered,
   offline,
+  offlineRefused,
   onOffline,
   busy,
   stale,
@@ -58,6 +59,8 @@ export function FormStep({
   onNoteOpen: (open: boolean) => void;
   offlineOffered: boolean;
   offline: boolean;
+  /** Counts the engine's refusals of an offline receive: each shakes the moon. */
+  offlineRefused: number;
   onOffline: (next: boolean) => void;
   busy: boolean;
   stale: boolean;
@@ -94,6 +97,7 @@ export function FormStep({
             on={offline}
             cap={cap}
             disabled={busy}
+            shake={offlineRefused}
             onToggle={onOffline}
           />
         ) : null}

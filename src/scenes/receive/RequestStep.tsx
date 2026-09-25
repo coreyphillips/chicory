@@ -133,8 +133,14 @@ export function RequestStep({
                 style={styles.fill}
               />
             ) : null}
-            {trackingError && !scattered && !receipt ? (
-              <Question label={trackingError} />
+            {receipt && face.reused ? (
+              <Badge
+                key="twin"
+                glyph="twin"
+                label={trackingError ?? copy.receive.reusedAddress}
+              />
+            ) : trackingError && !scattered ? (
+              <Badge key="question" glyph="question" label={trackingError} />
             ) : null}
           </View>
         </View>
@@ -225,13 +231,24 @@ function FrameTrack({ side, late }: { side: number; late: boolean }) {
   );
 }
 
-/** The request's status could not be read: a question at the frame's corner, nodding once. */
-function Question({ label }: { label: string }) {
+/**
+ * A honey mark at the frame's corner: a question, nodding once, while the
+ * request's status cannot be read, and the twin when money arrived on a
+ * reused address, once the scattered code that said so has given way to the
+ * receipt.
+ */
+function Badge({
+  glyph,
+  label,
+}: {
+  glyph: 'question' | 'twin';
+  label: string;
+}) {
   const { reduced } = useMotionPrefs();
   const nod = useSharedValue(0);
   const nodded = useRef(false);
   useEffect(() => {
-    if (nodded.current || reduced) return;
+    if (glyph !== 'question' || nodded.current || reduced) return;
     nodded.current = true;
     const step = { duration: 150, easing: curves.sine };
     nod.set(
@@ -243,7 +260,7 @@ function Question({ label }: { label: string }) {
       ),
     );
     return () => cancelAnimation(nod);
-  }, [nod, reduced]);
+  }, [glyph, nod, reduced]);
   const style = useAnimatedStyle(() => ({
     transform: [{ rotate: `${nod.get()}deg` }],
   }));
@@ -254,7 +271,7 @@ function Question({ label }: { label: string }) {
       accessibilityLabel={label}
       style={[styles.badge, style]}
     >
-      <Glyph name="question" size={18} color={palette.honey} />
+      <Glyph name={glyph} size={18} color={palette.honey} />
     </Reanimated.View>
   );
 }

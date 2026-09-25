@@ -84,20 +84,27 @@ const quoteOf = (over: Partial<ReceiveQuote> = {}): ReceiveQuote => ({
 const made = (over: Partial<ReceiveRequest> = {}): ReceiveRequest =>
   requestOf({ description: NOTE, createdAt: NOW, ...over }) as ReceiveRequest;
 
-/** A wallet whose every receive call answers from these. */
+/**
+ * A wallet whose every receive call answers from these. `laterError` is what
+ * reading the status fails with once it has answered `status` the first time.
+ */
 function clientOf({
   quote = quoteOf(),
   quoteError,
   request = made(),
+  receiveError,
   status = receiptOf('waiting'),
   statusError,
+  laterError,
   offline = false,
 }: {
   quote?: ReceiveQuote;
   quoteError?: Error;
   request?: ReceiveRequest;
+  receiveError?: Error;
   status?: ReceiveStatus;
   statusError?: Error;
+  laterError?: Error;
   offline?: boolean;
 } = {}): WalletAdapter {
   return {
@@ -107,9 +114,13 @@ function clientOf({
     quoteReceive: quoteError
       ? jest.fn().mockRejectedValue(quoteError)
       : jest.fn().mockResolvedValue(quote),
-    receive: jest.fn().mockResolvedValue(request),
+    receive: receiveError
+      ? jest.fn().mockRejectedValue(receiveError)
+      : jest.fn().mockResolvedValue(request),
     getReceiveStatus: statusError
       ? jest.fn().mockRejectedValue(statusError)
+      : laterError
+      ? jest.fn().mockResolvedValueOnce(status).mockRejectedValue(laterError)
       : jest.fn().mockResolvedValue(status),
   } as unknown as WalletAdapter;
 }
@@ -214,6 +225,14 @@ const reused = Object.assign(new Error(copy.receive.reusedAddress), {
   code: 'AMBIGUOUS_RECEIVE_ADDRESS',
 });
 
+/** Money that arrived over Lightning, which a reused address leaves standing. */
+const lightningPart = receiptOf('partial', {
+  method: 'lightning',
+  txids: [],
+  txid: undefined,
+  transactions: undefined,
+});
+
 /** A payment in each state a history can hold. */
 const payments = everyActivity();
 
@@ -308,6 +327,19 @@ const GUARDED: GuardedState[] = [
     ]),
   ),
   form(
+    'offline refused, the moon shaken off',
+    receive(
+      clientOf({
+        offline: true,
+        quoteError: Object.assign(
+          new Error('Your node cannot prepare this payment request right now.'),
+          { code: 'RECEIVE_UNAVAILABLE' },
+        ),
+      }),
+      [tap(copy.receive.offline), ...toQuote],
+    ),
+  ),
+  form(
     'an amount needed after all',
     receive(
       clientOf({
@@ -361,6 +393,29 @@ const GUARDED: GuardedState[] = [
     receive(clientOf(), [...toQuote, wait(MINUTE + 1_000)]),
   ),
   state('a quote, stale', receive(clientOf(), [...toQuote, stale])),
+  state(
+    'a quote expired, stale',
+    receive(clientOf(), [...toQuote, wait(MINUTE + 1_000), stale]),
+  ),
+  state(
+    'a quote the engine calls expired',
+    receive(
+      clientOf({
+        receiveError: Object.assign(new Error('The receive quote expired.'), {
+          code: 'QUOTE_EXPIRED',
+        }),
+      }),
+      toRequest,
+    ),
+  ),
+  // Refused, the quote gives way to the form, with a bang beside Continue.
+  form(
+    'a request refused',
+    receive(
+      clientOf({ receiveError: new Error('The primary node is not ready.') }),
+      toRequest,
+    ),
+  ),
 
   // The request.
   state('a request', receive(clientOf(), toRequest)),
@@ -424,6 +479,20 @@ const GUARDED: GuardedState[] = [
   state('a payment detected, confirming', receipt(receiptOf('pending'))),
   state('part of it here', receipt(receiptOf('partial'))),
   state('a payment received', receipt(receiptOf('completed'))),
+  state(
+    'part of it here, on a reused address',
+    receive(clientOf({ status: lightningPart, laterError: reused }), [
+      ...toRequest,
+      wait(2_000),
+    ]),
+  ),
+  state(
+    'part of it here, its status unreadable',
+    receive(
+      clientOf({ status: lightningPart, laterError: new Error('Timed out.') }),
+      [...toRequest, wait(8_000)],
+    ),
+  ),
   state(
     'a payment received on chain',
     receipt(

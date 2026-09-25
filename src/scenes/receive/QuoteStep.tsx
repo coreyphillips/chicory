@@ -9,7 +9,7 @@ import { ExpiryRing } from '../../glyphs/ExpiryRing';
 import { stagger } from '../../motion/presets';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { amountIn, space, type as typography } from '../../theme';
-import { ErrorPip, GlyphButton, WarningPips } from './controls';
+import { ErrorPip, GlyphButton, WarningPips, turnIn } from './controls';
 import type { Focus } from './focus';
 import { feeGlyph, shownSats } from './model';
 
@@ -23,9 +23,9 @@ const RING = CONTROL + 16;
  * words for each line are its label, in the phrases the old rows used.
  *
  * Creating the request is a tap on the control inside the quote's expiry
- * ring. When the quote runs out the control turns to refresh, which asks for
- * a new one; a stale balance holds it back, and a tap on it then refreshes
- * the wallet instead. Tapping the amount goes back to change it.
+ * ring. When the quote runs out the control turns into refresh, which asks
+ * for a new one; a stale balance holds either back, and a tap on it then
+ * refreshes the wallet instead. Tapping the amount goes back to change it.
  */
 export function QuoteStep({
   quote,
@@ -136,17 +136,21 @@ export function QuoteStep({
           />
         </View>
         {expired ? (
-          <GlyphButton
-            glyph="refresh"
-            label={copy.receive.refreshQuote}
-            hint={copy.receive.quoteExpired}
-            size={CONTROL}
-            tone="primary"
-            busy={busy}
-            shake={shake}
-            onPress={onRequote}
-            focusRef={focus}
-          />
+          <Reanimated.View entering={turnIn()}>
+            <GlyphButton
+              glyph="refresh"
+              label={copy.receive.refreshQuote}
+              hint={stale ? copy.receive.stale : copy.receive.quoteExpired}
+              size={CONTROL}
+              tone="primary"
+              busy={busy}
+              blocked={stale}
+              shake={shake}
+              onPress={onRequote}
+              onBlocked={onBlocked}
+              focusRef={focus}
+            />
+          </Reanimated.View>
         ) : (
           <GlyphButton
             glyph="qr"

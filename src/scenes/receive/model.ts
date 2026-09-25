@@ -113,13 +113,16 @@ export function lateAt(createdAt: number, expiresAt: number): number {
  * The face a request on screen shows, in order of what matters most: once
  * something is paid the code implodes, a reused address scatters it, and an
  * expired request dissolves it. Only a request still to be paid, on an
- * address of its own, can be shared or copied.
+ * address of its own, can be shared or copied. `reused` holds after money
+ * arrives too, since Lightning receipts are still matched by invoice while
+ * Bitcoin ones on that address cannot be.
  */
 export interface RequestFace {
   qr: QrState;
   shareable: boolean;
   expired: boolean;
   late: boolean;
+  reused: boolean;
 }
 
 export function requestFace({
@@ -149,6 +152,7 @@ export function requestFace({
     shareable: qr === 'shown',
     expired,
     late: qr === 'shown' && now >= lateAt(createdAt, request.expiresAt),
+    reused: ambiguous,
   };
 }
 

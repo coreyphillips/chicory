@@ -14,6 +14,7 @@ import { palette } from '../../design/palette';
 import { springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { usePaneActive } from '../../stage/panes/Pane';
+import { useOnce, useRefusal } from './controls';
 
 const TRACK = { width: 60, height: 36 };
 const KNOB = 28;
@@ -26,20 +27,27 @@ const MOON = 18;
  * Receive): off it is an outline on husk, and on it slides across and the
  * moon fills. A screen reader hears a switch with its state, and in its hint
  * what an offline receive is and what it can take.
+ *
+ * A new `shake` is the engine refusing an offline receive: the switch shakes
+ * as its moon slides off (REDESIGN.md 6, RECEIVE_UNAVAILABLE).
  */
 export function OfflineSwitch({
   on,
   cap,
   disabled,
+  shake,
   onToggle,
 }: {
   on: boolean;
   cap?: number;
   disabled: boolean;
+  shake?: number;
   onToggle: (next: boolean) => void;
 }) {
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
+  const { play: refuse, shaken, tinted } = useRefusal();
+  useOnce(shake, refuse);
   const slide = useSharedValue(on ? 1 : 0);
   useEffect(() => {
     slide.set(reduced ? (on ? 1 : 0) : withSpring(on ? 1 : 0, springs.snap));
@@ -49,38 +57,41 @@ export function OfflineSwitch({
     transform: [{ translateX: TRAVEL * slide.get() }],
   }));
   return (
-    <Pressable
-      accessibilityRole="switch"
-      accessibilityLabel={copy.receive.offline}
-      accessibilityHint={
-        on ? copy.receive.offlineOnHint(cap) : copy.receive.offlineOffHint
-      }
-      accessibilityState={{ checked: on, disabled }}
-      disabled={disabled}
-      hitSlop={6}
-      onPress={
-        live
-          ? () => {
-              haptics.tick();
-              onToggle(!on);
-            }
-          : undefined
-      }
-      style={[styles.track, on && styles.on, disabled && styles.disabled]}
-    >
-      <Reanimated.View style={[styles.knob, on && styles.knobOn, knob]}>
-        <Svg
-          width={MOON}
-          height={MOON}
-          viewBox="0 0 24 24"
-          stroke={on ? palette.ink : palette.steam}
-          strokeWidth={strokeFor(MOON)}
-          strokeLinejoin="round"
-        >
-          <Path d={GLYPHS.moon[0].d} fill={on ? palette.ink : 'none'} />
-        </Svg>
-      </Reanimated.View>
-    </Pressable>
+    <Reanimated.View style={shaken}>
+      <Pressable
+        accessibilityRole="switch"
+        accessibilityLabel={copy.receive.offline}
+        accessibilityHint={
+          on ? copy.receive.offlineOnHint(cap) : copy.receive.offlineOffHint
+        }
+        accessibilityState={{ checked: on, disabled }}
+        disabled={disabled}
+        hitSlop={6}
+        onPress={
+          live
+            ? () => {
+                haptics.tick();
+                onToggle(!on);
+              }
+            : undefined
+        }
+        style={[styles.track, on && styles.on, disabled && styles.disabled]}
+      >
+        <Reanimated.View pointerEvents="none" style={[styles.tint, tinted]} />
+        <Reanimated.View style={[styles.knob, on && styles.knobOn, knob]}>
+          <Svg
+            width={MOON}
+            height={MOON}
+            viewBox="0 0 24 24"
+            stroke={on ? palette.ink : palette.steam}
+            strokeWidth={strokeFor(MOON)}
+            strokeLinejoin="round"
+          >
+            <Path d={GLYPHS.moon[0].d} fill={on ? palette.ink : 'none'} />
+          </Svg>
+        </Reanimated.View>
+      </Pressable>
+    </Reanimated.View>
   );
 }
 
@@ -93,6 +104,11 @@ const styles = StyleSheet.create({
   },
   on: { backgroundColor: palette.bloomNight },
   disabled: { opacity: 0.5 },
+  tint: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: TRACK.height / 2,
+    backgroundColor: palette.radishSoft,
+  },
   knob: {
     width: KNOB,
     height: KNOB,

@@ -39,7 +39,7 @@ import { recentDiagnostics } from '../src/services/diagnosticLog';
 import { useReceiveStatus } from '../src/services/useReceiveStatus';
 import type { WalletAdapter } from '../src/services/wallet';
 import { amountValue, enterAmount } from '../test-support/keypad';
-import { find, meaning } from '../test-support/query';
+import { alerts, find, meaning } from '../test-support/query';
 
 const request: ReceiveRequest = {
   id: 'r1',
@@ -1048,6 +1048,194 @@ describe('the safety states on a request', () => {
     await act(async () => press(tree, 'Refresh quote').props.onPress());
     expect(quoteReceive).toHaveBeenCalledTimes(2);
     expect(receive).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('a quote the engine calls expired turns to refresh in place, is said at once and logged', async () => {
+    const said = spoken();
+    const warned = jest.spyOn(haptics, 'warning');
+    const why = 'The receive quote expired. Review the request again.';
+    const quoteReceive = jest
+      .fn()
+      .mockResolvedValue({ ...quote, expiresAt: Date.now() + 60000 });
+    const receive = jest
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error(why), { code: 'QUOTE_EXPIRED' }),
+      );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(
+        <ReceiveScreen
+          client={adapter({ quoteReceive, receive })}
+          receivableSats={10000}
+          onActivity={noop}
+          onBusy={noop}
+        />,
+      );
+    });
+    await act(async () => press(tree, 'Continue').props.onPress());
+    await act(async () => press(tree, 'Create request').props.onPress());
+    // Still the quote, not the form: its control is now refresh.
+    expect(find(tree, 'Create request')).toBeUndefined();
+    expect(find(tree, 'Refresh quote')).toBeDefined();
+    expect(find(tree, 'Continue')).toBeUndefined();
+    expect(warned).toHaveBeenCalledTimes(1);
+    const call = said.mock.calls.find(
+      ([spokenText]) => spokenText === copy.receive.quoteExpired,
+    );
+    expect(call).toBeDefined();
+    if (Platform.OS === 'ios') expect(call![1]).toEqual({ queue: false });
+    expect(recentDiagnostics()).toContainEqual(
+      expect.objectContaining({ message: why, code: 'QUOTE_EXPIRED' }),
+    );
+    await act(async () => press(tree, 'Refresh quote').props.onPress());
+    expect(quoteReceive).toHaveBeenCalledTimes(2);
+    expect(find(tree, 'Create request')).toBeDefined();
+    await act(async () => tree.unmount());
+  });
+
+  test('on a stale balance an expired quote refreshes the wallet, not the quote', async () => {
+    const quoteReceive = jest
+      .fn()
+      .mockResolvedValue({ ...quote, expiresAt: Date.now() + 1000 });
+    const onRefresh = jest.fn();
+    const screen = (stale: boolean) => (
+      <ReceiveScreen
+        client={adapter({ quoteReceive, receive: jest.fn() })}
+        receivableSats={10000}
+        disabled={stale}
+        onActivity={noop}
+        onBusy={noop}
+        onRefresh={onRefresh}
+      />
+    );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(screen(false));
+    });
+    await act(async () => press(tree, 'Continue').props.onPress());
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    await act(async () => tree.update(screen(true)));
+    expect(disabled(tree, 'Refresh quote')).toBe(true);
+    await act(async () => press(tree, 'Refresh quote').props.onPress());
+    expect(quoteReceive).toHaveBeenCalledTimes(1);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(find(tree, 'Refresh quote')).toBeDefined();
+    await act(async () => tree.unmount());
+  });
+
+  test('a balance going stale is said at once while there is a request to make, and not over one made', async () => {
+    const said = spoken();
+    // The platform's announcer is a mock of its own, which keeps what the
+    // cases before this one said.
+    said.mockClear();
+    const stale = () =>
+      said.mock.calls.filter(
+        ([spokenText]) => spokenText === copy.receive.stale,
+      );
+    const client = adapter({
+      quoteReceive: jest
+        .fn()
+        .mockResolvedValue({ ...quote, expiresAt: Date.now() + 60000 }),
+      receive: jest.fn().mockResolvedValue(fresh()),
+      getReceiveStatus: jest.fn().mockResolvedValue(waiting),
+    });
+    const screen = (isStale: boolean) => (
+      <ReceiveScreen
+        client={client}
+        receivableSats={10000}
+        disabled={isStale}
+        onActivity={noop}
+        onBusy={noop}
+      />
+    );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(screen(false));
+    });
+    expect(stale()).toHaveLength(0);
+    await act(async () => tree.update(screen(true)));
+    expect(stale()).toHaveLength(1);
+    if (Platform.OS === 'ios') expect(stale()[0][1]).toEqual({ queue: false });
+    await act(async () => tree.update(screen(false)));
+    await act(async () => press(tree, 'Continue').props.onPress());
+    await act(async () => press(tree, 'Create request').props.onPress());
+    await act(async () => {
+      jest.advanceTimersByTime(3000);
+    });
+    await act(async () => tree.update(screen(true)));
+    // The request is made and can still be paid; nothing to hold back.
+    expect(stale()).toHaveLength(1);
+    expect(find(tree, 'Share request')).toBeDefined();
+    await act(async () => tree.unmount());
+  });
+
+  test('an offline receive the engine refuses shakes the moon off and makes nothing by itself', async () => {
+    const said = spoken();
+    const why =
+      'Your node cannot prepare this payment request right now. Try again shortly.';
+    const quoteReceive = jest
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error(why), { code: 'RECEIVE_UNAVAILABLE' }),
+      );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(
+        <ReceiveScreen
+          client={adapter({
+            getConfig: jest
+              .fn()
+              .mockResolvedValue({ offlineReceiveAvailable: true }),
+            quoteReceive,
+            receive: jest.fn(),
+          })}
+          receivableSats={10000}
+          offlineReceivableSats={30000}
+          onActivity={noop}
+          onBusy={noop}
+        />,
+      );
+    });
+    await act(async () => press(tree, 'Receive offline').props.onPress());
+    await enterAmount(tree, '1000');
+    await act(async () => press(tree, 'Continue').props.onPress());
+    expect(quoteReceive).toHaveBeenCalledTimes(1);
+    expect(quoteReceive).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'offline' }),
+    );
+    expect(offlineSwitch(tree).props.accessibilityState.checked).toBe(false);
+    expect(find(tree, 'Create request')).toBeUndefined();
+    expect(alerts(tree)).toContain(why);
+    expect(said.mock.calls.map(call => call[0])).toContain(why);
+    await act(async () => tree.unmount());
+  });
+
+  test('money that arrived stays on screen, and a reused address still says so beside it', async () => {
+    const warned = jest.spyOn(haptics, 'warning');
+    const arrived: ReceiveStatus = { ...partial, method: undefined, txids: [] };
+    const { tree } = await made(
+      fresh(),
+      jest
+        .fn()
+        .mockResolvedValueOnce(arrived)
+        .mockRejectedValue(
+          Object.assign(new Error(copy.receive.reusedAddress), {
+            code: 'AMBIGUOUS_RECEIVE_ADDRESS',
+          }),
+        ),
+    );
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(meaning(tree)).toContain('Part of it is here.');
+    expect(meaning(tree)).toContain(copy.receive.reusedAddress);
+    expect(find(tree, 'Share request')).toBeUndefined();
+    expect(find(tree, 'Copy request')).toBeUndefined();
+    expect(warned).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
   });
 
