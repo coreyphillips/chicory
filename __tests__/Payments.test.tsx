@@ -4,6 +4,8 @@ import type { SendReview, ReceiveQuote } from '@beignet/wallet-core';
 import { SendScreen, ReceiveScreen } from '../src/screens/Payments';
 import { Scanner } from '../src/components/Scanner';
 import type { WalletAdapter } from '../src/services/wallet';
+import { enterAmount } from '../test-support/keypad';
+import { meaning } from '../test-support/query';
 
 const onBusy = jest.fn();
 const quote: SendReview = {
@@ -182,6 +184,7 @@ test('scanning from Send keeps what was typed, whether the scan lands or is canc
 
 test('a stale balance blocks a new receive request and says why', async () => {
   const quoteReceive = jest.fn();
+  const onRefresh = jest.fn();
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(
@@ -190,12 +193,19 @@ test('a stale balance blocks a new receive request and says why', async () => {
         receivableSats={5000}
         disabled
         onActivity={jest.fn()}
+        onRefresh={onRefresh}
         onBusy={onBusy}
       />,
     );
   });
-  expect(JSON.stringify(tree.toJSON())).toContain('not confirmed recently');
-  expect(label(tree, 'Continue').props.disabled).toBe(true);
+  expect(meaning(tree)).toContain('not confirmed recently');
+  expect(label(tree, 'Continue').props.accessibilityState.disabled).toBe(true);
+  // A tap on the held-back control refreshes the wallet and never quotes.
+  await act(async () => {
+    await label(tree, 'Continue').props.onPress();
+  });
+  expect(quoteReceive).not.toHaveBeenCalled();
+  expect(onRefresh).toHaveBeenCalledTimes(1);
   await act(async () => {
     tree.unmount();
   });
@@ -234,20 +244,19 @@ test('receive fee is displayed before invoice creation and before showing a QR',
       />,
     );
   });
-  await act(async () => {
-    field(tree, 'Amount in sats').props.onChangeText('10000');
-  });
+  await enterAmount(tree, '10000');
   await act(async () => {
     await label(tree, 'Continue').props.onPress();
   });
   expect(receive).not.toHaveBeenCalled();
-  expect(JSON.stringify(tree.toJSON())).toContain('9,900 sats');
-  expect(JSON.stringify(tree.toJSON())).not.toContain('QRCode');
+  expect(meaning(tree)).toContain('Receive fee, 100 sats');
+  expect(meaning(tree)).toContain('You receive, 9,900 sats');
+  expect(meaning(tree)).not.toContain('Payment request QR code');
   await act(async () => {
     await label(tree, 'Create request').props.onPress();
   });
   expect(receive).toHaveBeenCalledWith(receiveQuote);
-  expect(JSON.stringify(tree.toJSON())).toContain('QRCode');
+  expect(meaning(tree)).toContain('Payment request QR code');
   await act(async () => {
     tree.unmount();
   });
