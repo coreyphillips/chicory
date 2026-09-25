@@ -38,7 +38,7 @@ import {
   useArrivalFocus,
   useRunning,
 } from './parts';
-import { bloomTone, SIZES, UNPLUG_DRIFT } from './visual';
+import { bloomTone, DORMANT_OPEN, SIZES, UNPLUG_DRIFT } from './visual';
 
 /**
  * The wallet is here, its network is not.
@@ -122,7 +122,7 @@ export function OfflineWallet({
         <View style={styles.mark}>
           <Bloom
             size={MARK}
-            open={0.7}
+            open={DORMANT_OPEN}
             tone="dormant"
             accessibilityLabel={name ? undefined : copy.phase.yourWallet}
           />

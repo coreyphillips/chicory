@@ -17,12 +17,9 @@ import {
   StatusPip,
   useArrivalFocus,
 } from './parts';
-import { bloomTone, SIZES } from './visual';
+import { bloomTone, DORMANT_OPEN, SIZES } from './visual';
 
 type Session = ReturnType<typeof useWalletSession>;
-
-/** A bloom at rest, most of the way open, in husk and bark. */
-const DORMANT_OPEN = 0.7;
 
 /**
  * The wallet saved on this device, when it could not be opened, and the ways

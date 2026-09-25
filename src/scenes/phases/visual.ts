@@ -39,6 +39,12 @@ export const QUIET_MS = 250;
 /** How far the lock's bud is open: closed, with the tips just parting. */
 export const BUD_OPEN = 0.08;
 
+/**
+ * How far a dormant bloom is open: at rest, most of the way, in husk and
+ * bark. A wallet that is here but cannot be reached, saved or offline.
+ */
+export const DORMANT_OPEN = 0.7;
+
 /** Slate stands in for bloom on every network whose coins are not real. */
 export function bloomTone(network: Network | null | undefined): BloomTone {
   return !network || network === 'mainnet' ? 'live' : 'test';
