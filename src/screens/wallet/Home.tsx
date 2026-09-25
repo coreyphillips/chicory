@@ -20,7 +20,6 @@ import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { ActionCircle } from '../../scenes/home/ActionCircle';
 import type { Point } from '../../scenes/home/ActionCircle';
-import { GestureRoot } from '../../scenes/home/GestureRoot';
 import {
   PULL_TRIGGER,
   heroPose,
@@ -241,106 +240,104 @@ export function HomeScreen({
     : copy.home.totalBalance(balance.totalSats, unit);
 
   return (
-    <GestureRoot style={styles.fill}>
-      <GestureDetector gesture={pan}>
-        <View style={styles.fill}>
-          <PullBloom pull={pull} test={test} />
-          <Reanimated.View style={[styles.stack, stackStyle]}>
-            <View style={styles.middle}>
-              <Reanimated.View
-                testID="home-hero"
-                onLayout={measureHero}
-                style={[styles.hero, heroMotion]}
-              >
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={label}
-                  accessibilityHint={copy.home.unitHint}
-                  accessibilityValue={
-                    stale ? { text: copy.health.stale } : undefined
-                  }
-                  accessibilityActions={heroActions}
-                  onAccessibilityAction={onHeroAction}
-                  onPress={switchUnit}
-                  onLongPress={toggleMask}
-                  delayLongPress={400}
-                  style={styles.balance}
-                >
-                  <Reanimated.View
-                    style={popStyle}
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants"
-                  >
-                    <Odometer
-                      sats={heroSats ?? balance.totalSats}
-                      unit={unit}
-                      masked={hidden}
-                      stale={stale}
-                      variant="hero"
-                      accessibilityLabel={label}
-                    />
-                  </Reanimated.View>
-                </Pressable>
-              </Reanimated.View>
-              <Reanimated.View style={[styles.vessel, vesselStyle]}>
-                <Vessel
-                  availableSats={balance.availableSats}
-                  pendingSats={balance.pendingSats}
-                  lfbw={snapshot.wallet.lfbw}
-                  unit={unit}
-                  masked={hidden}
-                  stale={stale}
-                />
-              </Reanimated.View>
-            </View>
+    <GestureDetector gesture={pan}>
+      <View style={styles.fill}>
+        <PullBloom pull={pull} test={test} />
+        <Reanimated.View style={[styles.stack, stackStyle]}>
+          <View style={styles.middle}>
             <Reanimated.View
-              testID="home-bar"
-              onLayout={measureRow}
-              style={[styles.bar, barFade]}
+              testID="home-hero"
+              onLayout={measureHero}
+              style={[styles.hero, heroMotion]}
             >
-              <Reanimated.View style={sendLaunch} onLayout={centreOf(sendAt)}>
-                <ActionCircle
-                  glyph="send"
-                  size={56}
-                  label={copy.home.send}
-                  hint={copy.home.sendHint}
-                  stale={stale}
-                  onAct={whileLive(onSend)}
-                  onRefresh={refresh}
-                />
-              </Reanimated.View>
-              <Reanimated.View style={scanLaunch}>
-                <ActionCircle
-                  glyph="scan"
-                  size={76}
-                  label={copy.home.scan}
-                  hint={copy.home.scanHint}
-                  primary
-                  test={test}
-                  stale={stale}
-                  onAct={whileLive(onScan)}
-                  onRefresh={refresh}
-                />
-              </Reanimated.View>
-              <Reanimated.View
-                style={receiveLaunch}
-                onLayout={centreOf(receiveAt)}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={label}
+                accessibilityHint={copy.home.unitHint}
+                accessibilityValue={
+                  stale ? { text: copy.health.stale } : undefined
+                }
+                accessibilityActions={heroActions}
+                onAccessibilityAction={onHeroAction}
+                onPress={switchUnit}
+                onLongPress={toggleMask}
+                delayLongPress={400}
+                style={styles.balance}
               >
-                <ActionCircle
-                  glyph="receive"
-                  size={56}
-                  label={copy.home.receive}
-                  hint={copy.home.receiveHint}
-                  stale={stale}
-                  onAct={whileLive(onReceive)}
-                  onRefresh={refresh}
-                />
-              </Reanimated.View>
+                <Reanimated.View
+                  style={popStyle}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                >
+                  <Odometer
+                    sats={heroSats ?? balance.totalSats}
+                    unit={unit}
+                    masked={hidden}
+                    stale={stale}
+                    variant="hero"
+                    accessibilityLabel={label}
+                  />
+                </Reanimated.View>
+              </Pressable>
+            </Reanimated.View>
+            <Reanimated.View style={[styles.vessel, vesselStyle]}>
+              <Vessel
+                availableSats={balance.availableSats}
+                pendingSats={balance.pendingSats}
+                lfbw={snapshot.wallet.lfbw}
+                unit={unit}
+                masked={hidden}
+                stale={stale}
+              />
+            </Reanimated.View>
+          </View>
+          <Reanimated.View
+            testID="home-bar"
+            onLayout={measureRow}
+            style={[styles.bar, barFade]}
+          >
+            <Reanimated.View style={sendLaunch} onLayout={centreOf(sendAt)}>
+              <ActionCircle
+                glyph="send"
+                size={56}
+                label={copy.home.send}
+                hint={copy.home.sendHint}
+                stale={stale}
+                onAct={whileLive(onSend)}
+                onRefresh={refresh}
+              />
+            </Reanimated.View>
+            <Reanimated.View style={scanLaunch}>
+              <ActionCircle
+                glyph="scan"
+                size={76}
+                label={copy.home.scan}
+                hint={copy.home.scanHint}
+                primary
+                test={test}
+                stale={stale}
+                onAct={whileLive(onScan)}
+                onRefresh={refresh}
+              />
+            </Reanimated.View>
+            <Reanimated.View
+              style={receiveLaunch}
+              onLayout={centreOf(receiveAt)}
+            >
+              <ActionCircle
+                glyph="receive"
+                size={56}
+                label={copy.home.receive}
+                hint={copy.home.receiveHint}
+                stale={stale}
+                onAct={whileLive(onReceive)}
+                onRefresh={refresh}
+              />
             </Reanimated.View>
           </Reanimated.View>
-        </View>
-      </GestureDetector>
-    </GestureRoot>
+        </Reanimated.View>
+      </View>
+    </GestureDetector>
   );
 }
 

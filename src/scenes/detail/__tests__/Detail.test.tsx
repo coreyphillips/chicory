@@ -1,5 +1,6 @@
 import React from 'react';
 import { AccessibilityInfo, ScrollView, Text } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -436,29 +437,31 @@ describe('the detail on the canvas', () => {
     stage = useStageStore();
     const view = useCanvasView();
     return (
-      <StageProvider value={stage}>
-        <Canvas
-          scene={stage.state.scene}
-          overlay={stage.state.overlay}
-          client={new DemoWalletClient()}
-          snapshot={snapshot}
-          session={{
-            error: '',
-            switchError: '',
-            refreshing: false,
-            connecting: false,
-            refresh: jest.fn(),
-            manualRefresh: jest.fn(),
-            disconnect: jest.fn(),
-            chooseWallet: jest.fn(),
-            switchNetwork: jest.fn(),
-            eraseDevice: jest.fn(),
-          }}
-          stale={false}
-          backup={null}
-          view={view}
-        />
-      </StageProvider>
+      <GestureHandlerRootView>
+        <StageProvider value={stage}>
+          <Canvas
+            scene={stage.state.scene}
+            overlay={stage.state.overlay}
+            client={new DemoWalletClient()}
+            snapshot={snapshot}
+            session={{
+              error: '',
+              switchError: '',
+              refreshing: false,
+              connecting: false,
+              refresh: jest.fn(),
+              manualRefresh: jest.fn(),
+              disconnect: jest.fn(),
+              chooseWallet: jest.fn(),
+              switchNetwork: jest.fn(),
+              eraseDevice: jest.fn(),
+            }}
+            stale={false}
+            backup={null}
+            view={view}
+          />
+        </StageProvider>
+      </GestureHandlerRootView>
     );
   }
 

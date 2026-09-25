@@ -8,7 +8,10 @@ import {
 } from 'react-native';
 import { State } from 'react-native-gesture-handler';
 import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
-import { GestureDetector } from 'react-native-gesture-handler';
+import {
+  GestureDetector,
+  GestureHandlerRootView,
+} from 'react-native-gesture-handler';
 import { ReduceMotion, useSharedValue } from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -147,15 +150,17 @@ function HomeRegions({
   };
   const region = { snapshot, client, session: live, view, stale, backup };
   return (
-    <StageProvider value={stage}>
-      <PanesProvider value={panes}>
-        <Backdrop {...region} />
-        <StatusRow {...region} shown={shown} />
-        <Pane active={canvasScene(stage.state) === 'home'}>
-          <HomePane {...region} home={shown === 'home'} />
-        </Pane>
-      </PanesProvider>
-    </StageProvider>
+    <GestureHandlerRootView>
+      <StageProvider value={stage}>
+        <PanesProvider value={panes}>
+          <Backdrop {...region} />
+          <StatusRow {...region} shown={shown} />
+          <Pane active={canvasScene(stage.state) === 'home'}>
+            <HomePane {...region} home={shown === 'home'} />
+          </Pane>
+        </PanesProvider>
+      </StageProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -625,15 +630,17 @@ describe('on the way to Send', () => {
     const hero = useSharedValue(0);
     const bar = useSharedValue(0);
     return (
-      <HomeScreen
-        snapshot={snapshotOf({ wallet: MAINNET })}
-        onSend={jest.fn()}
-        onReceive={jest.fn()}
-        onActivity={jest.fn()}
-        onDetail={jest.fn()}
-        progress={{ hero, bar }}
-        launching={launching}
-      />
+      <GestureHandlerRootView>
+        <HomeScreen
+          snapshot={snapshotOf({ wallet: MAINNET })}
+          onSend={jest.fn()}
+          onReceive={jest.fn()}
+          onActivity={jest.fn()}
+          onDetail={jest.fn()}
+          progress={{ hero, bar }}
+          launching={launching}
+        />
+      </GestureHandlerRootView>
     );
   }
   test('the balance is the mini strip, the row has faded and the Send circle grows', async () => {
@@ -657,16 +664,18 @@ describe('the hero', () => {
     const onToggleUnit = jest.fn();
     const onToggleHidden = jest.fn();
     const tree = await mount(
-      <HomeScreen
-        snapshot={snapshotOf({ wallet: MAINNET })}
-        hidden={hidden}
-        onSend={jest.fn()}
-        onReceive={jest.fn()}
-        onActivity={jest.fn()}
-        onDetail={jest.fn()}
-        onToggleUnit={onToggleUnit}
-        onToggleHidden={onToggleHidden}
-      />,
+      <GestureHandlerRootView>
+        <HomeScreen
+          snapshot={snapshotOf({ wallet: MAINNET })}
+          hidden={hidden}
+          onSend={jest.fn()}
+          onReceive={jest.fn()}
+          onActivity={jest.fn()}
+          onDetail={jest.fn()}
+          onToggleUnit={onToggleUnit}
+          onToggleHidden={onToggleHidden}
+        />
+      </GestureHandlerRootView>,
     );
     const label = hidden ? 'Balance hidden' : 'Total balance 261,500 sats';
     return { tree, onToggleUnit, onToggleHidden, balance: find(tree, label)! };

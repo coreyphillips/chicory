@@ -1,4 +1,5 @@
 import React from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import * as Keychain from 'react-native-keychain';
@@ -159,32 +160,34 @@ describe('inside Send', () => {
     stage = useStageStore();
     const view = useCanvasView();
     return (
-      <StageProvider value={stage}>
-        <Canvas
-          scene={stage.state.scene}
-          overlay={stage.state.overlay}
-          client={client}
-          snapshot={snapshot}
-          session={{
-            error: '',
-            switchError: '',
-            refreshing: false,
-            connecting: false,
-            refresh: jest.fn(),
-            manualRefresh: jest.fn(),
-            disconnect: jest.fn(),
-            chooseWallet: jest.fn(),
-            switchNetwork: jest.fn(),
-            eraseDevice: jest.fn(),
-          }}
-          stale={false}
-          backup={null}
-          view={view}
-        />
-        {receivers.map((receiver, index) => (
-          <Receiver key={index} {...receiver} />
-        ))}
-      </StageProvider>
+      <GestureHandlerRootView>
+        <StageProvider value={stage}>
+          <Canvas
+            scene={stage.state.scene}
+            overlay={stage.state.overlay}
+            client={client}
+            snapshot={snapshot}
+            session={{
+              error: '',
+              switchError: '',
+              refreshing: false,
+              connecting: false,
+              refresh: jest.fn(),
+              manualRefresh: jest.fn(),
+              disconnect: jest.fn(),
+              chooseWallet: jest.fn(),
+              switchNetwork: jest.fn(),
+              eraseDevice: jest.fn(),
+            }}
+            stale={false}
+            backup={null}
+            view={view}
+          />
+          {receivers.map((receiver, index) => (
+            <Receiver key={index} {...receiver} />
+          ))}
+        </StageProvider>
+      </GestureHandlerRootView>
     );
   }
 

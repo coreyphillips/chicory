@@ -21,7 +21,6 @@ import { useStage } from '../../stage/StageContext';
 import { useIncoming } from '../../stage/useIncoming';
 import { HIT_SLOP, space } from '../../theme';
 import { BackupTile } from './BackupTile';
-import { GestureRoot } from './GestureRoot';
 import { useAppActive } from './useAppActive';
 import { healthText, markVisual } from './visual';
 
@@ -81,7 +80,7 @@ export function StatusRow({
     <View
       style={[styles.status, { paddingTop: top, height: top + STATUS_ROW }]}
     >
-      <GestureRoot style={styles.identity}>
+      <View style={styles.identity}>
         <Whisper label={value}>
           <Pressable
             accessibilityRole="button"
@@ -128,7 +127,7 @@ export function StatusRow({
             onOpen={live ? actions.openSettings : undefined}
           />
         ) : null}
-      </GestureRoot>
+      </View>
     </View>
   );
 }

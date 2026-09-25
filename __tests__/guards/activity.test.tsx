@@ -1,4 +1,5 @@
 import React from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSharedValue } from 'react-native-reanimated';
 import type { Activity } from '@beignet/wallet-core';
 import { DemoWalletClient } from '@beignet/wallet-core';
@@ -51,18 +52,20 @@ function list(
     name,
     render: () =>
       mount(
-        <ActivityScreen
-          snapshot={snapshot}
-          onDetail={noop}
-          filter={props.filter ?? 'All'}
-          onFilter={noop}
-          query={props.query ?? ''}
-          onQuery={noop}
-          hidden={props.hidden}
-          unit={props.unit}
-          refreshError={props.refreshError}
-          onRetry={noop}
-        />,
+        <GestureHandlerRootView>
+          <ActivityScreen
+            snapshot={snapshot}
+            onDetail={noop}
+            filter={props.filter ?? 'All'}
+            onFilter={noop}
+            query={props.query ?? ''}
+            onQuery={noop}
+            hidden={props.hidden}
+            unit={props.unit}
+            refreshError={props.refreshError}
+            onRetry={noop}
+          />
+        </GestureHandlerRootView>,
       ),
     data: guardData(snapshot, times(activity)),
   };
@@ -88,30 +91,32 @@ function OnSheet({
     stops: at,
   };
   return (
-    <StageProvider value={stage}>
-      <PanesProvider value={panes}>
-        <SheetPane
-          shown={shown}
-          snapshot={snapshotOf({ activity })}
-          client={new DemoWalletClient()}
-          session={{
-            error: '',
-            switchError: '',
-            refreshing: false,
-            connecting: false,
-            refresh: jest.fn(),
-            manualRefresh: jest.fn(),
-            disconnect: jest.fn(),
-            chooseWallet: jest.fn(),
-            switchNetwork: jest.fn(),
-            eraseDevice: jest.fn(),
-          }}
-          view={view}
-          stale={false}
-          backup={null}
-        />
-      </PanesProvider>
-    </StageProvider>
+    <GestureHandlerRootView>
+      <StageProvider value={stage}>
+        <PanesProvider value={panes}>
+          <SheetPane
+            shown={shown}
+            snapshot={snapshotOf({ activity })}
+            client={new DemoWalletClient()}
+            session={{
+              error: '',
+              switchError: '',
+              refreshing: false,
+              connecting: false,
+              refresh: jest.fn(),
+              manualRefresh: jest.fn(),
+              disconnect: jest.fn(),
+              chooseWallet: jest.fn(),
+              switchNetwork: jest.fn(),
+              eraseDevice: jest.fn(),
+            }}
+            view={view}
+            stale={false}
+            backup={null}
+          />
+        </PanesProvider>
+      </StageProvider>
+    </GestureHandlerRootView>
   );
 }
 

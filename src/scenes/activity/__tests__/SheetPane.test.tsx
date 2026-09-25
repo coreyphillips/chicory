@@ -1,6 +1,10 @@
 import React from 'react';
 import { Dimensions, FlatList, StyleSheet } from 'react-native';
-import { GestureDetector, State } from 'react-native-gesture-handler';
+import {
+  GestureDetector,
+  GestureHandlerRootView,
+  State,
+} from 'react-native-gesture-handler';
 import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
 import * as Reanimated from 'react-native-reanimated';
 import { act, create } from 'react-test-renderer';
@@ -70,18 +74,20 @@ function OnCanvas({
   stage = useStageStore();
   const view = useCanvasView();
   return (
-    <StageProvider value={stage}>
-      <Canvas
-        scene={stage.state.scene}
-        overlay={stage.state.overlay}
-        client={client}
-        snapshot={snapshot}
-        session={{ ...session, error }}
-        stale={false}
-        backup={null}
-        view={view}
-      />
-    </StageProvider>
+    <GestureHandlerRootView>
+      <StageProvider value={stage}>
+        <Canvas
+          scene={stage.state.scene}
+          overlay={stage.state.overlay}
+          client={client}
+          snapshot={snapshot}
+          session={{ ...session, error }}
+          stale={false}
+          backup={null}
+          view={view}
+        />
+      </StageProvider>
+    </GestureHandlerRootView>
   );
 }
 

@@ -1,10 +1,7 @@
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { FlatList } from 'react-native';
-import {
-  GestureDetector,
-  GestureHandlerRootView,
-} from 'react-native-gesture-handler';
+import { GestureDetector } from 'react-native-gesture-handler';
 import {
   ReduceMotion,
   useAnimatedStyle,
@@ -147,33 +144,31 @@ export function SheetPane({
   };
 
   return (
-    <GestureHandlerRootView style={styles.fill}>
-      <GestureDetector gesture={drag.gesture}>
-        <View style={styles.fill} collapsable={false}>
-          <Grip home={shown === 'home'} onOpen={actions.openActivity} />
-          <ActivityScreen
-            snapshot={snapshot}
-            hidden={view.hidden}
-            unit={view.unit}
-            onDetail={actions.openDetail}
-            filter={view.filter}
-            onFilter={view.setFilter}
-            query={query}
-            onQuery={setQuery}
-            refreshError={opened ? session.error : ''}
-            onRetry={session.manualRefresh}
-            // The backup brings controls of its own, so it only sits in a
-            // pane in use. Under Settings it shows there instead.
-            banner={
-              opened && live && backup?.pending ? (
-                <BackupBanner backup={backup} />
-              ) : undefined
-            }
-            sheet={binding}
-          />
-        </View>
-      </GestureDetector>
-    </GestureHandlerRootView>
+    <GestureDetector gesture={drag.gesture}>
+      <View style={styles.fill} collapsable={false}>
+        <Grip home={shown === 'home'} onOpen={actions.openActivity} />
+        <ActivityScreen
+          snapshot={snapshot}
+          hidden={view.hidden}
+          unit={view.unit}
+          onDetail={actions.openDetail}
+          filter={view.filter}
+          onFilter={view.setFilter}
+          query={query}
+          onQuery={setQuery}
+          refreshError={opened ? session.error : ''}
+          onRetry={session.manualRefresh}
+          // The backup brings controls of its own, so it only sits in a
+          // pane in use. Under Settings it shows there instead.
+          banner={
+            opened && live && backup?.pending ? (
+              <BackupBanner backup={backup} />
+            ) : undefined
+          }
+          sheet={binding}
+        />
+      </View>
+    </GestureDetector>
   );
 }
 

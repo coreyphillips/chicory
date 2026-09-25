@@ -15,7 +15,7 @@ import type {
   StyleProp,
   ViewStyle,
 } from 'react-native';
-import { FlatList, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { FlatList } from 'react-native-gesture-handler';
 import type { PanGesture } from 'react-native-gesture-handler';
 import Reanimated from 'react-native-reanimated';
 import type { AnimatedStyle } from 'react-native-reanimated';
@@ -161,7 +161,7 @@ export function ActivityScreen({
   const inset = sheet ? sheet.bottomInset : bottom;
 
   return (
-    <GestureHandlerRootView style={styles.fill}>
+    <View style={styles.fill}>
       <View style={styles.edge}>
         <FilterBar
           usable={live && opened}
@@ -216,7 +216,7 @@ export function ActivityScreen({
           />
         </RowListContext>
       </Reanimated.View>
-    </GestureHandlerRootView>
+    </View>
   );
 }
 

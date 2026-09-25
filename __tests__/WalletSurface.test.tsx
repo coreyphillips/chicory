@@ -1,5 +1,6 @@
 import React from 'react';
 import { Text } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import {
@@ -104,22 +105,22 @@ const state = (tree: ReactTestRenderer, label: string) =>
     .findAllByProps({ accessibilityLabel: label })
     .find(node => !!node.props.accessibilityState)!;
 
+/** Draws `element` under a gesture root, as the app draws every screen. */
+const mountRooted = (element: React.ReactElement) =>
+  mount(<GestureHandlerRootView>{element}</GestureHandlerRootView>);
+
 async function renderActivity(props: Record<string, unknown> = {}) {
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(
-      <ActivityScreen
-        snapshot={snapshot}
-        onDetail={jest.fn()}
-        filter="All"
-        onFilter={jest.fn()}
-        query=""
-        onQuery={jest.fn()}
-        {...props}
-      />,
-    );
-  });
-  return tree;
+  return mountRooted(
+    <ActivityScreen
+      snapshot={snapshot}
+      onDetail={jest.fn()}
+      filter="All"
+      onFilter={jest.fn()}
+      query=""
+      onQuery={jest.fn()}
+      {...props}
+    />,
+  );
 }
 
 // A row's title is the engine's words, so it reaches a screen reader only.
@@ -164,7 +165,7 @@ test('rows are grouped under day headers', async () => {
 test('hiding the balance masks the total, the available line and every row amount', async () => {
   // The rows Home once previewed are the sheet's, so both are drawn here, as
   // they sit together at home.
-  const tree = await mount(
+  const tree = await mountRooted(
     <>
       <HomeScreen
         snapshot={snapshot}
@@ -205,7 +206,7 @@ test('a stale snapshot blocks send and receive and says why', async () => {
   const onReceive = jest.fn();
   const onScan = jest.fn();
   const onRefresh = jest.fn();
-  const tree = await mount(
+  const tree = await mountRooted(
     <HomeScreen
       snapshot={{ ...snapshot, updatedAt: Date.now() - 120000 }}
       stale
@@ -311,7 +312,7 @@ test('money on its way sits under the balance, not in a paragraph above the butt
       '30,000 sats confirmed. Moving them failed. peer disconnected. Retrying.',
     ],
   };
-  const tree = await mount(
+  const tree = await mountRooted(
     <HomeScreen
       snapshot={shown}
       onSend={jest.fn()}
@@ -335,7 +336,7 @@ test('money on its way sits under the balance, not in a paragraph above the butt
 });
 
 test('a wallet with nothing in flight shows no arriving line at all', async () => {
-  const tree = await mount(
+  const tree = await mountRooted(
     <HomeScreen
       snapshot={{
         ...snapshot,

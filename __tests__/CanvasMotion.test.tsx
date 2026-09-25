@@ -1,5 +1,6 @@
 import React from 'react';
 import { AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Reanimated from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create } from 'react-test-renderer';
@@ -82,18 +83,20 @@ function OnCanvas({ backup = null }: { backup?: Backup | null }) {
   stage = useStageStore();
   const view = useCanvasView();
   return (
-    <StageProvider value={stage}>
-      <Canvas
-        scene={stage.state.scene}
-        overlay={stage.state.overlay}
-        client={client}
-        snapshot={snapshot}
-        session={session}
-        stale={false}
-        backup={backup}
-        view={view}
-      />
-    </StageProvider>
+    <GestureHandlerRootView>
+      <StageProvider value={stage}>
+        <Canvas
+          scene={stage.state.scene}
+          overlay={stage.state.overlay}
+          client={client}
+          snapshot={snapshot}
+          session={session}
+          stale={false}
+          backup={backup}
+          view={view}
+        />
+      </StageProvider>
+    </GestureHandlerRootView>
   );
 }
 
