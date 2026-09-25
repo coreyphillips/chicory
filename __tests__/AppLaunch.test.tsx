@@ -6,7 +6,10 @@ import App from '../App';
 import * as DeviceWallet from '../src/embedded/client';
 import { DemoWalletClient, EmbeddedWalletClient } from '@beignet/wallet-core';
 import { defaultPreferences } from '../src/services/networks';
+import HapticFeedback from 'react-native-haptic-feedback';
+import { haptics } from '../src/design/haptics';
 import { WhisperProvider } from '../src/glyphs/Whisper';
+import { setHapticsEnabled } from '../src/services/haptics';
 import { LockScreen } from '../src/scenes/phases/Locked';
 import { Canvas } from '../src/stage/Canvas';
 import { SceneSlot } from '../src/stage/panes/SceneSlot';
@@ -16,6 +19,7 @@ import { activePhase } from '../test-support/scene';
 const SESSION = 'com.beignet.wallet.last-session';
 const LOCK = 'com.beignet.wallet.lock';
 const GUARD = 'com.beignet.wallet.lock-guard';
+const HAPTICS = 'com.beignet.wallet.haptics';
 
 function strings(children: unknown, out: string[] = []): string[] {
   if (typeof children === 'string' || typeof children === 'number')
@@ -134,6 +138,29 @@ test('an enabled lock holds the wallet back until it is unlocked', async () => {
     await act(async () => tree?.unmount());
     jest.restoreAllMocks();
   }
+});
+
+test('haptics turned off in Settings stay off from launch', async () => {
+  records.set(HAPTICS, 'off');
+  let tree!: ReactTestRenderer;
+  try {
+    await act(async () => {
+      tree = create(<App />);
+    });
+    haptics.tick();
+    expect(HapticFeedback.trigger).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => tree?.unmount());
+    setHapticsEnabled(true);
+    jest.restoreAllMocks();
+  }
+  records.delete(HAPTICS);
+  await act(async () => {
+    tree = create(<App />);
+  });
+  haptics.tick();
+  expect(HapticFeedback.trigger).toHaveBeenCalledTimes(1);
+  await act(async () => tree.unmount());
 });
 
 test('a refused unlock keeps the wallet closed and says so', async () => {

@@ -1,5 +1,5 @@
 import 'react-native-url-polyfill/auto';
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -12,6 +12,8 @@ import { ToastProvider } from './src/components/Toast';
 import { colors } from './src/theme';
 import { useWalletSession } from './src/services/useWalletSession';
 import type { Tab } from './src/services/useWalletSession';
+import { setHapticsEnabled } from './src/services/haptics';
+import { loadHapticsPreference } from './src/services/hapticsPreference';
 import { useReducedMotion } from './src/services/motion';
 import { useAppLock } from './src/services/useAppLock';
 import { usePaymentLinks } from './src/services/links';
@@ -22,6 +24,11 @@ import { StageProvider, useStageStore } from './src/stage/StageContext';
 
 function WalletApp() {
   useReducedMotion();
+  // Settings > Haptics holds from the first frame, not only once Settings
+  // has been opened (REDESIGN.md rule 7). It only reads the secure store.
+  useEffect(() => {
+    loadHapticsPreference().then(setHapticsEnabled);
+  }, []);
   const stage = useStageStore();
   const { dispatch } = stage;
   // The session moves the wallet itself, a close, a switch or a wallet
