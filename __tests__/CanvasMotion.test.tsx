@@ -988,14 +988,16 @@ describe('the canvas', () => {
     expect(stage.state.scene.name).toBe('detail');
     expect(passThrough(tree)).toBe(SLOTS.length);
     expect(transformOf(panes(tree).sheet, 'translateY')).toBe(at().compact);
-    // Nothing travels: the sheet and the balance crossfade within 160ms,
-    // jumping halfway through while they are unseen.
+    // Nothing travels: the sheet, the balance and the action row crossfade
+    // within 160ms, jumping halfway through while they are unseen. The
+    // detail's card leaves the panes where the list had them: nothing to
+    // cover.
     const jumps = delays.mock.calls.filter(
       ([delay, , reduce]) =>
         delay === durations.crossfade / 2 &&
         reduce === Reanimated.ReduceMotion.Never,
     );
-    expect(jumps.map(([, to]) => to)).toEqual([at().compact, 0]);
+    expect(jumps.map(([, to]) => to)).toEqual([at().compact, 0, 0]);
     expect(flat(panes(tree).sheet).opacity).toBe(1);
     await act(async () => stage.actions.home());
     await act(async () => stage.actions.openSettings());

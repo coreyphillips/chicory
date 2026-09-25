@@ -21,6 +21,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { haptics } from '../design/haptics';
 import { beginTransition } from '../motion/idle';
 import { dropAway, riseFrom, slideIn, slideOut } from '../motion/presets';
+import { steady } from '../motion/steady';
 import { durations } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { SheetPane } from '../scenes/activity/SheetPane';
@@ -46,7 +47,7 @@ import {
   veilOpacity,
 } from './layout';
 import type { Arrival } from './layout';
-import { BuildProvider } from './panes/Build';
+import { BuildProvider, beganAt } from './panes/Build';
 import type { Build } from './panes/Build';
 import { CORNER_ROOM, CornerControl } from './panes/CornerControl';
 import { EdgeBack } from './panes/EdgeBack';
@@ -186,10 +187,17 @@ export function Canvas({
 }) {
   const { state, dispatch, responders } = useStage();
   const { reduced } = useMotionPrefs();
-  // Read once, as the canvas mounts: a build only ever plays then.
+  // Read once, as the canvas mounts: a build only ever plays then. It
+  // begins with the canvas's first painted frame (`beganAt`), however long
+  // that frame takes to come.
   const [build] = useState<Build | null>(() =>
     arrival ? { arrival, beats: buildBeats(arrival), began: Date.now() } : null,
   );
+  useEffect(() => {
+    if (!build) return;
+    const frame = requestAnimationFrame(() => beganAt(build, Date.now()));
+    return () => cancelAnimationFrame(frame);
+  }, [build]);
   const [primaries] = useState<Primaries>(() => new Map());
   usePrimaryFocus(primaries, scene, !!overlay);
   const arrived = useIncoming(snapshot);
@@ -246,13 +254,15 @@ export function Canvas({
     const hold = reduced ? durations.crossfade : build.beats.done;
     const end = beginTransition(hold);
     landed.set(
-      withDelay(
-        hold,
-        withTiming(1, { duration: 0 }, done => {
-          'worklet';
-          if (done) scheduleOnRN(end);
-        }),
-        ReduceMotion.Never,
+      steady(
+        withDelay(
+          hold,
+          withTiming(1, { duration: 0 }, done => {
+            'worklet';
+            if (done) scheduleOnRN(end);
+          }),
+          ReduceMotion.Never,
+        ),
       ),
     );
     if (build.arrival === 'reconnect') haptics.success();

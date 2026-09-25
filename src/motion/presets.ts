@@ -13,6 +13,7 @@ import type {
   WithTimingConfig,
 } from 'react-native-reanimated';
 import { motionReduced } from '../services/motion';
+import { steady } from './steady';
 import { curves, durations, overlap, springs } from './tokens';
 
 /**
@@ -23,6 +24,10 @@ import { curves, durations, overlap, springs } from './tokens';
  * is at render: a component that re-renders after the setting changes picks
  * up the calmer version. Under Reduce Motion every preset is a plain
  * crossfade of 160ms or less, because nothing should travel through space.
+ *
+ * Every one runs on a steady clock (`steady`): the frame that mounts what
+ * enters can take a long while to paint, and an entrance counted by the
+ * frames' clock would be over, or its delay spent, before it was seen.
  */
 
 interface Pose {
@@ -48,7 +53,7 @@ function tween(
   return () => {
     'worklet';
     const toward = (value: number) =>
-      withDelay(delay, withTiming(value, config), config.reduceMotion);
+      steady(withDelay(delay, withTiming(value, config), config.reduceMotion));
     return {
       initialValues: {
         opacity: from.opacity,
@@ -89,15 +94,44 @@ export function riseIn(distance = overlap.rise, delay = 0) {
   );
 }
 
+/**
+ * Under Reduce Motion a scene hands over as the panes do (REDESIGN.md 8):
+ * the outgoing one fades over the first half of a crossfade and the
+ * incoming one over the second, so the two are never both drawn over each
+ * other.
+ */
+const HALF = durations.crossfade / 2;
+
 /** A scene's content, arriving once the outgoing content is on its way. */
 export function sceneIn() {
+  if (motionReduced()) {
+    return tween(
+      HIDDEN,
+      SHOWN,
+      {
+        duration: HALF,
+        easing: curves.standard,
+        reduceMotion: ReduceMotion.Never,
+      },
+      HALF,
+    );
+  }
   return riseIn(overlap.rise, overlap.enterDelay);
 }
 
 /** A scene's content leaving: it fades and settles back slightly. */
 export function sceneOut() {
-  if (motionReduced()) return crossfade(SHOWN, HIDDEN, durations.exit);
+  if (motionReduced()) return crossfade(SHOWN, HIDDEN, HALF);
   return tween(SHOWN, { ...HIDDEN, scale: 0.98 }, EXIT);
+}
+
+/**
+ * Fades out where it stands, moving nothing: for a page that something laid
+ * out to match it replaces, such as the loading page under the canvas.
+ */
+export function fadeOut() {
+  if (motionReduced()) return crossfade(SHOWN, HIDDEN, HALF);
+  return tween(SHOWN, HIDDEN, EXIT);
 }
 
 /** Fades out while dropping `distance` points, for rows giving way. */
@@ -117,7 +151,9 @@ export function slideIn(): EntryExitAnimationFunction {
     'worklet';
     return {
       initialValues: { transform: [{ translateX: values.windowWidth }] },
-      animations: { transform: [{ translateX: withSpring(0, springs.pane) }] },
+      animations: {
+        transform: [{ translateX: steady(withSpring(0, springs.pane)) }],
+      },
     };
   };
 }
@@ -131,7 +167,7 @@ export function slideOut(): EntryExitAnimationFunction {
       initialValues: { transform: [{ translateX: 0 }] },
       animations: {
         transform: [
-          { translateX: withSpring(values.windowWidth, springs.pane) },
+          { translateX: steady(withSpring(values.windowWidth, springs.pane)) },
         ],
       },
     };
@@ -156,7 +192,7 @@ export function riseFrom(
       initialValues: { transform: [{ translateY: distance }] },
       animations: {
         transform: [
-          { translateY: withDelay(delay, withSpring(0, springs.pane)) },
+          { translateY: steady(withDelay(delay, withSpring(0, springs.pane))) },
         ],
       },
     };
@@ -173,10 +209,12 @@ export function dropAway(): EntryExitAnimationFunction {
       animations: {
         transform: [
           {
-            translateY: withTiming(values.windowHeight, {
-              duration: durations.move,
-              easing: curves.exit,
-            }),
+            translateY: steady(
+              withTiming(values.windowHeight, {
+                duration: durations.move,
+                easing: curves.exit,
+              }),
+            ),
           },
         ],
       },
@@ -206,12 +244,14 @@ export function drawIn(delay = 0): EntryExitAnimationFunction {
     return {
       initialValues: { opacity: 0, transform: [{ scaleX: 0.2 }] },
       animations: {
-        opacity: withDelay(
-          delay,
-          withTiming(1, { duration: durations.enter, easing: curves.enter }),
+        opacity: steady(
+          withDelay(
+            delay,
+            withTiming(1, { duration: durations.enter, easing: curves.enter }),
+          ),
         ),
         transform: [
-          { scaleX: withDelay(delay, withSpring(1, springs.soft)) },
+          { scaleX: steady(withDelay(delay, withSpring(1, springs.soft))) },
         ],
       },
     };
@@ -232,7 +272,7 @@ export function spinIn(): EntryExitAnimationFunction {
     'worklet';
     const config = { duration: durations.enter, easing: curves.enter };
     const toward = <T extends number | string>(value: T) =>
-      withDelay(overlap.enterDelay, withTiming(value, config));
+      steady(withDelay(overlap.enterDelay, withTiming(value, config)));
     return {
       initialValues: {
         opacity: 0,
@@ -257,10 +297,10 @@ export function spinOut(): EntryExitAnimationFunction {
         transform: [{ rotate: '0deg' }, { scale: 1 }],
       },
       animations: {
-        opacity: withTiming(0, EXIT),
+        opacity: steady(withTiming(0, EXIT)),
         transform: [
-          { rotate: withTiming(`${SPIN}deg`, EXIT) },
-          { scale: withTiming(0.6, EXIT) },
+          { rotate: steady(withTiming(`${SPIN}deg`, EXIT)) },
+          { scale: steady(withTiming(0.6, EXIT)) },
         ],
       },
     };

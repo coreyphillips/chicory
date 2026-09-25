@@ -536,6 +536,7 @@ const PACKAGE_WORKLETS: Record<string, Set<string>> = {
     'withRepeat',
     'withSequence',
     'withDelay',
+    'defineAnimation',
     'interpolate',
     'interpolateColor',
     'clamp',
