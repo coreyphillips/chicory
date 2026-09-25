@@ -489,7 +489,7 @@ On-chain but not yet confirmed: the sequence stops at a sage orbit.
 - **Layout.** 1 to 9, blank, 0, backspace.
 - **Press.** A mocha disc springs in behind the key (snap) with a tick.
 - **Digits.** A new digit rises 12pt as it enters. A removed digit drops 8pt as it leaves.
-- **Clear.** Long-pressing backspace for 450ms clears the amount, with a rigid haptic.
+- **Clear.** Long-pressing backspace for 450ms clears the amount, with a rigid haptic. A screen reader has it as backspace's `longpress` action.
 - **Limits.**
   - Over what can be spent now, but within the total: honey.
   - Over the total, or over the offline cap: radish, and it shakes once.
@@ -796,7 +796,7 @@ The amount keypad (`src/scenes/keypad`) replaces the system keyboard for amounts
 - **Digit keys.** Each is a button labelled with its digit alone, `copy.keypad.digits[d]`, "0" to "9".
 - **Backspace.** A button labelled `copy.keypad.backspace`, "Delete last digit", with the hint `copy.keypad.backspaceHint`. `enterAmount` presses it until the amount reads empty, at most 16 times.
 - **The amount.** Stays labelled `copy.amount.field`, "Amount in sats", and carries its digits in `accessibilityValue.text` (for example "4,200 sats"). An amount showing only zeros counts as empty. The label is only ever spoken, never drawn.
-- **`AmountField` extras.** `empty` stands in the amount while it has no digits, in place of the dust 0 (Receive's infinity, or its dust 0 with a blinking caret). `tone` (`'honey' | 'radish' | 'dust'`) holds it against a limit: honey with a `clock` over what can be spent now, radish with a `bang` and one shake past what it can ever be, dust under the least it can be. Each change of `shake` shakes it once more. Its keys take touches only while its pane is in use.
+- **`AmountField` extras.** `empty` stands in the amount while it has no digits, in place of the dust 0 (Receive's infinity, or its dust 0 with a blinking caret). `tone` (`'honey' | 'radish' | 'dust'`) holds it against a limit: honey with a `clock` over what can be spent now, radish with a `bang` and one shake past what it can ever be, dust with a `sprout` under the least it can be. Each change of `shake` shakes it once more. Its keys take touches only while its pane is in use.
 - **Presets** stay chips labelled with the amount alone, as `copy.amount.preset` formats it.
 
 ### 10.4 Motion helpers

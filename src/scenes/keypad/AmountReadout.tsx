@@ -17,6 +17,7 @@ import { dropOut, riseIn, smooth } from '../../motion/presets';
 import { durations } from '../../motion/tokens';
 import { type as typography } from '../../theme';
 import { BANG, DrawnGlyph } from '../send/DrawnGlyph';
+import type { Stroke } from '../send/DrawnGlyph';
 import { WaitingClock } from '../send/LoopingGlyphs';
 import { Keypad } from './Keypad';
 import { amountCells, digitsOnly, grouped, pressKey } from './keys';
@@ -24,6 +25,9 @@ import type { AmountTone, KeyName } from './keys';
 
 /** Amounts are entered in sats, whatever unit the balance shows. */
 const UNIT = 'sats';
+
+/** How far an amount and its unit grow with Dynamic Type. */
+const AMOUNT_SCALE = 1.2;
 
 /** The size of a mark beside the amount. */
 const MARK = 16;
@@ -40,25 +44,35 @@ const TONES: Record<AmountTone, string> = {
 };
 
 /**
- * The micro-glyph each tone adds, so it reads without its colour. An amount
- * under its floor is only not enough yet, and dims without one.
+ * The micro-glyph each tone adds, so it reads without its colour
+ * (REDESIGN.md 9): a clock while the rest is still arriving, a bang past all
+ * there is, and a sprout under the least it can be, which is only not
+ * enough yet.
  */
 const MARKS: Record<AmountTone, GlyphName | null> = {
   plain: null,
   'over-spendable': 'clock',
   'over-total': 'bang',
-  under: null,
+  under: 'sprout',
 };
+
+/** The sprout grows from its base with the reveal spring (REDESIGN.md 4). */
+const SPROUT: Stroke[] = [{ pop: { x: 12, y: 21 } }];
 
 /**
  * A mark beside the amount. The lock is still; the clock ticks while the
  * rest of the money arrives; the bang draws in as the amount goes past all
- * there is.
+ * there is; the sprout grows in while there is not enough yet.
  */
 function Mark({ name, color }: { name: GlyphName; color: string }) {
   if (name === 'clock') return <WaitingClock size={MARK} color={color} />;
   if (name === 'bang') {
     return <DrawnGlyph name="bang" size={MARK} color={color} strokes={BANG} />;
+  }
+  if (name === 'sprout') {
+    return (
+      <DrawnGlyph name="sprout" size={MARK} color={color} strokes={SPROUT} />
+    );
   }
   return <Glyph name={name} size={MARK} color={palette.steam} />;
 }
@@ -109,9 +123,12 @@ export interface AmountReadoutProps {
  *
  * `tone` colours the amount against what it may be, with a micro-glyph for
  * each: honey and a clock when more than can be sent now, radish and a bang,
- * with one shake, when more than it can ever be, and dust under the least
- * it can be. The words for each are the caller's, in `hint`, which a long
- * press on a mark whispers. The label is only ever spoken.
+ * with one shake, when more than it can ever be, and dust and a sprout under
+ * the least it can be. The words for each are the caller's, in `hint`, which
+ * a long press on a mark whispers. The label is only ever spoken.
+ *
+ * The digits and their unit stop growing at 1.2 with Dynamic Type
+ * (REDESIGN.md 3.3).
  */
 export function AmountReadout({
   accessibilityLabel,
@@ -223,7 +240,7 @@ export function AmountReadout({
               >
                 <Text
                   style={[styles.digits, { color }]}
-                  maxFontSizeMultiplier={1.2}
+                  maxFontSizeMultiplier={AMOUNT_SCALE}
                 >
                   {cell.text}
                 </Text>
@@ -234,12 +251,14 @@ export function AmountReadout({
           ) : (
             <Text
               style={[styles.digits, styles.empty]}
-              maxFontSizeMultiplier={1.2}
+              maxFontSizeMultiplier={AMOUNT_SCALE}
             >
               0
             </Text>
           )}
-          <Text style={styles.unit}>{UNIT}</Text>
+          <Text style={styles.unit} maxFontSizeMultiplier={AMOUNT_SCALE}>
+            {UNIT}
+          </Text>
           {marks.map(mark => (
             <View key={mark} style={styles.mark}>
               <Whisper label={hint ?? ''} enabled={!!hint}>
