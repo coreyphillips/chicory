@@ -25,11 +25,9 @@ import {
   amountIn,
   colors,
   dateLabel,
-  dayLabel,
   number,
   radius,
   space,
-  statusLabel,
   type as typography,
 } from '../theme';
 import type { Unit } from '../theme';
@@ -38,16 +36,15 @@ import { ReceiveReceipt } from '../components/ReceiveReceipt';
 import { ReceiveRequestDetails } from '../components/ReceiveRequestDetails';
 import { CopyValue } from '../components/CopyValue';
 import type { WalletAdapter } from '../services/wallet';
+import {
+  FILTERS,
+  activitySections,
+  activityStatus,
+} from '../scenes/activity/model';
+import type { ActivitySection } from '../scenes/activity/model';
 
-export function activityStatus(item: Activity) {
-  if (item.receiveStatus?.phase === 'partial') return 'Partially received';
-  if (item.receiveStatus?.phase === 'pending') return 'Confirming';
-  if (item.status === 'pending' && item.kind === 'request')
-    return 'Awaiting payment';
-  if (item.status === 'pending' && item.kind === 'received')
-    return 'Confirming';
-  return statusLabel(item.status);
-}
+// Re-exported so existing imports of it from this module keep working.
+export { activityStatus };
 
 /**
  * Memoized, and its `onPress` takes the row it belongs to.
@@ -289,49 +286,6 @@ export function HomeScreen({
   );
 }
 
-const FILTERS = ['All', 'Sent', 'Received', 'Requests', 'Pending'] as const;
-
-function matchesFilter(item: Activity, filter: string) {
-  switch (filter) {
-    case 'Sent':
-      return item.kind === 'sent';
-    case 'Received':
-      return item.kind === 'received';
-    case 'Requests':
-      // A request that has since been paid is still findable here, which is
-      // where people look for "the code I sent someone".
-      return item.kind === 'request' || !!item.receiveRequest;
-    case 'Pending':
-      return (
-        item.status === 'pending' ||
-        item.status === 'uncertain' ||
-        item.receiveStatus?.phase === 'partial'
-      );
-    default:
-      return true;
-  }
-}
-
-/** `needle` is already trimmed and lowercased: this runs once per row. */
-function matchesQuery(item: Activity, needle: string) {
-  if (!needle) return true;
-  const has = (value: string | undefined) =>
-    !!value && value.toLowerCase().includes(needle);
-  return (
-    has(item.title) ||
-    has(item.description) ||
-    has(item.reference) ||
-    has(item.txid) ||
-    has(item.paymentHash) ||
-    has(item.address) ||
-    String(item.amountSats).includes(needle)
-  );
-}
-
-type ActivitySection =
-  | { kind: 'header'; id: string; label: string }
-  | { kind: 'item'; id: string; item: Activity };
-
 /**
  * The full history.
  *
@@ -369,22 +323,10 @@ export function ActivityScreen({
   // Filtering trails typing by a frame. The field itself still binds `query`,
   // so it never feels behind; only the list waits.
   const needle = useDeferredValue(query).trim().toLowerCase();
-  const rows = useMemo<ActivitySection[]>(() => {
-    const matched = snapshot.activity.filter(
-      item => matchesFilter(item, filter) && matchesQuery(item, needle),
-    );
-    const out: ActivitySection[] = [];
-    let day = '';
-    for (const item of matched) {
-      const label = dayLabel(item.timestamp);
-      if (label !== day) {
-        day = label;
-        out.push({ kind: 'header', id: `day:${label}`, label });
-      }
-      out.push({ kind: 'item', id: item.id, item });
-    }
-    return out;
-  }, [snapshot.activity, filter, needle]);
+  const rows = useMemo(
+    () => activitySections(snapshot.activity, filter, needle),
+    [snapshot.activity, filter, needle],
+  );
 
   // Stable identities, so the memoized rows can stay put across a keystroke
   // and across a background poll that changed nothing they show.
@@ -533,7 +475,9 @@ export function DetailScreen({
       </Text>
       {item.receiveStatusUnavailable &&
       item.receiveRequest?.bitcoinTracking !== 'ambiguous' ? (
-        <Notice icon="info">Payment status unavailable. Last known result shown.</Notice>
+        <Notice icon="info">
+          Payment status unavailable. Last known result shown.
+        </Notice>
       ) : null}
       {receipt ? (
         <ReceiveReceipt
@@ -662,7 +606,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: space.xxs,
   },
-  viewAll: { ...typography.micro, fontSize: 12, color: colors.primary, fontWeight: '600' },
+  viewAll: {
+    ...typography.micro,
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: '600',
+  },
   activityRow: {
     minHeight: 72,
     flexDirection: 'row',
@@ -682,7 +631,12 @@ const styles = StyleSheet.create({
   incomingIcon: { backgroundColor: colors.mintSoft },
   activityText: { flex: 1, gap: 4 },
   activityTitle: { ...typography.label, fontSize: 14, color: colors.text },
-  activityMeta: { ...typography.micro, fontSize: 11, color: colors.muted, fontWeight: '400' },
+  activityMeta: {
+    ...typography.micro,
+    fontSize: 11,
+    color: colors.muted,
+    fontWeight: '400',
+  },
   activityAmount: {
     ...typography.label,
     fontSize: 14,
@@ -715,7 +669,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     minHeight: 46,
   },
-  searchInput: { flex: 1, fontSize: 15, color: colors.text, paddingVertical: 0 },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: colors.text,
+    paddingVertical: 0,
+  },
   filters: { flexDirection: 'row', gap: space.xxs + 2, flexWrap: 'wrap' },
   dayHeader: {
     ...typography.eyebrow,

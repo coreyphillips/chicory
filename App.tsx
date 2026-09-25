@@ -1,7 +1,6 @@
 import 'react-native-url-polyfill/auto';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
   Modal,
@@ -18,49 +17,38 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
-import type { Activity, Network } from '@beignet/wallet-core';
+import type { Activity } from '@beignet/wallet-core';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import {
-  Body,
-  Button,
-  Eyebrow,
-  Icon,
-  IconButton,
-  IconName,
-  LinkButton,
-  Notice,
-  Skeleton,
-  Title,
-} from './src/components/ui';
+import { Icon, IconButton, IconName, Notice } from './src/components/ui';
 import { ToastProvider } from './src/components/Toast';
 import { HomeScreen, ActivityScreen, DetailScreen } from './src/screens/Wallet';
 import { ReceiveScreen, SendScreen } from './src/screens/Payments';
-import {
-  CreateWalletScreen,
-  SettingsScreen,
-  WalletPicker,
-} from './src/screens/Settings';
-import { colors, radius, space, type as typography } from './src/theme';
+import { CreateWalletScreen, SettingsScreen } from './src/screens/Settings';
+import { colors, space, type as typography } from './src/theme';
 import type { Unit } from './src/theme';
-import { DeviceSetup } from './src/screens/DeviceSetup';
-import { NetworkSettings } from './src/screens/NetworkSettings';
 import { RecoveryPhrase } from './src/components/RecoveryPhrase';
 import { useStaleAfter } from './src/services/clock';
 import {
   useWalletSession,
-  errorMessage,
   STALE_AFTER_MS,
 } from './src/services/useWalletSession';
 import type { Tab } from './src/services/useWalletSession';
 import { useReducedMotion, useEnter } from './src/services/motion';
 import { useAppLock } from './src/services/useAppLock';
 import { usePaymentLinks } from './src/services/links';
-import type { NetworkProfile } from './src/services/networks';
+import { LockScreen } from './src/scenes/phases/Locked';
+import { Transit } from './src/scenes/phases/Transit';
+import { Opening } from './src/scenes/phases/Opening';
+import { Saved } from './src/scenes/phases/Saved';
+import { Welcome } from './src/scenes/phases/Welcome';
+import { Picker } from './src/scenes/phases/Picker';
+import { OpeningWallet } from './src/scenes/phases/Loading';
+import { OfflineWallet } from './src/scenes/phases/Offline';
 
 type Sheet = 'send' | 'receive' | 'detail' | 'create' | null;
 
@@ -163,6 +151,10 @@ function WalletApp() {
     setScanOnOpen(true);
     setSheet('send');
   }, []);
+  const openCreate = useCallback((restoring: boolean) => {
+    setCreateRestoring(restoring);
+    setSheet('create');
+  }, []);
 
   // Scanning the whole history on every render, including the renders where
   // nothing is open: without a detail, `item.id === undefined` matched nothing
@@ -206,223 +198,66 @@ function WalletApp() {
   let content;
   if (switching || closing) {
     content = (
-      <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} />
-        <Body>
-          {erasing
-            ? 'Erasing your wallet from this phone…'
-            : closing
-            ? 'Closing your wallet…'
-            : `Closing this wallet and opening ${
-                switchTarget || 'the selected network'
-              }…`}
-        </Body>
-      </View>
+      <Transit
+        erasing={erasing}
+        closing={closing}
+        switchTarget={switchTarget}
+      />
     );
   } else if (initializing) {
-    content = (
-      <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} />
-        <Body>Opening your wallet…</Body>
-      </View>
-    );
+    content = <Opening />;
   } else if (!client && returning && !deviceVisible) {
     // A wallet already lives on this device. Whatever went wrong, first-run
     // setup is the wrong screen: it offers to put a wallet somewhere, which is
     // not the question. Show the wallet that is here and how to get back into
     // it.
     content = (
-      <View style={styles.stack}>
-        <Title>{savedWallet?.name || 'Your wallet'}</Title>
-        {error || switchError ? (
-          <Body>
-            This wallet is still on your phone. It could not be opened just now.
-          </Body>
-        ) : null}
-        {switchError || error ? (
-          <Notice kind="error" icon="alert">
-            {switchError || error}
-          </Notice>
-        ) : (
-          <View style={styles.skeletons}>
-            <Skeleton width="55%" height={22} />
-            <Skeleton width="80%" height={14} />
-          </View>
-        )}
-        <Button
-          label="Open device wallet"
-          busy={connecting}
-          onPress={() => {
-            session.openWallet().catch(e => session.setError(errorMessage(e)));
-          }}
-        />
-        <LinkButton
-          label={
-            networkEditor
-              ? 'Hide network settings'
-              : 'Change network or Bitcoin server'
-          }
-          disabled={connecting}
-          onPress={() => session.setNetworkEditor(!networkEditor)}
-        />
-        {networkEditor ? (
-          <NetworkSettings
-            initialNetwork={activeProfile.network}
-            onApply={session.switchNetwork}
-          />
-        ) : null}
-        <LinkButton
-          label="Device connection settings"
-          tone="muted"
-          disabled={connecting}
-          onPress={() => session.setDeviceVisible(true)}
-        />
-      </View>
+      <Saved
+        name={savedWallet?.name}
+        network={activeProfile.network}
+        error={error}
+        switchError={switchError}
+        connecting={connecting}
+        networkEditor={networkEditor}
+        openWallet={session.openWallet}
+        setError={session.setError}
+        setNetworkEditor={session.setNetworkEditor}
+        setDeviceVisible={session.setDeviceVisible}
+        switchNetwork={session.switchNetwork}
+      />
     );
   } else if (!client) {
-    // Nothing is open and nothing is saved. There is no question left to ask:
-    // the wallet runs on this phone, so the restore effect is already opening
-    // it. This screen is the wait, and on the far side of a failure it is the
-    // one place that says so and offers the ways back in.
-    const opening = connecting || initializing;
     content = (
-      <View style={styles.welcome}>
-        {!deviceVisible ? (
-          <>
-            <View style={styles.mark}>
-              <Text style={styles.markText}>b.</Text>
-            </View>
-            <Title>Bitcoin, with less to think about.</Title>
-          </>
-        ) : null}
-        {deviceVisible ? (
-          <DeviceSetup
-            busy={connecting}
-            error={error}
-            onOpen={settings =>
-              session.openDevice(settings, {
-                existingOnly: deviceHint || !!rememberedSession,
-                ...(rememberedSession
-                  ? {
-                      walletId: rememberedSession.walletId,
-                      prepared: rememberedSession.prepared,
-                      backupPending: rememberedSession.backupPending,
-                    }
-                  : { allowEmpty: deviceHint }),
-              })
-            }
-          />
-        ) : (
-          <>
-            {opening ? (
-              <View style={styles.opening}>
-                <ActivityIndicator color={colors.primary} />
-                <Body>Opening your wallet…</Body>
-              </View>
-            ) : (
-              <>
-                {error ? <Notice kind="error">{error}</Notice> : null}
-                <Button
-                  label="Try again"
-                  busy={connecting}
-                  onPress={() => {
-                    session
-                      .openWallet()
-                      .catch(e => session.setError(errorMessage(e)));
-                  }}
-                />
-              </>
-            )}
-            <LinkButton
-              label="Restore from recovery phrase"
-              disabled={connecting}
-              onPress={() => {
-                session
-                  .openWallet({ restore: true })
-                  .then(() => {
-                    setCreateRestoring(true);
-                    setSheet('create');
-                  })
-                  .catch(e => session.setError(errorMessage(e)));
-              }}
-            />
-            <LinkButton
-              label="Network settings"
-              tone="muted"
-              disabled={connecting}
-              onPress={() => session.setDeviceVisible(true)}
-            />
-          </>
-        )}
-        {deviceVisible ? (
-          <LinkButton
-            label="Back"
-            tone="muted"
-            disabled={connecting}
-            onPress={() => {
-              session.setDeviceVisible(false);
-              session.setError('');
-            }}
-          />
-        ) : null}
-      </View>
+      <Welcome
+        error={error}
+        connecting={connecting}
+        initializing={initializing}
+        deviceVisible={deviceVisible}
+        deviceHint={deviceHint}
+        rememberedSession={rememberedSession}
+        openDevice={session.openDevice}
+        openWallet={session.openWallet}
+        setError={session.setError}
+        setDeviceVisible={session.setDeviceVisible}
+        onCreateWallet={openCreate}
+      />
     );
   } else if (!walletId) {
     content = (
-      <View style={styles.stack}>
-        {error ? <Notice kind="error">{error}</Notice> : null}
-        <Eyebrow>{activeProfile.network}</Eyebrow>
-        {switchError ? (
-          <Notice kind="error" icon="alert">
-            {switchError}
-          </Notice>
-        ) : null}
-        {networkEditor ? (
-          <NetworkSettings
-            initialNetwork={activeProfile.network}
-            onApply={session.switchNetwork}
-          />
-        ) : null}
-        <LinkButton
-          label={networkEditor ? 'Hide network settings' : 'Network settings'}
-          disabled={selecting}
-          onPress={() => session.setNetworkEditor(!networkEditor)}
-        />
-        <WalletPicker
-          wallets={walletsOnNetwork}
-          busy={selecting}
-          onSelect={wallet => {
-            session.selectWallet(wallet).catch(() => {});
-          }}
-          onCreate={() => {
-            // A network with no primary node cannot have a wallet made from
-            // its defaults: the shared client refuses one without a node. Open
-            // the form that asks for it instead of failing with a message
-            // about a URI nobody was given a chance to type.
-            if (!activeProfile.primaryUri.trim()) {
-              setCreateRestoring(false);
-              setSheet('create');
-              return;
-            }
-            session.createDefaultWallet().catch(() => {});
-          }}
-        />
-        <LinkButton
-          label="Restore from recovery phrase"
-          disabled={selecting}
-          onPress={() => {
-            setCreateRestoring(true);
-            setSheet('create');
-          }}
-        />
-        <LinkButton
-          label="Lock device wallet"
-          disabled={selecting}
-          onPress={() => {
-            session.disconnect();
-          }}
-        />
-      </View>
+      <Picker
+        wallets={walletsOnNetwork}
+        activeProfile={activeProfile}
+        error={error}
+        switchError={switchError}
+        networkEditor={networkEditor}
+        selecting={selecting}
+        switchNetwork={session.switchNetwork}
+        setNetworkEditor={session.setNetworkEditor}
+        selectWallet={session.selectWallet}
+        createDefaultWallet={session.createDefaultWallet}
+        disconnect={session.disconnect}
+        onCreateWallet={openCreate}
+      />
     );
   } else if (!snapshot && !error) {
     // The engine is starting and nothing has gone wrong. This is a wallet
@@ -769,176 +604,6 @@ function SheetModal({
   );
 }
 
-/** The wallet page before its first figures: identity and a short wait, nothing to act on. */
-function OpeningWallet({
-  name,
-  network: _network,
-  busy,
-  onDisconnect,
-}: {
-  name?: string;
-  network: Network;
-  busy: boolean;
-  onDisconnect: () => void;
-}) {
-  return (
-    <View style={styles.stack}>
-      <Title>{name || 'Your wallet'}</Title>
-      <Body>Opening…</Body>
-      <View style={styles.skeletons}>
-        <Skeleton width="55%" height={22} />
-        <Skeleton width="80%" height={14} />
-        <Skeleton width="40%" height={14} />
-      </View>
-      <LinkButton
-        label="Lock device wallet"
-        tone="muted"
-        disabled={busy}
-        onPress={onDisconnect}
-      />
-    </View>
-  );
-}
-
-/**
- * The wallet is here, its network is not.
- *
- * Identity, the wallet's own saved setup diagnostic, a connection retry, a
- * setup retry, the network editor and the recovery phrase all stay reachable,
- * because this is exactly the screen where someone needs them.
- */
-function OfflineWallet({
-  name,
-  network,
-  setupError,
-  error,
-  busy,
-  networkEditor,
-  onRetryConnection,
-  onRetrySetup,
-  onToggleNetwork,
-  onApplyNetwork,
-  onChooseWallet,
-  onDisconnect,
-  loadPhrase,
-}: {
-  name?: string;
-  network: Network;
-  setupError?: string;
-  error: string;
-  busy: boolean;
-  networkEditor: boolean;
-  onRetryConnection: () => void;
-  onRetrySetup: () => void;
-  onToggleNetwork: () => void;
-  onApplyNetwork: (profile: NetworkProfile) => Promise<void>;
-  onChooseWallet: () => void;
-  onDisconnect: () => void;
-  loadPhrase: () => Promise<string>;
-}) {
-  return (
-    <View style={styles.stack}>
-      <Title>{name || 'Your wallet'}</Title>
-      <Body>
-        {error
-          ? 'Balances are unavailable until the connection is restored.'
-          : 'Connecting…'}
-      </Body>
-      {error ? (
-        <Notice kind="error" icon="alert">
-          {error}
-        </Notice>
-      ) : (
-        <View style={styles.skeletons}>
-          <Skeleton width="55%" height={22} />
-          <Skeleton width="80%" height={14} />
-          <Skeleton width="40%" height={14} />
-        </View>
-      )}
-      {setupError ? (
-        <Notice kind="warning" icon="info">
-          {setupError}
-        </Notice>
-      ) : null}
-      <Button
-        label="Retry connection"
-        onPress={onRetryConnection}
-        busy={busy}
-      />
-      <Button
-        secondary
-        label="Retry wallet setup"
-        icon="refresh"
-        disabled={busy}
-        accessibilityHint="Asks the wallet to run its Lightning setup again."
-        onPress={onRetrySetup}
-      />
-      <LinkButton
-        label={
-          networkEditor
-            ? 'Hide network settings'
-            : 'Change network or Bitcoin server'
-        }
-        disabled={busy}
-        onPress={onToggleNetwork}
-      />
-      {networkEditor ? (
-        <NetworkSettings initialNetwork={network} onApply={onApplyNetwork} />
-      ) : null}
-      <RecoveryPhrase loadPhrase={loadPhrase} />
-      <LinkButton
-        label="Choose another wallet"
-        disabled={busy}
-        onPress={onChooseWallet}
-      />
-      <LinkButton
-        label="Lock device wallet"
-        tone="muted"
-        disabled={busy}
-        onPress={onDisconnect}
-      />
-    </View>
-  );
-}
-
-/**
- * What someone sees when the app lock is on and they have not authenticated.
- *
- * Nothing about the wallet is shown here, no name, no network, no balance,
- * because the point of the lock is that the phone's holder has not proved they
- * are the owner yet.
- */
-function LockScreen({
-  prompting,
-  error,
-  onUnlock,
-}: {
-  prompting: boolean;
-  error: string;
-  onUnlock: () => void;
-}) {
-  return (
-    <SafeAreaView
-      style={styles.root}
-      edges={['top', 'bottom', 'left', 'right']}
-    >
-      <StatusBar barStyle="light-content" />
-      <View style={styles.lockScreen}>
-        <View style={styles.lockMark}>
-          <Icon name="lock" size={30} color={colors.primary} />
-        </View>
-        <Title>Locked</Title>
-        {error ? (
-          <Notice kind="error" icon="alert">
-            {error}
-          </Notice>
-        ) : null}
-        <Button label="Unlock" icon="key" busy={prompting} onPress={onUnlock} />
-      </View>
-    </SafeAreaView>
-  );
-}
-
 /**
  * The whole app fades in on a worklet, so the first frame after launch already
  * proves the animation runtime is alive on the UI thread.
@@ -1012,39 +677,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   stack: { gap: space.lg },
-  centered: {
-    gap: space.md,
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  skeletons: { gap: space.sm },
-  opening: { gap: space.md, alignItems: 'center' },
-  welcome: {
-    gap: space.xl,
-    paddingTop: space.lg,
-    flex: 1,
-    justifyContent: 'center',
-    paddingBottom: space.xxl,
-  },
-  mark: {
-    height: 96,
-    width: 96,
-    backgroundColor: colors.primary,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: space.md,
-    transform: [{ rotate: '-8deg' }],
-  },
-  markText: {
-    fontSize: 68,
-    color: colors.ink,
-    letterSpacing: -6,
-    fontWeight: '600',
-    marginTop: -8,
-    marginLeft: -5,
-  },
   welcomeCaption: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -1079,22 +711,6 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.line,
   },
   sheetTitle: { ...typography.heading, fontSize: 17, color: colors.text },
-  lockScreen: {
-    flex: 1,
-    gap: space.md,
-    paddingHorizontal: space.xl,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-  },
-  lockMark: {
-    height: 72,
-    width: 72,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: space.xs,
-  },
   listError: { paddingHorizontal: space.xl, paddingBottom: space.xs },
   sheetNotice: { paddingHorizontal: space.xl, paddingTop: space.md },
   sheetContent: {
