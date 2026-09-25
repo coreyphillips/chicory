@@ -2,6 +2,7 @@ import React, {
   useEffect,
   useImperativeHandle,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from 'react';
@@ -30,18 +31,18 @@ import type { GlyphName } from '../design/glyphs';
 import { haptics } from '../design/haptics';
 import { gradients, palette } from '../design/palette';
 import { CopyChip } from '../glyphs/CopyChip';
-import { ExpiryRing } from '../glyphs/ExpiryRing';
-import { HoldButton } from '../glyphs/HoldButton';
 import { durations } from '../motion/tokens';
 import { AmountReadout } from '../scenes/keypad/AmountReadout';
 import { digitsOnly, grouped } from '../scenes/keypad/keys';
 import type { AmountTone } from '../scenes/keypad/keys';
 import { Amount } from '../scenes/send/Amount';
-import { CONTROL, CircleControl, QuoteRefresh } from '../scenes/send/Controls';
+import { Commit } from '../scenes/send/Commit';
+import { CircleControl } from '../scenes/send/Controls';
 import { FailureMark } from '../scenes/send/FailureMark';
 import { GlyphButton } from '../scenes/send/GlyphButton';
 import {
   HOME_AFTER_MS,
+  alreadySubmitted,
   amountTone,
   errorCode,
   fixedAmount,
@@ -70,8 +71,6 @@ export interface SendHandle {
   receive: (code: string) => void;
 }
 
-/** The ring round the hold, at r+8 from the control (REDESIGN.md 5). */
-const EXPIRY = CONTROL + 16;
 /** A quote this close to running out is said aloud once. */
 const LATE_MS = 10_000;
 
@@ -80,6 +79,21 @@ const TONE_WORDS: Record<AmountTone, string | null> = {
   'over-spendable': copy.amount.overSpendable,
   'over-total': copy.amount.overTotal,
 };
+
+/**
+ * A quote that ran out on its clock. An expired quote is a safety state
+ * (REDESIGN.md rule 4): the hold gives way to a refresh, and the change is
+ * felt, said and logged as it happens.
+ */
+function quoteExpired() {
+  haptics.warning();
+  announce(copy.send.quoteExpired, { assertive: true });
+  recordDiagnostic({
+    phase: 'ui',
+    code: 'QUOTE_EXPIRED',
+    message: copy.send.quoteExpired,
+  });
+}
 
 /** The radish wash a failed payment tints the scene with for a moment. */
 function FailedTint() {
@@ -169,9 +183,14 @@ export function SendScreen({
   // cannot be changed by accident. What was typed stays for a request that
   // names none.
   const fixedSats = useMemo(() => fixedAmount(request), [request]);
-  // Read afresh on every render: the held set changes outside React, and
-  // every change to it comes with a render of its own.
-  const held = review || result ? null : heldRequest(request, activity);
+  // A request is checked once it is taken, as a chip, rather than letter by
+  // letter as it is typed; prepare checks again, so one reviewed straight
+  // from the well is held all the same. Read afresh on every render: the
+  // held set changes outside React, so a change made here asks for a render
+  // of its own.
+  const held =
+    review || result || !collapsed ? null : heldRequest(request, activity);
+  const [, heldChanged] = useReducer((count: number) => count + 1, 0);
 
   useEffect(() => {
     if (!initialRequest) return;
@@ -183,16 +202,15 @@ export function SendScreen({
     return () => onBusy(false);
   }, [busy, onBusy]);
 
-  // A quote runs out on its own clock. It is said aloud once as it gets
-  // close, and felt when it goes.
+  // A quote runs out on its own clock, and is said aloud once as it gets
+  // close.
   useEffect(() => {
     if (!review || expired) return;
     const left = review.expiresAt - Date.now();
     const timers = [
       setTimeout(() => {
         setExpired(true);
-        haptics.warning();
-        announce(copy.send.quoteExpired);
+        quoteExpired();
       }, Math.max(0, left)),
     ];
     if (left > LATE_MS) {
@@ -206,6 +224,15 @@ export function SendScreen({
     return () => timers.forEach(clearTimeout);
   }, [review, expired]);
 
+  // The stale gate closing on the payment is a safety state (REDESIGN.md
+  // rule 4): felt, said and logged as it closes.
+  useEffect(() => {
+    if (!disabled) return;
+    haptics.warning();
+    announce(copy.send.stale, { assertive: true });
+    recordDiagnostic({ phase: 'ui', code: 'STALE', message: copy.send.stale });
+  }, [disabled]);
+
   // Landing on the held ring is felt, said and logged, once for each time.
   const heldFor = held ? request.trim() : '';
   useEffect(() => {
@@ -214,6 +241,29 @@ export function SendScreen({
     announce(copy.send.heldAnnouncement, { assertive: true });
     recordDiagnostic({ phase: 'ui', code: 'HELD', message: copy.send.held });
   }, [heldFor]);
+
+  // A result is felt and said once its mark is on screen and has taken a
+  // screen reader's focus, so the move never cuts an assertive message short.
+  useEffect(() => {
+    switch (result?.status) {
+      case 'completed':
+        haptics.success();
+        announce(copy.send.sent);
+        break;
+      case 'pending':
+        haptics.soft();
+        announce(copy.send.onItsWay);
+        break;
+      case 'uncertain':
+        haptics.held();
+        announce(copy.send.heldAnnouncement, { assertive: true });
+        break;
+      case 'failed':
+        haptics.error();
+        announce(`${copy.send.failed} ${result.message}`, { assertive: true });
+        break;
+    }
+  }, [result]);
 
   useEffect(() => {
     if (result?.status !== 'completed' || !onDone || stayed) return;
@@ -230,7 +280,7 @@ export function SendScreen({
     setScanning(false);
   }
 
-  function fail(error: unknown) {
+  function fail(error: unknown): Failure {
     const message = errorMessage(error);
     const next = sendFailure(error, {
       message,
@@ -242,47 +292,40 @@ export function SendScreen({
     recordDiagnostic({ phase: 'ui', code: next.code || undefined, message });
     if (next.target === 'request') setCollapsed(false);
     setFailure(next);
+    return next;
+  }
+
+  /** Lands a held request on its ring, whatever step it was on. */
+  function toHeld() {
+    setReview(null);
+    setExpired(false);
+    setFailure(null);
+    setCollapsed(true);
+    heldChanged();
   }
 
   function settle(outcome: SendResult, code?: string) {
     holdRequest(request, outcome);
     setResult(outcome);
+    setStayed(false);
     setReview(null);
     onRefresh();
-    switch (outcome.status) {
-      case 'completed':
-        haptics.success();
-        announce(copy.send.sent);
-        break;
-      case 'pending':
-        haptics.soft();
-        announce(copy.send.onItsWay);
-        break;
-      case 'uncertain':
-        haptics.held();
-        announce(copy.send.heldAnnouncement, { assertive: true });
-        recordDiagnostic({
-          phase: 'ui',
-          code: code || 'UNCERTAIN',
-          message: outcome.message,
-        });
-        break;
-      case 'failed':
-        haptics.error();
-        announce(`${copy.send.failed} ${outcome.message}`, {
-          assertive: true,
-        });
-        recordDiagnostic({
-          phase: 'ui',
-          code: code || 'FAILED',
-          message: outcome.message,
-        });
-        break;
+    if (outcome.status === 'uncertain' || outcome.status === 'failed') {
+      recordDiagnostic({
+        phase: 'ui',
+        code: code || outcome.status.toUpperCase(),
+        message: outcome.message,
+      });
     }
   }
 
   async function prepare() {
     if (sending.current) return;
+    // Rule 6 holds however the request came, typed, pasted or refreshed.
+    if (heldRequest(request, activity)) {
+      toHeld();
+      return;
+    }
     sending.current = true;
     setBusy(true);
     setFailure(null);
@@ -294,19 +337,25 @@ export function SendScreen({
       });
       setReview(next);
       setReviewedAt(Date.now());
-      setExpired(next.expiresAt <= Date.now());
       setCollapsed(true);
+      const late = next.expiresAt <= Date.now();
+      setExpired(late);
+      if (late) quoteExpired();
     } catch (e) {
-      if (isUncertain(e)) {
-        // The engine has this payment in flight already: hold the request.
+      if (alreadySubmitted(e)) {
+        // The engine has a payment for this request out already.
         holdRequest(request, { status: 'uncertain' });
         recordDiagnostic({
           phase: 'ui',
           code: errorCode(e),
           message: errorMessage(e),
         });
-      } else {
-        fail(e);
+        toHeld();
+      } else if (fail(e).target !== 'control') {
+        // A refresh refused beside its control keeps the spent quote on
+        // screen, to try again; anything else is fixed back in compose.
+        setReview(null);
+        setExpired(false);
       }
     } finally {
       sending.current = false;
@@ -315,7 +364,18 @@ export function SendScreen({
   }
 
   async function pay() {
-    if (!review || sending.current || expired) return;
+    if (!review || sending.current || expired || disabled) return;
+    // The quote's own clock has the last word, not the render the hold began
+    // in, and a request held since the review never pays twice.
+    if (review.expiresAt <= Date.now()) {
+      setExpired(true);
+      quoteExpired();
+      return;
+    }
+    if (heldRequest(request, activity)) {
+      toHeld();
+      return;
+    }
     sending.current = true;
     setBusy(true);
     setFailure(null);
@@ -356,8 +416,9 @@ export function SendScreen({
     setFailure(null);
   }
 
+  /** A new quote for the same payment, which takes the spent one's place. */
   function refreshQuote() {
-    edit();
+    setFailure(null);
     prepare();
   }
 
@@ -513,7 +574,8 @@ export function SendScreen({
     const shown = item?.amountSats ?? fixedSats;
     return (
       <View style={styles.screen}>
-        {chip()}
+        {/* The chip opens to take another request; this one stays held. */}
+        {chip(() => setCollapsed(false))}
         <View style={styles.body}>
           <ResultMark
             visual={resultVisual('uncertain')}
@@ -545,7 +607,6 @@ export function SendScreen({
   }
 
   if (review) {
-    const label = copy.send.sendSats(review.amountSats);
     return (
       <View style={styles.screen}>
         {chip(busy ? undefined : edit)}
@@ -567,35 +628,18 @@ export function SendScreen({
               disabled={busy}
             />
           </View>
-          {expired ? (
-            <QuoteRefresh
-              onPress={live && !busy ? refreshQuote : undefined}
-              busy={busy}
-            />
-          ) : disabled ? (
-            <CircleControl
-              accessibilityLabel={label}
-              accessibilityHint={copy.send.stale}
-              onPress={live ? onRefresh : undefined}
-              stale
-            />
-          ) : (
-            <View style={styles.commit}>
-              <ExpiryRing
-                size={EXPIRY}
-                expiresAt={review.expiresAt}
-                createdAt={reviewedAt}
-              />
-              <View style={styles.hold}>
-                <HoldButton
-                  accessibilityLabel={label}
-                  onCommit={pay}
-                  warning={review.warnings.length > 0}
-                  busy={busy}
-                />
-              </View>
-            </View>
-          )}
+          <Commit
+            accessibilityLabel={copy.send.sendSats(review.amountSats)}
+            expiresAt={review.expiresAt}
+            createdAt={reviewedAt}
+            warning={review.warnings.length > 0}
+            expired={expired}
+            stale={disabled}
+            busy={busy}
+            onCommit={pay}
+            onRefreshQuote={live && !busy ? refreshQuote : undefined}
+            onRefresh={live ? onRefresh : undefined}
+          />
           <View style={styles.side}>
             {failure ? <FailureMark failure={failure} /> : null}
           </View>
@@ -696,13 +740,6 @@ const styles = StyleSheet.create({
   },
   centred: { justifyContent: 'center' },
   side: { width: 56, alignItems: 'center' },
-  commit: {
-    width: EXPIRY,
-    height: EXPIRY,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  hold: { position: 'absolute' },
   fee: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   feeText: { ...typography.line, color: palette.steam },
   tint: { ...StyleSheet.absoluteFill, backgroundColor: palette.radish },

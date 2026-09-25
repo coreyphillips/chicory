@@ -2,6 +2,7 @@ import type { SendResult, SendReview } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
 import { snapshotOf } from '../../../../test-support/fixtures';
 import {
+  alreadySubmitted,
   amountTone,
   fixedAmount,
   isUncertain,
@@ -130,6 +131,14 @@ describe('an engine error', () => {
     expect(isUncertain(coded('NO_ROUTE'))).toBe(false);
     expect(isUncertain(new Error('plain'))).toBe(false);
     expect(isUncertain(null)).toBe(false);
+  });
+
+  test('holds a request it prepares only when a payment for it is out', () => {
+    const coded = (code: string) => Object.assign(new Error(), { code });
+    expect(alreadySubmitted(coded('ALREADY_SUBMITTED'))).toBe(true);
+    // Preparing pays nothing, so a prepare without an answer holds nothing.
+    expect(alreadySubmitted(coded('RESULT_UNCERTAIN'))).toBe(false);
+    expect(alreadySubmitted(new Error('plain'))).toBe(false);
   });
 });
 

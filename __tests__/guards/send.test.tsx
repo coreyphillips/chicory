@@ -251,8 +251,30 @@ const GUARDED: GuardedState[] = [
     data: onReview,
   },
   {
+    name: 'review, the quote nearly out',
+    render: () => reviewed(reviewing({ expiresAt: Date.now() + 5_000 })),
+    data: onReview,
+  },
+  {
     name: 'review, the quote expired',
     render: () => reviewed(reviewing({ expiresAt: Date.now() - 1 })),
+    data: onReview,
+  },
+  {
+    name: 'review, the quote being refreshed',
+    render: async () => {
+      const tree = await reviewed({
+        prepareSend: jest
+          .fn()
+          .mockResolvedValueOnce(quote({ expiresAt: Date.now() - 1 }))
+          .mockImplementationOnce(never),
+      });
+      // The new quote never comes here, so the press is not waited on.
+      await act(async () => {
+        control(tree, 'Refresh quote').props.onPress();
+      });
+      return tree;
+    },
     data: onReview,
   },
   {
@@ -322,6 +344,19 @@ const GUARDED: GuardedState[] = [
       holdRequest(request, { status: 'uncertain' });
       return draw({ initialRequest: request });
     },
+    data: onChip,
+  },
+  {
+    name: 'a held request, the engine says already out',
+    render: () =>
+      reviewed(
+        {
+          prepareSend: jest
+            .fn()
+            .mockRejectedValue(refusal('ALREADY_SUBMITTED')),
+        },
+        fresh(),
+      ),
     data: onChip,
   },
   {

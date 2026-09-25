@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
+import type { ComponentRef } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
@@ -13,6 +14,7 @@ import { DrawnGlyph } from './DrawnGlyph';
 import type { ResultVisual } from './model';
 import { popIn, useLoop, useShake } from './motion';
 import { Orbit } from './Orbit';
+import { useFocusOnMount } from './useFocusOnMount';
 
 const SIZE = 120;
 const STROKE = 5;
@@ -109,6 +111,7 @@ const FACES = { disc: Disc, orbit: Moving, held: Held, broken: Broken };
  * `accessibilityValue` for the status, and `accessibilityHint` for the
  * engine's message, which a long press also shows through Whisper. With
  * `onPress` it is a control, such as a failure that returns to the payment.
+ * A screen reader moves to it as it lands.
  */
 export function ResultMark({
   visual,
@@ -124,6 +127,8 @@ export function ResultMark({
   onPress?: () => void;
 }) {
   const live = usePaneActive();
+  const face = useRef<ComponentRef<typeof View>>(null);
+  useFocusOnMount(face);
   const refusal = useShake();
   const { play } = refusal;
   const broken = visual.shape === 'broken';
@@ -138,6 +143,7 @@ export function ResultMark({
         style={[styles.mark, refusal.style]}
       >
         <Pressable
+          ref={face}
           accessibilityRole={onPress ? 'button' : undefined}
           accessibilityLabel={accessibilityLabel}
           accessibilityValue={{ text: accessibilityValue }}

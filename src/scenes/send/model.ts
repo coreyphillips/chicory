@@ -164,6 +164,14 @@ export const errorCode = (error: unknown): string => {
 
 export const isUncertain = (error: unknown) => UNCERTAIN.has(errorCode(error));
 
+/**
+ * Preparing pays nothing, so a prepare that fails, even for want of an
+ * answer, leaves the request free. The one exception is the engine saying a
+ * payment for it is already out: that request is held.
+ */
+export const alreadySubmitted = (error: unknown) =>
+  errorCode(error) === 'ALREADY_SUBMITTED';
+
 export function sendFailure(
   error: unknown,
   context: { message: string; amountSats: number | null; balance?: Balance },

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
-import type { ReactNode } from 'react';
+import type { ComponentRef, ReactNode, Ref } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
-import type { AccessibilityActionEvent } from 'react-native';
+import type { AccessibilityActionEvent, View } from 'react-native';
 import Reanimated, {
   Easing,
   ReduceMotion,
@@ -45,6 +45,8 @@ export interface HoldButtonProps {
   busy?: boolean;
   /** What sits in the circle instead of the send glyph. */
   children?: ReactNode;
+  /** The circle itself, for a screen that moves a screen reader to it. */
+  ref?: Ref<ComponentRef<typeof View>>;
 }
 
 const ACTIONS = [{ name: 'activate' as const }];
@@ -99,6 +101,7 @@ export function HoldButton({
   disabled = false,
   busy = false,
   children,
+  ref,
 }: HoldButtonProps) {
   const live = usePaneActive() && !disabled && !busy;
   const { reduced } = useMotionPrefs();
@@ -219,6 +222,7 @@ export function HoldButton({
         <Spark key={index} index={index} burst={burst} />
       ))}
       <Pressable
+        ref={ref}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={copy.send.holdHint}
