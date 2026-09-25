@@ -94,6 +94,20 @@ function measuring() {
   return { done: () => measure.mockReset() };
 }
 
+/**
+ * Renders a state with Reduce Motion on. The setting stays read as on until
+ * the next mount asks again, which every phase does.
+ */
+async function reduced(render: () => Promise<ReactTestRenderer>) {
+  const asked = jest.mocked(AccessibilityInfo.isReduceMotionEnabled);
+  asked.mockResolvedValue(true);
+  try {
+    return await render();
+  } finally {
+    asked.mockResolvedValue(false);
+  }
+}
+
 const everyday = walletOf();
 const savings = walletOf({
   id: 'savings',
@@ -244,6 +258,31 @@ const GUARDED: GuardedState[] = [
     data: DATA,
   },
   {
+    name: 'lock with a fingerprint',
+    render: () => {
+      jest
+        .mocked(Keychain.getSupportedBiometryType)
+        .mockResolvedValueOnce('TouchID' as never);
+      return lock();
+    },
+    data: DATA,
+  },
+  {
+    name: 'lock with iris recognition',
+    render: () => {
+      jest
+        .mocked(Keychain.getSupportedBiometryType)
+        .mockResolvedValueOnce('Iris' as never);
+      return lock();
+    },
+    data: DATA,
+  },
+  {
+    name: 'lock, refused under Reduce Motion',
+    render: () => reduced(() => lock({ error: copy.phase.lockRefused })),
+    data: DATA,
+  },
+  {
     name: 'transit, closing',
     render: () =>
       staged(<Transit erasing={false} closing switchTarget={null} />),
@@ -271,6 +310,12 @@ const GUARDED: GuardedState[] = [
   {
     name: 'transit, erasing',
     render: () => staged(<Transit erasing closing switchTarget={null} />),
+    data: DATA,
+  },
+  {
+    name: 'transit, erasing under Reduce Motion',
+    render: () =>
+      reduced(() => staged(<Transit erasing closing switchTarget={null} />)),
     data: DATA,
   },
   { name: 'opening', render: () => staged(<Opening />), data: DATA },
@@ -317,6 +362,12 @@ const GUARDED: GuardedState[] = [
     data: DATA,
   },
   {
+    name: 'welcome, open failed after a lock',
+    render: () =>
+      welcome({ rememberedSession: remembered, error: 'Electrum is offline.' }),
+    data: DATA,
+  },
+  {
     name: 'welcome, device setup',
     render: () => welcome({ deviceVisible: true, deviceHint: true }),
     data: DATA,
@@ -328,6 +379,12 @@ const GUARDED: GuardedState[] = [
     data: DATA,
   },
   { name: 'picker', render: () => picker(), data: DATA },
+  {
+    name: 'picker on mainnet',
+    render: () =>
+      picker({ wallets: [savings], activeProfile: defaultProfile('mainnet') }),
+    data: DATA,
+  },
   { name: 'picker, empty', render: () => picker({ wallets: [] }), data: DATA },
   {
     name: 'picker, empty and creating',
