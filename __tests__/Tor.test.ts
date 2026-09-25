@@ -1,19 +1,22 @@
 import { Buffer } from 'buffer';
-import TcpSocket from 'react-native-tcp-socket';
-import { RnTor } from 'react-native-nitro-tor';
 import { Socks5Client, Socks5Error } from '../src/embedded/socks';
-import {
-  ensureTorReady,
-  isOnionHost,
-  stopTor,
-  torPhase,
-  TOR_SOCKS_PORT,
-} from '../src/services/tor';
-import { NativeWalletSocket } from '../src/embedded/network';
-import {
-  openDeviceWallet,
-  validateDeviceSettings,
-} from '../src/embedded/client';
+
+type TorService = typeof import('../src/services/tor');
+type DeviceClient = typeof import('../src/embedded/client');
+
+// Loaded afresh for every test. Tor runs at most once per process, and the
+// service remembers a start for the life of the module, so a start, failure
+// or stop in one test would otherwise decide the next.
+let TcpSocket: typeof import('react-native-tcp-socket').default;
+let RnTor: typeof import('react-native-nitro-tor').RnTor;
+let ensureTorReady: TorService['ensureTorReady'];
+let isOnionHost: TorService['isOnionHost'];
+let stopTor: TorService['stopTor'];
+let torPhase: TorService['torPhase'];
+let TOR_SOCKS_PORT: TorService['TOR_SOCKS_PORT'];
+let NativeWalletSocket: typeof import('../src/embedded/network').NativeWalletSocket;
+let openDeviceWallet: DeviceClient['openDeviceWallet'];
+let validateDeviceSettings: DeviceClient['validateDeviceSettings'];
 
 jest.mock('@op-engineering/op-sqlite', () => ({
   IOS_LIBRARY_PATH: '/device/Library',
@@ -103,8 +106,15 @@ const ONION = 'ln2ln2ln2ln2ln2ln2ln2ln2ln2ln2ln2ln2ln2ln2ln2ln2ln2ln2ad.onion';
 /** A successful SOCKS5 reply for an IPv4-shaped bind address. */
 const grantReply = Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
 
-beforeEach(async () => {
-  await stopTor();
+beforeEach(() => {
+  jest.resetModules();
+  TcpSocket = require('react-native-tcp-socket');
+  ({ RnTor } = require('react-native-nitro-tor'));
+  ({ ensureTorReady, isOnionHost, stopTor, torPhase, TOR_SOCKS_PORT } =
+    require('../src/services/tor') as TorService);
+  ({ NativeWalletSocket } = require('../src/embedded/network'));
+  ({ openDeviceWallet, validateDeviceSettings } =
+    require('../src/embedded/client') as DeviceClient);
   jest.clearAllMocks();
   jest.mocked(RnTor.startTorIfNotRunning).mockResolvedValue({
     is_success: true,
@@ -186,31 +196,90 @@ test('Tor starts once for concurrent callers and drops the onion service it publ
   expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
 });
 
-test('a daemon that never bootstraps fails the connection and stays retryable', async () => {
-  jest.mocked(RnTor.getServiceStatus).mockResolvedValue(0);
-  jest.mocked(RnTor.startTorIfNotRunning).mockResolvedValue({
-    is_success: false,
-    onion_address: '',
-    control: '',
-    error_message: 'Failed to initialize Tor service',
-  });
+/** What the library reports once its start gave up: there is no daemon. */
+const STATUS_GONE = 2;
+const failedStart = {
+  is_success: false,
+  onion_address: '',
+  control: '',
+  error_message: 'Failed to initialize Tor service',
+};
+// Names Tor, so the wallet reports it as the private network being unavailable.
+const TOR_GONE =
+  'Tor is not running and cannot start again until the app is reopened.';
+
+test('after a failed bootstrap the next onion dials report a stable error instead of starting Tor again', async () => {
+  // A second start in the same process aborts the app from native code
+  // (tor_run_main -> pubsub_install -> tor_abort_).
+  jest.mocked(RnTor.getServiceStatus).mockResolvedValue(STATUS_GONE);
+  jest.mocked(RnTor.startTorIfNotRunning).mockResolvedValue(failedStart);
   await expect(ensureTorReady()).rejects.toThrow(
     'Failed to initialize Tor service',
   );
   expect(torPhase()).toBe('failed');
   expect(RnTor.deleteHiddenService).not.toHaveBeenCalled();
-  jest.mocked(RnTor.getServiceStatus).mockResolvedValue(1);
-  await ensureTorReady();
-  expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(2);
+
+  const errors: string[] = [];
+  for (let dial = 0; dial < 2; dial++) {
+    const socket = new NativeWalletSocket({
+      host: ONION,
+      port: 9735,
+      tls: false,
+    });
+    socket.on('error', (error: Error) => errors.push(error.message));
+    await settle();
+  }
+  expect(errors).toEqual([TOR_GONE, TOR_GONE]);
+  expect(torPhase()).toBe('failed');
+  expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
+  expect(sockets().map(socket => socket.connectOptions)).toEqual([null, null]);
 });
 
-test('closing the wallet stops the daemon, and the next onion connection starts it again', async () => {
+test('a daemon that turns out to be running after a failed start is used, not started again', async () => {
+  jest.mocked(RnTor.getServiceStatus).mockResolvedValue(STATUS_GONE);
+  jest.mocked(RnTor.startTorIfNotRunning).mockResolvedValue(failedStart);
+  await expect(ensureTorReady()).rejects.toThrow(
+    'Failed to initialize Tor service',
+  );
+  jest.mocked(RnTor.getServiceStatus).mockResolvedValue(1);
+  await ensureTorReady();
+  expect(torPhase()).toBe('ready');
+  expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
+});
+
+test('a daemon still bootstrapping when the start gives up is waited on, not started again', async () => {
+  jest.useFakeTimers();
+  try {
+    jest
+      .mocked(RnTor.getServiceStatus)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValue(1);
+    jest.mocked(RnTor.startTorIfNotRunning).mockResolvedValue(failedStart);
+    let ready = false;
+    const pending = ensureTorReady().then(() => {
+      ready = true;
+    });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(ready).toBe(false);
+    expect(torPhase()).toBe('starting');
+    await jest.advanceTimersByTimeAsync(5000);
+    await pending;
+    expect(torPhase()).toBe('ready');
+    expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('stopping the daemon is final for the process: the next onion connection does not start it again', async () => {
   await ensureTorReady();
   await stopTor();
   expect(RnTor.shutdownService).toHaveBeenCalledTimes(1);
   expect(torPhase()).toBe('stopped');
-  await ensureTorReady();
-  expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(2);
+  jest.mocked(RnTor.getServiceStatus).mockResolvedValue(STATUS_GONE);
+  await expect(ensureTorReady()).rejects.toThrow(TOR_GONE);
+  expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
 });
 
 test('a native socket error that arrives as a string reaches the engine as an Error', async () => {
