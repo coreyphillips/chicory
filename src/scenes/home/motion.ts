@@ -1,3 +1,6 @@
+import { ReduceMotion } from 'react-native-reanimated';
+import type { WithTimingConfig } from 'react-native-reanimated';
+import { curves } from '../../motion/tokens';
 import { HERO_MINI, STATUS_ROW } from '../../stage/layout';
 
 /**
@@ -5,6 +8,26 @@ import { HERO_MINI, STATUS_ROW } from '../../stage/layout';
  * animated styles only read the answers on the UI thread. Every function
  * here is a worklet.
  */
+
+/**
+ * A colour coming or going over `duration`. It moves nothing through space,
+ * so it plays under Reduce Motion too; left to the system setting,
+ * Reanimated would jump to the end and the tint would never be seen
+ * (REDESIGN.md 8).
+ */
+export function tintTiming(
+  duration: number,
+  easing: WithTimingConfig['easing'] = curves.standard,
+): WithTimingConfig {
+  'worklet';
+  return { duration, easing, reduceMotion: ReduceMotion.Never };
+}
+
+/**
+ * A gated action's radish tint, in and out, which stands in for its shake
+ * under Reduce Motion: 400ms in all.
+ */
+export const REFUSED = { in: 80, out: 320 };
 
 /**
  * How far a pull on the home pane travels before letting go refreshes, in

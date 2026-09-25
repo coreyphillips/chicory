@@ -15,8 +15,9 @@ import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
-import { curves, shake, springs } from '../../motion/tokens';
+import { shake, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
+import { REFUSED, tintTiming } from './motion';
 
 /** A point in the window, where the scan reveal grows from. */
 export type Point = { x: number; y: number };
@@ -80,8 +81,8 @@ export function ActionCircle({
     if (reduced) {
       tint.set(
         withSequence(
-          withTiming(1, { duration: 80, easing: curves.standard }),
-          withTiming(0, { duration: 320, easing: curves.standard }),
+          withTiming(1, tintTiming(REFUSED.in)),
+          withTiming(0, tintTiming(REFUSED.out)),
         ),
       );
     } else {

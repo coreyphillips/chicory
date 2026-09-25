@@ -1,6 +1,7 @@
 import React, { memo, useEffect, useId, useRef, useState } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import Reanimated, {
+  ReduceMotion,
   cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
@@ -24,6 +25,7 @@ import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import type { RegionProps } from '../../stage/Canvas';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { useIncoming } from '../../stage/useIncoming';
+import { tintTiming } from './motion';
 import { useAppActive } from './useAppActive';
 import { backdropVisual } from './visual';
 
@@ -101,8 +103,10 @@ export function Backdrop({ snapshot, stale, backup, session }: BackdropProps) {
   const sage = useSharedValue(0);
   const radish = useSharedValue(0);
 
+  // Every tint is a colour and nothing more, so each plays under Reduce
+  // Motion as well.
   useEffect(() => {
-    const fade = { duration: G3.crossfade, easing: curves.standard };
+    const fade = tintTiming(G3.crossfade);
     glow.set(withTiming(look.dim ? DIMMED : 1, fade));
     honey.set(withTiming(look.tint === 'honey' ? 1 : 0, fade));
     night.set(withTiming(look.tint === 'night' ? 1 : 0, fade));
@@ -113,8 +117,8 @@ export function Backdrop({ snapshot, stale, backup, session }: BackdropProps) {
     if (!arrived) return;
     sage.set(
       withSequence(
-        withTiming(1, { duration: G3.sageFlash.in, easing: curves.enter }),
-        withTiming(0, { duration: G3.sageFlash.out, easing: curves.standard }),
+        withTiming(1, tintTiming(G3.sageFlash.in, curves.enter)),
+        withTiming(0, tintTiming(G3.sageFlash.out)),
       ),
     );
   }, [arrived, sage]);
@@ -125,10 +129,11 @@ export function Backdrop({ snapshot, stale, backup, session }: BackdropProps) {
     // In, held, and out again within the tint's 1200ms.
     radish.set(
       withSequence(
-        withTiming(1, { duration: RADISH_IN, easing: curves.enter }),
+        withTiming(1, tintTiming(RADISH_IN, curves.enter)),
         withDelay(
           G3.radish.hold - RADISH_IN - RADISH_OUT,
-          withTiming(0, { duration: RADISH_OUT, easing: curves.standard }),
+          withTiming(0, tintTiming(RADISH_OUT)),
+          ReduceMotion.Never,
         ),
       ),
     );

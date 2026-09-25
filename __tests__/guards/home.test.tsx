@@ -9,7 +9,7 @@ import {
 import { State } from 'react-native-gesture-handler';
 import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
 import { GestureDetector } from 'react-native-gesture-handler';
-import { useSharedValue } from 'react-native-reanimated';
+import { ReduceMotion, useSharedValue } from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
@@ -22,10 +22,12 @@ import { HomePane } from '../../src/scenes/home/HomePane';
 import {
   LAUNCH_DROP,
   PULL_TRIGGER,
+  REFUSED,
   heroPose,
   launchPose,
   pullOffset,
   pullProgress,
+  tintTiming,
   vesselOpacity,
 } from '../../src/scenes/home/motion';
 import type { Launch } from '../../src/scenes/home/motion';
@@ -454,6 +456,12 @@ describe('the motion', () => {
     );
     expect(pullProgress(PULL_TRIGGER / 2)).toBe(0.5);
     expect(pullProgress(PULL_TRIGGER * 2)).toBe(1);
+  });
+
+  test('a tint plays under Reduce Motion, and a refused action tints for 400ms', () => {
+    expect(tintTiming(600).reduceMotion).toBe(ReduceMotion.Never);
+    expect(tintTiming(600).duration).toBe(600);
+    expect(REFUSED.in + REFUSED.out).toBe(400);
   });
 
   test('the hero shrinks into the middle of the status row', () => {
