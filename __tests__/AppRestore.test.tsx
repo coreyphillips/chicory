@@ -743,7 +743,8 @@ test('a pending backup reminder sits above Activity rather than replacing it', a
     label(tree, 'Activity').props.onPress();
   });
   expect(text(tree)).toContain('Save your recovery phrase.');
-  expect(text(tree)).toContain('Activity');
+  // Activity has no title on screen; the stage says it is showing.
+  expect(activeScene(tree)).toBe('activity');
   expect(tree.root.findAllByType(FlatList)).toHaveLength(1);
   await act(async () => {
     tree.unmount();
