@@ -205,7 +205,9 @@ test.each([true, false])(
       expect(client.createWallet).toHaveBeenCalledTimes(1);
       expect(session.backupPending).toBe(true);
       expect(session.prepared).toBeUndefined();
-      expect(text(tree)).toContain('Save your recovery phrase.');
+      // Said by the shield tile over the phase, not written on it.
+      expect(meaning(tree)).toContain('Save your recovery phrase.');
+      expect(text(tree)).not.toContain('Save your recovery phrase.');
     } else {
       expect(session.backupPending).toBeUndefined();
       expect(client.createWallet).not.toHaveBeenCalled();
@@ -515,9 +517,13 @@ test('a wallet created during interrupted setup returns with an explicit backup 
   await act(async () => {
     label(tree, 'Try again').props.onPress();
   });
-  expect(text(tree)).toContain('Save your recovery phrase.');
+  // The shield tile over the phase says it, and opens the phrase.
+  expect(meaning(tree)).toContain('Save your recovery phrase.');
   expect(client.getRecoveryPhrase).not.toHaveBeenCalled();
   expect(JSON.parse(records.get(SESSION)!).backupPending).toBe(true);
+  await act(async () => {
+    label(tree, 'Save your recovery phrase.').props.onPress();
+  });
   await act(async () => {
     label(tree, 'Reveal recovery phrase').props.onPress();
   });
