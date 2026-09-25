@@ -50,6 +50,11 @@ import type { Unit } from '../theme';
  *
  * The whole odometer is one element to a screen reader; the cells are hidden.
  * Without an `accessibilityLabel` it reads the amount in sats.
+ *
+ * The hero sizes itself to fit `room`, the width its container measured,
+ * and until it has one the window's width between the page edges. When it
+ * steps to another size with the unit unchanged, the figures crossfade over
+ * 160ms rather than jump; a new unit brings its cells in at the new size.
  */
 export type OdometerVariant =
   | 'hero'
@@ -67,6 +72,8 @@ export interface OdometerProps {
   color?: string;
   /** Drawn before the digits, and dropped while masked. */
   sign?: '+' | '-' | null;
+  /** The width the hero may take, as its container measured it. */
+  room?: number;
   accessibilityLabel?: string;
 }
 
@@ -467,6 +474,31 @@ function dotIn(index: number, reduced: boolean) {
   return enter;
 }
 
+/** The figures crossfade as the hero steps to another size. */
+const STEP_IN = FadeIn.duration(durations.crossfade).reduceMotion(
+  ReduceMotion.Never,
+);
+const STEP_OUT = FadeOut.duration(durations.crossfade).reduceMotion(
+  ReduceMotion.Never,
+);
+
+/**
+ * Whether the figures crossfade on the way from one size to the next: only
+ * for a step with the unit unchanged, whose cells would otherwise jump, and
+ * only between sizes fitted to the same room, so the first measure does
+ * not fade the hero in again.
+ */
+export function stepsSize(
+  before: { unit: Unit; size: number; measured: boolean },
+  after: { unit: Unit; size: number; measured: boolean },
+): boolean {
+  return (
+    before.unit === after.unit &&
+    before.measured === after.measured &&
+    before.size !== after.size
+  );
+}
+
 /** Reduce Motion: values swap with a 120ms crossfade. */
 const CROSSFADE_MS = 120;
 const CROSSFADE_IN = FadeIn.duration(CROSSFADE_MS).reduceMotion(
@@ -645,6 +677,7 @@ export function Odometer({
   variant,
   color = palette.cream,
   sign = null,
+  room,
   accessibilityLabel,
 }: OdometerProps) {
   const { reduced } = useMotionPrefs();
@@ -759,12 +792,26 @@ export function Odometer({
   const marks = dots ? 0 : cells.filter(cell => cell.kind === 'mark').length;
   const figures =
     (dots ? DOTS.length : cells.length - marks) + (signed ? 1 : 0);
-  const base =
-    variant === 'hero'
-      ? HERO_AT[
-          heroSize(figures, marks, SUFFIX[unit], width - 2 * space.xl, scale)
-        ]
-      : VARIANTS[variant];
+  const measured = room !== undefined;
+  const fitted = heroSize(
+    figures,
+    marks,
+    SUFFIX[unit],
+    room ?? width - 2 * space.xl,
+    scale,
+  );
+  const base = variant === 'hero' ? HERO_AT[fitted] : VARIANTS[variant];
+  // Each step to another size in the same unit keys the figures afresh, so
+  // the old ones fade out as the new ones fade in.
+  const size = base.fontSize ?? 0;
+  const [step, setStep] = useState({ unit, size, measured, count: 0 });
+  if (step.unit !== unit || step.size !== size || step.measured !== measured) {
+    const next = { unit, size, measured };
+    setStep({
+      ...next,
+      count: step.count + (stepsSize(step, next) ? 1 : 0),
+    });
+  }
   const received = variant === 'row' && sign === '+';
   const rig = useMemo<Rig>(
     () => ({
@@ -799,41 +846,48 @@ export function Odometer({
         importantForAccessibility="no-hide-descendants"
       >
         <LayoutAnimationConfig skipEntering>
-          <View style={styles.cells}>
-            {signed ? (
-              <Reanimated.Text
-                style={[...rig.text, ink]}
-                maxFontSizeMultiplier={maxScale}
-              >
-                {signed === '-' ? '−' : '+'}
-              </Reanimated.Text>
-            ) : null}
-            {dots
-              ? DOTS.map((_, i) => (
-                  <DotCell key={`mask${i}`} index={i} rig={rig} />
-                ))
-              : cells.map((cell, i) =>
-                  cell.kind === 'digit' ? (
-                    <DigitCell
-                      key={keyOf(cell)}
-                      place={cell.place}
-                      digit={cell.digit}
-                      dim={cell.dim}
-                      index={i}
-                      motion={motion}
-                      rig={rig}
-                    />
-                  ) : (
-                    <MarkCell
-                      key={keyOf(cell)}
-                      char={cell.char}
-                      index={i}
-                      rolling={phase === 'roll'}
-                      rig={rig}
-                    />
-                  ),
-                )}
-          </View>
+          <Reanimated.View
+            key={`size${step.count}`}
+            entering={STEP_IN}
+            exiting={STEP_OUT}
+            style={styles.cells}
+          >
+            <LayoutAnimationConfig skipEntering skipExiting>
+              {signed ? (
+                <Reanimated.Text
+                  style={[...rig.text, ink]}
+                  maxFontSizeMultiplier={maxScale}
+                >
+                  {signed === '-' ? '−' : '+'}
+                </Reanimated.Text>
+              ) : null}
+              {dots
+                ? DOTS.map((_, i) => (
+                    <DotCell key={`mask${i}`} index={i} rig={rig} />
+                  ))
+                : cells.map((cell, i) =>
+                    cell.kind === 'digit' ? (
+                      <DigitCell
+                        key={keyOf(cell)}
+                        place={cell.place}
+                        digit={cell.digit}
+                        dim={cell.dim}
+                        index={i}
+                        motion={motion}
+                        rig={rig}
+                      />
+                    ) : (
+                      <MarkCell
+                        key={keyOf(cell)}
+                        char={cell.char}
+                        index={i}
+                        rolling={phase === 'roll'}
+                        rig={rig}
+                      />
+                    ),
+                  )}
+            </LayoutAnimationConfig>
+          </Reanimated.View>
           <Reanimated.Text
             key={unit}
             entering={cellIn(0, reduced)}

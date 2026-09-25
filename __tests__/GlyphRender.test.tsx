@@ -1,5 +1,6 @@
 import React from 'react';
 import { AccessibilityInfo, StyleSheet, Text } from 'react-native';
+import { LayoutAnimationConfig } from 'react-native-reanimated';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import {
@@ -520,6 +521,29 @@ describe('Odometer', () => {
     );
     const dot = hosts(tree, node => node.children[0] === MASK[0])[0];
     expect(flat(dot).fontSize).toBe(64);
+  });
+
+  test('the hero fits the room its container gives it, and crossfades a step', async () => {
+    const hero = (room: number, unit: 'sats' | 'btc' = 'sats') => (
+      <Odometer sats={261_500} unit={unit} variant="hero" room={room} />
+    );
+    const tree = await render(hero(342));
+    const digit = () => hosts(tree, node => node.children[0] === '2')[0];
+    /** The view that holds the figures, which a step in size keys afresh. */
+    const figures = () =>
+      tree.root.find(
+        node => node.type === LayoutAnimationConfig && node.props.skipExiting,
+      ).parent!;
+    expect(flat(digit()).fontSize).toBe(64);
+    const before = figures();
+    expect(before.props.entering).toBeDefined();
+    await act(async () => tree.update(hero(200)));
+    expect(flat(digit()).fontSize).toBe(40);
+    expect(figures() === before).toBe(false);
+    // A new unit is not a step: its cells arrive on their own.
+    const stepped = figures();
+    await act(async () => tree.update(hero(200, 'btc')));
+    expect(figures() === stepped).toBe(true);
   });
 
   test('a roll lands every column on its own digit, even beside a nine', async () => {

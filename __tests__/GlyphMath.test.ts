@@ -20,6 +20,7 @@ import {
   digitPosition,
   heroSize,
   nextPhase,
+  stepsSize,
   rollCells,
   rollDuration,
   rollPosition,
@@ -329,6 +330,17 @@ describe('Odometer', () => {
     // Larger type steps down sooner.
     expect(heroSize(6, 1, 'sats', 300, 1)).toBe(64);
     expect(heroSize(6, 1, 'sats', 300, 1.2)).toBe(48);
+  });
+
+  test('the figures crossfade on a step in size, not on a new unit or a first measure', () => {
+    const at = (size: number, unit: 'sats' | 'btc' = 'sats', measured = true) =>
+      ({ unit, size, measured } as const);
+    expect(stepsSize(at(64), at(56))).toBe(true);
+    expect(stepsSize(at(56), at(56))).toBe(false);
+    // A new unit brings its own cells in at the new size.
+    expect(stepsSize(at(64), at(56, 'btc'))).toBe(false);
+    // The first measure replaces the window's guess without a fade.
+    expect(stepsSize(at(64, 'sats', false), at(48))).toBe(false);
   });
 
   test('a roll draws the leading columns of either end', () => {

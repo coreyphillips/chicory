@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { AccessibilityActionEvent, LayoutChangeEvent } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
@@ -213,9 +213,12 @@ export function HomeScreen({
   const scanLaunch = useLaunchStyle(row, null);
   const receiveLaunch = useLaunchStyle(row, 'receive', receiveAt);
 
+  // The width the balance has, which it fits its size to (REDESIGN.md 3.3).
+  const [room, setRoom] = useState<number | undefined>(undefined);
   const measureHero = (event: LayoutChangeEvent) => {
-    const { y, height } = event.nativeEvent.layout;
+    const { y, width, height } = event.nativeEvent.layout;
     frame.set({ y, height });
+    setRoom(width);
   };
   const measureRow = (event: LayoutChangeEvent) =>
     middle.set(event.nativeEvent.layout.width / 2);
@@ -297,6 +300,7 @@ export function HomeScreen({
                     masked={hidden}
                     stale={stale}
                     variant="hero"
+                    room={room}
                     accessibilityLabel={label}
                   />
                 </Reanimated.View>

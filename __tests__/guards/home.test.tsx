@@ -21,6 +21,7 @@ import { copy } from '../../src/design/copy';
 import { haptics } from '../../src/design/haptics';
 import { gradients } from '../../src/design/palette';
 import { Bloom, PETALS, pulledPetal } from '../../src/glyphs/Bloom';
+import { Odometer } from '../../src/glyphs/Odometer';
 import { ActionCircle } from '../../src/scenes/home/ActionCircle';
 import { Backdrop, glowBleed } from '../../src/scenes/home/Backdrop';
 import { HomePane } from '../../src/scenes/home/HomePane';
@@ -733,6 +734,23 @@ describe('the hero', () => {
     const label = hidden ? 'Balance hidden' : 'Total balance 261,500 sats';
     return { tree, onToggleUnit, onToggleHidden, balance: find(tree, label)! };
   }
+
+  test('fits its size to the width it is laid out in, not the window', async () => {
+    const { tree } = await hero();
+    const odometer = tree.root.findByType(Odometer);
+    expect(odometer.props.room).toBeUndefined();
+    const box = tree.root.find(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'home-hero',
+    );
+    await act(async () =>
+      box.props.onLayout({
+        nativeEvent: { layout: { x: 0, y: 120, width: 200, height: 88 } },
+      }),
+    );
+    expect(tree.root.findByType(Odometer).props.room).toBe(200);
+    await act(async () => tree.unmount());
+  });
 
   test('a tap rolls the unit and a long press hides the balance', async () => {
     const { tree, onToggleUnit, onToggleHidden, balance } = await hero();
