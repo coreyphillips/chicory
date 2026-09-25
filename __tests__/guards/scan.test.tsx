@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Stop } from 'react-native-svg';
 import { ReduceMotion } from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -30,8 +31,10 @@ import {
 import * as Announce from '../../src/design/announce';
 import { copy } from '../../src/design/copy';
 import { haptics } from '../../src/design/haptics';
+import { palette } from '../../src/design/palette';
 import { Whisper } from '../../src/glyphs/Whisper';
 import { durations } from '../../src/motion/tokens';
+import { bloomFor } from '../../src/scenes/receive/tone';
 import { STATUS_ROW } from '../../src/stage/layout';
 import {
   BUTTON,
@@ -410,6 +413,19 @@ const GUARDED: GuardedState[] = [
     render: () => {
       reducedMotion();
       return mount(reveal());
+    },
+    data,
+  },
+  {
+    name: 'the overlay on a test network',
+    render: () => mount(reveal({ test: true })),
+    data,
+  },
+  {
+    name: 'the overlay on a test network with the camera switched off',
+    render: () => {
+      denied();
+      return mount(reveal({ test: true }));
     },
     data,
   },
@@ -1044,6 +1060,72 @@ describe('the overlay', () => {
     await act(async () => mockHeld.splice(0).forEach(({ done }) => done(true)));
     expect(live()).toBe(true);
     expect(cameras(tree)).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('a test network', () => {
+  const BLOOMS = [
+    palette.bloom,
+    palette.bloomHi,
+    palette.bloomDeep,
+    palette.bloomNight,
+    palette.stamen,
+  ];
+
+  /** The colour each ground drawn deepens to at its rim. */
+  const rims = (tree: ReactTestRenderer) =>
+    tree.root
+      .findAll(node => node.type === Stop && node.props.offset === '1')
+      .map(node => node.props.stopColor as string);
+
+  /** The flasks drawn, by their colour. */
+  const flasks = (tree: ReactTestRenderer) =>
+    tree.root
+      .findAll(
+        node =>
+          typeof node.type === 'string' && node.props.testID === 'scan-flask',
+      )
+      .flatMap(node =>
+        node
+          .findAll(inside => inside.props.name === 'flask')
+          .slice(0, 1)
+          .map(glyph => glyph.props.color),
+      );
+
+  test('slate stands in for bloom on the ground, and the flask stays in view', async () => {
+    // The overlay covers the canvas, flask and all, and its ground was
+    // bloom's night on regtest (P7, 69-scan-frames/disc-rim).
+    const tree = await mount(reveal({ test: true }));
+    // The disc's ground, and the cover over the camera it hands over to.
+    expect(cameras(tree)).toHaveLength(1);
+    expect(rims(tree)).toEqual([bloomFor(true).night, bloomFor(true).night]);
+    expect(rims(tree).filter(rim => BLOOMS.includes(rim as never))).toEqual([]);
+    expect(flasks(tree)).toEqual([palette.slate]);
+    // The flask is drawing, sat in the status row's band, as the row's is.
+    const [flask] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'scan-flask',
+    );
+    expect(flask.props.accessibilityElementsHidden).toBe(true);
+    expect(StyleSheet.flatten(flask.props.style).top).toBe(
+      (STATUS_ROW - 14) / 2,
+    );
+    await act(async () => tree.unmount());
+  });
+
+  test("on mainnet the ground keeps bloom's night, and no flask is drawn", async () => {
+    const tree = await mount(reveal());
+    expect(rims(tree)).toEqual([palette.bloomNight, palette.bloomNight]);
+    expect(flasks(tree)).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+
+  test('with the camera switched off it is still slate, with the flask', async () => {
+    denied();
+    const tree = await mount(reveal({ test: true }));
+    expect(rims(tree)).toEqual([bloomFor(true).night]);
+    expect(flasks(tree)).toEqual([palette.slate]);
     await act(async () => tree.unmount());
   });
 });

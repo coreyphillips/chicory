@@ -47,7 +47,9 @@ import { Whisper } from '../glyphs/Whisper';
 import { riseIn, sceneOut } from '../motion/presets';
 import { curves, durations, overlap, shake, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
+import { bloomFor } from '../scenes/receive/tone';
 import { normalizePaymentLink } from '../services/links';
+import { STATUS_ROW } from '../stage/layout';
 import { HIT_SLOP, space } from '../theme';
 
 /**
@@ -274,16 +276,20 @@ function useForeground(): boolean {
 
 /**
  * The ground the scan opens onto: roast at the centre, deepening to the
- * bloom's night at the corners. The overlay's disc reveals it, and the same
- * ground covers a camera just mounted and fades off it, so the handover from
- * disc to camera shows no seam.
+ * bloom's night at the corners, or on a test network to slate's (`test`,
+ * REDESIGN.md 3.1), so play money never scans on mainnet's colour. The
+ * overlay's disc reveals it, and the same ground covers a camera just
+ * mounted and fades off it, so the handover from disc to camera shows no
+ * seam.
  */
 export const ScanGround = memo(function ScanGroundSvg({
   width,
   height,
+  test = false,
 }: {
   width: number;
   height: number;
+  test?: boolean;
 }) {
   return (
     <Svg
@@ -302,7 +308,7 @@ export const ScanGround = memo(function ScanGroundSvg({
         >
           <Stop offset="0" stopColor={palette.roast} />
           <Stop offset="0.45" stopColor={palette.roast} />
-          <Stop offset="1" stopColor={palette.bloomNight} />
+          <Stop offset="1" stopColor={bloomFor(test).night} />
         </RadialGradient>
       </Defs>
       <Rect width={width} height={height} fill="url(#scan-ground)" />
@@ -703,11 +709,37 @@ function CameraOff({ access }: { access: 'denied' | 'missing' }) {
   );
 }
 
+/** The flask's size, as the status row draws it beside the mark. */
+const FLASK = 14;
+
+/**
+ * A test network, while the scan covers the status row that says so
+ * (REDESIGN.md rule 4): the slate flask, at the page edge in the status
+ * row's band, rising in with the controls. It is drawing; the canvas says
+ * the network to a screen reader.
+ */
+function TestFlask({ top }: { top: number }) {
+  return (
+    <Reanimated.View
+      testID="scan-flask"
+      pointerEvents="none"
+      entering={riseIn(overlap.rise, FLY_DELAY)}
+      exiting={sceneOut()}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[styles.flask, { top: top + (STATUS_ROW - FLASK) / 2 }]}
+    >
+      <Glyph name="flask" size={FLASK} color={palette.slate} />
+    </Reanimated.View>
+  );
+}
+
 export function Scanner({
   onDetected,
   onCancel,
   live = true,
   onAccess,
+  test = false,
 }: {
   onDetected: (value: string) => void;
   onCancel: () => void;
@@ -719,6 +751,11 @@ export function Scanner({
   live?: boolean;
   /** Told what the camera can do, so the overlay can open only partway. */
   onAccess?: (access: CameraAccess) => void;
+  /**
+   * A wallet on a test network: the ground is slate's night, and a flask
+   * stands in for the status row's, which the scan covers.
+   */
+  test?: boolean;
 }) {
   const lib = loadCamera();
   const Camera = lib?.Camera;
@@ -949,10 +986,11 @@ export function Scanner({
             pointerEvents="none"
             style={[styles.fill, coverStyle]}
           >
-            <ScanGround width={width} height={height} />
+            <ScanGround width={width} height={height} test={test} />
           </Reanimated.View>
         </View>
       ) : null}
+      {test ? <TestFlask top={insets.top} /> : null}
       <View
         pointerEvents="box-none"
         style={[
@@ -1009,6 +1047,7 @@ const styles = StyleSheet.create({
     gap: space.xxl,
   },
   corner: { position: 'absolute', width: ARM, height: ARM },
+  flask: { position: 'absolute', left: space.xl },
   controls: {
     flexDirection: 'row',
     justifyContent: 'center',
