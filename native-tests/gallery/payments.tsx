@@ -124,7 +124,7 @@ const sends: Shot[] = [
     expiresAt: Date.now() - 1,
   })),
   send('review, held down', () => ({
-    steps: [REVIEW, drive => drive.fire(SEND, 'onPressIn')],
+    steps: [REVIEW, drive => drive.hold(SEND, 'down')],
   })),
   sent('sending', never),
   sent('sent', async () => resultOf('completed')),

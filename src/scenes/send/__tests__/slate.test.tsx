@@ -83,7 +83,11 @@ describe.each([
     );
     const tree = await draw(hold(false));
     expectTone(tree);
-    await act(async () => tree.update(hold(true)));
+    await act(async () =>
+      tree.update(
+        <GestureHandlerRootView>{hold(true)}</GestureHandlerRootView>,
+      ),
+    );
     expectTone(tree);
     await act(async () => tree.unmount());
   });

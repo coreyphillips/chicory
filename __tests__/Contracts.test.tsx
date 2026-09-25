@@ -37,7 +37,12 @@ import { ScanReveal } from '../src/stage/layers/ScanReveal';
 import { Pane, usePaneActive } from '../src/stage/panes/Pane';
 import { SceneSlot } from '../src/stage/panes/SceneSlot';
 import { MASK } from '../src/theme';
-import { activate, componentName, visibleText } from '../test-support/query';
+import {
+  activate,
+  componentName,
+  holdMs,
+  visibleText,
+} from '../test-support/query';
 
 /**
  * The component contracts (REDESIGN.md 10). The parallel tracks draw these
@@ -349,23 +354,35 @@ describe('CopyChip', () => {
 
 describe('HoldButton', () => {
   const LABEL = 'Send 4,200 sats';
+  const held = (element: React.ReactElement) =>
+    render(<GestureHandlerRootView>{element}</GestureHandlerRootView>);
+  /** The circle a screen reader reaches, and the long press a finger holds. */
+  const circle = (tree: ReactTestRenderer) =>
+    tree.root.find(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === LABEL,
+    );
+  const press = (tree: ReactTestRenderer) =>
+    tree.root.findByType(GestureDetector).props.gesture.config;
 
   test('a tap does nothing: there is no onPress to call', async () => {
-    const tree = await render(
+    const tree = await held(
       <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} />,
     );
-    const button = control(tree, LABEL);
+    const button = circle(tree);
+    expect(button.props.accessibilityRole).toBe('button');
     expect(button.props.onPress).toBeUndefined();
     expect(button.props.accessibilityActions).toEqual([{ name: 'activate' }]);
   });
 
   test('a screen reader commits with one activate action', async () => {
     const onCommit = jest.fn();
-    const tree = await render(
+    const tree = await held(
       <HoldButton accessibilityLabel={LABEL} onCommit={onCommit} />,
     );
     await act(async () =>
-      control(tree, LABEL).props.onAccessibilityAction({
+      circle(tree).props.onAccessibilityAction({
         nativeEvent: { actionName: 'magicTap' },
       }),
     );
@@ -376,16 +393,22 @@ describe('HoldButton', () => {
 
   test('the hold is 700ms, and 1000ms with warnings', async () => {
     const onCommit = jest.fn();
-    const plain = await render(
+    const plain = await held(
       <HoldButton accessibilityLabel={LABEL} onCommit={onCommit} />,
     );
-    expect(control(plain, LABEL).props.delayLongPress).toBe(700);
-    await act(async () => control(plain, LABEL).props.onLongPress());
+    expect(holdMs(plain, LABEL)).toBe(700);
+    await act(async () =>
+      fireGestureHandler(plain.root.findByType(GestureDetector).props.gesture, [
+        { state: State.BEGAN },
+        { state: State.ACTIVE },
+        { state: State.END },
+      ]),
+    );
     expect(onCommit).toHaveBeenCalledTimes(1);
-    const warned = await render(
+    const warned = await held(
       <HoldButton accessibilityLabel={LABEL} onCommit={onCommit} warning />,
     );
-    expect(control(warned, LABEL).props.delayLongPress).toBe(1000);
+    expect(holdMs(warned, LABEL)).toBe(1000);
   });
 
   test('disabled, busy or in a pane not in use, nothing can commit', async () => {
@@ -396,10 +419,10 @@ describe('HoldButton', () => {
         <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} />
       </Pane>,
     ]) {
-      const tree = await render(element);
-      const button = control(tree, LABEL);
-      expect(button.props.onAccessibilityAction).toBeUndefined();
-      expect(button.props.onLongPress).toBeUndefined();
+      const tree = await held(element);
+      expect(circle(tree).props.onAccessibilityAction).toBeUndefined();
+      expect(circle(tree).props.onAccessibilityTap).toBeUndefined();
+      expect(press(tree).enabled).toBe(false);
     }
   });
 });

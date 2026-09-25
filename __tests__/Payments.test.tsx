@@ -18,6 +18,7 @@ import {
   activate,
   alerts,
   find,
+  holdMs,
   holds,
   meaning,
   press,
@@ -361,12 +362,7 @@ test('a direct-funding review names its method and fee ceiling, and a refusal sa
   expect(shown).toContain('1,000 sats');
   expect(shown).toContain(review.warnings[0]);
   // Warned about, the hold takes longer.
-  expect(
-    tree.root.findAllByProps({
-      accessibilityLabel: 'Send 4,200 sats',
-      delayLongPress: 1000,
-    }),
-  ).not.toEqual([]);
+  expect(holdMs(tree, 'Send 4,200 sats')).toBe(1000);
   await activate(tree, 'Send 4,200 sats');
   const after = meaning(tree);
   expect(after).toContain('Payment failed.');
