@@ -18,7 +18,9 @@ import { Note, SettingsSurface } from './ui';
  * Settings itself, as its leading section.
  *
  * Its root carries the copy guard's marker, `scene-settings`, which lets
- * the guard skip everything under it. No other scene may render one.
+ * the guard skip everything under it. No other scene may render one; only
+ * the setup surfaces do (the new wallet sheet and first-run network setup),
+ * and none of them is ever drawn beside Settings.
  */
 export function SettingsLayer({
   snapshot,
