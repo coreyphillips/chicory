@@ -545,6 +545,29 @@ describe('the backdrop', () => {
     expect(stray.map(file => path.relative(ROOT, file))).toEqual([]);
   });
 
+  test('a test network draws the palette slate glow in place of the bloom glow', async () => {
+    const glows = (tree: ReactTestRenderer) =>
+      tree.root
+        .findAll(
+          node => typeof node.type !== 'string' && 'stops' in node.props,
+        )
+        .map(node => node.props.stops);
+    // The test network is also announced once the screen settles.
+    jest.useFakeTimers();
+    const test = await mount(<HomeRegions snapshot={snapshotOf()} />);
+    expect(glows(test)).toContain(gradients.G1.test);
+    expect(glows(test)).not.toContain(gradients.G1.stops);
+    await act(async () => test.unmount());
+    const main = await mount(
+      <HomeRegions snapshot={snapshotOf({ wallet: MAINNET })} />,
+    );
+    expect(glows(main)).toContain(gradients.G1.stops);
+    expect(glows(main)).not.toContain(gradients.G1.test);
+    await act(async () => main.unmount());
+    await act(async () => jest.runOnlyPendingTimers());
+    jest.useRealTimers();
+  });
+
   test('an old balance dims the glow, and a test network turns it slate', () => {
     expect(look(snapshotOf({ wallet: MAINNET }), { stale: true }).dim).toBe(
       true,

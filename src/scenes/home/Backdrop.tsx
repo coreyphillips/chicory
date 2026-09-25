@@ -26,7 +26,7 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 import type { WalletSnapshot } from '@beignet/wallet-core';
-import { gradients, mixHex, palette } from '../../design/palette';
+import { gradients, palette } from '../../design/palette';
 import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import type { RegionProps } from '../../stage/Canvas';
@@ -43,20 +43,6 @@ export type BackdropProps = Pick<
 >;
 
 const { G0, G1, G2, G3 } = gradients;
-
-/**
- * Where the slate glow fades into the ground: slate sunk most of the way
- * into roast, as the bloom glow fades through its own night, since the
- * palette keeps no dark slate of its own.
- */
-const SLATE_NIGHT = mixHex(palette.slate, palette.roast, 0.8);
-
-/** Slate in place of the bloom glow on a test network. */
-const SLATE_GLOW = [
-  { offset: 0, color: palette.slate, opacity: 0.2 },
-  { offset: 0.6, color: SLATE_NIGHT, opacity: 0.1 },
-  { offset: 1, color: SLATE_NIGHT, opacity: 0 },
-];
 
 /** A stale balance dims the glow and the crema to this. */
 const DIMMED = 0.25;
@@ -250,7 +236,7 @@ export function Backdrop({
           cx={bleed + G1.cx * width}
           cy={bleed + G1.cy * height}
           radius={G1.r * width}
-          stops={look.glow === 'slate' ? SLATE_GLOW : G1.stops}
+          stops={look.glow === 'slate' ? G1.test : G1.stops}
         />
       </Reanimated.View>
       <Reanimated.View style={[styles.layer, spill, g2]}>
