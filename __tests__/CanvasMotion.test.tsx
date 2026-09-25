@@ -140,13 +140,17 @@ const host = (node: ReactTestInstance) =>
 
 /**
  * The balance, which shrinks toward the mini strip with `hero`, and the
- * action row under it, which fades with `bar`: the first two things Home
- * stacks.
+ * action row under it, which fades with `bar`: the two parts of Home the
+ * panes move, found by the test ids Home gives them.
  */
 function homeParts(tree: ReactTestRenderer) {
-  const stack = host(tree.root.findByType(HomeScreen));
-  const [hero, bar] = stack.children as ReactTestInstance[];
-  return { hero, bar };
+  const part = (testID: string) =>
+    tree.root
+      .findByType(HomeScreen)
+      .find(
+        node => typeof node.type === 'string' && node.props.testID === testID,
+      );
+  return { hero: part('home-hero'), bar: part('home-bar') };
 }
 
 /** Where each stop is for the height the canvas has. */
@@ -284,26 +288,12 @@ describe('the canvas', () => {
   test('a scene leaves the panes it does not use drawn, but out of reach', async () => {
     const tree = await render(<OnCanvas />);
     const atHome = pressableLabels(tree);
-    for (const label of [
-      'Send',
-      'Receive',
-      'View all activity',
-      'Activity',
-      ROW,
-      'All',
-    ]) {
+    for (const label of ['Send', 'Receive', 'Activity', ROW, 'All']) {
       expect(atHome).toContain(label);
     }
     await act(async () => stage.actions.openSend());
     const inSend = pressableLabels(tree);
-    for (const label of [
-      'Receive',
-      'View all activity',
-      'Activity',
-      ROW,
-      'All',
-      'Settings',
-    ]) {
+    for (const label of ['Receive', 'Activity', ROW, 'All', 'Settings']) {
       expect(inSend).not.toContain(label);
     }
     expect(inSend).toContain('Close');
@@ -339,7 +329,7 @@ describe('the canvas', () => {
     };
     const tree = await render(<OnCanvas backup={backup} />);
     // Settings keeps a recovery phrase of its own, so only the banner's
-    // count.
+    // count. Home has no banner: its shield tile leads to Settings.
     const places = () =>
       tree.root
         .findAllByType(BackupBanner)
@@ -349,7 +339,8 @@ describe('the canvas', () => {
               node.props.accessibilityLabel === 'Reveal recovery phrase' &&
               typeof node.props.onPress === 'function',
           ),
-        ).length;
+        ).length +
+      (pressableLabels(tree).has(copy.health.backupPending) ? 1 : 0);
     expect(places()).toBe(1);
     await act(async () => stage.actions.openActivity());
     expect(places()).toBe(1);

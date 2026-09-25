@@ -1,82 +1,75 @@
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { StyleProp, ViewStyle } from 'react-native';
-import Reanimated from 'react-native-reanimated';
-import type { AnimatedStyle } from 'react-native-reanimated';
+import React, { useEffect } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+import type {
+  AccessibilityActionEvent,
+  LayoutChangeEvent,
+  StyleProp,
+  ViewStyle,
+} from 'react-native';
+import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import type { AnimatedStyle, SharedValue } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
-import { Button, Card, IconButton, StatusDot } from '../../components/ui';
-import { MASK, amountIn, colors, space, type as typography } from '../../theme';
-import type { Unit } from '../../theme';
-import { useCountUp } from '../../services/motion';
+import { copy } from '../../design/copy';
+import { haptics } from '../../design/haptics';
+import { Bloom } from '../../glyphs/Bloom';
+import { Odometer } from '../../glyphs/Odometer';
+import { Vessel } from '../../glyphs/Vessel';
+import { curves, durations, springs } from '../../motion/tokens';
+import { useMotionPrefs } from '../../motion/useMotionPrefs';
+import { ActionCircle } from '../../scenes/home/ActionCircle';
+import type { Point } from '../../scenes/home/ActionCircle';
+import { GestureRoot } from '../../scenes/home/GestureRoot';
+import {
+  PULL_TRIGGER,
+  heroPose,
+  launchPose,
+  pullOffset,
+  pullProgress,
+  vesselOpacity,
+} from '../../scenes/home/motion';
+import type { HeroFrame, Launch } from '../../scenes/home/motion';
+import { isTestNetwork } from '../../scenes/home/visual';
+import type { Panes } from '../../stage/panes/Pane';
 import { usePaneActive } from '../../stage/panes/Pane';
-import { ActivityRow } from './Activity';
+import { space } from '../../theme';
+import type { Unit } from '../../theme';
 
-/** The balance, and the two things you do with it. */
-function BalanceHero({
-  snapshot,
-  hidden,
-  unit,
-  onToggleUnit,
-}: {
-  snapshot: WalletSnapshot;
-  hidden: boolean;
-  unit: Unit;
-  onToggleUnit: () => void;
-}) {
-  const live = usePaneActive();
-  const balance = snapshot.balance;
-  const counted = useCountUp(balance.totalSats);
-  const total = amountIn(unit === 'btc' ? balance.totalSats : counted, unit);
-  const available = amountIn(balance.availableSats, unit);
-  const pending = amountIn(balance.pendingSats, unit);
-  return (
-    <View style={styles.balanceBlock}>
-      <View style={styles.balanceTop}>
-        <Text style={styles.balanceLabel}>Total balance</Text>
-      </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={
-          hidden
-            ? 'Balance hidden'
-            : `Total balance ${total.value} ${total.suffix}`
-        }
-        accessibilityHint="Switches between satoshis and BTC."
-        onPress={live ? onToggleUnit : undefined}
-        style={styles.balanceValueRow}
-      >
-        <Text
-          adjustsFontSizeToFit
-          numberOfLines={1}
-          style={styles.balanceValue}
-        >
-          {hidden ? MASK : total.value}
-        </Text>
-        <Text style={styles.balanceUnit}>{total.suffix}</Text>
-      </Pressable>
-      <View style={styles.balanceSub}>
-        <View style={styles.balanceSubLine}>
-          <StatusDot tone={snapshot.primary.connected ? 'good' : 'wait'} />
-          <Text style={styles.balanceCaption}>
-            {hidden ? MASK : available.value} {available.suffix} ready to send
-          </Text>
-        </View>
-        {/* Money that is on its way sits with the money that is here, because
-            that is the same question asked twice. What it is waiting for
-            belongs in Activity, not in a paragraph above the buttons. */}
-        {balance.pendingSats > 0 ? (
-          <View style={styles.balanceSubLine}>
-            <StatusDot tone="wait" />
-            <Text style={styles.balancePending}>
-              {hidden ? MASK : pending.value} {pending.suffix} arriving
-            </Text>
-          </View>
-        ) : null}
-      </View>
-    </View>
-  );
-}
+type Style = StyleProp<AnimatedStyle<StyleProp<ViewStyle>>>;
 
+/** The pull's haptic, as the pan's worklets hand it back to JS. */
+const feelPull = () => haptics.soft();
+
+/** What the stale gate does to the action circles: they shrink to this. */
+const GATED = 0.94;
+
+/**
+ * Home: the balance, the pill of what is spendable and what is on its way,
+ * and the three things you do with it (REDESIGN.md 6, Wallet health). There
+ * are no words on it. The balance is the hero, the vessel under it says what
+ * is waiting and why, and the action row is three circles: Send, Scan and
+ * Receive.
+ *
+ * Tapping the hero rolls it between sats and BTC, and a long press hides it;
+ * a screen reader has both as actions. Pulling the pane down opens a bloom
+ * above the balance, and letting go past the point it is fully open starts
+ * a refresh. An old balance gates the actions, which say so and refresh when
+ * tapped rather than act.
+ *
+ * On the canvas `progress` carries the panes: `hero` shrinks the balance into
+ * a mini strip in the status row, fading the vessel first, and `bar` fades
+ * the action row, whose tapped circle grows toward the scene it opens while
+ * the others shrink away. Drawn on its own it rests at home. The activity it
+ * once previewed is the sheet's now; `onActivity` and `onDetail` stay for the
+ * callers that still pass them.
+ */
 export function HomeScreen({
   snapshot,
   hidden = false,
@@ -85,9 +78,13 @@ export function HomeScreen({
   onSend,
   onReceive,
   onScan,
-  onActivity,
-  onDetail,
   onToggleUnit,
+  onToggleHidden,
+  onRefresh,
+  heroSats,
+  progress,
+  launching = 'none',
+  arrived = 0,
   heroStyle,
   barStyle,
 }: {
@@ -97,144 +94,351 @@ export function HomeScreen({
   stale?: boolean;
   onSend: () => void;
   onReceive: () => void;
-  onScan?: () => void;
+  /** Opens the scan, growing from `origin`, where the circle is. */
+  onScan?: (origin?: Point) => void;
   onActivity: () => void;
   onDetail: (item: Activity) => void;
   onToggleUnit?: () => void;
-  /** On the canvas, shrinks the balance toward the mini strip. */
-  heroStyle?: StyleProp<AnimatedStyle<StyleProp<ViewStyle>>>;
-  /** On the canvas, fades the action row. */
-  barStyle?: StyleProp<AnimatedStyle<StyleProp<ViewStyle>>>;
+  onToggleHidden?: () => void;
+  /** Refreshes the wallet, for the pull and for a tap on a gated action. */
+  onRefresh?: () => void;
+  /** What the hero shows, when not the total: Send's spendable amount. */
+  heroSats?: number;
+  /** The canvas's panes, which move the hero and the action row. */
+  progress?: Pick<Panes, 'hero' | 'bar'>;
+  /** The scene the canvas is heading to, when one of the circles opens it. */
+  launching?: Launch;
+  /** A count that rises with each read that brought money in. */
+  arrived?: number;
+  /** Further styles for the hero and the action row. */
+  heroStyle?: Style;
+  barStyle?: Style;
 }) {
   // On the canvas, Home stays drawn while other scenes show, so its controls
   // only get their handlers while its pane is the one in use.
   const live = usePaneActive();
+  const { reduced } = useMotionPrefs();
+  const resting = useSharedValue(1);
+  const hero = progress?.hero ?? resting;
+  const bar = progress?.bar ?? resting;
+  const frame = useSharedValue<HeroFrame>({ y: 0, height: 0 });
+  const pull = useSharedValue(0);
+  const armed = useSharedValue(false);
+  const pop = useSharedValue(1);
+  const gate = useSharedValue(stale ? GATED : 1);
+  // Where the row's middle and the Send and Receive circles are across it,
+  // so a launching circle knows how far it has to travel to the centre.
+  const middle = useSharedValue(0);
+  const sendAt = useSharedValue(0);
+  const receiveAt = useSharedValue(0);
+  const test = isTestNetwork(snapshot.wallet.network);
+  const { balance } = snapshot;
+
+  // The stale gate shrinks the circles. It is kept here rather than in each
+  // circle, which is drawn anew as the gate closes, so the change is seen.
+  useEffect(() => {
+    const to = stale ? GATED : 1;
+    gate.set(reduced ? to : withSpring(to, springs.snap));
+  }, [stale, reduced, gate]);
+
+  // Money arriving lifts the balance as it rolls to the new figure.
+  useEffect(() => {
+    if (!arrived || reduced) return;
+    pop.set(
+      withSequence(
+        withTiming(1.06, { duration: durations.exit, easing: curves.enter }),
+        withSpring(1, springs.reveal),
+      ),
+    );
+  }, [arrived, reduced, pop]);
+
+  const refresh = live ? onRefresh : undefined;
+  const follow = (dy: number) => {
+    'worklet';
+    pull.set(Math.max(0, dy));
+    const ready = dy >= PULL_TRIGGER;
+    if (ready !== armed.get()) {
+      armed.set(ready);
+      if (ready) scheduleOnRN(feelPull);
+    }
+  };
+  const pan = usePanGesture({
+    enabled: !!refresh,
+    // Only a pull down starts it, and a sideways swipe never does.
+    activeOffsetY: 12,
+    failOffsetX: [-20, 20],
+    onActivate: event => {
+      'worklet';
+      follow(event.translationY);
+    },
+    onUpdate: event => {
+      'worklet';
+      follow(event.translationY);
+    },
+    onDeactivate: event => {
+      'worklet';
+      if (armed.get() && !event.canceled && refresh) scheduleOnRN(refresh);
+      armed.set(false);
+      pull.set(withSpring(0, springs.pane));
+    },
+  });
+
+  const stackStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: pullOffset(pull.get()) }],
+  }));
+  const pullStyle = useAnimatedStyle(() => {
+    const reach = pullProgress(pull.get());
+    return {
+      opacity: reach,
+      transform: [
+        { scale: 0.5 + 0.5 * reach },
+        { rotate: `${-90 * (1 - reach)}deg` },
+      ],
+    };
+  });
+  const heroMotion = useAnimatedStyle(() => {
+    const pose = heroPose(hero.get(), frame.get());
+    return {
+      transform: [{ translateY: pose.translateY }, { scale: pose.scale }],
+    };
+  });
+  const popStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pop.get() }],
+  }));
+  const vesselStyle = useAnimatedStyle(() => ({
+    opacity: vesselOpacity(hero.get()),
+  }));
+  const barFade = useAnimatedStyle(() => ({ opacity: bar.get() }));
+  // Reduce Motion keeps the circles where they are while the row fades.
+  const row = { bar, gate, middle, launching: reduced ? 'none' : launching };
+  const sendLaunch = useLaunchStyle(row, 'send', sendAt);
+  const scanLaunch = useLaunchStyle(row, null);
+  const receiveLaunch = useLaunchStyle(row, 'receive', receiveAt);
+
+  const measureHero = (event: LayoutChangeEvent) => {
+    const { y, height } = event.nativeEvent.layout;
+    frame.set({ y, height });
+  };
+  const measureRow = (event: LayoutChangeEvent) =>
+    middle.set(event.nativeEvent.layout.width / 2);
+  const centreOf = (at: SharedValue<number>) => (event: LayoutChangeEvent) => {
+    const { x, width } = event.nativeEvent.layout;
+    at.set(x + width / 2);
+  };
+  const whileLive = <T extends unknown[]>(action?: (...args: T) => void) =>
+    live ? action : undefined;
+
+  const switchUnit =
+    live && onToggleUnit
+      ? () => {
+          haptics.tick();
+          onToggleUnit();
+        }
+      : undefined;
+  const toggleMask =
+    live && onToggleHidden
+      ? () => {
+          haptics.tick();
+          onToggleHidden();
+        }
+      : undefined;
+  const heroActions = [
+    ...(switchUnit ? [{ name: 'unit', label: copy.home.switchUnit }] : []),
+    ...(toggleMask
+      ? [
+          {
+            name: 'mask',
+            label: hidden ? copy.home.showBalance : copy.home.hideBalance,
+          },
+        ]
+      : []),
+  ];
+  const onHeroAction = heroActions.length
+    ? (event: AccessibilityActionEvent) => {
+        if (event.nativeEvent.actionName === 'unit') switchUnit?.();
+        if (event.nativeEvent.actionName === 'mask') toggleMask?.();
+      }
+    : undefined;
+  const label = hidden
+    ? copy.home.balanceHidden
+    : copy.home.totalBalance(balance.totalSats, unit);
+
   return (
-    <View style={styles.stack}>
-      <Reanimated.View style={[styles.hero, heroStyle]}>
-        <BalanceHero
-          snapshot={snapshot}
-          hidden={hidden}
-          unit={unit}
-          onToggleUnit={onToggleUnit || (() => {})}
-        />
-      </Reanimated.View>
-      <Reanimated.View style={[styles.actions, barStyle]}>
-        <View style={styles.action}>
-          <Button
-            label="Send"
-            icon="arrowUp"
-            disabled={stale}
-            accessibilityHint="Paste or scan a payment request."
-            onPress={live ? onSend : undefined}
-          />
+    <GestureRoot style={styles.fill}>
+      <GestureDetector gesture={pan}>
+        <View style={styles.fill}>
+          <Reanimated.View
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={[styles.pull, pullStyle]}
+          >
+            <Bloom size={32} tone={test ? 'test' : 'live'} />
+          </Reanimated.View>
+          <Reanimated.View style={[styles.stack, stackStyle]}>
+            <View style={styles.middle}>
+              <Reanimated.View
+                testID="home-hero"
+                onLayout={measureHero}
+                style={[styles.hero, heroMotion, heroStyle]}
+              >
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={label}
+                  accessibilityHint={copy.home.unitHint}
+                  accessibilityValue={
+                    stale ? { text: copy.health.stale } : undefined
+                  }
+                  accessibilityActions={heroActions}
+                  onAccessibilityAction={onHeroAction}
+                  onPress={switchUnit}
+                  onLongPress={toggleMask}
+                  delayLongPress={400}
+                  style={styles.balance}
+                >
+                  <Reanimated.View
+                    style={popStyle}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                  >
+                    <Odometer
+                      sats={heroSats ?? balance.totalSats}
+                      unit={unit}
+                      masked={hidden}
+                      stale={stale}
+                      variant="hero"
+                      accessibilityLabel={label}
+                    />
+                  </Reanimated.View>
+                </Pressable>
+              </Reanimated.View>
+              <Reanimated.View style={[styles.vessel, vesselStyle]}>
+                <Vessel
+                  availableSats={balance.availableSats}
+                  pendingSats={balance.pendingSats}
+                  lfbw={snapshot.wallet.lfbw}
+                  unit={unit}
+                  masked={hidden}
+                  stale={stale}
+                />
+              </Reanimated.View>
+            </View>
+            <Reanimated.View
+              testID="home-bar"
+              onLayout={measureRow}
+              style={[styles.bar, barFade, barStyle]}
+            >
+              <Reanimated.View style={sendLaunch} onLayout={centreOf(sendAt)}>
+                <ActionCircle
+                  glyph="send"
+                  size={56}
+                  label={copy.home.send}
+                  hint={copy.home.sendHint}
+                  stale={stale}
+                  onAct={whileLive(onSend)}
+                  onRefresh={refresh}
+                />
+              </Reanimated.View>
+              <Reanimated.View style={scanLaunch}>
+                <ActionCircle
+                  glyph="scan"
+                  size={76}
+                  label={copy.home.scan}
+                  hint={copy.home.scanHint}
+                  primary
+                  test={test}
+                  stale={stale}
+                  onAct={whileLive(onScan)}
+                  onRefresh={refresh}
+                />
+              </Reanimated.View>
+              <Reanimated.View
+                style={receiveLaunch}
+                onLayout={centreOf(receiveAt)}
+              >
+                <ActionCircle
+                  glyph="receive"
+                  size={56}
+                  label={copy.home.receive}
+                  hint={copy.home.receiveHint}
+                  stale={stale}
+                  onAct={whileLive(onReceive)}
+                  onRefresh={refresh}
+                />
+              </Reanimated.View>
+            </Reanimated.View>
+          </Reanimated.View>
         </View>
-        <View style={styles.action}>
-          <Button
-            label="Receive"
-            icon="arrowDown"
-            disabled={stale}
-            secondary
-            accessibilityHint="Creates a request others can pay."
-            onPress={live ? onReceive : undefined}
-          />
-        </View>
-        {onScan ? (
-          <IconButton
-            name="scan"
-            size={22}
-            accessibilityLabel="Scan a payment request"
-            accessibilityHint="Opens the camera to read a QR code."
-            disabled={stale}
-            onPress={live ? onScan : undefined}
-          />
-        ) : null}
-      </Reanimated.View>
-      <View style={styles.sectionHeading}>
-        <Text style={styles.sectionLabel}>Activity</Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="View all activity"
-          onPress={live ? onActivity : undefined}
-        >
-          <Text style={styles.viewAll}>View all</Text>
-        </Pressable>
-      </View>
-      {snapshot.activity.length ? (
-        /* `collapsable={false}` gives this list a native view of its own on
-           Android. Without it the view is layout-only and gets flattened away,
-           so every row is mounted as a direct child of the animated wrapper
-           several levels up, sharing that parent with the balance and the
-           buttons. Inserting a row then has to re-position every one of those
-           siblings rather than insert into a list, which is what painted two
-           rows at the same offset for a frame when a payment arrived. It
-           cannot change layout, style or hit-testing; it costs one view. */
-        <View collapsable={false}>
-          {snapshot.activity.slice(0, 5).map(item => (
-            <ActivityRow
-              item={item}
-              key={item.id}
-              hidden={hidden}
-              unit={unit}
-              onPress={onDetail}
-            />
-          ))}
-        </View>
-      ) : (
-        <Card>
-          <Text style={styles.emptyTitle}>No activity yet.</Text>
-        </Card>
-      )}
-    </View>
+      </GestureDetector>
+    </GestureRoot>
   );
 }
 
+/**
+ * One circle of the action row, shrunk by the stale `gate` and posed on the
+ * way to `launching` (REDESIGN.md 7, T1 and T2). `own` is the scene the
+ * circle opens, if any, and `at` its centre across the row, whose middle is
+ * `middle`.
+ */
+function useLaunchStyle(
+  {
+    bar,
+    gate,
+    middle,
+    launching,
+  }: {
+    bar: SharedValue<number>;
+    gate: SharedValue<number>;
+    middle: SharedValue<number>;
+    launching: Launch;
+  },
+  own: Launch | null,
+  at?: SharedValue<number>,
+) {
+  return useAnimatedStyle(() => {
+    const toCentre = at ? middle.get() - at.get() : 0;
+    const pose = launchPose(
+      1 - bar.get(),
+      launching === own,
+      launching,
+      toCentre,
+    );
+    return {
+      transform: [
+        { translateX: pose.translateX },
+        { translateY: pose.translateY },
+        { scale: pose.scale * gate.get() },
+      ],
+    };
+  }, [launching, own]);
+}
+
 const styles = StyleSheet.create({
-  stack: { gap: space.lg },
-  // Scaled from its top edge, so the mini strip sits under the status row.
-  hero: { transformOrigin: 'top' },
-  balanceBlock: { paddingTop: space.md, paddingBottom: space.xs },
-  balanceTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  balanceLabel: { ...typography.caption, color: colors.muted },
-  balanceValueRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: space.xs,
-    marginTop: space.xxs,
-  },
-  balanceValue: {
-    ...typography.display,
-    color: colors.text,
-    flexShrink: 1,
-    fontVariant: ['tabular-nums'],
-  },
-  balanceUnit: { ...typography.caption, fontSize: 14, color: colors.muted },
-  balanceSub: { gap: space.xxs, marginTop: space.sm },
-  balanceSubLine: {
-    flexDirection: 'row',
-    gap: space.xs,
+  fill: { flex: 1 },
+  pull: {
+    position: 'absolute',
+    top: space.xs,
+    left: 0,
+    right: 0,
     alignItems: 'center',
   },
-  balanceCaption: { ...typography.caption, color: colors.mint },
-  balancePending: { ...typography.caption, color: colors.warning },
-  actions: { flexDirection: 'row', gap: space.xs, alignItems: 'center' },
-  action: { flex: 1 },
-  sectionHeading: {
+  stack: {
+    flex: 1,
+    paddingHorizontal: space.xl,
+    maxWidth: 640,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  // The balance and its vessel, centred in what the action row leaves.
+  middle: { flex: 1, justifyContent: 'center', gap: space.md },
+  // Scaled from its top edge, so the mini strip hangs from where it rises to.
+  hero: { transformOrigin: 'top', alignItems: 'center' },
+  balance: { alignItems: 'center', paddingVertical: space.xs },
+  vessel: { paddingHorizontal: space.xxl },
+  bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: space.xxs,
+    justifyContent: 'space-evenly',
+    paddingBottom: space.lg,
   },
-  viewAll: {
-    ...typography.micro,
-    fontSize: 12,
-    color: colors.primary,
-    fontWeight: '600',
-  },
-  emptyTitle: { ...typography.heading, color: colors.text },
-  sectionLabel: { ...typography.caption, color: colors.muted },
 });

@@ -1,0 +1,89 @@
+import React, { useEffect } from 'react';
+import { Pressable, StyleSheet } from 'react-native';
+import Reanimated, {
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
+import { copy } from '../../design/copy';
+import { Glyph } from '../../design/glyphs';
+import { haptics } from '../../design/haptics';
+import { palette } from '../../design/palette';
+import { riseIn, sceneOut } from '../../motion/presets';
+import { curves, durations } from '../../motion/tokens';
+import { HIT_SLOP, radius, space } from '../../theme';
+
+/**
+ * A recovery phrase still to save, as the honey shield tile beside the mark
+ * (REDESIGN.md 6, Backup and setup). It cannot be dismissed: it goes when the
+ * phrase is saved, and a tap opens Settings, where the phrase is revealed.
+ * The shield's stroke blinks every 1600ms while `running`.
+ */
+export function BackupTile({
+  running,
+  onOpen,
+}: {
+  running: boolean;
+  /** Opens Settings; absent while the tile is out of use. */
+  onOpen?: () => void;
+}) {
+  const blink = useSharedValue(1);
+  useEffect(() => {
+    if (!running) {
+      blink.set(withTiming(1, { duration: durations.tick }));
+      return;
+    }
+    blink.set(
+      withRepeat(
+        withTiming(0.35, {
+          duration: durations.halo / 2,
+          easing: curves.sine,
+        }),
+        -1,
+        true,
+      ),
+    );
+    return () => cancelAnimation(blink);
+  }, [running, blink]);
+  const shield = useAnimatedStyle(() => ({ opacity: blink.get() }));
+  return (
+    <Reanimated.View entering={riseIn()} exiting={sceneOut()}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={copy.health.backupPending}
+        accessibilityHint={copy.home.backupHint}
+        hitSlop={HIT_SLOP}
+        onPress={
+          onOpen
+            ? () => {
+                haptics.tick();
+                onOpen();
+              }
+            : undefined
+        }
+        style={styles.tile}
+      >
+        <Reanimated.View style={shield}>
+          <Glyph name="shieldAlert" size={18} color={palette.honey} />
+        </Reanimated.View>
+        <Glyph name="key" size={16} color={palette.honey} />
+      </Pressable>
+    </Reanimated.View>
+  );
+}
+
+const styles = StyleSheet.create({
+  tile: {
+    minWidth: 56,
+    height: 36,
+    paddingHorizontal: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.xs,
+    borderRadius: radius.round,
+    backgroundColor: palette.honeySoft,
+  },
+});

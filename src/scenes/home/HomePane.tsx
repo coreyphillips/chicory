@@ -1,25 +1,36 @@
-import React, { useCallback } from 'react';
-import { RefreshControl, ScrollView, StyleSheet } from 'react-native';
-import { useAnimatedStyle } from 'react-native-reanimated';
+import React, { useCallback, useEffect } from 'react';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { announce } from '../../design/announce';
+import { copy } from '../../design/copy';
+import { haptics } from '../../design/haptics';
 import { HomeScreen } from '../../screens/wallet/Home';
 import type { RegionProps } from '../../stage/Canvas';
-import { HERO_MINI } from '../../stage/layout';
-import { usePaneActive, usePanes } from '../../stage/panes/Pane';
+import { canvasScene } from '../../stage/layout';
+import { usePanes } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
-import { colors, space } from '../../theme';
-import { BackupBanner } from '../shared/BackupBanner';
-import { RefreshFailed } from './StatusRow';
+import { useIncoming } from '../../stage/useIncoming';
+import type { Point } from './ActionCircle';
+import { useSafetySignal } from './signals';
+import { isTestNetwork } from './visual';
 
 /**
- * Everything the home pane shows under the status row: the balance and the
- * actions, with a pull to refresh, and above them what must not wait, a
- * backup still to save and a refresh that failed.
+ * Everything the home pane shows under the status row: the balance, its
+ * vessel and the actions. The canvas places the pane; `hero` and `bar` from
+ * its panes move what is in it.
  *
- * The canvas places the pane; this moves what is in it with the panes'
- * `hero` and `bar`.
+ * It also holds what Home's safety states owe beyond the screen (REDESIGN.md
+ * rule 4): an old balance, a recovery phrase still to save and a test
+ * network are each felt, spoken and logged as they begin. A refresh that
+ * fails is spoken too, politely, since the notice that once said so is now
+ * the mark's value.
+ *
+ * Pulling the pane down refreshes. That is a pan of Home's own rather than a
+ * scroll view's refresh control: it behaves the same on both platforms, and
+ * the bloom it opens is drawn instead of a spinner. The mark in the status
+ * row ratchets while the refresh runs.
  */
 export function HomePane({
-  home,
   snapshot,
   session,
   view,
@@ -29,67 +40,74 @@ export function HomePane({
   /** Home is the scene the canvas shows, whether or not Settings covers it. */
   home: boolean;
 }) {
-  const { actions } = useStage();
+  const { state, actions } = useStage();
   const panes = usePanes();
-  const live = usePaneActive();
-  const { hidden, unit, setUnit } = view;
-  // Send opens empty, whatever a control passes its handler. The scan
-  // overlay grows from the scan button; until Home measures it, from nowhere
-  // in particular.
+  const { hidden, setHidden, unit, setUnit } = view;
+  const network = snapshot.wallet.network;
+  const arrived = useIncoming(snapshot);
+  useSafetySignal(stale, copy.health.stale, haptics.warning);
+  useSafetySignal(
+    !!backup?.pending,
+    copy.health.backupPending,
+    haptics.warning,
+  );
+  useSafetySignal(
+    isTestNetwork(network),
+    copy.health.testNetwork(network),
+    haptics.tick,
+  );
+  useEffect(() => {
+    if (session.error) announce(copy.health.refreshFailedDetail(session.error));
+  }, [session.error]);
+
+  // The canvas runs to the bottom edge. The pane ends at the sheet, well above
+  // it, unless the screen is so short that the sheet's home stop falls into
+  // the bottom inset; then the actions keep clear of it.
+  const { bottom } = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const clear = Math.max(0, panes.stops.home - (height - bottom));
+
+  // On its way to Send or Receive the hero rolls from the total to what can
+  // be spent (REDESIGN.md 7, T1).
+  const shown = canvasScene(state);
+  const spending = shown === 'send' || shown === 'receive';
+
+  // Send opens empty, whatever a control passes its handler.
   const openSend = useCallback(() => actions.openSend(), [actions]);
-  const openScan = useCallback(() => actions.openScan(), [actions]);
+  const openScan = useCallback(
+    (origin?: Point) => actions.openScan(origin),
+    [actions],
+  );
   const toggleUnit = useCallback(
     () => setUnit(value => (value === 'sats' ? 'btc' : 'sats')),
     [setUnit],
   );
-  // Two values, each for its own part: the balance shrinks toward the mini
-  // strip with `hero`, and only the action row fades with `bar`.
-  const heroStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: HERO_MINI + (1 - HERO_MINI) * panes.hero.get() }],
-  }));
-  const barStyle = useAnimatedStyle(() => ({ opacity: panes.bar.get() }));
+  const toggleHidden = useCallback(
+    () => setHidden(value => !value),
+    [setHidden],
+  );
   return (
-    <ScrollView
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl
-          refreshing={session.refreshing}
-          onRefresh={session.manualRefresh}
-          tintColor={colors.primary}
-          colors={[colors.primary]}
-        />
-      }
-    >
-      {/* The backup brings controls of its own, so it only sits in a pane
-          in use. Under Settings it shows there instead. */}
-      {live ? <BackupBanner backup={backup} /> : null}
-      {home ? <RefreshFailed error={session.error} /> : null}
+    <View style={[styles.region, { paddingBottom: clear }]}>
       <HomeScreen
         snapshot={snapshot}
         hidden={hidden}
         unit={unit}
         stale={stale}
+        heroSats={spending ? snapshot.balance.availableSats : undefined}
+        progress={panes}
+        launching={spending ? shown : 'none'}
+        arrived={arrived}
         onSend={openSend}
         onReceive={actions.openReceive}
         onScan={openScan}
         onActivity={actions.openActivity}
         onDetail={actions.openDetail}
         onToggleUnit={toggleUnit}
-        heroStyle={heroStyle}
-        barStyle={barStyle}
+        onToggleHidden={toggleHidden}
+        onRefresh={session.manualRefresh}
       />
-    </ScrollView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  content: {
-    paddingHorizontal: space.xl,
-    paddingTop: space.md,
-    paddingBottom: space.xl,
-    gap: space.lg,
-    maxWidth: 640,
-    width: '100%',
-    alignSelf: 'center',
-  },
-});
+const styles = StyleSheet.create({ region: { flex: 1 } });

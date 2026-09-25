@@ -8,6 +8,7 @@ import { DemoWalletClient, EmbeddedWalletClient } from '@beignet/wallet-core';
 import { defaultPreferences } from '../src/services/networks';
 import { WhisperProvider } from '../src/glyphs/Whisper';
 import { LockScreen } from '../src/scenes/phases/Locked';
+import { meaning } from '../test-support/query';
 
 const SESSION = 'com.beignet.wallet.last-session';
 const LOCK = 'com.beignet.wallet.lock';
@@ -162,7 +163,7 @@ test('with no lock set the app opens straight into its wallet', async () => {
       tree = create(<App />);
     });
     expect(text(tree)).not.toContain('Chicory is locked.');
-    expect(text(tree)).toContain('Total balance');
+    expect(meaning(tree)).toContain('Total balance');
   } finally {
     await act(async () => tree?.unmount());
     jest.restoreAllMocks();
