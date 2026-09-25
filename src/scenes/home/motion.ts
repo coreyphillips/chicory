@@ -17,10 +17,16 @@ import { HERO_MINI, MINI_STRIP, STATUS_ROW } from '../../stage/layout';
  */
 export function tintTiming(
   duration: number,
-  easing: WithTimingConfig['easing'] = curves.standard,
+  easing?: WithTimingConfig['easing'],
 ): WithTimingConfig {
   'worklet';
-  return { duration, easing, reduceMotion: ReduceMotion.Never };
+  // The default is read in the body so the worklet captures it; a default
+  // parameter's value is not captured and is undefined on the UI thread.
+  return {
+    duration,
+    easing: easing ?? curves.standard,
+    reduceMotion: ReduceMotion.Never,
+  };
 }
 
 /**
@@ -89,10 +95,12 @@ export function miniLanding(launch: Launch): number {
 export function heroPose(
   hero: number,
   frame: HeroFrame,
-  landing = MINI_IN_ROW,
+  landing?: number,
 ): { scale: number; translateY: number } {
   'worklet';
-  const lift = frame.y + (HERO_MINI * frame.height) / 2 - landing;
+  // Read in the body, where the worklet captures it (see tintTiming).
+  const lift =
+    frame.y + (HERO_MINI * frame.height) / 2 - (landing ?? MINI_IN_ROW);
   return {
     scale: HERO_MINI + (1 - HERO_MINI) * hero,
     translateY: lift * (hero - 1),

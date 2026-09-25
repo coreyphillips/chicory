@@ -174,9 +174,13 @@ export function seedSpots(solid: number, count = SEEDS): number[] {
 }
 
 /** How high seed `k` of `count` has bobbed at clock `t`: 1pt, out of step. */
-export function seedBob(t: number, k: number, count = SEEDS): number {
+export function seedBob(t: number, k: number, count?: number): number {
   'worklet';
-  return Math.sin(2 * Math.PI * (t + k / count));
+  // A worklet captures what its body reads, not what its parameter defaults
+  // read, so the default lives here: as `count = SEEDS` it crashed on the UI
+  // thread, where SEEDS was never captured.
+  const seeds = count ?? SEEDS;
+  return Math.sin(2 * Math.PI * (t + k / seeds));
 }
 
 const RIPPLE_MS = 700;
