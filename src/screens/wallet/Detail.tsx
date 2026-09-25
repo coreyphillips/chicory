@@ -148,13 +148,15 @@ export function DetailScreen({
         style={styles.title}
       />
       <View style={styles.header}>
+        {/* A safety state is announced once, by useSafetyNotice; a live
+            region too would have Android read it twice. */}
         <Reanimated.View
           entering={entering.ring}
           accessible
           accessibilityRole={words.safety ? 'alert' : undefined}
           accessibilityLabel={words.label}
           accessibilityValue={{ text: words.value }}
-          accessibilityLiveRegion={words.safety ? 'assertive' : 'polite'}
+          accessibilityLiveRegion={words.safety ? 'none' : 'polite'}
         >
           <Whisper label={words.label}>
             <StatusRing size={HEADER_RING} visual={visual} test={test} />

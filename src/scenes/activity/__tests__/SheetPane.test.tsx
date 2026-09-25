@@ -1,5 +1,10 @@
 import React from 'react';
-import { Dimensions, FlatList, StyleSheet } from 'react-native';
+import {
+  AccessibilityInfo,
+  Dimensions,
+  FlatList,
+  StyleSheet,
+} from 'react-native';
 import {
   GestureDetector,
   GestureHandlerRootView,
@@ -14,6 +19,7 @@ import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
 import { haptics } from '../../../design/haptics';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
+import type { Backup } from '../../../stage/Canvas';
 import { stops } from '../../../stage/layout';
 import { Pane } from '../../../stage/panes/Pane';
 import {
@@ -27,9 +33,16 @@ import {
   everyActivity,
   snapshotOf,
 } from '../../../../test-support/fixtures';
-import { field, meaning, press } from '../../../../test-support/query';
+import {
+  field,
+  meaning,
+  press,
+  pressableLabels,
+  visibleText,
+} from '../../../../test-support/query';
 import { ActivityRow, RowListContext } from '../ActivityRow';
 import { FilterBar } from '../FilterBar';
+import { FILTERS, activityStatus } from '../model';
 import * as rowRects from '../rowRects';
 import { SheetPane } from '../SheetPane';
 import { FLING } from '../sheet';
@@ -67,9 +80,11 @@ const client = new DemoWalletClient();
 function OnCanvas({
   snapshot = snapshotOf({ activity: [coffee, salary] }),
   error = '',
+  backup = null,
 }: {
   snapshot?: WalletSnapshot;
   error?: string;
+  backup?: Backup | null;
 }) {
   stage = useStageStore();
   const view = useCanvasView();
@@ -83,7 +98,7 @@ function OnCanvas({
           snapshot={snapshot}
           session={{ ...session, error }}
           stale={false}
-          backup={null}
+          backup={backup}
           view={view}
         />
       </StageProvider>
@@ -302,6 +317,42 @@ describe('the list on the sheet', () => {
     await act(async () => tree.unmount());
   });
 
+  test('a screen reader lands on the field while a search is open', async () => {
+    const sent = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent');
+    // Under Jest a host ref holds the mocked component, props and all.
+    const landed = () =>
+      sent.mock.calls
+        .filter(([, kind]) => kind === 'focus')
+        .map(
+          ([node]) =>
+            (node as unknown as { props: { accessibilityLabel?: string } })
+              .props.accessibilityLabel,
+        );
+    // Focus waits for the panes, then for an idle moment: the next tick here.
+    const go = async (move: () => void) => {
+      await act(async () => move());
+      await settle();
+      await act(async () => {
+        await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
+      });
+      return landed().at(-1);
+    };
+    const tree = await render(<OnCanvas />);
+    expect(await go(() => stage.actions.openActivity())).toBe(
+      copy.activity.filters[FILTERS[0].value],
+    );
+    await press(tree, copy.activity.search);
+    await act(async () =>
+      field(tree, copy.activity.search).props.onChangeText('coffee'),
+    );
+    await go(() => stage.actions.openDetail(coffee));
+    sent.mockClear();
+    // Back on the list the search is still open, and the filters are not
+    // drawn: the field is where the list starts.
+    expect(await go(() => stage.actions.back())).toBe(copy.activity.search);
+    await act(async () => tree.unmount());
+  });
+
   test('back home, the preview is the whole history again', async () => {
     const tree = await render(<OnCanvas />);
     await act(async () => stage.actions.openActivity());
@@ -502,6 +553,75 @@ describe('the rows', () => {
       [EVERY['request partly paid'].id, 'end'],
       [coffee.id, undefined],
     ]);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('a recovery phrase still to save', () => {
+  const backup = (): Backup => ({
+    pending: true,
+    loadPhrase: jest.fn(),
+    onSaved: jest.fn(),
+  });
+
+  test('is a shield pinned first on the open list, and opens Settings', async () => {
+    const tree = await render(
+      <OnCanvas
+        backup={backup()}
+        snapshot={snapshotOf({
+          activity: [coffee, EVERY['sent uncertain']],
+        })}
+      />,
+    );
+    await act(async () => stage.actions.openActivity());
+    await settle();
+    // The shield comes before the payments that need attention, and says
+    // what it is only to a screen reader: the phrase and its words stay in
+    // Settings.
+    const labels = [...pressableLabels(tree)];
+    const shield = labels.indexOf(copy.health.backupPending);
+    const uncertain = EVERY['sent uncertain'];
+    const held = labels.indexOf(
+      copy.activity.row(
+        uncertain.title,
+        uncertain.amountSats,
+        activityStatus(uncertain),
+      ),
+    );
+    expect(shield).toBeGreaterThanOrEqual(0);
+    expect(shield).toBeLessThan(held);
+    expect(labels).not.toContain('Reveal recovery phrase');
+    expect(visibleText(tree)).not.toContain(copy.health.backupPending);
+    const tick = jest.spyOn(haptics, 'tick');
+    await press(tree, copy.health.backupPending);
+    expect(tick).toHaveBeenCalled();
+    expect(stage.state.scene.name).toBe('settings');
+    // Settings leads with the phrase to save.
+    await settle();
+    expect(pressableLabels(tree)).toContain('Reveal recovery phrase');
+    await act(async () => tree.unmount());
+  });
+
+  test('cannot be dismissed, and goes once the phrase is saved', async () => {
+    const pending = backup();
+    const tree = await render(<OnCanvas backup={pending} />);
+    // At home the status row carries the shield, so the list does not.
+    expect(
+      tree.root
+        .findByType(SheetPane)
+        .findAll(
+          node => node.props.accessibilityLabel === copy.health.backupPending,
+        ),
+    ).toHaveLength(0);
+    await act(async () => stage.actions.openActivity());
+    await settle();
+    // It stays however the list is narrowed.
+    await press(tree, 'Received');
+    expect(pressableLabels(tree)).toContain(copy.health.backupPending);
+    await act(async () =>
+      tree.update(<OnCanvas backup={{ ...pending, pending: false }} />),
+    );
+    expect(pressableLabels(tree)).not.toContain(copy.health.backupPending);
     await act(async () => tree.unmount());
   });
 });

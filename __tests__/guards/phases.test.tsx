@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { PropsWithChildren, ReactElement } from 'react';
-import { AccessibilityInfo, View } from 'react-native';
+import { AccessibilityInfo, Text, View } from 'react-native';
 import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -29,15 +29,18 @@ import {
   welcomeVisual,
 } from '../../src/scenes/phases/visual';
 import { Welcome } from '../../src/scenes/phases/Welcome';
+import { SettingsSurface } from '../../src/scenes/settings/ui';
 import { defaultProfile } from '../../src/services/networks';
 import type { WalletSession } from '../../src/services/session';
 import { PANE_SETTLE_MS, STATUS_ROW } from '../../src/stage/layout';
 import {
   newestFirst,
   StageProvider,
+  useStage,
   useStageStore,
 } from '../../src/stage/StageContext';
 import type { StageStore } from '../../src/stage/StageContext';
+import { SETTINGS_MARKER, copyViolations } from '../../test-support/copyGuard';
 import { guardData, snapshotOf, walletOf } from '../../test-support/fixtures';
 import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
@@ -777,6 +780,93 @@ describe('phase behaviour', () => {
     expect(await back()).toBe(false);
     expect(onToggleNetwork).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
+  });
+
+  test('offline leaves its wallet by glyphs, outside the setup panel', async () => {
+    const onChooseWallet = jest.fn();
+    const onDisconnect = jest.fn();
+    const tree = await offline({ onChooseWallet, onDisconnect });
+    await press(tree, copy.phase.settings);
+    const [panel] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === SETTINGS_MARKER,
+    );
+    for (const label of [copy.phase.chooseWallet, copy.phase.lockDevice]) {
+      const control = find(tree, label)!;
+      expect(control).toBeDefined();
+      // Not setup, so not under the marker that lets setup keep its words,
+      // and drawn as a glyph alone.
+      expect({
+        label,
+        inPanel: panel.findAll(node => node === control).length,
+        words: control.findAllByType(Text).length,
+      }).toEqual({ label, inPanel: 0, words: 0 });
+    }
+    await press(tree, copy.phase.chooseWallet);
+    expect(onChooseWallet).toHaveBeenCalledTimes(1);
+    await press(tree, copy.phase.lockDevice);
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('the picker draws no network editor under the new wallet sheet', async () => {
+    // The stage draws the sheet over the phase, rooted in a settings-class
+    // surface of its own; this stands in for it.
+    function WithSheet({ primaryUri }: { primaryUri: string }) {
+      const [editor, setEditor] = useState(true);
+      const { state, actions } = useStage();
+      return (
+        <>
+          <Picker
+            wallets={primaryUri ? [everyday, savings] : []}
+            activeProfile={{ ...defaultProfile('regtest'), primaryUri }}
+            error=""
+            switchError=""
+            networkEditor={editor}
+            selecting={false}
+            switchNetwork={jest.fn(async () => {})}
+            setNetworkEditor={setEditor}
+            selectWallet={jest.fn(async () => {})}
+            createDefaultWallet={jest.fn(async () => {})}
+            disconnect={jest.fn(async () => {})}
+            onCreateWallet={actions.openCreate}
+          />
+          {state.overlay?.name === 'create' ? <SettingsSurface /> : null}
+        </>
+      );
+    }
+    const markers = (tree: ReactTestRenderer) =>
+      tree.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.testID === SETTINGS_MARKER,
+      ).length;
+    const NODE = `02${'a'.repeat(64)}@127.0.0.1:19846`;
+    // Restoring; making a wallet on a network with no primary node, which
+    // asks for one in the sheet; and a sheet the picker did not open, as
+    // restore from Welcome lands on the picker with it.
+    for (const open of [
+      {
+        primaryUri: NODE,
+        go: (tree: ReactTestRenderer) => press(tree, copy.phase.restore),
+      },
+      {
+        primaryUri: '',
+        go: (tree: ReactTestRenderer) => press(tree, copy.phase.createWallet),
+      },
+      {
+        primaryUri: NODE,
+        go: () => act(async () => stage.actions.openCreate(true)),
+      },
+    ]) {
+      const tree = await staged(<WithSheet primaryUri={open.primaryUri} />);
+      expect(markers(tree)).toBe(1);
+      await open.go(tree);
+      expect(stage.state.overlay?.name).toBe('create');
+      expect(markers(tree)).toBe(1);
+      expect(() => copyViolations(tree, { data: DATA })).not.toThrow();
+      await act(async () => tree.unmount());
+    }
   });
 
   test('a failed wallet setup puts a honey pip on its retry and says why', async () => {

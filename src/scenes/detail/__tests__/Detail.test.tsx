@@ -61,6 +61,21 @@ const spoken = (tree: ReactTestRenderer, label: string) =>
       typeof node.type === 'string' && node.props.accessibilityLabel === label,
   )[0];
 
+/**
+ * The live regions that would speak `label` again whenever it changes: any
+ * host element carrying it that Android reads out on its own.
+ */
+const liveRegions = (tree: ReactTestRenderer, label: string) =>
+  tree.root
+    .findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === label &&
+        !!node.props.accessibilityLiveRegion &&
+        node.props.accessibilityLiveRegion !== 'none',
+    )
+    .map(node => node.props.accessibilityLiveRegion);
+
 afterEach(() => jest.restoreAllMocks());
 
 describe('what the ring says', () => {
@@ -237,10 +252,10 @@ describe('an unknown outcome', () => {
     const said = [...announce.mock.calls, ...polite.mock.calls].map(
       ([text]) => text,
     );
-    expect(said).toContain(copy.detail.uncertain);
-    expect(spoken(tree, copy.detail.uncertain).props).toMatchObject({
-      accessibilityLiveRegion: 'assertive',
-    });
+    expect(said.filter(text => text === copy.detail.uncertain)).toHaveLength(1);
+    // Said once: a live region carrying the same words would have Android
+    // read them a second time.
+    expect(liveRegions(tree, copy.detail.uncertain)).toEqual([]);
     await act(async () => tree.unmount());
   });
 
@@ -280,6 +295,8 @@ describe('a reused address', () => {
     const tree = await render(<DetailScreen item={reused} />);
     expect(alerts(tree)).toEqual([label]);
     expect(announce).toHaveBeenCalledWith(label, { queue: false });
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(liveRegions(tree, label)).toEqual([]);
     await act(async () => tree.unmount());
   });
 

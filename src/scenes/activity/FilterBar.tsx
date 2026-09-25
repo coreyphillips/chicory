@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import type { Ref } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import type { HostInstance, StyleProp, ViewStyle } from 'react-native';
@@ -60,8 +60,15 @@ export function FilterBar({
 }) {
   // A search with words in it stays open wherever the list goes.
   const open = !!onQuery && (searching || !!query);
-  // The first filter is where a screen reader lands as the list opens.
+  // A screen reader lands on the first filter as the list opens, or on the
+  // field while a search is open, since the filters are not drawn then.
   const primary = usePrimary();
+  const holdField = useCallback(
+    (field: HostInstance | null) => {
+      primary.current = field;
+    },
+    [primary],
+  );
   const close = () => {
     onQuery?.('');
     onSearching(false);
@@ -82,6 +89,7 @@ export function FilterBar({
         >
           <Glyph name="search" size={18} color={palette.steam} />
           <TextInput
+            ref={holdField}
             accessibilityLabel={copy.activity.search}
             style={styles.field}
             value={query}
