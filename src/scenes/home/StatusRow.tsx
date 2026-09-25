@@ -139,11 +139,16 @@ export function StatusRow({
 
 /**
  * The one-off the mark plays: it wilts when setup stops short, and bursts
- * when money arrives, unless it is drooping.
+ * when money arrives, unless it is drooping. A wilt holds for as long as
+ * the event stays one, so once setup recovers it is let go of, and the
+ * petals open as far as the setup now says.
  */
 function useMarkEvent(droop: boolean, arrived: number): BloomEvent | undefined {
   const [event, setEvent] = useState<BloomEvent>();
   const last = useRef({ droop: false, arrived });
+  // Counted apart from the event, so one that follows a cleared wilt is
+  // still a new key.
+  const count = useRef(0);
   useEffect(() => {
     const before = last.current;
     last.current = { droop, arrived };
@@ -153,7 +158,12 @@ function useMarkEvent(droop: boolean, arrived: number): BloomEvent | undefined {
         : arrived !== before.arrived && !droop
         ? 'burst'
         : null;
-    if (kind) setEvent(prior => ({ kind, key: (prior?.key ?? 0) + 1 }));
+    if (kind) {
+      count.current += 1;
+      setEvent({ kind, key: count.current });
+    } else if (!droop && before.droop) {
+      setEvent(prior => (prior?.kind === 'wilt' ? undefined : prior));
+    }
   }, [droop, arrived]);
   return event;
 }

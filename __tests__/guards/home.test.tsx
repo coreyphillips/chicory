@@ -951,6 +951,31 @@ describe('the status row', () => {
     await act(async () => tree.unmount());
   });
 
+  test('the mark wilts while setup has stopped short, and opens again once it recovers', async () => {
+    const setup = (to: 'failed' | 'ready') =>
+      snapshotOf({
+        wallet: MAINNET,
+        primary:
+          to === 'failed'
+            ? { setup: 'failed', setupError: 'Liquidity provider is down.' }
+            : { setup: 'ready' },
+      });
+    const mark = (tree: ReactTestRenderer) =>
+      tree.root.findByType(StatusRow).findByType(Bloom).props;
+    const tree = await draw({ snapshot: setup('ready') });
+    expect(mark(tree).event).toBeUndefined();
+    await act(async () =>
+      tree.update(<HomeRegions snapshot={setup('failed')} />),
+    );
+    expect(mark(tree).event?.kind).toBe('wilt');
+    await act(async () =>
+      tree.update(<HomeRegions snapshot={setup('ready')} />),
+    );
+    expect(mark(tree).event).toBeUndefined();
+    expect(mark(tree).open).toBe(1);
+    await act(async () => tree.unmount());
+  });
+
   test('the wallet name and the network are not written on it', async () => {
     const tree = await draw({ snapshot: snapshotOf() });
     const row = tree.root.findByType(StatusRow);
