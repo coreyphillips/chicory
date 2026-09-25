@@ -23,16 +23,9 @@ import type { GuardedState } from '../../test-support/guard';
  * it redraws, drawn from test-support/fixtures.ts with `guardData` as its
  * data.
  *
- * A request's receipt and the request itself are Receive's to draw, and its
- * guard holds them; here they stand in as nothing, so this guard sees only
- * what the detail draws around them.
+ * A request's receipt and the request itself are Receive's to draw, and are
+ * drawn here as the detail shows them, so this guard holds them too.
  */
-jest.mock('../../src/components/ReceiveReceipt', () => ({
-  ReceiveReceipt: () => null,
-}));
-jest.mock('../../src/components/ReceiveRequestDetails', () => ({
-  ReceiveRequestDetails: () => null,
-}));
 
 const EVERY = everyActivity();
 
