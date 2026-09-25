@@ -78,15 +78,16 @@ export function FailureMark({ failure }: { failure: Failure }) {
 }
 
 const styles = StyleSheet.create({
+  // The least a finger needs to hold it for its words (REDESIGN.md 3.4).
   mark: {
-    minWidth: 44,
-    minHeight: 44,
+    minWidth: 48,
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tint: {
     ...StyleSheet.absoluteFill,
-    borderRadius: 22,
+    borderRadius: 24,
     backgroundColor: palette.radishWash,
   },
   glyphs: { flexDirection: 'row', gap: 2 },

@@ -1,5 +1,5 @@
 import React from 'react';
-import { TextInput } from 'react-native';
+import { StyleSheet, TextInput } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
@@ -33,7 +33,8 @@ jest.mock('../../../design/announce', () => ({ announce: jest.fn() }));
  * refuses is refused as it arrives, in the well with a cross, and never
  * takes the accepted chip first, so no amount is keyed for a request that
  * cannot be paid. Past a payment, the way to the history is never the orbit
- * that says money is moving.
+ * that says money is moving. The review's side controls sit on the page
+ * edges, and what a finger holds is 48pt or more (REDESIGN.md 3.4).
  */
 const ADDRESS = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
 const LNURL =
@@ -204,6 +205,61 @@ describe('the way to the history', () => {
     holdRequest(request, { status: 'uncertain' });
     const tree = await draw({}, { initialRequest: request });
     expect(drawnBy(tree, copy.send.viewActivity)).not.toEqual(ORBIT);
+    await act(async () => tree.unmount());
+  });
+});
+
+test("the review's pencil and a refusal's mark sit on the page edges", async () => {
+  const tree = await draw(
+    { prepareSend: jest.fn().mockResolvedValue(quote) },
+    { initialRequest: ADDRESS },
+  );
+  await press(tree, copy.send.review);
+  expect(find(tree, copy.send.edit)).toBeDefined();
+  // The two side slots either side of the hold, as drawn.
+  const slots = tree.root
+    .findAll(
+      node =>
+        typeof node.type === 'string' &&
+        StyleSheet.flatten(node.props.style)?.width === 56,
+    )
+    .map(node => StyleSheet.flatten(node.props.style).alignItems);
+  expect(slots).toEqual(['flex-start', 'flex-end']);
+  await act(async () => tree.unmount());
+});
+
+describe('what a finger holds', () => {
+  test('the chip takes a touch 48pt tall or more', async () => {
+    const tree = await draw({}, { initialRequest: ADDRESS });
+    const chip = tree.root.find(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === copy.send.request &&
+        node.props.accessibilityRole === 'button',
+    );
+    const { minHeight } = StyleSheet.flatten(chip.props.style);
+    const { top = 0, bottom = 0 } = chip.props.hitSlop ?? {};
+    expect(minHeight + top + bottom).toBeGreaterThanOrEqual(48);
+    await act(async () => tree.unmount());
+  });
+
+  test('the empty well keeps its height at large text, where a scanned code collapses to', async () => {
+    const tree = await draw();
+    expect(well(tree)!.props.maxFontSizeMultiplier).toBe(1.4);
+    await act(async () => tree.unmount());
+  });
+
+  test("a refusal's mark is 48pt, to be held for its words", async () => {
+    jest.mocked(Clipboard.getString).mockResolvedValueOnce(LNURL);
+    const tree = await draw();
+    await press(tree, copy.send.paste);
+    const [mark] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityRole === 'alert',
+    );
+    const { minWidth, minHeight } = StyleSheet.flatten(mark.props.style);
+    expect(Math.min(minWidth, minHeight)).toBeGreaterThanOrEqual(48);
     await act(async () => tree.unmount());
   });
 });

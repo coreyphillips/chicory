@@ -813,7 +813,7 @@ export function SendScreen({
           <ReviewLines review={review} unit={unit} />
         </View>
         <View style={styles.controls}>
-          <View style={styles.side}>
+          <View style={[styles.side, styles.start]}>
             <GlyphButton
               glyph="pencil"
               accessibilityLabel={copy.send.edit}
@@ -835,7 +835,7 @@ export function SendScreen({
             onRefreshQuote={live && !busy ? refreshQuote : undefined}
             onRefresh={live ? onRefresh : undefined}
           />
-          <View style={styles.side}>
+          <View style={[styles.side, styles.end]}>
             {failure ? <FailureMark failure={failure} /> : null}
           </View>
         </View>
@@ -901,7 +901,7 @@ export function SendScreen({
             busy={busy}
             stale={disabled}
           />
-          <View style={styles.side}>
+          <View style={[styles.side, styles.end]}>
             {failure && failure.target !== 'request' ? (
               <FailureMark failure={failure} />
             ) : null}
@@ -971,7 +971,11 @@ const styles = StyleSheet.create({
     paddingTop: space.xs,
   },
   centred: { justifyContent: 'center' },
-  side: { width: 56, alignItems: 'center' },
+  // A side slot holds its control against the page edge, as the pencil and
+  // a refusal's mark sit at the edges the rest of the scene keeps.
+  side: { width: 56 },
+  start: { alignItems: 'flex-start' },
+  end: { alignItems: 'flex-end' },
   fee: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   feeText: { ...typography.line, color: palette.steam },
 });

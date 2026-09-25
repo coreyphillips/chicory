@@ -12,12 +12,19 @@ import { useLoop, wave } from '../../motion/loops';
 import { durations } from '../../motion/tokens';
 import { WELL } from '../../stage/layout';
 import { usePaneActive } from '../../stage/panes/Pane';
-import { radius, space, type as typography } from '../../theme';
+import { HIT_SLOP, radius, space, type as typography } from '../../theme';
 import { FailureMark } from './FailureMark';
 import { GlyphButton } from './GlyphButton';
 import { requestRail, shortRequest } from './model';
 import { useBloom } from './tone';
 import type { Failure } from './model';
+
+/**
+ * How far the request's words grow with Dynamic Type, as a row's do
+ * (REDESIGN.md 3.3). The empty well then keeps its height, `WELL`, at every
+ * text size, which is where a code read from home collapses to.
+ */
+const REQUEST_SCALE = 1.4;
 
 /** Where a scan starts from on screen, for the reveal to grow out of. */
 export type Origin = { x: number; y: number };
@@ -92,6 +99,7 @@ export function RequestEntry({
         accessibilityValue={{ text: shown }}
         accessibilityHint={onExpand ? copy.send.requestHint : undefined}
         accessibilityState={{ disabled: !onExpand || busy }}
+        hitSlop={HIT_SLOP}
         onPress={
           live && onExpand
             ? () => {
@@ -106,7 +114,7 @@ export function RequestEntry({
         <Text
           style={styles.chipText}
           numberOfLines={1}
-          maxFontSizeMultiplier={1.4}
+          maxFontSizeMultiplier={REQUEST_SCALE}
         >
           {shown}
         </Text>
@@ -206,6 +214,7 @@ function Well({
         autoFocus={focus}
         editable={live}
         selectionColor={bloom.tone}
+        maxFontSizeMultiplier={REQUEST_SCALE}
         style={styles.input}
       />
       {refused ? <FailureMark failure={refused} /> : null}
