@@ -20,7 +20,7 @@ import {
   railOf,
   ringVisual,
 } from '../../scenes/activity/visual';
-import type { AmountVisual } from '../../scenes/activity/visual';
+import type { AmountVisual, RingVisual } from '../../scenes/activity/visual';
 import { ringWords } from '../../scenes/detail/model';
 import { lineIn, ringIn } from '../../scenes/detail/motion';
 import type { WalletAdapter } from '../../services/wallet';
@@ -49,7 +49,7 @@ const TONES: Record<AmountVisual['tone'], string> = {
  *
  * The outcome is the ring's to say: its sentence is what a screen reader
  * hears. An unknown outcome is held honey, announced at once, and never
- * shown as done.
+ * shown as done; so is a reused address.
  *
  * A hidden balance stays hidden here too; tapping a row must not be the way
  * around the mask. References keep showing, they are not amounts.
@@ -70,8 +70,9 @@ export function DetailScreen({
   onBusy?: (busy: boolean) => void;
 }) {
   const words = ringWords(item);
+  const visual = ringVisual(item);
   const look = amountVisual(item);
-  useHeldOutcome(item);
+  useSafetyNotice(visual, words.label);
 
   const date = dateLabel(item.timestamp);
   const fee = amountIn(item.feeSats, unit);
@@ -142,7 +143,7 @@ export function DetailScreen({
           accessibilityValue={{ text: words.value }}
           accessibilityLiveRegion={words.safety ? 'assertive' : 'polite'}
         >
-          <StatusRing size={96} visual={ringVisual(item)} />
+          <StatusRing size={96} visual={visual} />
         </Reanimated.View>
         {look.open ? (
           <View accessible accessibilityLabel={copy.amount.any}>
@@ -236,18 +237,32 @@ export function DetailScreen({
 }
 
 /**
- * An unknown outcome is a safety state (REDESIGN.md rule 4): a screen reader
- * hears it at once whenever the detail shows one, and a payment that turns
- * uncertain while its detail is open is felt, too.
+ * The safety states a detail can show (REDESIGN.md rule 4): an unknown
+ * outcome, which must never be paid again, and a reused address, which cannot
+ * tell whose coins arrived. A screen reader hears the ring's words at once
+ * whenever the detail shows one, and one that begins while the detail is
+ * open is felt too: held for the outcome, a warning for the address.
  */
-function useHeldOutcome(item: Activity) {
-  const uncertain = item.status === 'uncertain';
-  const was = useRef(uncertain);
+function useSafetyNotice(visual: RingVisual, label: string) {
+  const state =
+    visual.pattern === 'held'
+      ? 'held'
+      : visual.glyph === 'twin'
+      ? 'reused'
+      : null;
+  const was = useRef(state);
   useEffect(() => {
-    if (uncertain) announce(copy.detail.uncertain, { assertive: true });
-    if (uncertain && !was.current) haptics.held();
-    was.current = uncertain;
-  }, [uncertain]);
+    if (!state) {
+      was.current = null;
+      return;
+    }
+    announce(label, { assertive: true });
+    if (state !== was.current) {
+      if (state === 'held') haptics.held();
+      else haptics.warning();
+    }
+    was.current = state;
+  }, [state, label]);
 }
 
 /**

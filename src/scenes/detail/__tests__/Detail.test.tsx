@@ -238,6 +238,39 @@ describe('an unknown outcome', () => {
   });
 });
 
+describe('a reused address', () => {
+  const reused = EVERY['request with a reused address'];
+  const label = `${copy.detail.awaiting} Address reused.`;
+
+  test('is said at once, over whatever else is being read', async () => {
+    const announce = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    announce.mockClear();
+    const tree = await render(<DetailScreen item={reused} />);
+    expect(alerts(tree)).toEqual([label]);
+    expect(announce).toHaveBeenCalledWith(label, { queue: false });
+    await act(async () => tree.unmount());
+  });
+
+  test('is felt when it is found while the detail is open', async () => {
+    const warning = jest.spyOn(haptics, 'warning').mockImplementation(() => {});
+    const held = jest.spyOn(haptics, 'held').mockImplementation(() => {});
+    const waiting = EVERY['request pending'];
+    const tree = await render(<DetailScreen item={waiting} />);
+    await act(async () =>
+      tree.update(
+        <DetailScreen
+          item={{ ...waiting, receiveRequest: reused.receiveRequest }}
+        />,
+      ),
+    );
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(held).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+});
+
 describe('the card', () => {
   const rect = { x: 24, y: 480, width: 327, height: 64 };
 
