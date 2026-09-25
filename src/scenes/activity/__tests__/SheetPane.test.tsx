@@ -1,5 +1,10 @@
 import React from 'react';
-import { Dimensions, FlatList, StyleSheet } from 'react-native';
+import {
+  AccessibilityInfo,
+  Dimensions,
+  FlatList,
+  StyleSheet,
+} from 'react-native';
 import {
   GestureDetector,
   GestureHandlerRootView,
@@ -37,7 +42,7 @@ import {
 } from '../../../../test-support/query';
 import { ActivityRow, RowListContext } from '../ActivityRow';
 import { FilterBar } from '../FilterBar';
-import { activityStatus } from '../model';
+import { FILTERS, activityStatus } from '../model';
 import * as rowRects from '../rowRects';
 import { SheetPane } from '../SheetPane';
 import { FLING } from '../sheet';
@@ -309,6 +314,42 @@ describe('the list on the sheet', () => {
     expect(() => field(tree, copy.activity.search)).toThrow();
     expect(meaning(tree)).toContain(ROW);
     expect(newestFirst(stage.responders.sceneBack)).toHaveLength(0);
+    await act(async () => tree.unmount());
+  });
+
+  test('a screen reader lands on the field while a search is open', async () => {
+    const sent = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent');
+    // Under Jest a host ref holds the mocked component, props and all.
+    const landed = () =>
+      sent.mock.calls
+        .filter(([, kind]) => kind === 'focus')
+        .map(
+          ([node]) =>
+            (node as unknown as { props: { accessibilityLabel?: string } })
+              .props.accessibilityLabel,
+        );
+    // Focus waits for the panes, then for an idle moment: the next tick here.
+    const go = async (move: () => void) => {
+      await act(async () => move());
+      await settle();
+      await act(async () => {
+        await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
+      });
+      return landed().at(-1);
+    };
+    const tree = await render(<OnCanvas />);
+    expect(await go(() => stage.actions.openActivity())).toBe(
+      copy.activity.filters[FILTERS[0].value],
+    );
+    await press(tree, copy.activity.search);
+    await act(async () =>
+      field(tree, copy.activity.search).props.onChangeText('coffee'),
+    );
+    await go(() => stage.actions.openDetail(coffee));
+    sent.mockClear();
+    // Back on the list the search is still open, and the filters are not
+    // drawn: the field is where the list starts.
+    expect(await go(() => stage.actions.back())).toBe(copy.activity.search);
     await act(async () => tree.unmount());
   });
 
