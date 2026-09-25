@@ -5,6 +5,7 @@ import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
 import { haptics } from '../../design/haptics';
 import { HomeScreen } from '../../screens/wallet/Home';
+import { STALE_AFTER_MS } from '../../services/useWalletSession';
 import type { RegionProps } from '../../stage/Canvas';
 import { canvasScene } from '../../stage/layout';
 import { usePanes } from '../../stage/panes/Pane';
@@ -24,6 +25,12 @@ import { isTestNetwork } from './visual';
  * network are each felt, spoken and logged as they begin. A refresh that
  * fails is spoken too, politely, since the notice that once said so is now
  * the mark's value.
+ *
+ * A cached launch opens on old figures while the wallet starts. The dormant,
+ * ratcheting mark says so, and the gate holds the actions, but it is not a
+ * balance going old in front of the user, so it is not warned about. The
+ * gate's own flag trails a fresh read by one render, so the read's age is
+ * checked as well, or the read that ends a cached launch would warn.
  *
  * Pulling the pane down refreshes. That is a pan of Home's own rather than a
  * scroll view's refresh control: it behaves the same on both platforms, and
@@ -45,7 +52,11 @@ export function HomePane({
   const { hidden, setHidden, unit, setUnit } = view;
   const network = snapshot.wallet.network;
   const arrived = useIncoming(snapshot);
-  useSafetySignal(stale, copy.health.stale, haptics.warning);
+  const aged =
+    stale &&
+    !session.connecting &&
+    Date.now() - snapshot.updatedAt > STALE_AFTER_MS;
+  useSafetySignal(aged, copy.health.stale, haptics.warning);
   useSafetySignal(
     !!backup?.pending,
     copy.health.backupPending,

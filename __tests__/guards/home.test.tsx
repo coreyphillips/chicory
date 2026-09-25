@@ -831,7 +831,10 @@ describe('safety states', () => {
       .mockClear();
     clearDiagnostics();
     const warned = jest.spyOn(haptics, 'warning');
-    const snapshot = snapshotOf({ wallet: { network: 'testnet' } });
+    const snapshot = {
+      ...snapshotOf({ wallet: { network: 'testnet' } }),
+      updatedAt: Date.now() - 60_000,
+    };
     const tree = await draw({ snapshot, stale: true, backup: pendingBackup() });
     const said = [
       copy.health.stale,
@@ -845,6 +848,37 @@ describe('safety states', () => {
     expect(warned).toHaveBeenCalledTimes(2);
     await act(async () => tree.unmount());
     jest.useRealTimers();
+  });
+
+  test('a cached launch is not warned about, nor is the read that ends it', async () => {
+    const warned = jest.spyOn(haptics, 'warning');
+    const cached = {
+      ...snapshotOf({ wallet: MAINNET }),
+      updatedAt: Date.now() - 600_000,
+    };
+    const tree = await draw({
+      snapshot: cached,
+      stale: true,
+      session: session({ connecting: true }),
+    });
+    expect(warned).not.toHaveBeenCalled();
+    // The live read lands, and for one render the gate's flag still trails it.
+    await act(async () =>
+      tree.update(
+        <HomeRegions
+          snapshot={{ ...cached, updatedAt: Date.now() }}
+          stale
+          session={session()}
+        />,
+      ),
+    );
+    expect(warned).not.toHaveBeenCalled();
+    // Figures that then go old in front of the user are warned about.
+    await act(async () =>
+      tree.update(<HomeRegions snapshot={cached} stale session={session()} />),
+    );
+    expect(warned).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
   });
 });
 
