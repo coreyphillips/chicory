@@ -73,6 +73,7 @@ const TONE_WORDS: Record<AmountTone, string | null> = {
   plain: null,
   'over-spendable': copy.amount.overSpendable,
   'over-total': copy.amount.overTotal,
+  under: null,
 };
 
 /**
@@ -158,6 +159,8 @@ export function SendScreen({
   const [rail, setRail] = useState<GlyphName>('bolt');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+  // Each refusal of the amount shakes it, the same one again included.
+  const [amountShakes, setAmountShakes] = useState(0);
   // A completed payment goes home on its own unless the screen is touched.
   const [stayed, setStayed] = useState(false);
   // A request that names its amount sets it and locks it, so the amount
@@ -279,6 +282,7 @@ export function SendScreen({
     announce(message, { assertive: true });
     recordDiagnostic({ phase: 'ui', code: next.code || undefined, message });
     if (next.target === 'request') setCollapsed(false);
+    if (next.target === 'amount' && next.shake) setAmountShakes(n => n + 1);
     setFailure(next);
     return next;
   }
@@ -656,6 +660,7 @@ export function SendScreen({
           editable={fixedSats === null}
           busy={busy}
           tone={tone}
+          shake={amountShakes}
         />
         <View style={styles.controls}>
           <View style={styles.side} />

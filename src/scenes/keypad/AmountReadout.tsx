@@ -35,13 +35,18 @@ const TONES: Record<AmountTone, string> = {
   plain: palette.cream,
   'over-spendable': palette.honey,
   'over-total': palette.radish,
+  under: palette.dust,
 };
 
-/** The micro-glyph each tone adds, so it reads without its colour. */
+/**
+ * The micro-glyph each tone adds, so it reads without its colour. An amount
+ * under its floor is only not enough yet, and dims without one.
+ */
 const MARKS: Record<AmountTone, GlyphName | null> = {
   plain: null,
   'over-spendable': 'clock',
   'over-total': 'bang',
+  under: null,
 };
 
 /**
@@ -79,6 +84,13 @@ export interface AmountReadoutProps {
   /** The keys take no touches while the amount is being used. */
   busy?: boolean;
   tone?: AmountTone;
+  /**
+   * What stands in the amount while it has no digits, in place of the dust
+   * 0, such as an infinity where the payer may choose.
+   */
+  empty?: ReactNode;
+  /** Each change shakes the amount once, as when something refuses it. */
+  shake?: number;
   /** What sits between the amount and its keypad, such as preset chips. */
   children?: ReactNode;
   ref?: Ref<ComponentRef<typeof View>>;
@@ -96,8 +108,9 @@ export interface AmountReadoutProps {
  *
  * `tone` colours the amount against what it may be, with a micro-glyph for
  * each: honey and a clock when more than can be sent now, radish and a bang,
- * with one shake, when more than it can ever be. The words for either are
- * the caller's, in `hint`.
+ * with one shake, when more than it can ever be, and dust under the least
+ * it can be. The words for each are the caller's, in `hint`. The label is
+ * only ever spoken.
  */
 export function AmountReadout({
   accessibilityLabel,
@@ -108,6 +121,8 @@ export function AmountReadout({
   editable = true,
   busy = false,
   tone = 'plain',
+  empty,
+  shake: shakes,
   children,
   ref,
 }: AmountReadoutProps) {
@@ -162,6 +177,14 @@ export function AmountReadout({
     before.current = tone;
   }, [tone, shake]);
 
+  // A caller's refusal shakes it once for each, from the second on too.
+  const shaken = useRef(shakes);
+  useEffect(() => {
+    if (shakes === shaken.current) return;
+    shaken.current = shakes;
+    shake();
+  }, [shakes, shake]);
+
   const shown = grouped(digits);
   const color = TONES[tone];
   const marks = [editable ? null : 'lock', MARKS[tone]].filter(
@@ -205,6 +228,8 @@ export function AmountReadout({
                 </Text>
               </Reanimated.View>
             ))
+          ) : empty ? (
+            <View style={styles.face}>{empty}</View>
           ) : (
             <Text
               style={[styles.digits, styles.empty]}
@@ -248,6 +273,7 @@ const styles = StyleSheet.create({
   amount: { flexDirection: 'row', alignItems: 'baseline' },
   digits: { ...typography.amount, color: palette.cream },
   empty: { color: palette.dust },
+  face: { flexDirection: 'row', alignItems: 'center' },
   unit: { ...typography.heroUnit, color: palette.steam, marginLeft: 6 },
   mark: { marginLeft: 6, alignSelf: 'center' },
 });

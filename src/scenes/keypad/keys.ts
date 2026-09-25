@@ -27,10 +27,11 @@ export type KeyName =
 
 /**
  * How an amount sits against what it may be: fine, more than can be sent now
- * but not more than the wallet holds (the rest is still arriving), or more
- * than it can ever be, such as the wallet's total or an offline cap.
+ * but not more than the wallet holds (the rest is still arriving), more than
+ * it can ever be, such as the wallet's total or an offline cap, or under the
+ * least it can be, such as an offline receive's floor.
  */
-export type AmountTone = 'plain' | 'over-spendable' | 'over-total';
+export type AmountTone = 'plain' | 'over-spendable' | 'over-total' | 'under';
 
 export const digitsOnly = (value: string) => value.replace(/[^0-9]/g, '');
 

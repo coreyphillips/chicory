@@ -1,11 +1,20 @@
 import React, { useState } from 'react';
-import { AccessibilityInfo, StyleSheet, TextInput } from 'react-native';
+import {
+  AccessibilityInfo,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
+import { Path } from 'react-native-svg';
 import { AmountField } from '../../../components/AmountField';
 import { copy } from '../../../design/copy';
+import { GLYPHS } from '../../../design/glyphs';
 import { palette } from '../../../design/palette';
+import * as tokens from '../../../motion/tokens';
 import { Pane } from '../../../stage/panes/Pane';
 import { mount } from '../../../../test-support/guard';
 import { amountValue, enterAmount } from '../../../../test-support/keypad';
@@ -171,6 +180,72 @@ test('going over what the amount can ever be is felt once', async () => {
   await tone('over-total');
   expect(felt()).toEqual(['notificationWarning']);
   await act(async () => tree.unmount());
+});
+
+test("an empty amount stands its caller's face in place of the 0, until a digit comes", async () => {
+  const face = <View testID="face" />;
+  const tree = await mount(
+    <AmountField value="" onChangeText={jest.fn()} empty={face} />,
+  );
+  const faces = () =>
+    readout(tree).findAll(
+      node => typeof node.type === 'string' && node.props.testID === 'face',
+    );
+  const drawn = () =>
+    readout(tree)
+      .findAllByType(Text)
+      .map(node => node.props.children);
+  expect(faces()).toHaveLength(1);
+  expect(drawn()).toEqual(['sats']);
+  await act(async () =>
+    tree.update(
+      <AmountField value="5" onChangeText={jest.fn()} empty={face} />,
+    ),
+  );
+  expect(faces()).toHaveLength(0);
+  expect(drawn()).toEqual(['5', 'sats']);
+  await act(async () => tree.unmount());
+});
+
+test.each([
+  ['honey', palette.honey, GLYPHS.clock[0].d],
+  ['radish', palette.radish, GLYPHS.bang[0].d],
+  ['dust', palette.dust, null],
+] as const)(
+  'a %s tone colours the amount, with the mark that says why',
+  async (tone, color, mark) => {
+    const tree = await mount(
+      <AmountField value="42" onChangeText={jest.fn()} tone={tone} />,
+    );
+    const digits = readout(tree)
+      .findAllByType(Text)
+      .filter(node => node.props.children !== 'sats');
+    for (const digit of digits) {
+      expect(StyleSheet.flatten(digit.props.style).color).toBe(color);
+    }
+    const marks = readout(tree)
+      .findAllByType(Path)
+      .map(node => node.props.d);
+    if (mark) expect(marks).toContain(mark);
+    else expect(marks).toEqual([]);
+    await act(async () => tree.unmount());
+  },
+);
+
+test('each change of its shake key shakes the amount once more', async () => {
+  const shakes = jest.spyOn(tokens, 'shake');
+  const field = (shake: number) => (
+    <AmountField value="42" onChangeText={jest.fn()} shake={shake} />
+  );
+  const tree = await mount(field(0));
+  expect(shakes).not.toHaveBeenCalled();
+  await act(async () => tree.update(field(1)));
+  await act(async () => tree.update(field(1)));
+  expect(shakes).toHaveBeenCalledTimes(1);
+  await act(async () => tree.update(field(2)));
+  expect(shakes).toHaveBeenCalledTimes(2);
+  await act(async () => tree.unmount());
+  shakes.mockRestore();
 });
 
 test('presets are chips labelled with their amount alone', async () => {

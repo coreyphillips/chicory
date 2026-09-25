@@ -6,6 +6,7 @@ import type { SendReview, ReceiveQuote } from '@beignet/wallet-core';
 import { SendScreen, ReceiveScreen } from '../src/screens/Payments';
 import { Scanner } from '../src/components/Scanner';
 import { copy } from '../src/design/copy';
+import * as tokens from '../src/motion/tokens';
 import type { WalletAdapter } from '../src/services/wallet';
 import { amountValue, enterAmount } from '../test-support/keypad';
 import {
@@ -690,6 +691,44 @@ describe('what the engine says no with', () => {
     expect(amountShown(tree).props.accessibilityHint).toContain(
       copy.amount.overSpendable,
     );
+    await act(async () => tree.unmount());
+  });
+
+  test('more than the wallet holds shakes the amount each time it is refused', async () => {
+    const message = 'This wallet does not hold that much.';
+    const tree = await review(
+      'lnbc-over',
+      {
+        prepareSend: jest
+          .fn()
+          .mockRejectedValue(refusal('INSUFFICIENT_FUNDS', message)),
+      },
+      {
+        balance: {
+          totalSats: 1_000,
+          availableSats: 1_000,
+          pendingSats: 0,
+          receivableSats: 0,
+        },
+      },
+    );
+    await enterAmount(tree, '4200');
+    const shakes = jest.spyOn(tokens, 'shake');
+    const deltas: number[] = [];
+    for (let tries = 0; tries < 3; tries++) {
+      const before = shakes.mock.calls.length;
+      await act(async () => {
+        await label(tree, 'Review payment').props.onPress();
+      });
+      deltas.push(shakes.mock.calls.length - before);
+      expect(alerts(tree)).toEqual([message]);
+      expect(amountShown(tree).props.accessibilityHint).toContain(
+        copy.amount.overTotal,
+      );
+    }
+    // Each refusal shakes the bang by the control and the amount itself.
+    expect(deltas).toEqual([2, 2, 2]);
+    shakes.mockRestore();
     await act(async () => tree.unmount());
   });
 

@@ -1,9 +1,10 @@
 import React, { useEffect, useRef } from 'react';
-import type { ComponentRef } from 'react';
+import type { ComponentRef, ReactNode } from 'react';
 import { AccessibilityInfo, StyleSheet, View } from 'react-native';
 import { copy } from '../design/copy';
 import { AmountReadout } from '../scenes/keypad/AmountReadout';
 import { digitsOnly, grouped } from '../scenes/keypad/keys';
+import type { AmountTone } from '../scenes/keypad/keys';
 import { usePaneActive } from '../stage/panes/Pane';
 import { space } from '../theme';
 import { Chip } from './ui';
@@ -28,7 +29,20 @@ import { Chip } from './ui';
  * `editable` false means something else sets the amount: a lock shows and
  * the keypad goes. `busy` is a wait while the amount is used, as while a
  * quote is asked for: the keypad and presets stay, and take no touches.
+ *
+ * `empty` stands in the amount while it has no digits, such as an infinity
+ * where the payer may choose, or a caret where one is needed. `tone` holds
+ * it against a limit: honey with a clock over what can be spent now, radish
+ * with a bang and one shake past what it can ever be, and dust under the
+ * least it can be. Each change of `shake` shakes it once more.
  */
+/** The readout's tone for each colour an amount can take against a limit. */
+const TONES: Record<'honey' | 'radish' | 'dust', AmountTone> = {
+  honey: 'over-spendable',
+  radish: 'over-total',
+  dust: 'under',
+};
+
 export function AmountField({
   label = copy.amount.field,
   value,
@@ -39,6 +53,9 @@ export function AmountField({
   busy = false,
   presets,
   autoFocus,
+  empty,
+  tone,
+  shake,
 }: {
   label?: string;
   value: string;
@@ -49,6 +66,9 @@ export function AmountField({
   busy?: boolean;
   presets?: number[];
   autoFocus?: boolean;
+  empty?: ReactNode;
+  tone?: keyof typeof TONES;
+  shake?: number;
 }) {
   const live = usePaneActive();
   const digits = digitsOnly(value);
@@ -63,11 +83,14 @@ export function AmountField({
       ref={readout}
       accessibilityLabel={label}
       value={grouped(digits)}
-      onChangeText={next => onChangeText(digitsOnly(next))}
+      onChangeText={live ? next => onChangeText(digitsOnly(next)) : undefined}
       placeholder={placeholder}
       hint={hint}
       editable={editable}
       busy={busy}
+      tone={tone ? TONES[tone] : 'plain'}
+      empty={empty}
+      shake={shake}
     >
       {presets?.length ? (
         <View style={styles.presets}>
