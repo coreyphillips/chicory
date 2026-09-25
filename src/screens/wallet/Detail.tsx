@@ -14,6 +14,7 @@ import { palette } from '../../design/palette';
 import { CopyChip } from '../../glyphs/CopyChip';
 import { Odometer } from '../../glyphs/Odometer';
 import { StatusRing } from '../../glyphs/StatusRing';
+import { Whisper } from '../../glyphs/Whisper';
 import {
   RAIL_GLYPH,
   amountVisual,
@@ -155,7 +156,9 @@ export function DetailScreen({
           accessibilityValue={{ text: words.value }}
           accessibilityLiveRegion={words.safety ? 'assertive' : 'polite'}
         >
-          <StatusRing size={HEADER_RING} visual={visual} test={test} />
+          <Whisper label={words.label}>
+            <StatusRing size={HEADER_RING} visual={visual} test={test} />
+          </Whisper>
         </Reanimated.View>
         {look.open ? (
           <Reanimated.View

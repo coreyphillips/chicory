@@ -12,10 +12,17 @@ import {
 import { copy } from '../src/design/copy';
 import { chipText } from '../src/glyphs/CopyChip';
 import { StatusRing } from '../src/glyphs/StatusRing';
+import { ringFlags, ringVisual } from '../src/scenes/activity/visual';
 import { useNow } from '../src/services/clock';
 import { copyViolations } from '../test-support/copyGuard';
 import { mount } from '../test-support/guard';
-import { allText, meaning, press, visibleText } from '../test-support/query';
+import {
+  allText,
+  meaning,
+  press,
+  visibleText,
+  whispers,
+} from '../test-support/query';
 
 const activity = (over: Partial<Activity> & { id: string }): Activity => ({
   kind: 'sent',
@@ -170,6 +177,18 @@ test('the rows ring in slate on a test network, and in bloom on mainnet', async 
     },
   });
   expect(new Set(rings(tree))).toEqual(new Set([false]));
+  await act(async () => tree.unmount());
+});
+
+test('held, each row ring whispers what it shows', async () => {
+  const tree = await renderActivity();
+  const said = whispers(tree);
+  const items = snapshot.activity;
+  expect(said).toHaveLength(items.length);
+  for (const item of items) {
+    const words = [activityStatus(item), ...ringFlags(ringVisual(item))];
+    expect(said).toContainEqual({ label: words.join('. '), on: true });
+  }
   await act(async () => tree.unmount());
 });
 

@@ -18,6 +18,7 @@ import { Glyph } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { StatusRing } from '../../glyphs/StatusRing';
+import { Whisper } from '../../glyphs/Whisper';
 import { riseIn } from '../../motion/presets';
 import { curves } from '../../motion/tokens';
 import { usePaneActive } from '../../stage/panes/Pane';
@@ -159,7 +160,10 @@ export const ActivityRow = React.memo(function ActivityRowItem({
           pressed && styles.pressed,
         ]}
       >
-        <StatusRing size={ROW_RING} visual={ring} test={test} />
+        {/* Held, the ring whispers what it shows (REDESIGN.md rule 3). */}
+        <Whisper label={[status, ...ringFlags(ring)].join('. ')}>
+          <StatusRing size={ROW_RING} visual={ring} test={test} />
+        </Whisper>
         <View style={styles.middle}>
           {look.open ? (
             <Glyph name="infinity" size={ROW_OPEN} color={TONES[look.tone]} />

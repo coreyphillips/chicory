@@ -58,6 +58,7 @@ import {
   pressableLabels,
   press,
   visibleText,
+  whispers,
 } from '../../test-support/query';
 
 /**
@@ -851,6 +852,18 @@ describe('the camera', () => {
     expect(aim.props.accessibilityState).toEqual({ busy: true });
     expect(aim.props.accessibilityValue).toEqual({ text: copy.scan.starting });
     expect(onAccess).toHaveBeenLastCalledWith('checking');
+    await act(async () => tree.unmount());
+  });
+
+  test('held, the reticle whispers what it asks, and that it is starting', async () => {
+    const live = await mount(scanner());
+    expect(whispers(live)).toEqual([{ label: copy.scan.aim, on: true }]);
+    await act(async () => live.unmount());
+    asking();
+    const tree = await mount(scanner());
+    expect(whispers(tree)).toEqual([
+      { label: `${copy.scan.aim} ${copy.scan.starting}`, on: true },
+    ]);
     await act(async () => tree.unmount());
   });
 

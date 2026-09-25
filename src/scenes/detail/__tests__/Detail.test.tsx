@@ -23,7 +23,12 @@ import {
   everyActivity,
   snapshotOf,
 } from '../../../../test-support/fixtures';
-import { alerts, meaning, visibleText } from '../../../../test-support/query';
+import {
+  alerts,
+  meaning,
+  visibleText,
+  whispers,
+} from '../../../../test-support/query';
 import * as motionPrefs from '../../../services/motion';
 import { ringWords, statusSentence } from '../model';
 import {
@@ -191,6 +196,16 @@ describe('the detail', () => {
     expect(spoken(tree, copy.detail.feeHidden(false))).toBeDefined();
     expect(meaning(tree)).not.toContain('4,200');
     expect(meaning(tree)).not.toContain('12 sats');
+    await act(async () => tree.unmount());
+  });
+
+  test('held, its ring whispers what it shows', async () => {
+    const item = EVERY['sent completed'];
+    const tree = await render(<DetailScreen item={item} />);
+    expect(whispers(tree)).toContainEqual({
+      label: ringWords(item).label,
+      on: true,
+    });
     await act(async () => tree.unmount());
   });
 

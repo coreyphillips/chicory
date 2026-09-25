@@ -564,28 +564,37 @@ const Reticle = memo(function ReticleMarks({
       exiting={exiting}
       style={[{ width: side, height: side }, group]}
     >
-      {CORNERS.map(({ dx, dy, at }, index) => (
-        <Corner
-          key={index}
-          index={index}
-          dx={dx}
-          dy={dy}
-          at={at}
-          from={from}
-          mode={mode}
-          reduced={reduced}
-        />
-      ))}
-      <Reanimated.View pointerEvents="none" style={[styles.fill, radish]}>
-        {tint(palette.radish)}
-      </Reanimated.View>
-      <Reanimated.View
-        pointerEvents="none"
-        exiting={sageExit}
-        style={[styles.fill, sage]}
+      {/* Held, it whispers what it asks (REDESIGN.md rule 3). Inside the
+          reticle, so its own exit is left as it is. */}
+      <Whisper
+        label={[copy.scan.aim, mode === 'checking' ? copy.scan.starting : '']
+          .filter(Boolean)
+          .join(' ')}
+        style={styles.fill}
       >
-        {tint(palette.sage)}
-      </Reanimated.View>
+        {CORNERS.map(({ dx, dy, at }, index) => (
+          <Corner
+            key={index}
+            index={index}
+            dx={dx}
+            dy={dy}
+            at={at}
+            from={from}
+            mode={mode}
+            reduced={reduced}
+          />
+        ))}
+        <Reanimated.View pointerEvents="none" style={[styles.fill, radish]}>
+          {tint(palette.radish)}
+        </Reanimated.View>
+        <Reanimated.View
+          pointerEvents="none"
+          exiting={sageExit}
+          style={[styles.fill, sage]}
+        >
+          {tint(palette.sage)}
+        </Reanimated.View>
+      </Whisper>
     </Reanimated.View>
   );
 });
