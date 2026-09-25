@@ -5,6 +5,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import type { SendReview, ReceiveQuote } from '@beignet/wallet-core';
 import { SendScreen, ReceiveScreen } from '../src/screens/Payments';
 import { Scanner } from '../src/components/Scanner';
+import { forgetSpoken } from '../src/design/announce';
 import { copy } from '../src/design/copy';
 import * as tokens from '../src/motion/tokens';
 import { stepInMs } from '../src/scenes/send/useLanding';
@@ -80,10 +81,12 @@ const keypads = (tree: ReactTestRenderer) =>
   );
 
 // A request held by one test's unknown payment would send the next test that
-// pays it to the held ring, and the platform's announcer is a mock that keeps
-// every call. Each test starts with neither, so it sees only what it did.
+// pays it to the held ring, the platform's announcer is a mock that keeps
+// every call, and a phrase said within 2s is not said again. Each test starts
+// with none of these, so it sees and hears only what it did.
 beforeEach(() => {
   clearHeldRequests();
+  forgetSpoken();
   jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
   jest
     .mocked(AccessibilityInfo.announceForAccessibilityWithOptions)
@@ -517,9 +520,7 @@ async function payOnce(client: WalletAdapter, request: string) {
 }
 
 test('a request whose payment is unknown cannot be paid again: it lands on the held ring', async () => {
-  // A phrase is spoken again only 2s after it was last spoken, and the first
-  // test here says this one. An hour on, what this test says is heard.
-  jest.useFakeTimers({ now: Date.now() + 3_600_000 });
+  jest.useFakeTimers();
   try {
     const said = jest.spyOn(
       AccessibilityInfo,

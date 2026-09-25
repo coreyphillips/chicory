@@ -10,6 +10,7 @@ import type {
   ReceiveStatus,
 } from '@beignet/wallet-core';
 import { ToastProvider, useToast } from '../src/components/Toast';
+import { forgetSpoken } from '../src/design/announce';
 import { copy } from '../src/design/copy';
 import { GLYPHS } from '../src/design/glyphs';
 import { haptics } from '../src/design/haptics';
@@ -162,9 +163,11 @@ const openNote = (tree: ReactTestRenderer) =>
 beforeEach(() => {
   jest.useFakeTimers();
   AppState.currentState = 'active';
-  // The platform's announcer is a mock that keeps every call, and the
-  // diagnostic log lives as long as the file does. Each test starts with
-  // both empty, so what it finds there is what its own case said and logged.
+  // The platform's announcer is a mock that keeps every call, a phrase said
+  // within 2s is not said again, and the diagnostic log lives as long as the
+  // file does. Each test starts with all of them empty, so what it finds there
+  // is what its own case said and logged.
+  forgetSpoken();
   jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
   jest
     .mocked(AccessibilityInfo.announceForAccessibilityWithOptions)
@@ -1038,15 +1041,6 @@ test('the offline box turns itself off when the room goes, but not under a reque
 });
 
 describe('the safety states on a request', () => {
-  const HOUR = 3_600_000;
-  // A phrase is spoken again only 2s after it was last spoken, and earlier
-  // cases leave their clocks ahead; each case here starts an hour further
-  // on, so what it announces is heard.
-  let hours = 0;
-  beforeEach(() => {
-    hours += 1;
-    jest.setSystemTime(Date.now() + hours * HOUR);
-  });
   afterEach(() => jest.restoreAllMocks());
 
   const spoken = () =>
@@ -1530,8 +1524,6 @@ describe('copying, and what a copy says', () => {
     );
 
   test('a chip names what it copied the way a sentence starts, whatever its label', async () => {
-    // Each case speaks at an hour of its own, past the announcer's repeat window.
-    jest.setSystemTime(Date.now() + 3_600_000);
     const said = spoken();
     let tree!: ReactTestRenderer;
     await act(async () => {
@@ -1546,7 +1538,6 @@ describe('copying, and what a copy says', () => {
   });
 
   test('a toast is a glyph on screen and its message for a screen reader, at once when it failed', async () => {
-    jest.setSystemTime(Date.now() + 2 * 3_600_000);
     const said = spoken();
     let show!: ReturnType<typeof useToast>;
     function Probe() {
@@ -1580,7 +1571,6 @@ describe('copying, and what a copy says', () => {
   });
 
   test('a link the engine refuses is a bang with its words, an error haptic and a line in the log', async () => {
-    jest.setSystemTime(Date.now() + 3 * 3_600_000);
     const said = spoken();
     const failed = jest.spyOn(haptics, 'error');
     const why = 'The original request belongs to another invoice.';

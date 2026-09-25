@@ -34,3 +34,12 @@ export function announce(
     AccessibilityInfo.announceForAccessibility(text);
   }
 }
+
+/**
+ * Forgets what was said recently, so the next message is heard even if it
+ * was said within REPEAT_MS. For tests only: each test can start with
+ * nothing said rather than move the clock past the window.
+ */
+export function forgetSpoken() {
+  recent.clear();
+}

@@ -1,5 +1,5 @@
 import { AccessibilityInfo, Platform } from 'react-native';
-import { announce } from '../src/design/announce';
+import { announce, forgetSpoken } from '../src/design/announce';
 
 const polite = jest.mocked(AccessibilityInfo.announceForAccessibility);
 const withOptions = jest.mocked(
@@ -48,6 +48,13 @@ describe('repeats', () => {
       'Payment detected.',
       'Part of it is here.',
     ]);
+  });
+
+  test('a test can forget what was said, and hear it again at once', () => {
+    announce('Balance may be out of date.');
+    forgetSpoken();
+    announce('Balance may be out of date.');
+    expect(withOptions).toHaveBeenCalledTimes(2);
   });
 
   test('an empty message says nothing', () => {
