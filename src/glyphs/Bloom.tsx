@@ -23,7 +23,11 @@ import Reanimated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import type { DerivedValue, SharedValue } from 'react-native-reanimated';
+import type {
+  DerivedValue,
+  EntryExitAnimationFunction,
+  SharedValue,
+} from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import Svg, {
   Circle,
@@ -46,9 +50,11 @@ import { useMotionPrefs } from '../motion/useMotionPrefs';
  * full flower (1). When it changes each petal springs to it in turn, as the
  * unfold passes it. `mode` is the loop it runs while nothing else happens:
  * a slow breath, the chase that says it is loading, or the ratchet of a
- * refresh. `tone` follows the network and the wallet's state and crossfades
- * when it changes, and `halo` is the honey ring a pending backup puts around
- * it. `detail` 'mark' drops the veins and draws a plain centre, and is the
+ * refresh. `breath` 'center' keeps the petals still and breathes the centre
+ * alone, for a setup still under way (REDESIGN.md 6, setup pending). `tone`
+ * follows the network and the wallet's state and crossfades when it
+ * changes, and `halo` is the honey ring a pending backup puts around it.
+ * `detail` 'mark' drops the veins and draws a plain centre, and is the
  * default below 40pt, where the tips also keep three teeth instead of five.
  *
  * `event` plays when its `key` changes after the bloom has mounted. A burst
@@ -70,10 +76,20 @@ import { useMotionPrefs } from '../motion/useMotionPrefs';
  * ring behind shows once the first is whole, and past 24 every petal turns
  * radish. Whoever counts plays the burst and the shake.
  *
+ * `unfoldOnExit` is how a bloom leaves when its view is taken away, such as
+ * the lock's bud as the lock opens (REDESIGN.md 7, R-1): each petal opens
+ * from where it stands to the full flower on the reveal spring, as the
+ * unfold passes it, and the flower holds open while whatever carries it off
+ * moves it, then fades in the last moment of that many milliseconds. Its
+ * drawings keep their look rather than fade on the way out. Under Reduce
+ * Motion the petals dip out and come back open within a crossfade, and hold
+ * still. A count does not leave this way.
+ *
  * Each petal is its own view, turned about the centre, around a still SVG:
  * the loops move only transforms and opacity, on the UI thread.
  */
 export type BloomMode = 'still' | 'breathe' | 'chase' | 'ratchet';
+export type BloomBreath = 'whole' | 'center';
 export type BloomTone = 'live' | 'test' | 'dormant';
 export type BloomEvent = {
   kind: 'burst' | 'wilt' | 'fold' | 'fall' | 'shake';
@@ -83,6 +99,8 @@ export type BloomEvent = {
 export interface BloomProps {
   size: number;
   mode?: BloomMode;
+  /** What a breath moves: the whole flower, or only its centre. */
+  breath?: BloomBreath;
   open?: number;
   tone?: BloomTone;
   halo?: boolean;
@@ -92,6 +110,8 @@ export interface BloomProps {
   opening?: DerivedValue<number>;
   /** How many petals a count has lit, from 0 to 24; see above. */
   lit?: number;
+  /** How long, in ms, the bloom unfolds as it leaves; see above. */
+  unfoldOnExit?: number;
   /** Without one, the bloom is decoration and hidden from screen readers. */
   accessibilityLabel?: string;
 }
@@ -209,6 +229,18 @@ export function breathe(t: number) {
   'worklet';
   const depth = (1 - Math.cos(2 * Math.PI * t)) / 2;
   return { scale: 1 + 0.035 * depth, rotate: 1.5 * depth };
+}
+
+/**
+ * What a breath at clock `t` does to the wrapper and to the centre: the
+ * whole flower breathes as one, or the centre alone swells a quarter and
+ * settles while the petals hold still. Both rest on each whole cycle.
+ */
+export function breathPose(t: number, breath: BloomBreath) {
+  'worklet';
+  if (breath === 'whole') return { wrap: breathe(t), center: 1 };
+  const depth = (1 - Math.cos(2 * Math.PI * t)) / 2;
+  return { wrap: breathe(0), center: 1 + 0.25 * depth };
 }
 
 /** How far petal `i` has fallen at `f`, from 0 to gone. Reduced, it only fades. */
@@ -442,6 +474,117 @@ const HALO_FADE = FadeOut.duration(durations.crossfade).reduceMotion(
   ReduceMotion.Never,
 );
 
+/*
+ * A bloom that leaves by unfolding (`unfoldOnExit`). Each part times its own
+ * way out and lasts the whole stay, since a part whose exit ends first is
+ * taken away while the rest still moves. Every step runs whatever the Reduce
+ * Motion setting, which chooses the steps instead.
+ */
+const NEVER = ReduceMotion.Never;
+
+/** How long the last fade of a leaving bloom takes. */
+const leaveFade = (reduced: boolean) =>
+  reduced ? durations.crossfade : durations.exit;
+
+/**
+ * Petal `i` leaving by unfolding: from where it stands at `from` to the full
+ * flower on the reveal spring, as the unfold passes it, then open until it
+ * fades at the end of `ms`. Under Reduce Motion it dips out and comes back
+ * open within a crossfade, and holds still.
+ */
+export function unfoldExit(
+  i: number,
+  from: number,
+  ms: number,
+  reduced: boolean,
+): EntryExitAnimationFunction {
+  const start = petalState(from, i);
+  const end = petalState(1, i);
+  const delay = reduced ? durations.crossfade / 2 : petalDelay(i, from, 1);
+  const fade = leaveFade(reduced);
+  return () => {
+    'worklet';
+    const pose = (at: typeof start) => [
+      { rotate: `${at.rotate}deg` },
+      { scaleX: at.scaleX },
+      { scaleY: at.scaleY },
+    ];
+    // Reduced, the pose swaps while the petal is out of sight.
+    const open = <T extends number | string>(to: T) =>
+      withDelay(
+        delay,
+        reduced
+          ? withTiming(to, { duration: 0, reduceMotion: NEVER })
+          : withSpring(to, { ...springs.reveal, reduceMotion: NEVER }),
+        NEVER,
+      );
+    const shown = reduced
+      ? withSequence(
+          NEVER,
+          withTiming(0, { duration: delay, reduceMotion: NEVER }),
+          withTiming(end.opacity, { duration: delay, reduceMotion: NEVER }),
+        )
+      : withDelay(
+          delay,
+          withTiming(end.opacity, {
+            duration: durations.enter,
+            easing: curves.enter,
+            reduceMotion: NEVER,
+          }),
+          NEVER,
+        );
+    const opened = reduced ? 2 * delay : delay + durations.enter;
+    return {
+      initialValues: { opacity: start.opacity, transform: pose(start) },
+      animations: {
+        opacity: withSequence(
+          NEVER,
+          shown,
+          withDelay(
+            Math.max(0, ms - opened - fade),
+            withTiming(0, {
+              duration: fade,
+              easing: curves.exit,
+              reduceMotion: NEVER,
+            }),
+            NEVER,
+          ),
+        ),
+        transform: [
+          { rotate: open(`${end.rotate}deg`) },
+          { scaleX: open(end.scaleX) },
+          { scaleY: open(end.scaleY) },
+        ],
+      },
+    };
+  };
+}
+
+/**
+ * The centre of a bloom leaving by unfolding: it stays as it is and fades at
+ * the end of `ms`, with the petals.
+ */
+function holdExit(ms: number, reduced: boolean): EntryExitAnimationFunction {
+  const fade = leaveFade(reduced);
+  return () => {
+    'worklet';
+    return {
+      initialValues: { opacity: 1 },
+      animations: {
+        opacity: withDelay(
+          Math.max(0, ms - fade),
+          withTiming(0, {
+            duration: fade,
+            easing: curves.exit,
+            reduceMotion: NEVER,
+          }),
+          NEVER,
+        ),
+      },
+    };
+  };
+}
+
 interface Drives {
   burst: SharedValue<number>;
   wilt: SharedValue<number>;
@@ -464,6 +607,8 @@ interface PetalProps extends ArtProps {
   reduced: boolean;
   hush: number;
   drives: Drives;
+  /** How long the petal unfolds as the bloom leaves, if it leaves so. */
+  unfoldOnExit?: number;
 }
 
 const Petal = memo(function BloomPetal({
@@ -478,6 +623,7 @@ const Petal = memo(function BloomPetal({
   reduced,
   hush,
   drives,
+  unfoldOnExit,
   ...art
 }: PetalProps) {
   const q = useSharedValue(folded ? 0 : open);
@@ -554,12 +700,21 @@ const Petal = memo(function BloomPetal({
   }, [i, reduced, hush, turn, reach]);
 
   const fade = reduced ? ART_QUICK : ART;
+  // Leaving by unfolding, the drawing keeps its look while the petal opens.
+  const leaving = unfoldOnExit !== undefined;
   return (
-    <Reanimated.View style={[StyleSheet.absoluteFill, style]}>
+    <Reanimated.View
+      exiting={
+        leaving
+          ? unfoldExit(i, folded ? 0 : open, unfoldOnExit, reduced)
+          : undefined
+      }
+      style={[StyleSheet.absoluteFill, style]}
+    >
       <Reanimated.View
         key={art.art}
         entering={fade.in}
-        exiting={fade.out}
+        exiting={leaving ? undefined : fade.out}
         style={StyleSheet.absoluteFill}
       >
         <PetalArt {...art} />
@@ -571,6 +726,7 @@ const Petal = memo(function BloomPetal({
 export function Bloom({
   size,
   mode = 'still',
+  breath = 'whole',
   open = 1,
   tone = 'live',
   halo = false,
@@ -578,6 +734,7 @@ export function Bloom({
   detail = size < 40 ? 'mark' : 'full',
   opening,
   lit,
+  unfoldOnExit,
   accessibilityLabel,
 }: BloomProps) {
   const { reduced } = useMotionPrefs();
@@ -610,7 +767,7 @@ export function Bloom({
   }, [behind, behindShown, reduced]);
 
   // Loops.
-  const breath = useLoop(
+  const inhale = useLoop(
     durations.breathe,
     mode === 'breathe' && awake && !reduced,
   );
@@ -720,7 +877,7 @@ export function Bloom({
   }, [wilt, wilted, reduced]);
 
   const wrapStyle = useAnimatedStyle(() => {
-    const b = breathe(breath.get());
+    const b = breathPose(inhale.get(), breath).wrap;
     return {
       transform: [
         { translateX: nudge.get() },
@@ -728,10 +885,15 @@ export function Bloom({
         { scale: b.scale },
       ],
     };
-  });
-  const centerStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: center.get() }],
-  }));
+  }, [breath]);
+  const centerStyle = useAnimatedStyle(
+    () => ({
+      transform: [
+        { scale: center.get() * breathPose(inhale.get(), breath).center },
+      ],
+    }),
+    [breath],
+  );
   const cloneStyle = useAnimatedStyle(() => {
     const b = burstPose(burst.get(), reduced);
     return {
@@ -754,6 +916,9 @@ export function Bloom({
   const hush = reduced && mode === 'chase' ? HUSHED : 1;
   const labelled = !!accessibilityLabel;
   const artProps = { size, art, small, full, gradient };
+  // A count keeps to its own petals and never leaves by unfolding.
+  const leave = rings ? undefined : unfoldOnExit;
+  const held = leave === undefined ? undefined : holdExit(leave, reduced);
   return (
     <View
       accessible={labelled}
@@ -813,6 +978,7 @@ export function Bloom({
               reduced={reduced}
               hush={hush}
               drives={drives}
+              unfoldOnExit={leave}
               {...artProps}
               {...(rings
                 ? { reach, solo: true, ...counted(i < rings.front) }
@@ -823,7 +989,7 @@ export function Bloom({
             <Reanimated.View
               key={tone}
               entering={reduced ? ART_QUICK.in : ART.in}
-              exiting={reduced ? ART_QUICK.out : ART.out}
+              exiting={held ?? (reduced ? ART_QUICK.out : ART.out)}
               style={StyleSheet.absoluteFill}
             >
               <CenterArt size={size} tone={tone} full={full} />

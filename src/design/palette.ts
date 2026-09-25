@@ -52,6 +52,9 @@ export const palette = {
   // Money on its way: bloom at 35%, so it reads as the same money, not yet
   // solid.
   glass: 'rgba(143,165,228,0.35)',
+  // The same glass on a test network: slate at 35%, as slate stands in for
+  // bloom.
+  slateGlass: 'rgba(154,160,174,0.35)',
   scrim: 'rgba(17,14,12,0.88)',
 } as const;
 
@@ -79,6 +82,12 @@ export const gradients = {
       { offset: 0, color: palette.bloomNight, opacity: 0.28 },
       { offset: 0.6, color: '#2A2A45', opacity: 0.12 },
       { offset: 1, color: '#2A2A45', opacity: 0 },
+    ],
+    /** On a test network: the same glow in slate, so it never reads as bloom. */
+    test: [
+      { offset: 0, color: palette.slate, opacity: 0.2 },
+      { offset: 0.6, color: '#2A2C31', opacity: 0.1 },
+      { offset: 1, color: '#2A2C31', opacity: 0 },
     ],
     drift: { x: 0.06, y: 0.04, period: 18000, rotate: 8, spin: 26000 },
   },

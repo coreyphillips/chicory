@@ -17,21 +17,22 @@ import Svg, {
   Pattern,
 } from 'react-native-svg';
 import type { WalletRecord } from '@beignet/wallet-core';
-import { Bloom } from '../src/glyphs/Bloom';
+import { Bloom, petalState } from '../src/glyphs/Bloom';
 import type { BloomEvent, BloomMode, BloomTone } from '../src/glyphs/Bloom';
 import { Odometer } from '../src/glyphs/Odometer';
 import type { OdometerVariant } from '../src/glyphs/Odometer';
 import { PulseDot } from '../src/glyphs/PulseDot';
 import { StatusRing, ringColor } from '../src/glyphs/StatusRing';
 import type { RingVisual } from '../src/glyphs/StatusRing';
-import { Vessel } from '../src/glyphs/Vessel';
+import { Vessel, WAIT_WORDS } from '../src/glyphs/Vessel';
 import { Whisper, WhisperProvider } from '../src/glyphs/Whisper';
 import { GLYPHS } from '../src/design/glyphs';
 import { palette } from '../src/design/palette';
+import * as loops from '../src/motion/loops';
 import { Pane } from '../src/stage/panes/Pane';
 import { MASK } from '../src/theme';
 import { copyViolations } from '../test-support/copyGuard';
-import { a11yText, visibleText } from '../test-support/query';
+import { a11yText, visibleText, whispers } from '../test-support/query';
 
 /**
  * The glyphs as drawn (REDESIGN.md 5 and 8). Under Jest every animation
@@ -205,6 +206,91 @@ describe('Bloom', () => {
       <Bloom size={96} event={{ kind: 'fall', key: 0 }} />,
     );
     for (const petal of petals(fallen)) expect(turned(petal).opacity).toBe(0);
+  });
+
+  test('a breath of the centre alone swells the centre and holds the petals', async () => {
+    // Every loop clock stands halfway through its cycle, a breath's peak.
+    jest
+      .spyOn(loops, 'useLoop')
+      .mockImplementation(() => ({ get: () => 0.5 } as never));
+    const scaleOf = (node: ReactTestInstance) =>
+      (flat(node).transform as Array<{ scale?: number }>).find(
+        step => step.scale !== undefined,
+      )!.scale;
+    /** The flower's wrapper, which turns and breathes every petal. */
+    const wrapper = (tree: ReactTestRenderer) =>
+      tree.root.find(
+        node =>
+          typeof node.type === 'string' &&
+          flat(node).transform !== undefined &&
+          (flat(node).transform as object[]).some(step => 'translateX' in step),
+      );
+    /** The view that scales the centre, around its circle. */
+    const centre = (tree: ReactTestRenderer) => {
+      let at = tree.root.findAllByType(Circle)[0].parent;
+      while (at && !(typeof at.type === 'string' && flat(at).transform)) {
+        at = at.parent;
+      }
+      return at!;
+    };
+    const whole = await render(<Bloom size={28} mode="breathe" />);
+    expect(scaleOf(wrapper(whole))).toBeCloseTo(1.035);
+    expect(scaleOf(centre(whole))).toBe(1);
+    const inner = await render(
+      <Bloom size={28} mode="breathe" breath="center" />,
+    );
+    expect(scaleOf(wrapper(inner))).toBe(1);
+    expect(scaleOf(centre(inner))).toBeCloseTo(1.25);
+    expect(petals(inner)).toHaveLength(12);
+  });
+
+  test('a bloom that leaves by unfolding opens each petal from where it stands', async () => {
+    type Exit = () => {
+      initialValues: { opacity: number; transform: Array<{ rotate: string }> };
+      animations: { transform: Array<{ rotate: string }> };
+    };
+    /** The view a petal's drawing sits in, inside the one that turns it. */
+    const drawing = (group: ReactTestInstance) => {
+      let at = group.parent;
+      while (at && !(typeof at.type === 'string' && at.props.entering)) {
+        at = at.parent;
+      }
+      return at!;
+    };
+    const exitOf = (group: ReactTestInstance) => {
+      let at = drawing(group).parent;
+      while (at && typeof at.type !== 'string') at = at.parent;
+      return at!.props.exiting as Exit | undefined;
+    };
+    for (const reduced of [false, true]) {
+      reducedMotion(reduced);
+      const bud = await render(
+        <Bloom size={120} open={0.08} unfoldOnExit={880} />,
+      );
+      petals(bud).forEach((petal, i) => {
+        const exit = exitOf(petal)!();
+        // From the bud's pose to the open flower's, whatever the setting.
+        expect(exit.initialValues.transform[0].rotate).toBe(
+          `${petalState(0.08, i).rotate}deg`,
+        );
+        expect(exit.initialValues.opacity).toBeCloseTo(
+          petalState(0.08, i).opacity,
+        );
+        expect(exit.animations.transform[0].rotate).toBe(
+          `${petalState(1, i).rotate}deg`,
+        );
+        // The drawing keeps its look on the way out, rather than fading.
+        expect(drawing(petal).props.exiting).toBeUndefined();
+      });
+    }
+    // A bloom that simply goes fades its drawings, and its petals do not
+    // move.
+    reducedMotion(false);
+    const plain = await render(<Bloom size={120} open={0.08} />);
+    for (const petal of petals(plain)) {
+      expect(exitOf(petal)).toBeUndefined();
+      expect(drawing(petal).props.exiting).toBeDefined();
+    }
   });
 
   test('a labelled chase is busy', async () => {
@@ -573,6 +659,44 @@ describe('Odometer', () => {
     expect(visibleText(tree).join('')).toBe('1,295sats');
   });
 
+  test('every figure stops growing at its cap, in every variant and state', async () => {
+    const CAPS: Record<OdometerVariant, number> = {
+      hero: 1.2,
+      amount: 1.2,
+      amountDetail: 1.2,
+      line: 1.4,
+      row: 1.4,
+    };
+    const caps = (tree: ReactTestRenderer) =>
+      new Set(
+        tree.root
+          .findAllByType(Text)
+          .map(text => text.props.maxFontSizeMultiplier),
+      );
+    for (const variant of VARIANTS) {
+      const odometer = (
+        props: Partial<React.ComponentProps<typeof Odometer>>,
+      ) => (
+        <Odometer
+          sats={1_450}
+          unit="sats"
+          variant={variant}
+          sign="+"
+          {...props}
+        />
+      );
+      const tree = await render(odometer({}));
+      expect(caps(tree)).toEqual(new Set([CAPS[variant]]));
+      // Mid-roll, as columns; in BTC; and hidden.
+      act(() => tree.update(odometer({ sats: 1_295 })));
+      expect(caps(tree)).toEqual(new Set([CAPS[variant]]));
+      await act(async () => tree.update(odometer({ unit: 'btc' })));
+      expect(caps(tree)).toEqual(new Set([CAPS[variant]]));
+      await act(async () => tree.update(odometer({ masked: true })));
+      expect(caps(tree)).toEqual(new Set([CAPS[variant]]));
+    }
+  });
+
   test('under Reduce Motion a new amount crossfades instead of rolling', async () => {
     reducedMotion();
     const tree = await render(
@@ -646,6 +770,119 @@ describe('Vessel', () => {
       expect(prose(tree)).toEqual([]);
     },
   );
+
+  const spliced = (state: 'conflicted' | 'reverted'): Lfbw => ({
+    enabled: true,
+    lastSplice: { state, spliceTxid: null, conflictTxid: null, at: 1 },
+  });
+  const WAITS: Array<[string, Lfbw | undefined, string, boolean]> = [
+    ['plain glass', undefined, WAIT_WORDS.arriving, false],
+    [
+      'below the floor',
+      decided('wait', 'below-floor'),
+      WAIT_WORDS.belowFloor,
+      false,
+    ],
+    ['moving in', decided('splice-in'), WAIT_WORDS.moving, true],
+    ['the fee wait', decided('wait', 'fee-too-high'), WAIT_WORDS.feeWait, true],
+    ['a failure', decided('failed'), WAIT_WORDS.failed, true],
+    [
+      'confirming',
+      decided('wait', 'channel-pending'),
+      WAIT_WORDS.confirming,
+      true,
+    ],
+    ['a conflicted splice', spliced('conflicted'), WAIT_WORDS.conflicted, true],
+    ['a reverted splice', spliced('reverted'), WAIT_WORDS.reverted, true],
+    [
+      'unpaired funding',
+      { enabled: true, unpairedFunding: { at: 1 } },
+      WAIT_WORDS.unpaired,
+      true,
+    ],
+  ];
+
+  test.each(WAITS)(
+    '%s names its wait in the value, and its glyph whispers it',
+    async (_, lfbw, words, glyphed) => {
+      const tree = await render(
+        <Vessel
+          availableSats={250_000}
+          pendingSats={11_500}
+          lfbw={lfbw}
+          unit="sats"
+        />,
+      );
+      const root = tree.root.findByProps({ accessible: true });
+      // The label keeps the split; the value says why the money waits.
+      expect(root.props.accessibilityLabel).toBe(
+        '250,000 sats ready to send, 11,500 sats arriving',
+      );
+      expect(root.props.accessibilityValue).toEqual({ text: words });
+      expect(whispers(tree)).toEqual(
+        glyphed ? [{ label: words, on: true }] : [],
+      );
+      expect(prose(tree)).toEqual([]);
+    },
+  );
+
+  test('each wait has words of its own', () => {
+    const all = Object.values(WAIT_WORDS);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  test('nothing waiting, or a hidden balance, names no wait', async () => {
+    const settled = await render(
+      <Vessel availableSats={250_000} pendingSats={0} unit="sats" />,
+    );
+    const hidden = await render(
+      <Vessel
+        availableSats={250_000}
+        pendingSats={11_500}
+        lfbw={decided('failed')}
+        unit="sats"
+        masked
+      />,
+    );
+    for (const tree of [settled, hidden]) {
+      const root = tree.root.findByProps({ accessible: true });
+      expect(root.props.accessibilityValue).toBeUndefined();
+      expect(whispers(tree)).toEqual([]);
+    }
+  });
+
+  test('on a test network the solid part, the glass and a bloom glyph are slate', async () => {
+    const vessel = (lfbw: Lfbw | undefined, test?: boolean) =>
+      render(
+        <Vessel
+          availableSats={250_000}
+          pendingSats={11_500}
+          lfbw={lfbw}
+          unit="sats"
+          test={test}
+        />,
+      );
+    const part = (tree: ReactTestRenderer, origin: string) =>
+      flat(hosts(tree, node => flat(node).transformOrigin === origin)[0]);
+    const strokes = (tree: ReactTestRenderer) =>
+      new Set(tree.root.findAllByType(Svg).map(svg => svg.props.stroke));
+    // A payment confirming draws a bloom clock over bloom glass.
+    const confirming = decided('wait', 'channel-pending');
+    const real = await vessel(confirming);
+    expect(part(real, 'left center').backgroundColor).toBe(palette.bloom);
+    expect(part(real, 'right center').backgroundColor).toBe(palette.glass);
+    expect(strokes(real)).toEqual(new Set([palette.bloom]));
+    const play = await vessel(confirming, true);
+    expect(part(play, 'left center').backgroundColor).toBe(palette.slate);
+    expect(part(play, 'right center').backgroundColor).toBe(palette.slateGlass);
+    expect(strokes(play)).toEqual(new Set([palette.slate]));
+    // A failure stays radish, whatever the network.
+    const failed = await vessel(decided('failed'), true);
+    expect(part(failed, 'right center').backgroundColor).toBe(
+      'rgba(255,131,115,0.35)',
+    );
+    expect(strokes(failed)).toEqual(new Set([palette.radish]));
+  });
 
   test('a failure wears a radish retry ring', async () => {
     const tree = await render(

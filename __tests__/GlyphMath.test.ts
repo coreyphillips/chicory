@@ -1,11 +1,12 @@
 import { GLYPHS } from '../src/design/glyphs';
-import { alpha, mixHex, palette } from '../src/design/palette';
+import { alpha, gradients, mixHex, palette } from '../src/design/palette';
 import { fract, wave } from '../src/motion/loops';
 import { kickVelocity, springStep } from '../src/motion/springMath';
 import { springs } from '../src/motion/tokens';
 import type { RingVisual } from '../src/scenes/activity/visual';
 import {
   PETALS,
+  breathPose,
   breathe,
   burstPose,
   chaseOpacity,
@@ -46,6 +47,7 @@ import {
   sheenX,
 } from '../src/glyphs/Vessel';
 import { pillPlace } from '../src/glyphs/Whisper';
+import { colors, type as typography } from '../src/theme';
 
 /**
  * The glyphs' motion as arithmetic (REDESIGN.md 5). Under Jest an animation
@@ -94,6 +96,25 @@ describe('loops', () => {
     const peak = breathe(0.5);
     expect(peak.scale).toBeCloseTo(1.035);
     expect(peak.rotate).toBeCloseTo(1.5);
+  });
+
+  test('a breath of the centre alone swells it a quarter and holds the petals', () => {
+    // The whole flower breathes as one, its centre with it.
+    expect(breathPose(0.5, 'whole')).toEqual({
+      wrap: breathe(0.5),
+      center: 1,
+    });
+    // Setup pending: the petals hold still while the centre swells.
+    const peak = breathPose(0.5, 'center');
+    expect(peak.wrap).toEqual({ scale: 1, rotate: 0 });
+    expect(peak.center).toBeCloseTo(1.25);
+    expect(breathPose(0.25, 'center').center).toBeCloseTo(1.125);
+    for (const t of [0, 3]) {
+      expect(breathPose(t, 'center')).toEqual({
+        wrap: { scale: 1, rotate: 0 },
+        center: 1,
+      });
+    }
   });
 
   test('the halo pulses between 1 and .5', () => {
@@ -612,5 +633,32 @@ describe('Whisper', () => {
 
   test('with no room above, it goes below', () => {
     expect(pillPlace({ ...source, y: 10 }, 120, 26, 390).y).toBe(58);
+  });
+});
+
+describe('tokens', () => {
+  test('every legacy colour is a palette token', () => {
+    const tokens = new Set<string>(Object.values(palette));
+    for (const [name, value] of Object.entries(colors)) {
+      expect([name, tokens.has(value)]).toEqual([name, true]);
+    }
+  });
+
+  test('the glass is its colour at 35%, bloom or slate', () => {
+    expect(palette.glass).toBe(alpha(palette.bloom, 0.35));
+    expect(palette.slateGlass).toBe(alpha(palette.slate, 0.35));
+  });
+
+  test("a test network's glow keeps the bloom glow's shape, in slate", () => {
+    const { stops, test } = gradients.G1;
+    expect(test.map(stop => stop.offset)).toEqual(
+      stops.map(stop => stop.offset),
+    );
+    expect(test[0].color).toBe(palette.slate);
+    expect(test[test.length - 1].opacity).toBe(0);
+  });
+
+  test("the whisper's words are 13pt, on the type scale", () => {
+    expect(typography.whisper).toEqual({ fontSize: 13, lineHeight: 18 });
   });
 });

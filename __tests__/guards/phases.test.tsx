@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { PropsWithChildren, ReactElement } from 'react';
-import { AccessibilityInfo, Text, View } from 'react-native';
+import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
 import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -684,6 +684,47 @@ describe('phase behaviour', () => {
     await act(async () => tree.unmount());
   });
 
+  test('under Reduce Motion a refusal tints the bud radish instead of shaking it', async () => {
+    const tree = await reduced(() => lock({ error: copy.phase.lockRefused }));
+    // The bud takes the refusal as it would a shake, and plays it as its
+    // own 400ms radish tint.
+    const [bud] = tree.root
+      .findAllByType(Bloom)
+      .filter(node => node.props.mode === 'breathe');
+    expect(bud.props.event).toEqual({ kind: 'shake', key: 1 });
+    const tints = bud.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        StyleSheet.flatten(node.props.style)?.backgroundColor ===
+          palette.radishSoft,
+    );
+    expect(tints).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('unlocking unfolds the bud itself, then carries it off', async () => {
+    const stays = async (render: () => Promise<ReactTestRenderer>) => {
+      const tree = await render();
+      // One bloom: the breathing bud, whose own petals open as it leaves,
+      // rather than an open flower faded in over it.
+      const blooms = tree.root.findAllByType(Bloom);
+      expect(blooms).toHaveLength(1);
+      expect(blooms[0].props).toMatchObject({ mode: 'breathe', open: 0.08 });
+      let carrier = blooms[0].parent;
+      while (carrier && typeof carrier.type !== 'string') {
+        carrier = carrier.parent;
+      }
+      expect(carrier!.props.exiting).toEqual(expect.any(Function));
+      const stay = blooms[0].props.unfoldOnExit;
+      await act(async () => tree.unmount());
+      return stay;
+    };
+    // R-1: the unfold to 500ms, then the flight to the mark by 880ms.
+    expect(await stays(() => lock())).toBe(880);
+    // Reduced, it opens within a crossfade and fades where it is.
+    expect(await stays(() => reduced(() => lock()))).toBe(660);
+  });
+
   test('leaving the lock right after a prompt is an unlock the hand can feel', async () => {
     const tree = await lock({ prompting: true });
     haptic.mockClear();
@@ -692,6 +733,40 @@ describe('phase behaviour', () => {
       'notificationSuccess',
       expect.anything(),
     );
+  });
+
+  test("welcome's wilt lifts with the failure, and the next one wilts it again", async () => {
+    const props = {
+      connecting: false,
+      initializing: false,
+      deviceVisible: false,
+      deviceHint: false,
+      rememberedSession: null,
+      openDevice: jest.fn(async () => {}),
+      openWallet: jest.fn(async () => {}),
+      setError: jest.fn(),
+      setDeviceVisible: jest.fn(),
+      onCreateWallet: jest.fn(),
+    };
+    const drawn = (error: string, connecting = false) => (
+      <Staged>
+        <Welcome {...props} error={error} connecting={connecting} />
+      </Staged>
+    );
+    const bloom = (tree: ReactTestRenderer) =>
+      tree.root.findByType(Bloom).props;
+    const tree = await mount(drawn('Electrum is offline.'));
+    expect(bloom(tree).event).toEqual({ kind: 'wilt', key: 1 });
+    // Try again clears the error as it starts to open: the chase is whole.
+    await act(async () => tree.update(drawn('', true)));
+    expect(bloom(tree)).toMatchObject({ mode: 'chase', event: undefined });
+    await act(async () => tree.update(drawn('')));
+    expect(bloom(tree)).toMatchObject({ mode: 'breathe', event: undefined });
+    // A new failure is a new wilt, so it plays rather than being taken for
+    // the last one.
+    await act(async () => tree.update(drawn('Refused.')));
+    expect(bloom(tree).event).toEqual({ kind: 'wilt', key: 2 });
+    await act(async () => tree.unmount());
   });
 
   test('choosing a wallet chases its mark and dims the rest', async () => {
