@@ -55,6 +55,9 @@ import { Whisper } from './Whisper';
  * `stale` dims it with the hero. A hidden balance hides the split too, since
  * the proportion alone says something.
  *
+ * On a test network slate stands in for bloom, in the solid part, the glass
+ * and the glyph, so play money never looks like real money.
+ *
  * Why the money waits is said as well as drawn: the label reads the split,
  * the value names the wait, and a long press on the glyph whispers it
  * (REDESIGN.md rule 3).
@@ -66,6 +69,8 @@ export interface VesselProps {
   unit: Unit;
   masked?: boolean;
   stale?: boolean;
+  /** A test network's wallet: slate stands in for bloom (REDESIGN.md 3.1). */
+  test?: boolean;
 }
 
 /** Glass is a colour at 35%, as the arriving bloom glass is (REDESIGN.md 3.1). */
@@ -439,11 +444,16 @@ export function Vessel({
   unit,
   masked = false,
   stale = false,
+  test = false,
 }: VesselProps) {
   const { reduced } = useMotionPrefs();
   const awake = useAwake();
   const active = usePaneActive();
   const visual = vesselVisual({ availableSats, pendingSats }, lfbw);
+  // Slate in place of bloom on a test network.
+  const spendable = test ? palette.slate : palette.bloom;
+  const fill =
+    visual.fill === 'glass' && test ? palette.slateGlass : FILLS[visual.fill];
   const split = visual.weight === 'swollen' && !masked;
   const [width, setWidth] = useState(0);
   const [open, setOpen] = useState(false);
@@ -551,11 +561,14 @@ export function Vessel({
     opacity: glassShown.get(),
     transform: [{ scaleX: 1 - share.get() }],
   }));
-  const solidStyle = useAnimatedStyle(() => ({
-    opacity: solidShown.get(),
-    backgroundColor: mixHex(palette.bloom, palette.steam, dim.get()),
-    transform: [{ scaleX: share.get() }],
-  }));
+  const solidStyle = useAnimatedStyle(
+    () => ({
+      opacity: solidShown.get(),
+      backgroundColor: mixHex(spendable, palette.steam, dim.get()),
+      transform: [{ scaleX: share.get() }],
+    }),
+    [spendable],
+  );
   const sheenStyle = useAnimatedStyle(
     () => ({
       transform: [
@@ -613,7 +626,7 @@ export function Vessel({
   const glyph = visual.glyph && !masked && !opened ? visual.glyph : null;
   // A hidden balance hides the wait with the split.
   const words = masked ? null : vesselWords(visual);
-  const tone = TONES[visual.tone];
+  const tone = visual.tone === 'bloom' ? spendable : TONES[visual.tone];
   const available = amountIn(availableSats, unit);
   const arriving = amountIn(pendingSats, unit);
   return (
@@ -636,11 +649,7 @@ export function Vessel({
         <Reanimated.View style={[styles.pill, pillStyle, dimStyle]}>
           <Reanimated.View style={[styles.hairline, hairlineStyle]} />
           <Reanimated.View
-            style={[
-              styles.arriving,
-              { backgroundColor: FILLS[visual.fill] },
-              arrivingStyle,
-            ]}
+            style={[styles.arriving, { backgroundColor: fill }, arrivingStyle]}
           />
           {split && reduced && visual.fill !== 'seeds' && width > 0 ? (
             <View

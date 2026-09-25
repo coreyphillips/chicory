@@ -813,6 +813,39 @@ describe('Vessel', () => {
     }
   });
 
+  test('on a test network the solid part, the glass and a bloom glyph are slate', async () => {
+    const vessel = (lfbw: Lfbw | undefined, test?: boolean) =>
+      render(
+        <Vessel
+          availableSats={250_000}
+          pendingSats={11_500}
+          lfbw={lfbw}
+          unit="sats"
+          test={test}
+        />,
+      );
+    const part = (tree: ReactTestRenderer, origin: string) =>
+      flat(hosts(tree, node => flat(node).transformOrigin === origin)[0]);
+    const strokes = (tree: ReactTestRenderer) =>
+      new Set(tree.root.findAllByType(Svg).map(svg => svg.props.stroke));
+    // A payment confirming draws a bloom clock over bloom glass.
+    const confirming = decided('wait', 'channel-pending');
+    const real = await vessel(confirming);
+    expect(part(real, 'left center').backgroundColor).toBe(palette.bloom);
+    expect(part(real, 'right center').backgroundColor).toBe(palette.glass);
+    expect(strokes(real)).toEqual(new Set([palette.bloom]));
+    const play = await vessel(confirming, true);
+    expect(part(play, 'left center').backgroundColor).toBe(palette.slate);
+    expect(part(play, 'right center').backgroundColor).toBe(palette.slateGlass);
+    expect(strokes(play)).toEqual(new Set([palette.slate]));
+    // A failure stays radish, whatever the network.
+    const failed = await vessel(decided('failed'), true);
+    expect(part(failed, 'right center').backgroundColor).toBe(
+      'rgba(255,131,115,0.35)',
+    );
+    expect(strokes(failed)).toEqual(new Set([palette.radish]));
+  });
+
   test('a failure wears a radish retry ring', async () => {
     const tree = await render(
       <Vessel

@@ -52,6 +52,9 @@ export const palette = {
   // Money on its way: bloom at 35%, so it reads as the same money, not yet
   // solid.
   glass: 'rgba(143,165,228,0.35)',
+  // The same glass on a test network: slate at 35%, as slate stands in for
+  // bloom.
+  slateGlass: 'rgba(154,160,174,0.35)',
   scrim: 'rgba(17,14,12,0.88)',
 } as const;
 
