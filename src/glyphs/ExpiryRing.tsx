@@ -1,21 +1,32 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { StyleSheet } from 'react-native';
+import Reanimated, {
+  ReduceMotion,
+  cancelAnimation,
+  useAnimatedProps,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import Svg, { Circle, Rect } from 'react-native-svg';
 import { palette } from '../design/palette';
-import { useNow } from '../services/clock';
+import { curves, durations } from '../motion/tokens';
+import { useLoop } from '../scenes/send/motion';
 
 /**
  * How long a quote or request has left, as a ring that runs down around the
- * control or frame it belongs to (REDESIGN.md 5, ExpiryRing). It turns honey
- * in its last 10 seconds and is gone at zero, when `onExpired` fires once.
+ * control or frame it belongs to (REDESIGN.md 5, ExpiryRing). It depletes in
+ * one linear timing over the time left, turns honey in its last 10 seconds
+ * and pulses in its last 3. At zero it retracts, and `onExpired` fires once
+ * for each deadline.
  *
  * `createdAt` is when the countdown started, so the ring shows the share
  * left rather than a full ring that suddenly empties; without it the ring is
  * full when it mounts. `shape` 'rect' runs it around a `width` by `height`
  * frame with corner `radius`, such as a request's QR.
  *
- * This version steps once a second. The single linear timing, the pulse in
- * the last 3 seconds and the collapse come later and keep this signature.
+ * Under Reduce Motion the ring still runs down and still turns honey; only
+ * the pulse and the retreat are left out.
  */
 export interface ExpiryRingProps {
   size: number;
@@ -28,9 +39,21 @@ export interface ExpiryRingProps {
   onExpired?: () => void;
 }
 
-/** Time left when the ring warns. */
+/** Time left when the ring warns, and when it starts to pulse. */
 const LATE_MS = 10_000;
+const URGENT_MS = 3_000;
 const STROKE = 2.5;
+
+type Stage = 'calm' | 'late' | 'urgent' | 'expired';
+
+function stageAt(left: number): Stage {
+  if (left <= 0) return 'expired';
+  if (left <= URGENT_MS) return 'urgent';
+  return left <= LATE_MS ? 'late' : 'calm';
+}
+
+const AnimatedCircle = Reanimated.createAnimatedComponent(Circle);
+const AnimatedRect = Reanimated.createAnimatedComponent(Rect);
 
 export function ExpiryRing({
   size,
@@ -45,13 +68,52 @@ export function ExpiryRing({
   // Without a start, the ring is full when it first appears.
   const [mounted] = useState(Date.now);
   const start = createdAt ?? mounted;
-  const now = useNow(1000);
-  const left = Math.max(0, expiresAt - now);
-  const share = expiresAt > start ? left / (expiresAt - start) : 0;
+  // Each stage belongs to the deadline it was reached for, so a new deadline
+  // is never read with the last one's stage.
+  const [reached, setReached] = useState(() => ({
+    deadline: expiresAt,
+    stage: stageAt(expiresAt - Date.now()),
+  }));
+  const stage =
+    reached.deadline === expiresAt
+      ? reached.stage
+      : stageAt(expiresAt - Date.now());
+
+  // The stages turn on timers of their own, so nothing renders between them.
+  useEffect(() => {
+    const left = Math.max(0, expiresAt - Date.now());
+    const reach = (next: Stage) =>
+      setReached({ deadline: expiresAt, stage: next });
+    reach(stageAt(left));
+    const due: [number, Stage][] = [
+      [left - LATE_MS, 'late'],
+      [left - URGENT_MS, 'urgent'],
+      [left, 'expired'],
+    ];
+    const timers = due
+      .filter(([ms]) => ms > 0)
+      .map(([ms, next]) => setTimeout(() => reach(next), ms));
+    return () => timers.forEach(clearTimeout);
+  }, [expiresAt]);
+
+  const share = useSharedValue(1);
+  useEffect(() => {
+    const left = Math.max(0, expiresAt - Date.now());
+    share.set(expiresAt > start ? left / (expiresAt - start) : 0);
+    // A countdown is not decoration: it runs down under Reduce Motion too.
+    share.set(
+      withTiming(0, {
+        duration: left,
+        easing: curves.linear,
+        reduceMotion: ReduceMotion.Never,
+      }),
+    );
+    return () => cancelAnimation(share);
+  }, [expiresAt, start, share]);
 
   // Once per deadline, however often it re-renders past it. A new deadline,
   // such as a refreshed quote, is told again when it runs out.
-  const expired = left === 0;
+  const expired = stage === 'expired';
   const told = useRef<number | null>(null);
   useEffect(() => {
     if (!expired || told.current === expiresAt) return;
@@ -59,7 +121,23 @@ export function ExpiryRing({
     onExpired?.();
   }, [expired, expiresAt, onExpired]);
 
-  const color = left <= LATE_MS ? palette.honey : palette.bloom;
+  const pulse = useLoop(durations.pulse / 2, stage === 'urgent', {
+    mirror: true,
+  });
+  const gone = useSharedValue(0);
+  useEffect(() => {
+    gone.set(
+      expired
+        ? withTiming(1, { duration: durations.move, easing: curves.exit })
+        : 0,
+    );
+  }, [expired, gone]);
+  const style = useAnimatedStyle(() => ({
+    opacity: (1 - 0.5 * pulse.get()) * (1 - gone.get()),
+    transform: [{ scale: 1 - 0.08 * gone.get() }],
+  }));
+
+  const color = stage === 'calm' ? palette.bloom : palette.honey;
   const inset = STROKE / 2;
   const w = shape === 'rect' ? width : size;
   const h = shape === 'rect' ? height : size;
@@ -67,23 +145,27 @@ export function ExpiryRing({
     shape === 'rect'
       ? 2 * (w + h - 4 * inset) - (8 - 2 * Math.PI) * radius
       : Math.PI * (size - STROKE);
+  const animatedProps = useAnimatedProps(() => ({
+    strokeDashoffset: length * (1 - share.get()),
+  }));
   const drawn = {
     fill: 'none',
     stroke: color,
-    strokeWidth: expired ? 0 : STROKE,
+    strokeWidth: STROKE,
     strokeLinecap: 'round' as const,
-    strokeDasharray: [length * share, length],
+    strokeDasharray: [length, length],
+    animatedProps,
   };
   return (
-    <View
-      style={{ width: w, height: h }}
+    <Reanimated.View
+      style={[styles.ring, { width: w, height: h }, style]}
       pointerEvents="none"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
       <Svg width={w} height={h}>
         {shape === 'rect' ? (
-          <Rect
+          <AnimatedRect
             x={inset}
             y={inset}
             width={w - STROKE}
@@ -92,7 +174,7 @@ export function ExpiryRing({
             {...drawn}
           />
         ) : (
-          <Circle
+          <AnimatedCircle
             cx={size / 2}
             cy={size / 2}
             r={(size - STROKE) / 2}
@@ -101,6 +183,8 @@ export function ExpiryRing({
           />
         )}
       </Svg>
-    </View>
+    </Reanimated.View>
   );
 }
+
+const styles = StyleSheet.create({ ring: { overflow: 'visible' } });
