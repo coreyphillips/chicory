@@ -214,24 +214,37 @@ const reused = Object.assign(new Error(copy.receive.reusedAddress), {
   code: 'AMBIGUOUS_RECEIVE_ADDRESS',
 });
 
-/** A payment's detail keeps the request it was asked for with. */
+/** A payment in each state a history can hold. */
 const payments = everyActivity();
+
+/** The original request a legacy invoice is linked back to. */
+const ORIGINAL = requestOf({}, 9);
+
+/** The original request pasted into the well. */
+const original: Step = tree =>
+  act(async () =>
+    field(tree, copy.receive.original).props.onChangeText(ORIGINAL.uri),
+  );
+
+/**
+ * A payment's detail keeps the request it was asked for with. `linking`
+ * answers a link to the original request; a linked one shows its string.
+ */
 function detail(
   name: string,
   item: Activity,
   steps: Step[] = [],
+  linking: { answer: jest.Mock; shows?: string[] } = { answer: jest.fn() },
 ): GuardedState {
   return {
     name,
-    data: guardData(snapshotOf({ activity: [item] })),
+    data: guardData(snapshotOf({ activity: [item] }), linking.shows),
     render: async () => {
       const tree = await mount(
         <ReceiveRequestDetails
           item={item}
           client={
-            {
-              importReceiveRequest: jest.fn(),
-            } as unknown as WalletAdapter
+            { importReceiveRequest: linking.answer } as unknown as WalletAdapter
           }
           onRefresh={noop}
         />,
@@ -447,6 +460,22 @@ const GUARDED: GuardedState[] = [
   detail('a detail, linking', payments['legacy invoice, expired'], [
     tap(copy.receive.linkOriginal),
   ]),
+  detail(
+    'a detail, linking refused',
+    payments['legacy invoice, expired'],
+    [tap(copy.receive.linkOriginal), original, tap(copy.receive.link)],
+    {
+      answer: jest
+        .fn()
+        .mockRejectedValue(new Error('It belongs to another invoice.')),
+    },
+  ),
+  detail(
+    'a detail, linked',
+    payments['legacy invoice, expired'],
+    [tap(copy.receive.linkOriginal), original, tap(copy.receive.link)],
+    { answer: jest.fn().mockResolvedValue(ORIGINAL), shows: [ORIGINAL.uri] },
+  ),
 
   // Copying.
   state('a copy chip', () =>
