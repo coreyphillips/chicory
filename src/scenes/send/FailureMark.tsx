@@ -9,13 +9,13 @@ import { BANG, DrawnGlyph } from './DrawnGlyph';
 import type { Stroke } from './DrawnGlyph';
 import type { Failure } from './model';
 import { useShake } from './motion';
-import { WaitingClock } from './WaitingClock';
+import { Unplugged, WaitingClock } from './LoopingGlyphs';
 
 /**
  * How each glyph an error shows draws in (REDESIGN.md 4, Animated glyphs):
  * the cross in two quick strokes, the bang's line and then its dot, the bolt
- * quickly, and anything else at the drawing pace. A clock is never drawn:
- * it is something waiting, so it ticks.
+ * quickly, and anything else at the drawing pace. A clock and an unplug are
+ * never drawn: they mark something that lasts, so they keep moving.
  */
 const STROKES: Partial<Record<GlyphName, Stroke[]>> = {
   cross: [{ duration: 140 }, { duration: 140, delay: 60 }],
@@ -53,6 +53,8 @@ export function FailureMark({ failure }: { failure: Failure }) {
           {failure.glyphs.map(glyph =>
             glyph === 'clock' ? (
               <WaitingClock key={glyph} size={22} color={color} />
+            ) : glyph === 'unplug' ? (
+              <Unplugged key={glyph} size={22} color={color} />
             ) : (
               <DrawnGlyph
                 key={glyph}

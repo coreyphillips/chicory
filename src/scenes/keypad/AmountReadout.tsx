@@ -16,7 +16,7 @@ import { durations } from '../../motion/tokens';
 import { type as typography } from '../../theme';
 import { BANG, DrawnGlyph } from '../send/DrawnGlyph';
 import { useShake } from '../send/motion';
-import { WaitingClock } from '../send/WaitingClock';
+import { WaitingClock } from '../send/LoopingGlyphs';
 import { Keypad } from './Keypad';
 import { amountCells, digitsOnly, grouped, pressKey } from './keys';
 import type { AmountTone, KeyName } from './keys';

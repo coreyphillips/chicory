@@ -10,7 +10,7 @@ import { mount } from '../../../../test-support/guard';
 import { GLYPHS } from '../../../design/glyphs';
 import { BANG, DrawnGlyph } from '../DrawnGlyph';
 import { Orbit } from '../Orbit';
-import { WaitingClock } from '../WaitingClock';
+import { Unplugged, WaitingClock } from '../LoopingGlyphs';
 
 /**
  * The hold and the countdown around it (REDESIGN.md 5, HoldButton and
@@ -116,18 +116,28 @@ describe('ExpiryRing', () => {
   });
 });
 
-/** The host view whose own style passes `test`, as a layer is found. */
-const layer = (
+/**
+ * The paths on each layer whose own style passes `test`, in order, as the
+ * moving parts of a glyph are found.
+ */
+const layers = (
   tree: ReactTestRenderer,
   test: (style: Record<string, unknown>) => boolean,
 ) =>
-  tree.root.find(
-    node =>
-      typeof node.type === 'string' &&
-      [node.props.style].flat(3).some(style => !!style && test(style)),
-  );
+  tree.root
+    .findAll(
+      node =>
+        typeof node.type === 'string' &&
+        [node.props.style].flat(3).some(style => !!style && test(style)),
+    )
+    .map(node => node.findAllByType(Path).map(path => path.props.d));
 
-describe('a glyph that arrives', () => {
+/** Whether a style moves by a transform step named `name`. */
+const moves = (name: string) => (style: Record<string, unknown>) =>
+  Array.isArray(style.transform) &&
+  style.transform.some((step: object) => name in step);
+
+describe('a glyph that moves in parts', () => {
   test('the bang draws its line, then pops its dot from where it sits', async () => {
     const tree = await mount(
       <DrawnGlyph
@@ -143,32 +153,30 @@ describe('a glyph that arrives', () => {
       dot.d,
     ]);
     // The dot sits on a layer of its own, which scales about the dot.
-    const popped = layer(
+    const popped = layers(
       tree,
       style => style.transformOrigin === `50% ${(18.5 / 24) * 100}%`,
     );
-    expect(popped.findAllByType(Path).map(path => path.props.d)).toEqual([
-      dot.d,
-    ]);
+    expect(popped).toEqual([[dot.d]]);
     await act(async () => tree.unmount());
   });
 
   test('the waiting clock turns its hands on a layer apart from its face', async () => {
     const tree = await mount(<WaitingClock size={16} color={palette.honey} />);
     const [face, hands] = GLYPHS.clock;
-    const turning = layer(
-      tree,
-      style =>
-        Array.isArray(style.transform) &&
-        style.transform.some(step => 'rotate' in step),
-    );
-    expect(turning.findAllByType(Path).map(path => path.props.d)).toEqual([
-      hands.d,
-    ]);
+    expect(layers(tree, moves('rotate'))).toEqual([[hands.d]]);
     expect(tree.root.findAllByType(Path).map(path => path.props.d)).toEqual([
       face.d,
       hands.d,
     ]);
+    await act(async () => tree.unmount());
+  });
+
+  test('the unplug drifts its halves apart round a still spark', async () => {
+    const tree = await mount(<Unplugged size={22} color={palette.honey} />);
+    const [left, right, spark] = GLYPHS.unplug;
+    expect(layers(tree, moves('translateX'))).toEqual([[left.d], [right.d]]);
+    expect(tree.root.findAllByType(Path)[0].props.d).toBe(spark.d);
     await act(async () => tree.unmount());
   });
 });
