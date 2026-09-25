@@ -3,12 +3,19 @@ import { PixelRatio, StyleSheet } from 'react-native';
 import { act } from 'react-test-renderer';
 import Svg from 'react-native-svg';
 import {
+  BANDS,
+  FINDERS,
   QR_QUIET,
+  QR_TIMING,
   QrBloom,
+  bloomMotion,
+  layerMotion,
   qrGrid,
   qrLayers,
   qrModules,
+  useQrDrawing,
 } from '../../../glyphs/QrBloom';
+import type { QrDrawing, QrModules } from '../../../glyphs/QrBloom';
 import { radius } from '../../../theme';
 import { mount } from '../../../../test-support/guard';
 
@@ -150,6 +157,130 @@ describe('the drawing', () => {
       // The code takes nine tenths of the card.
       expect(whole.width / size).toBeGreaterThan(0.9);
       await act(async () => tree.unmount());
+    }
+  });
+});
+
+/**
+ * The layers as they were first drawn: each band found by a pass of its own
+ * over every module, working each module's band out again each time.
+ */
+function plainLayers({ size, data }: QrModules, edges?: ArrayLike<number>) {
+  const at = (k: number) => (edges ? edges[k] : k);
+  const from = (origin: number) => (k: number) => at(origin + k) - at(origin);
+  const runs = (
+    n: number,
+    on: (row: number, column: number) => boolean,
+    x: (k: number) => number,
+    y: (k: number) => number,
+  ) => {
+    let d = '';
+    for (let row = 0; row < n; row++) {
+      let start = -1;
+      for (let column = 0; column <= n; column++) {
+        const lit = column < n && on(row, column);
+        if (lit && start < 0) start = column;
+        if (!lit && start >= 0) {
+          const width = x(column) - x(start);
+          d += `M${x(start)} ${y(row)}h${width}v${
+            y(row + 1) - y(row)
+          }h-${width}z`;
+          start = -1;
+        }
+      }
+    }
+    return d;
+  };
+  const dark = (row: number, column: number) => data[row * size + column] === 1;
+  const corners = [
+    { x: 0, y: 0 },
+    { x: size - 7, y: 0 },
+    { x: 0, y: size - 7 },
+  ];
+  const inFinder = (row: number, column: number) =>
+    corners.some(
+      ({ x, y }) => column >= x && column < x + 7 && row >= y && row < y + 7,
+    );
+  const middle = (size - 1) / 2;
+  const farthest = Math.SQRT2 * middle || 1;
+  const band = (row: number, column: number) =>
+    Math.min(
+      BANDS - 1,
+      Math.floor(
+        (BANDS * Math.hypot(row - middle, column - middle)) / farthest,
+      ),
+    );
+  return {
+    bands: Array.from({ length: BANDS }, (_, k) =>
+      runs(
+        size,
+        (row, column) =>
+          dark(row, column) &&
+          !inFinder(row, column) &&
+          band(row, column) === k,
+        from(0),
+        from(0),
+      ),
+    ),
+    finders: corners.map(({ x, y }) => ({
+      x,
+      y,
+      d: runs(7, (row, column) => dark(y + row, x + column), from(x), from(y)),
+    })),
+  };
+}
+
+describe('working a code out', () => {
+  test('draws every band in one pass, exactly as a pass for each drew them', () => {
+    for (const value of [DENSE, SHORT]) {
+      const code = qrModules(value);
+      expect(qrLayers(code)).toEqual(plainLayers(code));
+      for (const ratio of RATIOS) {
+        const { edges } = qrGrid(264, code.size, ratio);
+        expect(qrLayers(code, edges)).toEqual(plainLayers(code, edges));
+      }
+    }
+  });
+
+  test('waits for the card to be drawn, so the step it comes up in is not held back', async () => {
+    // Worked out in the render, a dense request held the JS thread through
+    // the change of step, and the quote never left (P7, 48-c3).
+    const seen: Array<QrDrawing | null> = [];
+    function Card() {
+      seen.push(useQrDrawing(DENSE, 264, 3));
+      return null;
+    }
+    const tree = await mount(<Card />);
+    expect(seen[0]).toBeNull();
+    const code = qrModules(DENSE);
+    const grid = qrGrid(264, code.size, 3);
+    expect(seen[seen.length - 1]).toMatchObject({
+      grid,
+      layers: { size: code.size, ...qrLayers(code, grid.edges) },
+    });
+    await act(async () => tree.unmount());
+  });
+
+  test('a card that waited spends its lead in, never the stagger between bands', () => {
+    const starts = (late: number) =>
+      Array.from(
+        { length: FINDERS + 1 },
+        (_, layer) => bloomMotion(layer, 'shown', late).delay,
+      );
+    expect(starts(0)).toEqual(
+      Array.from(
+        { length: FINDERS + 1 },
+        (_, layer) => layerMotion(layer, 'shown').delay,
+      ),
+    );
+    for (const late of [30, QR_TIMING.start, 400]) {
+      const spent = Math.min(late, QR_TIMING.start);
+      expect(starts(late)).toEqual(starts(0).map(delay => delay - spent));
+      expect(Math.min(...starts(late))).toBeGreaterThanOrEqual(0);
+    }
+    // Leaving is as it was: an implosion or a dissolve waits for nothing.
+    for (const state of ['paid', 'expired', 'scattered'] as const) {
+      expect(bloomMotion(2, state, 400)).toEqual(layerMotion(2, state));
     }
   });
 });
