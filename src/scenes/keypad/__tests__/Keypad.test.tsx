@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { TextInput } from 'react-native';
+import { AccessibilityInfo, StyleSheet, TextInput } from 'react-native';
 import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
 import { AmountField } from '../../../components/AmountField';
 import { copy } from '../../../design/copy';
+import { palette } from '../../../design/palette';
 import { Pane } from '../../../stage/panes/Pane';
 import { mount } from '../../../../test-support/guard';
 import { amountValue, enterAmount } from '../../../../test-support/keypad';
@@ -31,6 +32,17 @@ const readout = (tree: ReactTestRenderer) =>
       typeof node.type === 'string' &&
       node.props.accessibilityLabel === copy.amount.field,
   );
+
+/** How the mocha disc behind the key labelled `label` stands. */
+function disc(tree: ReactTestRenderer, label: string) {
+  const [shape] = find(tree, label)!.findAll(
+    node =>
+      typeof node.type === 'string' &&
+      StyleSheet.flatten(node.props.style)?.backgroundColor === palette.mocha,
+  );
+  const { opacity, transform } = StyleSheet.flatten(shape.props.style);
+  return { opacity, scale: transform[0].scale };
+}
 
 beforeEach(() => jest.mocked(HapticFeedback.trigger).mockClear());
 
@@ -60,6 +72,12 @@ test('every key ticks, and backspace deletes the last digit', async () => {
   expect(felt()).toEqual(['selection']);
   await press(tree, copy.keypad.backspace);
   expect(amountValue(tree)).toBe('4');
+  await act(async () => tree.unmount());
+});
+
+test('the disc behind a key waits hidden and small, to spring in', async () => {
+  const tree = await mount(<Field />);
+  expect(disc(tree, '7')).toEqual({ opacity: 0, scale: 0.6 });
   await act(async () => tree.unmount());
 });
 
@@ -167,4 +185,17 @@ test('presets are chips labelled with their amount alone', async () => {
   await press(tree, '10,000');
   expect(onChangeText).toHaveBeenLastCalledWith('10000');
   await act(async () => tree.unmount());
+});
+
+// Last in the file: Reduce Motion, once read, holds for the rest of it.
+test('under Reduce Motion the disc waits full size, to only fade in, and a key still ticks', async () => {
+  jest
+    .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
+    .mockResolvedValue(true);
+  const tree = await mount(<Field />);
+  expect(disc(tree, '7')).toEqual({ opacity: 0, scale: 1 });
+  await act(async () => find(tree, '7')!.props.onPressIn());
+  expect(felt()).toEqual(['selection']);
+  await act(async () => tree.unmount());
+  jest.restoreAllMocks();
 });

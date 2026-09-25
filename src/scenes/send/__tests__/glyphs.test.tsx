@@ -1,6 +1,7 @@
 import React from 'react';
+import { AccessibilityInfo, StyleSheet } from 'react-native';
 import { act } from 'react-test-renderer';
-import type { ReactTestRenderer } from 'react-test-renderer';
+import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
 import { Circle, Path } from 'react-native-svg';
 import { palette } from '../../../design/palette';
@@ -15,7 +16,8 @@ import { Unplugged, WaitingClock } from '../LoopingGlyphs';
 /**
  * The hold and the countdown around it (REDESIGN.md 5, HoldButton and
  * ExpiryRing), beyond the contract the shared suite holds them to: the ramp
- * of haptics a hold is felt through, and the stages a countdown runs down.
+ * of haptics a hold is felt through, the stages a countdown runs down, the
+ * glyphs that move in parts, and what Reduce Motion keeps of each.
  */
 const LABEL = 'Send 4,200 sats';
 
@@ -28,6 +30,17 @@ const hold = (tree: ReactTestRenderer) =>
       node.props.accessibilityLabel === LABEL &&
       typeof node.props.onPressIn === 'function',
   );
+
+/** The steps of the transform on the view that moves the hold's arrow. */
+function arrowSteps(tree: ReactTestRenderer): string[] {
+  const [arrow] = GLYPHS.send;
+  let at: ReactTestInstance | null = tree.root
+    .findAllByType(Path)
+    .find(path => path.props.d === arrow.d)!;
+  while (at && !StyleSheet.flatten(at.props.style)?.transform) at = at.parent;
+  const { transform } = StyleSheet.flatten(at?.props.style);
+  return transform.flatMap((step: object) => Object.keys(step));
+}
 
 beforeEach(() => {
   jest.useFakeTimers();
@@ -68,6 +81,14 @@ describe('HoldButton', () => {
     // With warnings the quarters are 250ms apart: one had passed.
     expect(felt()).toEqual(['impactLight', 'selection']);
     expect(onCommit).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('complete, its arrow launches up and to the right', async () => {
+    const tree = await mount(
+      <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} />,
+    );
+    expect(arrowSteps(tree)).toEqual(['translateX', 'translateY']);
     await act(async () => tree.unmount());
   });
 
@@ -177,6 +198,36 @@ describe('a glyph that moves in parts', () => {
     const [left, right, spark] = GLYPHS.unplug;
     expect(layers(tree, moves('translateX'))).toEqual([[left.d], [right.d]]);
     expect(tree.root.findAllByType(Path)[0].props.d).toBe(spark.d);
+    await act(async () => tree.unmount());
+  });
+});
+
+// Last in the file: Reduce Motion, once read, holds for the rest of it.
+describe('under Reduce Motion', () => {
+  beforeEach(() => {
+    jest
+      .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
+      .mockResolvedValue(true);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  test('the hold is still felt and still commits, but its arrow only fades', async () => {
+    const onCommit = jest.fn();
+    const tree = await mount(
+      <HoldButton accessibilityLabel={LABEL} onCommit={onCommit} />,
+    );
+    expect(arrowSteps(tree)).toEqual([]);
+    await act(async () => hold(tree).props.onPressIn());
+    await act(async () => jest.advanceTimersByTime(525));
+    expect(felt()).toEqual([
+      'impactLight',
+      'selection',
+      'selection',
+      'selection',
+    ]);
+    await act(async () => hold(tree).props.onLongPress());
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(felt().at(-1)).toBe('impactMedium');
     await act(async () => tree.unmount());
   });
 });

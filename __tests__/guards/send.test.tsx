@@ -379,6 +379,7 @@ const GUARDED: GuardedState[] = [
       ['the primary node away', 'PRIMARY_DOWN'],
       ['no route', 'NO_ROUTE'],
       ['funding unconfirmed', 'FUNDING_UNCONFIRMED'],
+      ['an amount it will not take', 'AMOUNT_REQUIRED'],
       ['an error it does not name', 'SOMETHING_NEW'],
     ] as const
   ).map(([name, code]) => ({
