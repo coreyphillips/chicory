@@ -282,6 +282,97 @@ describe('Bloom', () => {
   });
 });
 
+describe('Bloom counting words', () => {
+  const petals = (tree: ReactTestRenderer) =>
+    tree.root
+      .findAllByType(G)
+      .filter(group => typeof group.props.transform === 'string');
+  const hostAbove = (node: ReactTestInstance) => {
+    let at = node.parent;
+    while (at && typeof at.type !== 'string') at = at.parent;
+    return at!;
+  };
+  /** The view that turns, scales and fades a petal. */
+  const turned = (group: ReactTestInstance) => {
+    let at = group.parent;
+    while (at && !(typeof at.type === 'string' && flat(at).transform)) {
+      at = at.parent;
+    }
+    return at!;
+  };
+  const pose = (group: ReactTestInstance) => {
+    const style = flat(turned(group));
+    const steps = style.transform as Array<Record<string, string | number>>;
+    const step = (name: string) => steps.find(part => name in part)![name];
+    return {
+      opacity: style.opacity as number,
+      rotate: parseFloat(step('rotate') as string),
+      scaleX: step('scaleX') as number,
+    };
+  };
+  const fill = (group: ReactTestInstance) =>
+    group.findAllByType(Path)[0].props.fill as string;
+  /** The ring behind is drawn first, under the twelve in front. */
+  const rings = (tree: ReactTestRenderer) => {
+    const all = petals(tree);
+    expect(all).toHaveLength(24);
+    return { behind: all.slice(0, 12), front: all.slice(12) };
+  };
+  const shown = (ring: ReactTestInstance[]) =>
+    flat(hostAbove(turned(ring[0]))).opacity;
+
+  test('each word lights the next petal, and the rest stand dormant', async () => {
+    const tree = await render(<Bloom size={120} lit={5} />);
+    const { behind, front } = rings(tree);
+    expect(front.slice(0, 5).map(fill)).toEqual(
+      Array(5).fill(expect.stringMatching(/^url\(#/)),
+    );
+    expect(front.slice(5).map(fill)).toEqual(Array(7).fill(palette.husk));
+    // A dormant petal stands half open and faint until its word comes.
+    expect(pose(front[0]).opacity).toBe(1);
+    expect(pose(front[5]).opacity).toBeCloseTo(0.25 + 0.75 * 0.55);
+    // The ring behind waits for the first to be whole.
+    expect(shown(behind)).toBe(0);
+    expect(visibleText(tree)).toEqual([]);
+  });
+
+  test('from the thirteenth word the ring behind lights, half a petal round and longer', async () => {
+    const tree = await render(<Bloom size={120} lit={14} />);
+    const { behind, front } = rings(tree);
+    expect(shown(behind)).toBe(1);
+    expect(front.map(fill).filter(paint => paint === palette.husk)).toEqual([]);
+    expect(behind.slice(2).map(fill)).toEqual(Array(10).fill(palette.husk));
+    const whole = await render(<Bloom size={120} lit={24} />);
+    const both = rings(whole);
+    both.front.forEach((petal, i) => {
+      expect(pose(both.behind[i]).rotate).toBeCloseTo(pose(petal).rotate + 15);
+      expect(pose(both.behind[i]).scaleX / pose(petal).scaleX).toBeCloseTo(
+        1.25,
+      );
+    });
+    // Both rings fit the bloom's own box.
+    expect(pose(both.behind[0]).scaleX).toBeCloseTo(1);
+  });
+
+  test('past 24 words every petal turns radish; a test network counts in slate', async () => {
+    const over = await render(<Bloom size={120} lit={25} />);
+    expect(new Set(petals(over).map(fill))).toEqual(new Set([palette.radish]));
+    const test = await render(<Bloom size={120} lit={3} tone="test" />);
+    const { front } = rings(test);
+    expect(front.slice(0, 3).map(fill)).toEqual(Array(3).fill('none'));
+    expect(front[3].findAllByType(Path)[0].props.fill).toBe(palette.husk);
+  });
+
+  test('a refused count wilts only the petals it lit', async () => {
+    const tree = await render(
+      <Bloom size={120} lit={12} event={{ kind: 'wilt', key: 0 }} />,
+    );
+    const { behind, front } = rings(tree);
+    expect(new Set(front.map(fill))).toEqual(new Set([palette.dust]));
+    expect(new Set(behind.map(fill))).toEqual(new Set([palette.husk]));
+  });
+});
+
 describe('Odometer', () => {
   const SIGNS = { '+': '+', '-': '−' } as const;
   const VARIANTS: OdometerVariant[] = [

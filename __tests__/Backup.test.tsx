@@ -3,11 +3,10 @@ import { AccessibilityInfo } from 'react-native';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
 import { CreateWalletScreen } from '../src/screens/Settings';
+import { Bloom, litRings } from '../src/glyphs/Bloom';
 import {
   countWords,
   holdSteps,
-  petalAngle,
-  petalPose,
   phraseBloom,
   wordDelay,
 } from '../src/scenes/settings/motion';
@@ -259,16 +258,17 @@ const phraseOf = (count: number) =>
 
 describe('the restore bloom', () => {
   test.each([
-    [0, { inner: 0, outer: 0, ready: false, over: false }],
-    [1, { inner: 1, outer: 0, ready: false, over: false }],
-    [11, { inner: 11, outer: 0, ready: false, over: false }],
-    [12, { inner: 12, outer: 0, ready: true, over: false }],
-    [13, { inner: 12, outer: 1, ready: false, over: false }],
-    [23, { inner: 12, outer: 11, ready: false, over: false }],
-    [24, { inner: 12, outer: 12, ready: true, over: false }],
-    [25, { inner: 12, outer: 12, ready: false, over: true }],
-  ])('%i words light %p', (count, expected) => {
-    expect(phraseBloom(count)).toEqual(expected);
+    [0, { front: 0, behind: 0 }, { ready: false, over: false }],
+    [1, { front: 1, behind: 0 }, { ready: false, over: false }],
+    [11, { front: 11, behind: 0 }, { ready: false, over: false }],
+    [12, { front: 12, behind: 0 }, { ready: true, over: false }],
+    [13, { front: 12, behind: 1 }, { ready: false, over: false }],
+    [23, { front: 12, behind: 11 }, { ready: false, over: false }],
+    [24, { front: 12, behind: 12 }, { ready: true, over: false }],
+    [25, { front: 12, behind: 12 }, { ready: false, over: true }],
+  ])('%i words light %p and make %p', (count, lit, phrase) => {
+    expect(litRings(count)).toEqual({ ...lit, over: phrase.over });
+    expect(phraseBloom(count)).toEqual(phrase);
   });
 
   test('counts words however they are spaced', () => {
@@ -277,31 +277,46 @@ describe('the restore bloom', () => {
     expect(countWords('  a\n b\t\tc  ')).toBe(3);
   });
 
-  test('opens each petal from a narrow, turned bud, and wilts it to .92', () => {
-    expect(petalPose(0, 0)).toEqual({
-      opacity: 0,
-      turn: -14,
-      scaleX: 0.18,
-      scaleY: 0.25,
+  test('the bloom counts the words it is given, never more than it shows', async () => {
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<PhraseBloom count={0} />);
     });
-    expect(petalPose(1, 0)).toEqual({
-      opacity: 1,
-      turn: 0,
-      scaleX: 1,
-      scaleY: 1,
-    });
-    const wilted = petalPose(1, 1);
-    expect(wilted.turn).toBe(10);
-    expect(wilted.scaleY).toBeCloseTo(0.92);
+    const bloom = () => tree.root.findByType(Bloom).props;
+    for (const count of [1, 12, 13, 24, 25, 0]) {
+      await act(async () => tree.update(<PhraseBloom count={count} />));
+      expect(bloom().lit).toBe(count);
+    }
+    expect(bloom().tone).toBe('live');
+    await act(async () => tree.unmount());
   });
 
-  test('lights clockwise from the top, the second ring between the first', () => {
-    expect([0, 1, 11].map(index => petalAngle('inner', index))).toEqual([
-      0, 30, 330,
-    ]);
-    expect([0, 1, 11].map(index => petalAngle('outer', index))).toEqual([
-      15, 45, 345,
-    ]);
+  test('12 and 24 words burst the bloom, each time, and more than 24 shake it', async () => {
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<PhraseBloom count={0} />);
+    });
+    const event = () => tree.root.findByType(Bloom).props.event;
+    const keys: number[] = [];
+    const typed = async (count: number, kind?: string) => {
+      await act(async () => tree.update(<PhraseBloom count={count} />));
+      if (!kind) {
+        expect(event()).toBeUndefined();
+        return;
+      }
+      expect(event().kind).toBe(kind);
+      keys.push(event().key);
+    };
+    await typed(11);
+    await typed(12, 'burst');
+    await typed(13);
+    // Back to 12 is ready again, and bursts again.
+    await typed(12, 'burst');
+    await typed(24, 'burst');
+    await typed(25, 'shake');
+    await typed(26, 'shake');
+    expect(new Set(keys).size).toBe(keys.length);
+    await act(async () => tree.unmount());
   });
 
   test('restore wakes at exactly 12 or 24 words, and the bloom says how many', async () => {
@@ -396,10 +411,12 @@ describe('the restore bloom', () => {
       'That recovery phrase is not valid.',
     );
     expect(tree.root.findByType(PhraseBloom).props.wilted).toBe(true);
+    expect(tree.root.findByType(Bloom).props.event.kind).toBe('wilt');
     await act(async () => {
       field(tree, 'Recovery phrase').props.onChangeText(phraseOf(11));
     });
     expect(tree.root.findByType(PhraseBloom).props.wilted).toBe(false);
+    expect(tree.root.findByType(Bloom).props.event).toBeUndefined();
     await act(async () => tree.unmount());
   });
 });

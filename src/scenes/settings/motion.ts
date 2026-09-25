@@ -67,51 +67,16 @@ export function countWords(phrase: string): number {
   return phrase.trim().split(/\s+/).filter(Boolean).length;
 }
 
-/** One ring of the restore bloom holds one petal per word of a short phrase. */
+/** A short recovery phrase has this many words, and a long one twice it. */
 export const RING = 12;
 
 /**
- * How the restore bloom stands for `count` typed words: the inner ring lights
- * a petal per word up to twelve, the outer ring the next twelve. A phrase is
- * ready at exactly 12 or 24; past 24 it is over.
+ * Whether `count` typed words make a phrase: it is ready at exactly 12 or
+ * 24, and over past 24. The bloom lights a petal per word (`lit`).
  */
-export function phraseBloom(count: number): {
-  inner: number;
-  outer: number;
-  ready: boolean;
-  over: boolean;
-} {
+export function phraseBloom(count: number): { ready: boolean; over: boolean } {
   return {
-    inner: Math.min(count, RING),
-    outer: Math.max(0, Math.min(count - RING, RING)),
     ready: count === RING || count === 2 * RING,
     over: count > 2 * RING,
-  };
-}
-
-/**
- * Where the `index`th petal of a ring points, in degrees clockwise from
- * straight up. The outer ring sits between the inner ring's petals, so the
- * second twelve read as a second row rather than a longer first one. Word
- * one is at the top and the rest follow clockwise, like a clock face.
- */
-export function petalAngle(ring: 'inner' | 'outer', index: number): number {
-  return 30 * index + (ring === 'outer' ? 15 : 0);
-}
-
-/**
- * A petal's pose at unfold `q` and wilt `w`, each 0 to 1, the way the
- * bloom's own petals open (REDESIGN.md 5, Bloom): a narrow, short bud turned
- * back 14 degrees opens to full width and length. A wilted petal leans 10
- * degrees further and falls to .92 of its length. `turn` is in degrees,
- * added to the petal's place.
- */
-export function petalPose(q: number, w: number) {
-  'worklet';
-  return {
-    opacity: q,
-    turn: 10 * w - 14 * (1 - q),
-    scaleX: 0.18 + 0.82 * q,
-    scaleY: (0.25 + 0.75 * q) * (1 - 0.08 * w),
   };
 }

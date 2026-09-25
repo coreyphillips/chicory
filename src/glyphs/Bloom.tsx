@@ -62,6 +62,14 @@ import { useMotionPrefs } from '../motion/useMotionPrefs';
  * at 0 they return to `open`. The status row's mark opens this way with a
  * pull on the home pane (REDESIGN.md 6, manual refresh).
  *
+ * `lit` makes the flower a count, of the words of a recovery phrase as they
+ * are typed (REDESIGN.md 6, Backup and setup). The first twelve light the
+ * petals in turn, clockwise from the top, and a second ring behind, half a
+ * petal round and a quarter longer, lights from the thirteenth. A petal not
+ * yet lit stands dormant and half open, and lights on the reveal spring. The
+ * ring behind shows once the first is whole, and past 24 every petal turns
+ * radish. Whoever counts plays the burst and the shake.
+ *
  * Each petal is its own view, turned about the centre, around a still SVG:
  * the loops move only transforms and opacity, on the UI thread.
  */
@@ -82,6 +90,8 @@ export interface BloomProps {
   detail?: 'full' | 'mark';
   /** A pull on the petals, from 0 to 1; see above. */
   opening?: DerivedValue<number>;
+  /** How many petals a count has lit, from 0 to 24; see above. */
+  lit?: number;
   /** Without one, the bloom is decoration and hidden from screen readers. */
   accessibilityLabel?: string;
 }
@@ -141,6 +151,25 @@ export function pulledPetal(opening: number, i: number): number {
   'worklet';
   if (!(opening > 0)) return -1;
   return Math.floor(Math.min(1, opening) * PETALS) > i ? 1 : 0;
+}
+
+/** How far a petal a count has not lit yet stands open. */
+const DORMANT_Q = 0.55;
+/** The ring a count lights second: half a petal round, and longer. */
+const BEHIND_TURN = 15;
+const BEHIND_REACH = 1.25;
+
+/**
+ * How a count of `lit` lights the flower: the front ring's first petals up
+ * to twelve, then the ring behind; past 24 it is over.
+ */
+export function litRings(lit: number) {
+  const count = Math.max(0, Math.floor(lit));
+  return {
+    front: Math.min(count, PETALS),
+    behind: Math.max(0, Math.min(count - PETALS, PETALS)),
+    over: count > 2 * PETALS,
+  };
 }
 
 /** How long a whole unfold takes to reach the last petal. */
@@ -229,7 +258,7 @@ export function haloOpacity(t: number): number {
 /*
  * The still drawings each view turns and scales.
  */
-type Art = BloomTone | 'wilt';
+type Art = BloomTone | 'wilt' | 'over';
 
 const OUTLINE = { fill: 'none', stroke: palette.slate, strokeWidth: 1.6 };
 
@@ -243,6 +272,8 @@ function petalPaint(art: Art, gradient: string) {
       return { fill: palette.husk, stroke: palette.bark, strokeWidth: 1 };
     case 'wilt':
       return { fill: palette.dust };
+    case 'over':
+      return { fill: palette.radish };
   }
 }
 
@@ -421,6 +452,12 @@ interface Drives {
 interface PetalProps extends ArtProps {
   i: number;
   open: number;
+  /** Turned this far from the petal's own angle, for the ring behind. */
+  turn?: number;
+  /** How long the petal is against the flower's reach. */
+  reach?: number;
+  /** A counted petal opens on its own, not in the unfold's stagger. */
+  solo?: boolean;
   opening?: DerivedValue<number>;
   folded: boolean;
   fallen: boolean;
@@ -432,6 +469,9 @@ interface PetalProps extends ArtProps {
 const Petal = memo(function BloomPetal({
   i,
   open,
+  turn = 0,
+  reach = 1,
+  solo = false,
   opening,
   folded,
   fallen,
@@ -472,9 +512,11 @@ const Petal = memo(function BloomPetal({
     }
     const delay = folded
       ? (PETALS - 1 - i) * FOLD_STEP_MS
+      : solo
+      ? 0
       : petalDelay(i, from, target);
     q.set(withDelay(delay, withSpring(target, springs.reveal)));
-  }, [q, i, open, folded, reduced]);
+  }, [q, i, open, folded, reduced, solo]);
 
   useEffect(() => {
     if (fall.get() === (fallen ? 1 : 0)) return;
@@ -504,12 +546,12 @@ const Petal = memo(function BloomPetal({
       opacity: pose.opacity * lit * hush * drop.opacity,
       transform: [
         { translateY: drop.drop },
-        { rotate: `${pose.rotate + droop.turn + drop.turn}deg` },
-        { scaleX: pose.scaleX },
-        { scaleY: pose.scaleY * droop.length },
+        { rotate: `${pose.rotate + turn + droop.turn + drop.turn}deg` },
+        { scaleX: pose.scaleX * reach },
+        { scaleY: pose.scaleY * droop.length * reach },
       ],
     };
-  }, [i, reduced, hush]);
+  }, [i, reduced, hush, turn, reach]);
 
   const fade = reduced ? ART_QUICK : ART;
   return (
@@ -535,6 +577,7 @@ export function Bloom({
   event,
   detail = size < 40 ? 'mark' : 'full',
   opening,
+  lit,
   accessibilityLabel,
 }: BloomProps) {
   const { reduced } = useMotionPrefs();
@@ -547,6 +590,24 @@ export function Bloom({
   const kind = event?.kind;
   const wilted = kind === 'wilt';
   const art: Art = wilted ? 'wilt' : tone;
+  // A count draws its front ring short enough for the ring behind to fit.
+  const rings = lit === undefined ? null : litRings(lit);
+  const reach = rings ? 1 / BEHIND_REACH : 1;
+  const counted = (on: boolean): { open: number; art: Art } => ({
+    open: on ? unfold : Math.min(unfold, DORMANT_Q),
+    art: !on ? 'dormant' : rings?.over && !wilted ? 'over' : art,
+  });
+  const behindShown = rings?.front === PETALS ? 1 : 0;
+  const behind = useSharedValue(behindShown);
+  useEffect(() => {
+    if (behind.get() === behindShown) return;
+    behind.set(
+      withTiming(behindShown, {
+        duration: reduced ? durations.crossfade : durations.enter,
+        reduceMotion: ReduceMotion.Never,
+      }),
+    );
+  }, [behind, behindShown, reduced]);
 
   // Loops.
   const breath = useLoop(
@@ -555,14 +616,17 @@ export function Bloom({
   );
   const chase = useLoop(CHASE_MS, mode === 'chase' && awake && !reduced);
   // How much of the chase shows, so starting and stopping it fades.
-  const lit = mode === 'chase' && !reduced ? 1 : 0;
-  const chasing = useSharedValue(lit);
+  const chaseShown = mode === 'chase' && !reduced ? 1 : 0;
+  const chasing = useSharedValue(chaseShown);
   useEffect(() => {
-    if (chasing.get() === lit) return;
+    if (chasing.get() === chaseShown) return;
     chasing.set(
-      withTiming(lit, { duration: durations.enter, easing: curves.standard }),
+      withTiming(chaseShown, {
+        duration: durations.enter,
+        easing: curves.standard,
+      }),
     );
-  }, [chasing, lit]);
+  }, [chasing, chaseShown]);
   const turn = useSharedValue(0);
   const ratcheting = mode === 'ratchet' && awake && !reduced;
   useEffect(() => {
@@ -672,9 +736,10 @@ export function Bloom({
     const b = burstPose(burst.get(), reduced);
     return {
       opacity: b.cloneOpacity,
-      transform: [{ scale: b.cloneScale }],
+      transform: [{ scale: b.cloneScale * reach }],
     };
-  }, [reduced]);
+  }, [reduced, reach]);
+  const behindStyle = useAnimatedStyle(() => ({ opacity: behind.get() }));
   const haloStyle = useAnimatedStyle(() => ({
     opacity: haloOpacity(glow.get()),
   }));
@@ -718,6 +783,25 @@ export function Bloom({
           />
         ) : null}
         <Reanimated.View style={[StyleSheet.absoluteFill, wrapStyle]}>
+          {rings ? (
+            <Reanimated.View style={[StyleSheet.absoluteFill, behindStyle]}>
+              {LENGTHS.map((_, i) => (
+                <Petal
+                  key={i}
+                  i={i}
+                  turn={BEHIND_TURN}
+                  solo
+                  folded={kind === 'fold'}
+                  fallen={kind === 'fall'}
+                  reduced={reduced}
+                  hush={hush}
+                  drives={drives}
+                  {...artProps}
+                  {...counted(i < rings.behind)}
+                />
+              ))}
+            </Reanimated.View>
+          ) : null}
           {LENGTHS.map((_, i) => (
             <Petal
               key={i}
@@ -730,6 +814,9 @@ export function Bloom({
               hush={hush}
               drives={drives}
               {...artProps}
+              {...(rings
+                ? { reach, solo: true, ...counted(i < rings.front) }
+                : null)}
             />
           ))}
           <Reanimated.View style={[StyleSheet.absoluteFill, centerStyle]}>
