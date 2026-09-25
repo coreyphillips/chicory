@@ -538,7 +538,7 @@ A cocoa pill anchored above its source (see rule 3).
 | setup failed        | Petals droop, with a honey pip.                                                                                                                                                                   |
 | refresh failed      | The PulseDot is hollow radish.                                                                                                                                                                    |
 | manual refresh      | The mark ratchets. Pulling down on the top pane opens the petals as you pull: Home's own pan writes `pull`, and the mark folds, then opens a petal each twelfth of the way, whole at the trigger. |
-| hidden              | 6-dot masks everywhere, toggled by long-pressing the hero.                                                                                                                                        |
+| hidden              | 6-dot masks everywhere, toggled by long-pressing the hero. A payment's review is the one exception: it always shows its amounts, since it is where the payment is checked before it is sent.      |
 | unit                | Tapping the hero rolls between sats and BTC.                                                                                                                                                      |
 | test network        | Slate replaces bloom everywhere, with a `flask` micro-glyph.                                                                                                                                      |
 

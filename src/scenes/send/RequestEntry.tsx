@@ -103,7 +103,11 @@ export function RequestEntry({
         style={styles.chip}
       >
         {rail ? <Glyph name={rail} size={16} color={palette.bloom} /> : null}
-        <Text style={styles.chipText} numberOfLines={1}>
+        <Text
+          style={styles.chipText}
+          numberOfLines={1}
+          maxFontSizeMultiplier={1.4}
+        >
           {shown}
         </Text>
         {fixed ? <Glyph name="lock" size={14} color={palette.steam} /> : null}

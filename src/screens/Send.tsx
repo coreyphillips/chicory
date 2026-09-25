@@ -51,7 +51,7 @@ import type { Failure } from '../scenes/send/model';
 import { RequestEntry } from '../scenes/send/RequestEntry';
 import type { Origin } from '../scenes/send/RequestEntry';
 import { ResultMark } from '../scenes/send/ResultMark';
-import { ReviewLines } from '../scenes/send/ReviewLines';
+import { LINE_SCALE, ReviewLines } from '../scenes/send/ReviewLines';
 import { useLanding } from '../scenes/send/useLanding';
 import { useScreenReader } from '../scenes/send/useScreenReader';
 import type { Landing } from '../scenes/send/useLanding';
@@ -61,7 +61,14 @@ import type { WalletAdapter } from '../services/wallet';
 import { heldRequest, holdRequest } from '../stage/heldRequests';
 import { usePaneActive } from '../stage/panes/Pane';
 import { useFlashTint, useHoldTint } from '../stage/StageContext';
-import { space, statusLabel, type as typography } from '../theme';
+import {
+  MASK,
+  amountIn,
+  space,
+  statusLabel,
+  type as typography,
+} from '../theme';
+import type { Unit } from '../theme';
 
 /** What a Send on the canvas asks of the screen inside it. */
 export interface SendHandle {
@@ -70,6 +77,12 @@ export interface SendHandle {
   /** A code the scan overlay read for this Send. */
   receive: (code: string) => void;
 }
+
+/** An amount as the screen shows it, in `unit`, with its suffix. */
+const shownIn = (sats: number, unit: Unit) => {
+  const { value, suffix } = amountIn(sats, unit);
+  return `${value} ${suffix}`;
+};
 
 /** A quote this close to running out is said aloud once. */
 const LATE_MS = 10_000;
@@ -117,6 +130,11 @@ function quoteExpired(say: (text: string, assertive?: boolean) => void) {
  * the hold's place, and a fresh quote back on the amount; a result or the
  * held ring on its mark; and back in compose, on the amount.
  *
+ * Amounts are shown in `unit`, the one the balance is in. While amounts are
+ * hidden (`masked`) a result and the held ring show theirs as dots, as the
+ * fee paid; a review never does, since it is where the payment is checked
+ * before it is sent. A screen reader always hears sats.
+ *
  * On the canvas, `onScan` opens the scan overlay and the Send scene hands the
  * code back through `receive`. Rendered on its own, with no `onScan`, the
  * camera opens inside it instead. `onDone` takes a completed payment home
@@ -136,6 +154,8 @@ export function SendScreen({
   onScan,
   onDetail,
   onDone,
+  masked = false,
+  unit = 'sats',
   ref,
 }: {
   client: WalletAdapter;
@@ -155,6 +175,10 @@ export function SendScreen({
   onScan?: (origin: Origin | null) => void;
   onDetail?: (item: Activity) => void;
   onDone?: () => void;
+  /** Amounts are hidden, as the balance is. */
+  masked?: boolean;
+  /** The unit the balance is shown in. */
+  unit?: Unit;
   ref?: Ref<SendHandle>;
 }) {
   const live = usePaneActive();
@@ -612,6 +636,8 @@ export function SendScreen({
           />
           <Amount
             sats={result.amountSats}
+            unit={unit}
+            masked={masked}
             color={uncertain ? palette.honey : palette.cream}
           />
           <View
@@ -628,14 +654,14 @@ export function SendScreen({
             style={styles.fee}
           >
             <Glyph name={rail} size={16} color={palette.steam} />
-            <Text style={styles.feeText}>
+            <Text style={styles.feeText} maxFontSizeMultiplier={LINE_SCALE}>
               {result.feeEstimated ? '+ ≈' : '+'}
             </Text>
             {result.feeKnown === false ? (
               <Glyph name="question" size={16} color={palette.steam} />
             ) : (
-              <Text style={styles.feeText}>
-                {copy.amount.spoken(result.feeSats)}
+              <Text style={styles.feeText} maxFontSizeMultiplier={LINE_SCALE}>
+                {masked ? MASK : shownIn(result.feeSats, unit)}
               </Text>
             )}
           </View>
@@ -675,7 +701,14 @@ export function SendScreen({
               live && item && onDetail ? () => onDetail(item) : undefined
             }
           />
-          {shown ? <Amount sats={shown} color={palette.honey} /> : null}
+          {shown ? (
+            <Amount
+              sats={shown}
+              unit={unit}
+              masked={masked}
+              color={palette.honey}
+            />
+          ) : null}
         </View>
         <View style={[styles.controls, styles.centred]}>
           <GlyphButton
@@ -690,13 +723,17 @@ export function SendScreen({
     content = (
       <>
         <View style={styles.body}>
-          <Amount ref={summary} sats={review.amountSats} />
+          <Amount ref={summary} sats={review.amountSats} unit={unit} />
           {review.description ? (
-            <Text style={styles.note} numberOfLines={2}>
+            <Text
+              style={styles.note}
+              numberOfLines={2}
+              maxFontSizeMultiplier={LINE_SCALE}
+            >
               {review.description}
             </Text>
           ) : null}
-          <ReviewLines review={review} />
+          <ReviewLines review={review} unit={unit} />
         </View>
         <View style={styles.controls}>
           <View style={styles.side}>

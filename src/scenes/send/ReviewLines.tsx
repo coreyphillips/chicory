@@ -4,15 +4,18 @@ import type { SendReview } from '@beignet/wallet-core';
 import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
-import { number, space, type as typography } from '../../theme';
+import { amountIn, space, type as typography } from '../../theme';
+import type { Unit } from '../../theme';
 import { reviewFigures, reviewRail } from './model';
 import type { ReviewFigure } from './model';
 
-const UNIT = 'sats';
+/** The sum's lines are line text, which stops growing at 1.4 (REDESIGN.md 3.3). */
+export const LINE_SCALE = 1.4;
 
 /** One line of the sum: its signs and its amount, with its words spoken. */
-function Figure({ figure }: { figure: ReviewFigure }) {
+function Figure({ figure, unit }: { figure: ReviewFigure; unit: Unit }) {
   const total = figure.key === 'total';
+  const shown = amountIn(figure.sats, unit);
   return (
     <View
       accessible
@@ -20,9 +23,14 @@ function Figure({ figure }: { figure: ReviewFigure }) {
       accessibilityValue={{ text: figure.value }}
       style={styles.figure}
     >
-      <Text style={styles.signs}>{figure.signs}</Text>
-      <Text style={[styles.amount, total && styles.total]}>
-        {`${number(figure.sats)} ${UNIT}`}
+      <Text style={styles.signs} maxFontSizeMultiplier={LINE_SCALE}>
+        {figure.signs}
+      </Text>
+      <Text
+        style={[styles.amount, total && styles.total]}
+        maxFontSizeMultiplier={LINE_SCALE}
+      >
+        {`${shown.value} ${shown.suffix}`}
       </Text>
     </View>
   );
@@ -45,8 +53,17 @@ function Pip({ warning }: { warning: string }) {
  * priced should cost when there is an estimate, and `=` the most it all
  * comes to. Each line's words, as the engine and the old screen named them,
  * are what a screen reader hears. Engine warnings are honey pips.
+ *
+ * The figures are in `unit`, the one the balance is shown in. They are
+ * never hidden: a review is where the payment is checked before it is sent.
  */
-export function ReviewLines({ review }: { review: SendReview }) {
+export function ReviewLines({
+  review,
+  unit = 'sats',
+}: {
+  review: SendReview;
+  unit?: Unit;
+}) {
   const rail = reviewRail(review);
   return (
     <View style={styles.lines}>
@@ -64,7 +81,7 @@ export function ReviewLines({ review }: { review: SendReview }) {
           ) : (
             <View style={styles.rail} />
           )}
-          <Figure figure={figure} />
+          <Figure figure={figure} unit={unit} />
         </View>
       ))}
       {review.warnings.length ? (

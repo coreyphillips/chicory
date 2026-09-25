@@ -29,6 +29,7 @@ import type { Origin } from './RequestEntry';
  * the overlay covers the pane (REDESIGN.md 2.3). Android back steps from the
  * review to compose before the stage closes the scene. A completed payment
  * goes home on its own, and a held one opens the payment it waits on.
+ * Amounts follow the balance: hidden while it is, and in its unit.
  *
  * Send lays no ground of its own: the canvas's backdrop shows through, with
  * the tints the screen asks for, honey while an outcome is unknown and a
@@ -40,6 +41,7 @@ export function SendScene({
   snapshot,
   stale,
   session,
+  view,
   sceneKey,
 }: RegionProps & {
   sceneKey: number;
@@ -102,6 +104,8 @@ export function SendScene({
               onScan={scan}
               onDetail={openHeld}
               onDone={actions.home}
+              masked={view.hidden}
+              unit={view.unit}
             />
           </View>
         </SceneSlot>

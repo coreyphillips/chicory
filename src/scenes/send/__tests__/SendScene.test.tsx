@@ -1,5 +1,5 @@
 import React from 'react';
-import { View } from 'react-native';
+import { Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
@@ -10,7 +10,10 @@ import type {
   WalletSnapshot,
 } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
+import { Odometer } from '../../../glyphs/Odometer';
+import { SendScreen } from '../../../screens/Send';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
+import type { CanvasView } from '../../../stage/Canvas';
 import { holdRequest } from '../../../stage/heldRequests';
 import { ScanReveal } from '../../../stage/layers/ScanReveal';
 import {
@@ -22,6 +25,7 @@ import type { StageStore } from '../../../stage/StageContext';
 import { activityOf, hex } from '../../../../test-support/fixtures';
 import { mount } from '../../../../test-support/guard';
 import { activate, field, find, press } from '../../../../test-support/query';
+import { MASK } from '../../../theme';
 
 /**
  * Send on the canvas (REDESIGN.md 2.3 and 6): a scan it starts comes back to
@@ -31,6 +35,7 @@ import { activate, field, find, press } from '../../../../test-support/query';
 const SCANNED = 'lnbcrt1scanned';
 
 let stage!: StageStore;
+let view!: CanvasView;
 let snapshot: WalletSnapshot;
 /** The history the canvas is drawn with, when a test sets one. */
 let history: Activity[] | null = null;
@@ -54,7 +59,7 @@ beforeAll(async () => {
 
 function OnCanvas() {
   stage = useStageStore();
-  const view = useCanvasView();
+  view = useCanvasView();
   return (
     <GestureHandlerRootView>
       <StageProvider value={stage}>
@@ -201,6 +206,55 @@ test('a completed payment goes home on its own', async () => {
   } finally {
     jest.useRealTimers();
   }
+});
+
+test('amounts follow the balance, hidden and in its unit, except on a review', async () => {
+  jest.spyOn(client, 'prepareSend').mockResolvedValue(quote);
+  jest.spyOn(client, 'send').mockResolvedValue({
+    id: 'p-masked',
+    status: 'completed',
+    amountSats: 4200,
+    feeSats: 20,
+    message: 'Payment sent.',
+  });
+  const tree = await openSend();
+  await act(async () => {
+    view.setHidden(true);
+    view.setUnit('btc');
+  });
+  await act(async () => {
+    field(tree, copy.send.request).props.onChangeText('lnbc-masked');
+  });
+  await press(tree, copy.send.review);
+  // Send's own, not the balance's in the mini strip.
+  const send = () => tree.root.findByType(SendScreen);
+  const amount = () => send().findByType(Odometer).props;
+  const drawn = () =>
+    send()
+      .findAllByType(Text)
+      .map(text => [text.props.children].flat().join(''));
+  const labels = () =>
+    send()
+      .findAll(node => typeof node.props.accessibilityLabel === 'string')
+      .map(node => node.props.accessibilityLabel);
+  // A review is where the payment is checked, so it is never hidden.
+  expect(amount()).toMatchObject({ sats: 4200, unit: 'btc', masked: false });
+  expect(drawn()).toContain('0.0000422 BTC');
+  expect(labels()).toContain(copy.amount.spoken(4200));
+  await activate(tree, copy.send.sendSats(4200));
+  expect(amount()).toMatchObject({ sats: 4200, unit: 'btc', masked: true });
+  expect(labels()).toContain(copy.amount.hidden);
+  expect(labels()).not.toContain(copy.amount.spoken(4200));
+  expect(drawn()).toContain(MASK);
+  expect(drawn()).not.toContain('0.0000002 BTC');
+  // A screen reader still hears the fee paid, in sats.
+  const [fee] = send().findAll(
+    node =>
+      typeof node.type === 'string' &&
+      node.props.accessibilityLabel === copy.send.feePaid,
+  );
+  expect(fee.props.accessibilityValue.text).toBe(copy.amount.spoken(20));
+  await act(async () => tree.unmount());
 });
 
 test('an unknown outcome holds honey on the ground, and a failure flashes radish', async () => {
