@@ -338,18 +338,19 @@ describe('the canvas', () => {
       onSaved: jest.fn(),
     };
     const tree = await render(<OnCanvas backup={backup} />);
-    // Settings keeps a recovery phrase of its own, so only the banner's
-    // count.
+    // Settings draws the backup itself, as its leading section, so its
+    // reveal counts there; everywhere else it is the banner's.
     const places = () =>
-      tree.root
-        .findAllByType(BackupBanner)
-        .flatMap(banner =>
-          banner.findAll(
-            node =>
-              node.props.accessibilityLabel === 'Reveal recovery phrase' &&
-              typeof node.props.onPress === 'function',
-          ),
-        ).length;
+      [
+        ...tree.root.findAllByType(BackupBanner),
+        ...tree.root.findAllByType(SettingsLayer),
+      ].flatMap(place =>
+        place.findAll(
+          node =>
+            node.props.accessibilityLabel === 'Reveal recovery phrase' &&
+            typeof node.props.onPress === 'function',
+        ),
+      ).length;
     expect(places()).toBe(1);
     await act(async () => stage.actions.openActivity());
     expect(places()).toBe(1);

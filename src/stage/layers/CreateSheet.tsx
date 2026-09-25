@@ -3,9 +3,12 @@ import { StyleSheet, View } from 'react-native';
 import type { WalletRecord } from '@beignet/wallet-core';
 import { CreateWalletScreen } from '../../screens/Settings';
 import { copy } from '../../design/copy';
+import { palette } from '../../design/palette';
+import { SettingsSurface } from '../../scenes/settings/ui';
 import type { NetworkProfile } from '../../services/networks';
 import type { WalletAdapter } from '../../services/wallet';
-import { colors, space } from '../../theme';
+import { space } from '../../theme';
+import { STATUS_ROW } from '../layout';
 import { CornerControl } from '../panes/CornerControl';
 import { SceneSlot } from '../panes/SceneSlot';
 import { useStage } from '../StageContext';
@@ -13,6 +16,11 @@ import { useStage } from '../StageContext';
 /**
  * A new or restored wallet, drawn over whatever the shell is showing: the
  * picker, the first-run screen or the wallet itself.
+ *
+ * It is a setup surface, drawn in the Settings language with its safety
+ * lines in words (REDESIGN.md rule 2), so its root carries the settings
+ * marker. It only opens from a shell phase, and opening a wallet closes it,
+ * so it is never drawn beside Settings.
  */
 export function CreateSheet({
   client,
@@ -27,7 +35,7 @@ export function CreateSheet({
 }) {
   const { actions } = useStage();
   return (
-    <View style={styles.sheet} accessibilityViewIsModal>
+    <SettingsSurface style={styles.sheet} accessibilityViewIsModal>
       <View style={styles.header}>
         <CornerControl home={false} />
       </View>
@@ -40,18 +48,17 @@ export function CreateSheet({
           onBusy={actions.setBusy}
         />
       </SceneSlot>
-    </View>
+    </SettingsSurface>
   );
 }
 
 const styles = StyleSheet.create({
-  sheet: { ...StyleSheet.absoluteFill, backgroundColor: colors.background },
+  sheet: { ...StyleSheet.absoluteFill, backgroundColor: palette.roast },
   header: {
+    height: STATUS_ROW,
     paddingHorizontal: space.xl,
-    paddingVertical: space.xs,
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
+    alignItems: 'center',
   },
 });

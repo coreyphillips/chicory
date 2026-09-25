@@ -1,8 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Reanimated from 'react-native-reanimated';
 import type { Network } from '@beignet/wallet-core';
-import { Body, Button, Card, Eyebrow, Field, Notice } from '../components/ui';
-import { colors, radius, space, type } from '../theme';
+import { copy } from '../design/copy';
+import { dropOut, riseIn } from '../motion/presets';
+import {
+  Action,
+  Field,
+  NetworkChoice,
+  Note,
+  Toggle,
+  Working,
+} from '../scenes/settings/ui';
+import { space } from '../theme';
 import {
   NETWORKS,
   loadNetworkPreferences,
@@ -16,6 +26,13 @@ import {
 } from '../embedded/client';
 import { seedSourceNetwork } from '../embedded/seed';
 
+const words = copy.settings.network;
+
+/**
+ * Each network's servers and primary node, in the Settings language. Nothing
+ * here applies until the explicit save or switch at the bottom, and a switch
+ * that fails leaves the phone on the network it is still on.
+ */
 export function NetworkSettings({
   initialNetwork,
   busy = false,
@@ -87,81 +104,49 @@ export function NetworkSettings({
       await onApply(profile);
     } catch (e) {
       if (mounted.current)
-        setError(e instanceof Error ? e.message : 'Could not change networks.');
+        setError(e instanceof Error ? e.message : words.failed);
     } finally {
       if (mounted.current) setWorking(false);
     }
   }
   return (
     <View style={styles.stack}>
-      <Eyebrow>Network</Eyebrow>
-      {error ? (
-        <Notice kind="error" icon="alert">
-          {error}
-        </Notice>
-      ) : null}
+      {error ? <Note tone="error">{error}</Note> : null}
       {profile && seedSource && seedSource !== profile.network ? (
-        <Notice icon="key">
-          {`A new ${profile.network} wallet reuses the recovery phrase from your ${seedSource} wallet. An existing ${profile.network} wallet keeps its own phrase.`}
-        </Notice>
+        <Note glyph="key">{words.reuses(profile.network, seedSource)}</Note>
       ) : null}
       {profile && preferences ? (
         <>
-          <View style={styles.networks}>
-            {NETWORKS.map(network => (
-              <Pressable
-                key={network}
-                accessibilityRole="button"
-                accessibilityLabel={`Select ${network}`}
-                accessibilityState={{
-                  selected: profile.network === network,
-                  disabled,
-                }}
-                disabled={disabled}
-                onPress={() => {
-                  if (network === profile.network) return;
-                  setPreferences({
-                    ...preferences,
-                    profiles: {
-                      ...preferences.profiles,
-                      [profile.network]: profile,
-                    },
-                  });
-                  setProfile(preferences.profiles[network]);
-                }}
-                style={[
-                  styles.network,
-                  profile.network === network && styles.selected,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.networkText,
-                    profile.network === network && styles.selectedText,
-                  ]}
-                >
-                  {network}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          <Card>
+          <NetworkChoice
+            options={NETWORKS}
+            value={profile.network}
+            disabled={disabled}
+            labelFor={words.select}
+            onChange={network => {
+              if (network === profile.network) return;
+              setPreferences({
+                ...preferences,
+                profiles: {
+                  ...preferences.profiles,
+                  [profile.network]: profile,
+                },
+              });
+              setProfile(preferences.profiles[network]);
+            }}
+          />
+          <View style={styles.group}>
             <Field
-              label="Default Electrum server"
+              label={words.server}
+              accessibilityHint={words.serverHint}
               value={profile.electrum.host}
               autoCapitalize="none"
               editable={!disabled}
-              placeholder={
-                profile.network === 'mainnet'
-                  ? 'bitkit.to'
-                  : 'Server for this network'
-              }
               onChangeText={host =>
                 update({ electrum: { ...profile.electrum, host: host.trim() } })
               }
             />
             <Field
-              label="Default Electrum port"
+              label={words.port}
               value={String(profile.electrum.port)}
               keyboardType="number-pad"
               editable={!disabled}
@@ -171,105 +156,81 @@ export function NetworkSettings({
                 })
               }
             />
-            <View style={styles.row}>
-              <Text style={styles.label}>TLS encryption</Text>
-              <Switch
-                accessibilityLabel="Default Electrum TLS"
-                value={profile.electrum.tls}
-                disabled={disabled}
-                trackColor={{ true: colors.primary, false: colors.line }}
-                thumbColor={colors.text}
-                onValueChange={tls =>
-                  update({ electrum: { ...profile.electrum, tls } })
-                }
-              />
-            </View>
-          </Card>
-          <Card>
+            <Toggle
+              label={words.tls}
+              accessibilityLabel={words.tlsLabel}
+              value={profile.electrum.tls}
+              disabled={disabled}
+              onValueChange={tls =>
+                update({ electrum: { ...profile.electrum, tls } })
+              }
+            />
+          </View>
+          <View style={styles.group}>
             <Field
-              label="Default primary node"
+              label={words.primary}
+              accessibilityHint={words.primaryHint}
               value={profile.primaryUri}
               autoCapitalize="none"
               multiline
               editable={!disabled}
               onChangeText={primaryUri => update({ primaryUri })}
-              placeholder={
-                profile.network === 'mainnet' ? '' : 'A node on this network'
+            />
+            <Toggle
+              label={words.relay}
+              accessibilityLabel={words.relayLabel}
+              value={profile.transport === 'relay'}
+              disabled={disabled}
+              onValueChange={relay =>
+                update({ transport: relay ? 'relay' : 'native' })
               }
             />
-            <View style={styles.row}>
-              <Text style={styles.label}>Use a transport relay</Text>
-              <Switch
-                accessibilityLabel="Use transport relay"
-                value={profile.transport === 'relay'}
-                disabled={disabled}
-                trackColor={{ true: colors.primary, false: colors.line }}
-                thumbColor={colors.text}
-                onValueChange={relay =>
-                  update({ transport: relay ? 'relay' : 'native' })
-                }
-              />
-            </View>
             {profile.transport === 'relay' ? (
-              <>
+              <Reanimated.View
+                entering={riseIn()}
+                exiting={dropOut(8)}
+                style={styles.group}
+              >
                 <Field
-                  label="Relay address"
+                  label={words.relayAddress}
                   value={profile.relayUrl}
                   onChangeText={relayUrl => update({ relayUrl })}
                   autoCapitalize="none"
                   editable={!disabled}
-                  placeholder="wss://relay.example.com"
                 />
                 <Field
-                  label="Relay token"
+                  label={words.relayToken}
                   value={profile.relayToken}
                   onChangeText={relayToken => update({ relayToken })}
                   secureTextEntry
                   autoCapitalize="none"
                   editable={!disabled}
                 />
-              </>
+              </Reanimated.View>
             ) : null}
-          </Card>
-          <Button
+          </View>
+          <Action
             label={
               initialNetwork === profile.network
-                ? 'Save network settings'
-                : `Use ${profile.network}`
+                ? words.save
+                : words.use(profile.network)
             }
+            glyph={initialNetwork === profile.network ? 'check' : 'swap'}
             busy={disabled}
             disabled={disabled || !profile.electrum.host.trim()}
             onPress={apply}
           />
         </>
       ) : (
-        <Body>Loading saved network settings…</Body>
+        <View style={styles.waiting}>
+          <Working size={24} accessibilityLabel={words.loading} />
+        </View>
       )}
     </View>
   );
 }
 const styles = StyleSheet.create({
-  stack: { gap: space.md + 2 },
-  networks: { flexDirection: 'row', gap: space.xs },
-  network: {
-    flex: 1,
-    padding: space.sm,
-    borderRadius: radius.md,
-    borderColor: colors.line,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 44,
-  },
-  selected: { backgroundColor: colors.cream, borderColor: colors.cream },
-  networkText: { ...type.caption, color: colors.muted },
-  selectedText: { color: colors.ink, fontWeight: '700' },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: space.xs,
-    minHeight: 44,
-  },
-  label: { ...type.body, color: colors.text, flex: 1 },
+  stack: { gap: space.lg },
+  group: { gap: space.md },
+  waiting: { minHeight: 96, alignItems: 'center', justifyContent: 'center' },
 });
