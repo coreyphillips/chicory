@@ -261,19 +261,32 @@ const FLOWS: Record<string, () => Promise<void>> = {
   erase,
 };
 
-test('the app writes and clears the secure store exactly as main does', async () => {
+describe('the app writes and clears the secure store exactly as main does', () => {
+  // Each flow mounts the whole app, so each is a test of its own with its
+  // own time budget: one slow flow cannot run another out of time.
+  const expected: Record<string, string[]> = JSON.parse(
+    fs.readFileSync(FIXTURE, 'utf8'),
+  );
   const observed: Record<string, string[]> = {};
-  for (const [name, flow] of Object.entries(FLOWS)) {
-    log = [];
-    await flow();
+  afterAll(() => {
+    // A re-recording writes every flow at once, and only a whole run's.
+    if (
+      env.RECORD_CONTRACT &&
+      Object.keys(observed).length === Object.keys(FLOWS).length
+    ) {
+      fs.writeFileSync(FIXTURE, `${JSON.stringify(observed, null, 2)}\n`);
+    }
+  });
+
+  test('in the flows the fixture recorded, and no others', () => {
+    expect(Object.keys(expected).sort()).toEqual(Object.keys(FLOWS).sort());
+  });
+
+  test.each(Object.keys(FLOWS))('in the %s flow', async name => {
+    await FLOWS[name]();
     observed[name] = Array.from(new Set(log)).sort();
-    jest.restoreAllMocks();
-  }
-  if (env.RECORD_CONTRACT) {
-    fs.writeFileSync(FIXTURE, `${JSON.stringify(observed, null, 2)}\n`);
-  }
-  const expected = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
-  expect(observed).toEqual(expected);
+    if (!env.RECORD_CONTRACT) expect(observed[name]).toEqual(expected[name]);
+  });
 });
 
 test('no secure-store service is named in the source beyond main and the redesign additions', () => {
