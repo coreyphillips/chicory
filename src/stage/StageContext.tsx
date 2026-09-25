@@ -226,8 +226,15 @@ export function useStageStore(): StageStore {
       back: () => tap({ type: 'back' }),
       home: fling => tap({ type: 'home' }, speed(fling)),
       // A screen's own state, not a tap: a payment that starts while a pane
-      // settles must still hold the user in it.
-      setBusy: busy => dispatch({ type: 'busy', busy }),
+      // settles must still hold the user in it. It is recorded ahead of the
+      // render as a tap is, so a tap in the same tick as a payment going out
+      // is refused before it starts the panes toward a back or a home the
+      // reducer will not take.
+      setBusy: busy => {
+        const action: StageAction = { type: 'busy', busy };
+        latest.current = stageReducer(latest.current, action);
+        dispatch(action);
+      },
     };
   }, []);
   return useMemo(

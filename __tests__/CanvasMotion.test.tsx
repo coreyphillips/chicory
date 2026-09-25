@@ -266,6 +266,31 @@ describe('the stage store', () => {
     await act(async () => tree.unmount());
   });
 
+  test('a payment going out holds a tap in the same tick where it is', async () => {
+    const tree = await render(<Bare />);
+    const follow = jest.fn();
+    stage.panes.current = { moving: () => false, follow };
+    await act(async () => stage.actions.openSend());
+    follow.mockClear();
+    await act(async () => {
+      stage.actions.setBusy(true);
+      stage.actions.back();
+      stage.actions.home();
+    });
+    expect(follow).not.toHaveBeenCalled();
+    expect(stage.state.scene.name).toBe('send');
+    expect(stage.state.busy).toBe(true);
+    // Once it lands, the next tap in the same tick goes through.
+    await act(async () => {
+      stage.actions.setBusy(false);
+      stage.actions.back();
+    });
+    expect(follow).toHaveBeenCalledTimes(1);
+    expect(follow.mock.calls[0][0].scene.name).toBe('home');
+    expect(stage.state.scene.name).toBe('home');
+    await act(async () => tree.unmount());
+  });
+
   test('while a pane moves, taps are refused and the session and screens are not', async () => {
     const tree = await render(<Bare />);
     const follow = jest.fn();
