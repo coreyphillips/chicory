@@ -496,11 +496,11 @@ On the canvas a payment that completes is felt once, by the canvas's `useIncomin
 - **Layout.** 1 to 9, blank, 0, backspace.
 - **Press.** A mocha disc springs in behind the key (snap) with a tick.
 - **Digits.** A new digit rises 12pt as it enters. A removed digit drops 8pt as it leaves.
-- **Clear.** Long-pressing backspace for 450ms clears the amount, with a rigid haptic. A screen reader has it as backspace's `longpress` action.
+- **Clear.** Long-pressing backspace for 450ms clears the amount, with a rigid haptic. A screen reader has it as backspace's `longpress` action, labelled `copy.keypad.clear` ("Clear the amount").
 - **Limits.**
   - Over what can be spent now, but within the total: honey.
   - Over the total, or over the offline cap: radish, and it shakes once.
-  - More than 16 digits: the key is refused.
+  - More than 16 digits: the key is refused. The amount flashes radish and shakes, with a rigid haptic, and a screen reader hears `copy.keypad.refused`.
 
 ### Scan reveal
 

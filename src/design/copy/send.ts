@@ -69,4 +69,8 @@ export const keypad = {
   digits: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
   backspace: 'Delete last digit',
   backspaceHint: 'Hold to clear the amount.',
+  /** Backspace's hold, as the action a screen reader lists. */
+  clear: 'Clear the amount',
+  /** Said as a key past the most digits an amount holds is refused. */
+  refused: 'An amount has at most 16 digits.',
 };

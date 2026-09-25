@@ -7,6 +7,8 @@ import Reanimated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import { announce } from '../../design/announce';
+import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
@@ -119,7 +121,8 @@ export interface AmountReadoutProps {
  * one would, so a screen can swap it in for a field and keep its state. Each
  * digit rises into place as it is keyed and drops away as it is deleted.
  * Holding backspace clears the amount. A 17th digit is refused: the amount
- * flashes radish and shakes, with a rigid tap.
+ * flashes radish and shakes, with a rigid tap, and a screen reader is told
+ * why.
  *
  * `tone` colours the amount against what it may be, with a micro-glyph for
  * each: honey and a clock when more than can be sent now, radish and a bang,
@@ -162,6 +165,9 @@ export function AmountReadout({
       const now = latest.current;
       const next = pressKey(now.digits, key);
       if (next === null) {
+        // Felt, seen and heard: a screen reader is told why the key did
+        // nothing.
+        announce(copy.keypad.refused);
         haptics.rigid();
         flash.set(
           withSequence(

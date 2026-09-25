@@ -103,7 +103,10 @@ test('holding backspace clears the amount with a rigid tap', async () => {
 test('a screen reader clears the amount with the long press action', async () => {
   const tree = await mount(<Field start="4200" />);
   const backspace = find(tree, copy.keypad.backspace)!;
-  expect(backspace.props.accessibilityActions).toEqual([{ name: 'longpress' }]);
+  // VoiceOver lists it by its label, not as "longpress".
+  expect(backspace.props.accessibilityActions).toEqual([
+    { name: 'longpress', label: copy.keypad.clear },
+  ]);
   await act(async () =>
     backspace.props.onAccessibilityAction({
       nativeEvent: { actionName: 'longpress' },
@@ -126,12 +129,22 @@ test('the amount and its unit stop growing at 1.2', async () => {
   await act(async () => tree.unmount());
 });
 
-test('a 17th digit is refused, with a rigid tap', async () => {
+test('a 17th digit is refused, with a rigid tap, and a screen reader hears why', async () => {
+  const said = jest.mocked(AccessibilityInfo.announceForAccessibilityWithOptions);
+  said.mockClear();
   const full = '2100000000000000';
   const tree = await mount(<Field start={full} />);
   await press(tree, '7');
   expect(amountValue(tree)).toBe(full);
   expect(felt()).toEqual(['rigid']);
+  expect(said.mock.calls.map(([text]) => text)).toEqual([
+    copy.keypad.refused,
+  ]);
+  // A key that is taken says nothing.
+  said.mockClear();
+  await press(tree, copy.keypad.backspace);
+  await press(tree, '7');
+  expect(said).not.toHaveBeenCalled();
   await act(async () => tree.unmount());
 });
 

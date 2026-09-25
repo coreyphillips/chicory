@@ -38,9 +38,11 @@ export const CLEAR_AFTER_MS = 450;
 /**
  * The hold that clears, as an action a screen reader can take: TalkBack
  * offers it as double tap and hold, which it cannot pass through as a touch,
- * and VoiceOver lists it among the actions.
+ * and VoiceOver lists it among the actions by its label.
  */
-const CLEAR_ACTIONS = [{ name: 'longpress' as const }];
+const CLEAR_ACTIONS = [
+  { name: 'longpress' as const, label: copy.keypad.clear },
+];
 
 const KEY_HEIGHT = 60;
 
