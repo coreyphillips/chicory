@@ -671,7 +671,9 @@ export function SendScreen({
                 ? copy.send.stale
                 : busy
                 ? copy.send.preparing
-                : undefined
+                : request.trim()
+                ? undefined
+                : copy.send.reviewWaits
             }
             onPress={
               !live || busy

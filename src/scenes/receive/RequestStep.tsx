@@ -14,6 +14,7 @@ import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
 import { QrBloom, qrSide } from '../../glyphs/QrBloom';
+import { Whisper } from '../../glyphs/Whisper';
 import { riseIn, stagger } from '../../motion/presets';
 import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -247,7 +248,9 @@ function Badge({
       accessibilityLabel={label}
       style={[styles.badge, style]}
     >
-      <Glyph name={glyph} size={18} color={palette.honey} />
+      <Whisper label={label} style={styles.whole}>
+        <Glyph name={glyph} size={18} color={palette.honey} />
+      </Whisper>
     </Reanimated.View>
   );
 }
@@ -303,21 +306,23 @@ function About({
           {request.description}
         </Text>
       ) : null}
-      <View
-        accessible
-        accessibilityLabel={how}
-        accessibilityValue={left ? { text: left } : undefined}
-        style={styles.rails}
-      >
-        {rails.map(rail => (
-          <Glyph key={rail} name={rail} size={18} color={palette.steam} />
-        ))}
-        {request.offlineReceive && !face.expired ? (
-          <Rock>
-            <Glyph name="moon" size={18} color={palette.bloom} />
-          </Rock>
-        ) : null}
-      </View>
+      <Whisper label={[how, left].filter(Boolean).join('. ')}>
+        <View
+          accessible
+          accessibilityLabel={how}
+          accessibilityValue={left ? { text: left } : undefined}
+          style={styles.rails}
+        >
+          {rails.map(rail => (
+            <Glyph key={rail} name={rail} size={18} color={palette.steam} />
+          ))}
+          {request.offlineReceive && !face.expired ? (
+            <Rock>
+              <Glyph name="moon" size={18} color={palette.bloom} />
+            </Rock>
+          ) : null}
+        </View>
+      </Whisper>
     </Reanimated.View>
   );
 }
@@ -343,6 +348,13 @@ const styles = StyleSheet.create({
   amount: { ...typography.line, color: palette.cream },
   note: { ...typography.meta, color: palette.steam, textAlign: 'center' },
   rails: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  // The whole badge answers a long press, not only its glyph.
+  whole: {
+    alignSelf: 'stretch',
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',

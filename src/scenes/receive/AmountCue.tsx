@@ -4,6 +4,7 @@ import Reanimated from 'react-native-reanimated';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
+import { Whisper } from '../../glyphs/Whisper';
 import { riseIn, sceneOut } from '../../motion/presets';
 import { number, space, type as typography } from '../../theme';
 import { Pulse } from './loops';
@@ -71,18 +72,20 @@ export function AmountCue({
   return (
     <View style={styles.strip}>
       {face ? (
-        <Reanimated.View
-          key={cue.kind}
-          entering={riseIn(8)}
-          exiting={sceneOut()}
-          accessible
-          accessibilityLabel={label}
-          accessibilityHint={hint}
-          accessibilityValue={message ? { text: message } : undefined}
-          style={styles.face}
-        >
-          {face}
-        </Reanimated.View>
+        <Whisper label={[label, message ?? hint].filter(Boolean).join(' ')}>
+          <Reanimated.View
+            key={cue.kind}
+            entering={riseIn(8)}
+            exiting={sceneOut()}
+            accessible
+            accessibilityLabel={label}
+            accessibilityHint={hint}
+            accessibilityValue={message ? { text: message } : undefined}
+            style={styles.face}
+          >
+            {face}
+          </Reanimated.View>
+        </Whisper>
       ) : null}
     </View>
   );

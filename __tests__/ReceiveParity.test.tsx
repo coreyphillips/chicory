@@ -50,7 +50,13 @@ import type { StageStore } from '../src/stage/StageContext';
 import * as tokens from '../src/motion/tokens';
 import { MASK } from '../src/theme';
 import { amountValue, enterAmount } from '../test-support/keypad';
-import { alerts, find, meaning, visibleText } from '../test-support/query';
+import {
+  alerts,
+  find,
+  meaning,
+  visibleText,
+  whispers,
+} from '../test-support/query';
 
 const request: ReceiveRequest = {
   id: 'r1',
@@ -194,6 +200,47 @@ test('zero inbound capacity blocks blank amount locally and preserves the fee-re
   expect(receive).not.toHaveBeenCalled();
   // The fee is reviewed before anything is created.
   expect(find(tree, 'Create request')).toBeDefined();
+  await act(async () => tree.unmount());
+});
+
+test('held, the amount cue, the fee and a held-back control say what they mean', async () => {
+  const quoteReceive = jest
+    .fn()
+    .mockResolvedValue({ ...quote, expiresAt: Date.now() + 60000 });
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <ReceiveScreen
+        client={adapter({ quoteReceive })}
+        receivableSats={0}
+        onActivity={noop}
+        onBusy={noop}
+      />,
+    );
+  });
+  // The sprout says an amount is needed, and Continue waits for one.
+  expect(whispers(tree)).toContainEqual({
+    label: `${copy.amount.required} ${copy.receive.enterAmount}`,
+    on: true,
+  });
+  expect(whispers(tree)).toContainEqual({
+    label: copy.receive.continue,
+    on: true,
+  });
+  await enterAmount(tree, '1000');
+  expect(whispers(tree)).toContainEqual({
+    label: copy.receive.continue,
+    on: false,
+  });
+  await act(async () => {
+    await press(tree, 'Continue').props.onPress();
+  });
+  // The fee's glyph says how the money arrives.
+  expect(
+    whispers(tree).some(
+      said => said.on && said.label.startsWith(copy.receive.fee(0)),
+    ),
+  ).toBe(true);
   await act(async () => tree.unmount());
 });
 
@@ -1096,6 +1143,19 @@ describe('the safety states on a request', () => {
     });
     expect(stroke()).toBe(palette.honey);
     expect(meaning(tree)).toContain(copy.receive.nearExpiry);
+    await act(async () => tree.unmount());
+  });
+
+  test('held, how a request is paid and what the engine warned say themselves', async () => {
+    const warning = 'The payer may see a fee.';
+    const { tree } = await made(fresh({ warnings: [warning] }));
+    const said = whispers(tree);
+    expect(said).toContainEqual({ label: warning, on: true });
+    expect(
+      said.some(
+        whisper => whisper.on && whisper.label.startsWith(copy.receive.unified),
+      ),
+    ).toBe(true);
     await act(async () => tree.unmount());
   });
 

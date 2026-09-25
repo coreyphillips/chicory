@@ -16,6 +16,7 @@ import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { CopiedGlyph } from '../../glyphs/CopyChip';
+import { Whisper } from '../../glyphs/Whisper';
 import { riseIn } from '../../motion/presets';
 import { curves, durations, shake, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -193,71 +194,74 @@ export function GlyphButton({
     press.set(reduced ? 1 : withSpring(scale, springs.snap));
   const round = { width: size, height: size, borderRadius: size / 2 };
   const pill = { minHeight: size, borderRadius: size / 2 };
+  // Held back, a long press whispers why (REDESIGN.md rule 3).
   return (
-    <Reanimated.View style={moved}>
-      {halo ? (
-        <Pulse style={[styles.around, around(size)]}>
-          <View style={[styles.haloRing, ring(size)]} />
-        </Pulse>
-      ) : null}
-      <Pressable
-        ref={focusRef}
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        accessibilityHint={hint}
-        accessibilityState={{ disabled: quiet, busy, expanded }}
-        disabled={disabled || busy}
-        onPressIn={live ? () => to(0.94) : undefined}
-        onPressOut={live ? () => to(1) : undefined}
-        onPress={
-          live
-            ? () => {
-                if (blocked) {
-                  onBlocked?.();
-                  return;
-                }
-                if (primary) haptics.tap();
-                else haptics.tick();
-                onPress();
-              }
-            : undefined
-        }
-        style={[
-          styles.control,
-          children ? [styles.pill, pill] : round,
-          primary ? styles.primary : styles.raised,
-          quiet && styles.quiet,
-        ]}
-      >
-        {confirm === undefined ? (
-          <Glyph name={glyph} size={Math.round(size * 0.42)} color={ink} />
-        ) : (
-          <CopiedGlyph
-            name={glyph}
-            size={Math.round(size * 0.42)}
-            color={ink}
-            copies={confirm}
-          />
-        )}
-        {children ? (
-          <Text
-            style={[styles.data, { color: ink }]}
-            maxFontSizeMultiplier={1.4}
-          >
-            {children}
-          </Text>
+    <Whisper label={hint ?? label} enabled={quiet}>
+      <Reanimated.View style={moved}>
+        {halo ? (
+          <Pulse style={[styles.around, around(size)]}>
+            <View style={[styles.haloRing, ring(size)]} />
+          </Pulse>
         ) : null}
-        <Reanimated.View
-          pointerEvents="none"
-          style={[styles.tint, children ? pill : round, tinted]}
-        />
-      </Pressable>
-      {busy ? (
-        <Spin style={[styles.around, around(size)]}>
-          <Orbit size={size + ORBIT_GAP * 2} />
-        </Spin>
-      ) : null}
-    </Reanimated.View>
+        <Pressable
+          ref={focusRef}
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          accessibilityHint={hint}
+          accessibilityState={{ disabled: quiet, busy, expanded }}
+          disabled={disabled || busy}
+          onPressIn={live ? () => to(0.94) : undefined}
+          onPressOut={live ? () => to(1) : undefined}
+          onPress={
+            live
+              ? () => {
+                  if (blocked) {
+                    onBlocked?.();
+                    return;
+                  }
+                  if (primary) haptics.tap();
+                  else haptics.tick();
+                  onPress();
+                }
+              : undefined
+          }
+          style={[
+            styles.control,
+            children ? [styles.pill, pill] : round,
+            primary ? styles.primary : styles.raised,
+            quiet && styles.quiet,
+          ]}
+        >
+          {confirm === undefined ? (
+            <Glyph name={glyph} size={Math.round(size * 0.42)} color={ink} />
+          ) : (
+            <CopiedGlyph
+              name={glyph}
+              size={Math.round(size * 0.42)}
+              color={ink}
+              copies={confirm}
+            />
+          )}
+          {children ? (
+            <Text
+              style={[styles.data, { color: ink }]}
+              maxFontSizeMultiplier={1.4}
+            >
+              {children}
+            </Text>
+          ) : null}
+          <Reanimated.View
+            pointerEvents="none"
+            style={[styles.tint, children ? pill : round, tinted]}
+          />
+        </Pressable>
+        {busy ? (
+          <Spin style={[styles.around, around(size)]}>
+            <Orbit size={size + ORBIT_GAP * 2} />
+          </Spin>
+        ) : null}
+      </Reanimated.View>
+    </Whisper>
   );
 }
 
@@ -306,33 +310,35 @@ function Orbit({ size }: { size: number }) {
  */
 export function ErrorPip({ message }: { message: string }) {
   return (
-    <Reanimated.View
-      entering={riseIn(8)}
-      accessible
-      accessibilityRole="alert"
-      accessibilityLabel={message}
-      style={styles.errorPip}
-    >
-      <Glyph name="bang" size={18} color={palette.radish} />
-    </Reanimated.View>
+    <Whisper label={message}>
+      <Reanimated.View
+        entering={riseIn(8)}
+        accessible
+        accessibilityRole="alert"
+        accessibilityLabel={message}
+        style={styles.errorPip}
+      >
+        <Glyph name="bang" size={18} color={palette.radish} />
+      </Reanimated.View>
+    </Whisper>
   );
 }
 
 /**
  * What the engine warned about, as honey pips: one each, each carrying its
- * warning for a screen reader.
+ * warning for a screen reader and whispering it when held, in a place big
+ * enough to hold.
  */
 export function WarningPips({ warnings }: { warnings: string[] }) {
   if (!warnings.length) return null;
   return (
     <View style={styles.pips}>
       {warnings.map((warning, i) => (
-        <View
-          key={i}
-          accessible
-          accessibilityLabel={warning}
-          style={styles.pip}
-        />
+        <Whisper key={i} label={warning}>
+          <View accessible accessibilityLabel={warning} style={styles.pipArea}>
+            <View style={styles.pip} />
+          </View>
+        </Whisper>
       ))}
     </View>
   );
@@ -367,7 +373,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: palette.radishSoft,
   },
-  pips: { flexDirection: 'row', gap: space.xs, justifyContent: 'center' },
+  pips: { flexDirection: 'row', justifyContent: 'center' },
+  pipArea: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   pip: {
     width: 8,
     height: 8,

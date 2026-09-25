@@ -11,6 +11,7 @@ import { Glyph } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
+import { Whisper } from '../../glyphs/Whisper';
 import { useShake } from '../../motion/effects';
 import { dropOut, riseIn, smooth } from '../../motion/presets';
 import { durations } from '../../motion/tokens';
@@ -109,8 +110,8 @@ export interface AmountReadoutProps {
  * `tone` colours the amount against what it may be, with a micro-glyph for
  * each: honey and a clock when more than can be sent now, radish and a bang,
  * with one shake, when more than it can ever be, and dust under the least
- * it can be. The words for each are the caller's, in `hint`. The label is
- * only ever spoken.
+ * it can be. The words for each are the caller's, in `hint`, which a long
+ * press on a mark whispers. The label is only ever spoken.
  */
 export function AmountReadout({
   accessibilityLabel,
@@ -241,7 +242,9 @@ export function AmountReadout({
           <Text style={styles.unit}>{UNIT}</Text>
           {marks.map(mark => (
             <View key={mark} style={styles.mark}>
-              <Mark name={mark} color={color} />
+              <Whisper label={hint ?? ''} enabled={!!hint}>
+                <Mark name={mark} color={color} />
+              </Whisper>
             </View>
           ))}
         </View>

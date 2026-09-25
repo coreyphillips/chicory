@@ -15,6 +15,8 @@ export const send = {
   clipboardEmpty: 'The clipboard is empty.',
   scan: 'Scan a payment request',
   review: 'Review payment',
+  // Why the review waits, while there is no request to review.
+  reviewWaits: 'Paste or scan a payment request first.',
   preparing: 'Preparing the payment.',
   sendSats: (value: number) => `Send ${sats(value)}`,
   holdHint: 'Hold to send.',

@@ -18,6 +18,7 @@ import {
   meaning,
   press,
   pressableLabels,
+  whispers,
 } from '../test-support/query';
 
 const onBusy = jest.fn();
@@ -359,6 +360,42 @@ test('a direct-funding review names its method and fee ceiling, and a refusal sa
 // A structurally valid 24,425 sat invoice: the amount is all the form reads.
 const INVOICE_24425 =
   'lnbc244250n1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqw53adf';
+
+test("held, the dust Review control and the amount's marks say why", async () => {
+  const tree = await renderSend(
+    <SendScreen
+      client={adapter({})}
+      balance={{
+        totalSats: 10_000,
+        availableSats: 1_000,
+        pendingSats: 9_000,
+        receivableSats: 0,
+      }}
+      onActivity={jest.fn()}
+      onRefresh={jest.fn()}
+      onBusy={onBusy}
+    />,
+  );
+  // With nothing to review, the control is dust and says what it needs.
+  expect(whispers(tree)).toContainEqual({
+    label: copy.send.reviewWaits,
+    on: true,
+  });
+  await act(async () => {
+    field(tree, 'Payment request or address').props.onChangeText('lnbc-some');
+  });
+  expect(whispers(tree)).toContainEqual({
+    label: copy.send.review,
+    on: false,
+  });
+  // More than can be sent now: the clock beside the amount says so.
+  await enterAmount(tree, '4200');
+  expect(whispers(tree)).toContainEqual({
+    label: copy.amount.overSpendable,
+    on: true,
+  });
+  await act(async () => tree.unmount());
+});
 
 test('a request that names its amount fills the amount field and locks it', async () => {
   const prepareSend = jest.fn().mockRejectedValue(new Error('stop here'));

@@ -6,6 +6,7 @@ import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
+import { Whisper } from '../../glyphs/Whisper';
 import { stagger } from '../../motion/presets';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { amountIn, space, type as typography } from '../../theme';
@@ -72,6 +73,10 @@ export function QuoteStep({
       ? copy.receive.justInTime
       : '';
   const net = quote.amountSats && quote.netSats !== null ? quote.netSats : null;
+  // What the fee's glyph says, heard and whispered.
+  const feeWords = [copy.receive.fee(quote.feeSats), how]
+    .filter(Boolean)
+    .join(' ');
   return (
     <View style={styles.quote}>
       <Pressable
@@ -99,20 +104,20 @@ export function QuoteStep({
           <Glyph name="infinity" size={56} color={palette.cream} />
         )}
       </Pressable>
-      <Reanimated.View
-        entering={stagger(1)}
-        accessible
-        accessibilityLabel={[copy.receive.fee(quote.feeSats), how]
-          .filter(Boolean)
-          .join(' ')}
-        style={styles.line}
-      >
-        <Glyph name={glyph} size={20} color={palette.bloom} />
-        <Text style={styles.sign}>−</Text>
-        <Text style={styles.value} maxFontSizeMultiplier={1.4}>
-          {shownSats(quote.feeSats)}
-        </Text>
-      </Reanimated.View>
+      <Whisper label={feeWords}>
+        <Reanimated.View
+          entering={stagger(1)}
+          accessible
+          accessibilityLabel={feeWords}
+          style={styles.line}
+        >
+          <Glyph name={glyph} size={20} color={palette.bloom} />
+          <Text style={styles.sign}>−</Text>
+          <Text style={styles.value} maxFontSizeMultiplier={1.4}>
+            {shownSats(quote.feeSats)}
+          </Text>
+        </Reanimated.View>
+      </Whisper>
       {net !== null ? (
         <Reanimated.View
           entering={stagger(2)}

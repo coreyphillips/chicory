@@ -125,10 +125,12 @@ export function CircleControl({
       </Pressable>
     </Reanimated.View>
   );
-  return stale ? (
-    <Whisper label={accessibilityHint ?? accessibilityLabel}>{control}</Whisper>
-  ) : (
-    control
+  // Dust, it says why when held: the stale balance, the wait, or what it
+  // needs first.
+  return (
+    <Whisper label={accessibilityHint ?? accessibilityLabel} enabled={dust}>
+      {control}
+    </Whisper>
   );
 }
 
