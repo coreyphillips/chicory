@@ -16,9 +16,11 @@ import {
 import type { WalletAdapter } from '../../../services/wallet';
 import { heldRequest, holdRequest } from '../../../stage/heldRequests';
 import {
+  activate,
   alerts,
   field,
   find,
+  holds,
   meaning,
   press,
   pressableLabels,
@@ -88,21 +90,8 @@ async function draw(client: object, props: Props = {}) {
   return tree;
 }
 
-/** The hold's own element, which a screen reader commits with its action. */
-const hold = (tree: ReactTestRenderer, label = copy.send.sendSats(4_200)) =>
-  tree.root.findAll(
-    node =>
-      typeof node.type === 'string' &&
-      node.props.accessibilityLabel === label &&
-      typeof node.props.onAccessibilityAction === 'function',
-  );
-
-const activate = (node: ReactTestInstance) =>
-  act(async () => {
-    node.props.onAccessibilityAction({
-      nativeEvent: { actionName: 'activate' },
-    });
-  });
+/** The hold for the 4,200 sats every test here sends. */
+const HOLD = copy.send.sendSats(4_200);
 
 const type = (tree: ReactTestRenderer, text: string) =>
   act(async () => {
@@ -177,7 +166,7 @@ describe('a held request', () => {
     await press(tree, copy.send.review);
     // Paid from elsewhere meanwhile, with its outcome unknown.
     holdRequest('lnbc-held-late', { status: 'uncertain' });
-    await activate(hold(tree)[0]);
+    await activate(tree, HOLD);
     expect(send).not.toHaveBeenCalled();
     expect(meaning(tree)).toContain(copy.send.held);
     await act(async () => tree.unmount());
@@ -196,7 +185,7 @@ describe('preparing', () => {
     expect(heldRequest('lnbc-flaky')).toBeNull();
     expect(meaning(tree)).not.toContain(copy.send.held);
     await press(tree, copy.send.review);
-    expect(hold(tree)).toHaveLength(1);
+    expect(holds(tree, HOLD)).toHaveLength(1);
     await act(async () => tree.unmount());
   });
 
@@ -233,7 +222,7 @@ describe('a quote', () => {
     );
     await press(tree, copy.send.review);
     // The ring says nothing; the hold carries the time left.
-    const left = () => hold(tree)[0].props.accessibilityValue.text;
+    const left = () => holds(tree, HOLD)[0].props.accessibilityValue.text;
     expect(left()).toBe(copy.send.quoteExpires(15));
     await act(async () => jest.advanceTimersByTime(5_000));
     expect(left()).toBe(copy.send.quoteExpires(10));
@@ -241,7 +230,7 @@ describe('a quote', () => {
     expect(find(tree, copy.send.refreshQuote)).toBeUndefined();
     await act(async () => jest.advanceTimersByTime(10_000));
     expect(find(tree, copy.send.refreshQuote)).toBeDefined();
-    expect(hold(tree)).toEqual([]);
+    expect(holds(tree, HOLD)).toEqual([]);
     expect(said).toHaveBeenLastCalledWith(copy.send.quoteExpired, {
       assertive: true,
     });
@@ -264,7 +253,7 @@ describe('a quote', () => {
     );
     await press(tree, copy.send.review);
     jest.spyOn(Date, 'now').mockReturnValue(expiresAt + 1);
-    await activate(hold(tree)[0]);
+    await activate(tree, HOLD);
     expect(send).not.toHaveBeenCalled();
     expect(find(tree, copy.send.refreshQuote)).toBeDefined();
     expect(logged()).toContain('QUOTE_EXPIRED');
@@ -287,7 +276,7 @@ describe('a quote', () => {
     expect(tree.root.findAllByType(ReviewLines)).toHaveLength(1);
     expect(tree.root.findAllByType(ExpiryRing)).toHaveLength(1);
     await act(async () => fresh(quote()));
-    expect(hold(tree)).toHaveLength(1);
+    expect(holds(tree, HOLD)).toHaveLength(1);
     expect(prepareSend).toHaveBeenCalledTimes(2);
     await act(async () => tree.unmount());
   });
@@ -308,7 +297,7 @@ test('a balance going stale closes the gate, felt, said and logged, and a tap re
   expect(felt()).toContain('notificationWarning');
   expect(logged()).toContain('STALE');
   // The hold is gone; what is left under its label only refreshes.
-  expect(hold(tree)).toEqual([]);
+  expect(holds(tree, HOLD)).toEqual([]);
   await press(tree, copy.send.sendSats(4_200));
   expect(onRefresh).toHaveBeenCalledTimes(1);
   expect(send).not.toHaveBeenCalled();
@@ -345,7 +334,7 @@ describe('a screen reader', () => {
       { initialRequest: 'lnbc-focus-unknown' },
     );
     await press(tree, copy.send.review);
-    await activate(hold(tree)[0]);
+    await activate(tree, HOLD);
     expect(focused().at(-1)).toBe(copy.send.unknown);
     const [moved] = jest
       .mocked(AccessibilityInfo.sendAccessibilityEvent)
@@ -371,7 +360,7 @@ test('a failed payment touched and paid again still goes home once it completes'
     { initialRequest: 'lnbc-second-go', onDone },
   );
   await press(tree, copy.send.review);
-  await activate(hold(tree)[0]);
+  await activate(tree, HOLD);
   await act(async () => {
     tree.root
       .findAll(node => typeof node.props.onTouchStart === 'function')[0]
@@ -379,7 +368,7 @@ test('a failed payment touched and paid again still goes home once it completes'
   });
   await press(tree, copy.send.failed);
   await press(tree, copy.send.review);
-  await activate(hold(tree)[0]);
+  await activate(tree, HOLD);
   expect(meaning(tree)).toContain(copy.send.sent);
   await act(async () => jest.advanceTimersByTime(2_200));
   expect(onDone).toHaveBeenCalledTimes(1);

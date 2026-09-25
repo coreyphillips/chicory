@@ -31,7 +31,7 @@ import { ScanReveal } from '../src/stage/layers/ScanReveal';
 import { Pane, usePaneActive } from '../src/stage/panes/Pane';
 import { SceneSlot } from '../src/stage/panes/SceneSlot';
 import { MASK } from '../src/theme';
-import { componentName, visibleText } from '../test-support/query';
+import { activate, componentName, visibleText } from '../test-support/query';
 
 /**
  * The component contracts (REDESIGN.md 10). The parallel tracks draw these
@@ -343,10 +343,6 @@ describe('CopyChip', () => {
 
 describe('HoldButton', () => {
   const LABEL = 'Send 4,200 sats';
-  const activate = (node: ReactTestInstance, actionName = 'activate') =>
-    act(async () =>
-      node.props.onAccessibilityAction({ nativeEvent: { actionName } }),
-    );
 
   test('a tap does nothing: there is no onPress to call', async () => {
     const tree = await render(
@@ -362,9 +358,13 @@ describe('HoldButton', () => {
     const tree = await render(
       <HoldButton accessibilityLabel={LABEL} onCommit={onCommit} />,
     );
-    await activate(control(tree, LABEL), 'magicTap');
+    await act(async () =>
+      control(tree, LABEL).props.onAccessibilityAction({
+        nativeEvent: { actionName: 'magicTap' },
+      }),
+    );
     expect(onCommit).not.toHaveBeenCalled();
-    await activate(control(tree, LABEL));
+    await activate(tree, LABEL);
     expect(onCommit).toHaveBeenCalledTimes(1);
   });
 

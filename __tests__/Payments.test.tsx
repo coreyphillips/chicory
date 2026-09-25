@@ -2,7 +2,6 @@ import React from 'react';
 import { AccessibilityInfo, TextInput } from 'react-native';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import type { ReactTestInstance } from 'react-test-renderer';
 import type { SendReview, ReceiveQuote } from '@beignet/wallet-core';
 import { SendScreen, ReceiveScreen } from '../src/screens/Payments';
 import { Scanner } from '../src/components/Scanner';
@@ -10,8 +9,11 @@ import { copy } from '../src/design/copy';
 import type { WalletAdapter } from '../src/services/wallet';
 import { amountValue, enterAmount } from '../test-support/keypad';
 import {
+  ACTIVATE,
+  activate,
   alerts,
   find,
+  holds,
   meaning,
   press,
   pressableLabels,
@@ -55,23 +57,6 @@ async function renderSend(element: React.ReactElement) {
   });
   return tree;
 }
-
-/**
- * The hold labelled `value`, as a screen reader reaches it: a control with
- * an activate action, or a long press, and never a tap.
- */
-function holds(tree: ReactTestRenderer, value: string) {
-  return tree.root.findAll(
-    node =>
-      node.props.accessibilityLabel === value &&
-      (typeof node.props.onAccessibilityAction === 'function' ||
-        typeof node.props.onLongPress === 'function'),
-  );
-}
-
-/** Commits a hold the way a screen reader does, with its one action. */
-const activate = (node: ReactTestInstance) =>
-  node.props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } });
 
 /** The element a screen reader reaches by `value`, where its state is. */
 const element = (tree: ReactTestRenderer, value: string) =>
@@ -125,8 +110,8 @@ test('review does not send; confirmation sends once and preserves uncertain stat
   expect(find(tree, 'Send 4,200 sats')).toBeUndefined();
   const [confirm] = holds(tree, 'Send 4,200 sats');
   await act(async () => {
-    activate(confirm);
-    activate(confirm);
+    confirm.props.onAccessibilityAction(ACTIVATE);
+    confirm.props.onAccessibilityAction(ACTIVATE);
   });
   expect(send).toHaveBeenCalledTimes(1);
   await act(async () => {
@@ -355,11 +340,13 @@ test('a direct-funding review names its method and fee ceiling, and a refusal sa
   expect(shown).toContain('1,000 sats');
   expect(shown).toContain(review.warnings[0]);
   // Warned about, the hold takes longer.
-  const [confirm] = holds(tree, 'Send 4,200 sats');
-  expect(confirm.props.delayLongPress).toBe(1000);
-  await act(async () => {
-    activate(confirm);
-  });
+  expect(
+    tree.root.findAllByProps({
+      accessibilityLabel: 'Send 4,200 sats',
+      delayLongPress: 1000,
+    }),
+  ).not.toEqual([]);
+  await activate(tree, 'Send 4,200 sats');
   const after = meaning(tree);
   expect(after).toContain('Payment failed.');
   expect(after).toContain('Nothing was sent');
@@ -474,9 +461,7 @@ async function payOnce(client: WalletAdapter, request: string) {
   await act(async () => {
     await label(tree, 'Review payment').props.onPress();
   });
-  await act(async () => {
-    activate(holds(tree, 'Send 4,200 sats')[0]);
-  });
+  await activate(tree, 'Send 4,200 sats');
   return tree;
 }
 
@@ -547,9 +532,7 @@ test('a send that ends without a result is held as unknown, never an error to re
   await act(async () => {
     await label(tree, 'Review payment').props.onPress();
   });
-  await act(async () => {
-    activate(holds(tree, 'Send 4,200 sats')[0]);
-  });
+  await activate(tree, 'Send 4,200 sats');
   const shown = meaning(tree);
   expect(shown).toContain(message);
   expect(shown).toContain('Needs checking');
@@ -614,9 +597,7 @@ test('a completed payment goes home a moment later, unless the screen is touched
       await act(async () => {
         await label(tree, 'Review payment').props.onPress();
       });
-      await act(async () => {
-        activate(holds(tree, 'Send 4,200 sats')[0]);
-      });
+      await activate(tree, 'Send 4,200 sats');
       expect(meaning(tree)).toContain(copy.send.sent);
       if (touched) {
         await act(async () => {
@@ -719,9 +700,7 @@ describe('what the engine says no with', () => {
       prepareSend: jest.fn().mockResolvedValue(quote),
       send,
     });
-    await act(async () => {
-      activate(holds(tree, 'Send 4,200 sats')[0]);
-    });
+    await activate(tree, 'Send 4,200 sats');
     expect(alerts(tree)).toEqual([message]);
     expect(find(tree, 'Refresh quote')).toBeDefined();
     expect(holds(tree, 'Send 4,200 sats')).toEqual([]);

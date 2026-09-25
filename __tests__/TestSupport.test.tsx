@@ -20,10 +20,12 @@ import {
 import { amountValue, enterAmount } from '../test-support/keypad';
 import {
   a11yText,
+  activate,
   allText,
   alerts,
   field,
   find,
+  holds,
   meaning,
   press,
   pressableLabels,
@@ -97,6 +99,43 @@ describe('query', () => {
     expect(find(tree, 'Send')).toBeDefined();
     expect(find(tree, 'Receive')).toBeUndefined();
     expect(pressableLabels(tree)).toEqual(new Set(['Send']));
+    await act(async () => tree.unmount());
+  });
+
+  test('activate commits a hold with its one action, and names the holds when missing', async () => {
+    const commits: string[] = [];
+    const hold = (label: string, live = true) => (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityActions={[{ name: 'activate' }]}
+        onAccessibilityAction={
+          live
+            ? event => {
+                if (event.nativeEvent.actionName === 'activate') {
+                  commits.push(label);
+                }
+              }
+            : undefined
+        }
+      />
+    );
+    const tree = await render(
+      <View>
+        {hold('Send 4,200 sats')}
+        {hold('Send 1,000 sats', false)}
+        <Pressable accessibilityLabel="Receive" onPress={noop} />
+      </View>,
+    );
+    expect(holds(tree, 'Send 4,200 sats')).toHaveLength(1);
+    // A hold that is out of use has no action to take, as a tap has none.
+    expect(holds(tree, 'Send 1,000 sats')).toEqual([]);
+    expect(holds(tree, 'Receive')).toEqual([]);
+    await activate(tree, 'Send 4,200 sats');
+    expect(commits).toEqual(['Send 4,200 sats']);
+    await expect(activate(tree, 'Receive')).rejects.toThrow(
+      'No control labelled "Receive" takes an activate action. Held: "Send 4,200 sats".',
+    );
     await act(async () => tree.unmount());
   });
 

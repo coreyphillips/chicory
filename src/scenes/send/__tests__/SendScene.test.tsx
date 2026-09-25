@@ -20,7 +20,7 @@ import {
 import type { StageStore } from '../../../stage/StageContext';
 import { activityOf, hex } from '../../../../test-support/fixtures';
 import { mount } from '../../../../test-support/guard';
-import { field, find, press } from '../../../../test-support/query';
+import { activate, field, find, press } from '../../../../test-support/query';
 
 /**
  * Send on the canvas (REDESIGN.md 2.3 and 6): a scan it starts comes back to
@@ -169,17 +169,7 @@ test('a completed payment goes home on its own', async () => {
       field(tree, copy.send.request).props.onChangeText('lnbc-home');
     });
     await press(tree, copy.send.review);
-    await act(async () => {
-      tree.root
-        .find(
-          node =>
-            node.props.accessibilityLabel === copy.send.sendSats(4200) &&
-            typeof node.props.onAccessibilityAction === 'function',
-        )
-        .props.onAccessibilityAction({
-          nativeEvent: { actionName: 'activate' },
-        });
-    });
+    await activate(tree, copy.send.sendSats(4200));
     expect(stage.state.scene.name).toBe('send');
     await act(async () => jest.advanceTimersByTime(2200));
     expect(stage.state.scene.name).toBe('home');

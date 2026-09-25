@@ -151,6 +151,59 @@ export async function press(
 }
 
 /**
+ * The elements labelled `label` that a screen reader commits with an action
+ * rather than a tap, as it commits a hold: host elements with an
+ * `onAccessibilityAction`, in tree order. A hold in a pane that is not active
+ * drops its handler, so it is not found here while it is out of use.
+ */
+export function holds(
+  tree: ReactTestRenderer,
+  label: string,
+): ReactTestInstance[] {
+  return tree.root.findAll(
+    node =>
+      typeof node.type === 'string' &&
+      node.props.accessibilityLabel === label &&
+      typeof node.props.onAccessibilityAction === 'function',
+  );
+}
+
+/** The event a screen reader sends when it activates an element. */
+export const ACTIVATE = { nativeEvent: { actionName: 'activate' } };
+
+/**
+ * Commits the hold labelled `label` the way a screen reader does, with its
+ * one `activate` action, and waits for whatever it started. Throws, naming
+ * what can be held instead, when there is no such control.
+ */
+export async function activate(
+  tree: ReactTestRenderer,
+  label: string,
+): Promise<void> {
+  const [target] = holds(tree, label);
+  if (!target) {
+    const held = new Set(
+      tree.root
+        .findAll(
+          node =>
+            typeof node.type === 'string' &&
+            typeof node.props.onAccessibilityAction === 'function' &&
+            typeof node.props.accessibilityLabel === 'string',
+        )
+        .map(node => `"${node.props.accessibilityLabel}"`),
+    );
+    throw new Error(
+      `No control labelled "${label}" takes an activate action. Held: ${
+        [...held].join(', ') || 'none'
+      }.`,
+    );
+  }
+  await act(async () => {
+    await target.props.onAccessibilityAction(ACTIVATE);
+  });
+}
+
+/**
  * The text field labelled `label`. Throws, naming the fields there are, when
  * there is none.
  */

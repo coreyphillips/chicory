@@ -17,6 +17,7 @@ import {
 } from '../src/services/diagnosticLog';
 import { setHapticsEnabled } from '../src/services/haptics';
 import type { WalletAdapter } from '../src/services/wallet';
+import { ACTIVATE, activate } from '../test-support/query';
 
 function strings(children: unknown, out: string[] = []): string[] {
   if (typeof children === 'string' || typeof children === 'number')
@@ -381,12 +382,8 @@ describe('the recovery phrase still to be saved', () => {
     });
     expect(onBackupSaved).not.toHaveBeenCalled();
     await act(async () => {
-      control.props.onAccessibilityAction({
-        nativeEvent: { actionName: 'activate' },
-      });
-      control.props.onAccessibilityAction({
-        nativeEvent: { actionName: 'activate' },
-      });
+      control.props.onAccessibilityAction(ACTIVATE);
+      control.props.onAccessibilityAction(ACTIVATE);
     });
     expect(onBackupSaved).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
@@ -588,11 +585,7 @@ describe('a screen reader follows each change', () => {
       press(tree, 'Reveal recovery phrase').props.onPress(),
     );
     await settle();
-    await act(async () =>
-      press(tree, 'I saved my recovery phrase').props.onAccessibilityAction({
-        nativeEvent: { actionName: 'activate' },
-      }),
-    );
+    await activate(tree, 'I saved my recovery phrase');
     await settle();
     expect(landed()).toEqual([
       '1. one',

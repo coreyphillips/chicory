@@ -1,7 +1,7 @@
 import React from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act } from 'react-test-renderer';
-import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
+import type { ReactTestRenderer } from 'react-test-renderer';
 import type { SendResult, SendReview } from '@beignet/wallet-core';
 import { chipText } from '../../src/glyphs/CopyChip';
 import { shortRequest } from '../../src/scenes/send/model';
@@ -17,6 +17,7 @@ import {
 import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
 import { enterAmount } from '../../test-support/keypad';
+import { activate } from '../../test-support/query';
 
 /**
  * Send under the copy guard (REDESIGN.md rule 1) and the accessibility check
@@ -99,11 +100,6 @@ const control = (tree: ReactTestRenderer, label: string) =>
       typeof node.props.onPress === 'function',
   );
 
-const hold = (tree: ReactTestRenderer): ReactTestInstance =>
-  tree.root.find(
-    node => typeof node.props.onAccessibilityAction === 'function',
-  );
-
 /** Compose, then review, for the request and client given. */
 async function reviewed(client: object, request = ADDRESS, props: Drawn = {}) {
   const tree = await draw({ client, initialRequest: request, ...props });
@@ -116,11 +112,7 @@ async function reviewed(client: object, request = ADDRESS, props: Drawn = {}) {
 /** Reviewed and committed with the hold, as a screen reader commits it. */
 async function sent(client: object, request = fresh()) {
   const tree = await reviewed(client, request);
-  await act(async () => {
-    hold(tree).props.onAccessibilityAction({
-      nativeEvent: { actionName: 'activate' },
-    });
-  });
+  await activate(tree, 'Send 4,200 sats');
   return tree;
 }
 

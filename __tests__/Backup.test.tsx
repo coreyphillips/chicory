@@ -14,6 +14,7 @@ import {
 import { PhraseBloom } from '../src/scenes/settings/PhraseBloom';
 import type { NetworkProfile } from '../src/services/networks';
 import type { WalletAdapter } from '../src/services/wallet';
+import { activate } from '../test-support/query';
 function field(tree: ReactTestRenderer, value: string) {
   return tree.root
     .findAllByProps({ accessibilityLabel: value })
@@ -28,16 +29,8 @@ function label(tree: ReactTestRenderer, value: string) {
  * Confirms the phrase is saved the way a screen reader does, with the hold
  * control's one activate action; a finger would hold it for 900ms.
  */
-async function confirmSaved(tree: ReactTestRenderer) {
-  const control = tree.root
-    .findAllByProps({ accessibilityLabel: 'I saved my recovery phrase' })
-    .find(item => typeof item.props.onAccessibilityAction === 'function')!;
-  await act(async () => {
-    await control.props.onAccessibilityAction({
-      nativeEvent: { actionName: 'activate' },
-    });
-  });
-}
+const confirmSaved = (tree: ReactTestRenderer) =>
+  activate(tree, 'I saved my recovery phrase');
 test('new wallet requires deliberate recovery reveal and backup acknowledgement before entry', async () => {
   const onCreated = jest.fn().mockResolvedValue(undefined);
   const onBusy = jest.fn();
