@@ -7,17 +7,28 @@ import React, {
   useState,
 } from 'react';
 import type { PropsWithChildren } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import type {
+  HostInstance,
+  LayoutChangeEvent,
+  ViewInstance,
+} from 'react-native';
 import {
   GestureDetector,
   useLongPressGesture,
 } from 'react-native-gesture-handler';
-import Reanimated, { ReduceMotion, withTiming } from 'react-native-reanimated';
-import type { EntryExitAnimationFunction } from 'react-native-reanimated';
+import Reanimated, {
+  FadeOut,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
 import { curves, durations } from '../motion/tokens';
-import { motionReduced } from '../services/motion';
+import { useMotionPrefs } from '../motion/useMotionPrefs';
+import { usePaneActive } from '../stage/panes/Pane';
 import { radius, space } from '../theme';
 
 /**
@@ -28,79 +39,196 @@ import { radius, space } from '../theme';
  * pill itself is hidden from one.
  *
  * `WhisperProvider` draws the pill above everything, once, near the top of
- * the app. `Whisper` wraps what can be asked about and is otherwise
- * transparent: outside a provider it only renders its children.
- *
- * This version shows the pill just above the touch, centred across the
- * screen. Anchoring it to its source comes later and keeps this signature.
+ * the app, so only one whisper shows at a time. The pill sits just above
+ * the element that was pressed, centred on it and kept inside the screen,
+ * and grows in from .92 as it fades up. `Whisper` wraps what can be asked
+ * about; outside a provider it only renders its children.
  */
 const DELAY_MS = 400;
 const SHOWN_MS = 2400;
-/** How far above the finger the pill sits, so the finger does not cover it. */
-const ABOVE = 64;
+/** Between the pill and what it speaks for. */
+const GAP = space.xs;
+/** The pill never comes closer than this to the screen's edge. */
+const EDGE = space.md;
 
-type Show = (label: string, y: number) => void;
+/** A rectangle in the window's coordinates. */
+export interface Anchor {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+type Show = (label: string, source: Anchor) => void;
 
 const WhisperContext = createContext<Show | null>(null);
 
 interface Shown {
   label: string;
-  y: number;
+  source: Anchor;
   key: number;
 }
 
-/** Fades in over 160ms while growing from .92; under Reduce Motion it only fades. */
-function pillIn(): EntryExitAnimationFunction {
-  const from = motionReduced() ? 1 : 0.92;
-  return () => {
-    'worklet';
-    const config = {
-      duration: durations.crossfade,
-      easing: curves.standard,
-      reduceMotion: ReduceMotion.Never,
-    };
+/**
+ * Where a pill `width` by `height` goes over `source` on a screen `bounds`
+ * wide: centred above it, inside the edges, and below it instead when there
+ * is no room above.
+ */
+export function pillPlace(
+  source: Anchor,
+  width: number,
+  height: number,
+  bounds: number,
+) {
+  'worklet';
+  const centred = source.x + source.width / 2 - width / 2;
+  const x = Math.min(
+    Math.max(centred, EDGE),
+    Math.max(EDGE, bounds - EDGE - width),
+  );
+  const above = source.y - GAP - height;
+  const y = above >= EDGE ? above : source.y + source.height + GAP;
+  return { x, y };
+}
+
+/**
+ * Where `node` is in the window, read at once. A renderer without the DOM
+ * layout API, such as the test renderer, gives nothing.
+ */
+function measure(node: HostInstance | null): Anchor | null {
+  if (!node || typeof node.getBoundingClientRect !== 'function') return null;
+  const { x, y, width, height } = node.getBoundingClientRect();
+  return { x, y, width, height };
+}
+
+const PILL_OUT = FadeOut.duration(durations.exit).reduceMotion(
+  ReduceMotion.Never,
+);
+
+function Pill({
+  label,
+  source,
+  bounds,
+}: {
+  label: string;
+  source: Anchor;
+  bounds: number;
+}) {
+  const { reduced } = useMotionPrefs();
+  const width = useSharedValue(0);
+  const height = useSharedValue(0);
+  const shown = useSharedValue(0);
+  // Its size is known once it has laid out; until then it is placed but
+  // unseen, so it never appears somewhere and then jumps.
+  const onLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      width.set(event.nativeEvent.layout.width);
+      height.set(event.nativeEvent.layout.height);
+      shown.set(
+        withTiming(1, {
+          duration: durations.crossfade,
+          easing: curves.enter,
+          reduceMotion: ReduceMotion.Never,
+        }),
+      );
+    },
+    [width, height, shown],
+  );
+  const style = useAnimatedStyle(() => {
+    const at = pillPlace(source, width.get(), height.get(), bounds);
+    const grown = reduced ? 1 : 0.92 + 0.08 * shown.get();
     return {
-      initialValues: { opacity: 0, transform: [{ scale: from }] },
-      animations: {
-        opacity: withTiming(1, config),
-        transform: [{ scale: withTiming(1, config) }],
-      },
+      opacity: shown.get(),
+      transform: [{ translateX: at.x }, { translateY: at.y }, { scale: grown }],
     };
-  };
+  }, [source, bounds, reduced]);
+  return (
+    <Reanimated.View
+      exiting={PILL_OUT}
+      onLayout={onLayout}
+      style={[styles.pill, { maxWidth: bounds - 2 * EDGE }, style]}
+    >
+      <Text style={styles.text}>{label}</Text>
+    </Reanimated.View>
+  );
 }
 
 export function WhisperProvider({ children }: PropsWithChildren) {
   const [shown, setShown] = useState<Shown | null>(null);
+  const root = useRef<ViewInstance>(null);
+  const { width: windowWidth } = useWindowDimensions();
+  const [bounds, setBounds] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const show = useCallback<Show>((label, y) => {
+  const show = useCallback<Show>((label, source) => {
     haptics.tick();
     clearTimeout(timer.current);
-    setShown(last => ({ label, y, key: (last?.key ?? 0) + 1 }));
+    // The pill is drawn in this root, which need not start at the window's
+    // corner, so the source is moved into its coordinates.
+    const origin = measure(root.current);
+    const local = origin
+      ? { ...source, x: source.x - origin.x, y: source.y - origin.y }
+      : source;
+    setShown(last => ({ label, source: local, key: (last?.key ?? 0) + 1 }));
     timer.current = setTimeout(() => setShown(null), SHOWN_MS);
   }, []);
   useEffect(() => () => clearTimeout(timer.current), []);
+  const onLayout = useCallback(
+    (event: LayoutChangeEvent) => setBounds(event.nativeEvent.layout.width),
+    [],
+  );
   return (
     <WhisperContext.Provider value={show}>
-      <View style={styles.root}>
+      <View ref={root} style={styles.root} onLayout={onLayout}>
         {children}
         {shown ? (
           <View
-            style={[styles.layer, { top: Math.max(0, shown.y - ABOVE) }]}
+            style={StyleSheet.absoluteFill}
             pointerEvents="none"
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
           >
-            <Reanimated.View
+            <Pill
               key={shown.key}
-              entering={pillIn()}
-              style={styles.pill}
-            >
-              <Text style={styles.text}>{shown.label}</Text>
-            </Reanimated.View>
+              label={shown.label}
+              source={shown.source}
+              bounds={bounds || windowWidth}
+            />
           </View>
         ) : null}
       </View>
     </WhisperContext.Provider>
+  );
+}
+
+/** A long press on `children` whispers `label` above them. */
+function Heard({
+  label,
+  show,
+  children,
+}: PropsWithChildren<{ label: string; show: Show }>) {
+  const source = useRef<ViewInstance>(null);
+  const active = usePaneActive();
+  const hold = useLongPressGesture({
+    minDuration: DELAY_MS,
+    runOnJS: true,
+    enabled: active,
+    onActivate: event =>
+      show(
+        label,
+        measure(source.current) ?? {
+          x: event.absoluteX || 0,
+          y: event.absoluteY || 0,
+          width: 0,
+          height: 0,
+        },
+      ),
+  });
+  return (
+    <GestureDetector gesture={hold}>
+      <View ref={source} collapsable={false}>
+        {children}
+      </View>
+    </GestureDetector>
   );
 }
 
@@ -109,28 +237,20 @@ export function Whisper({
   children,
 }: PropsWithChildren<{ label: string }>) {
   const show = useContext(WhisperContext);
-  const hold = useLongPressGesture({
-    minDuration: DELAY_MS,
-    runOnJS: true,
-    enabled: !!show,
-    onActivate: event => show?.(label, event.absoluteY),
-  });
+  if (!show) return <>{children}</>;
   return (
-    <GestureDetector gesture={hold}>
-      <View collapsable={false}>{children}</View>
-    </GestureDetector>
+    <Heard label={label} show={show}>
+      {children}
+    </Heard>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  layer: {
-    position: 'absolute',
-    left: space.xl,
-    right: space.xl,
-    alignItems: 'center',
-  },
   pill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
     paddingHorizontal: space.sm,
     paddingVertical: space.xs,
     borderRadius: radius.round,
