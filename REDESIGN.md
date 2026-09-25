@@ -791,6 +791,7 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
 The Bloom also takes props its row leaves out:
 
 - `breath?` `'whole' | 'center'`: what `breathe` moves. The whole flower is the default; `'center'` breathes the center alone while the petals hold still, for setup pending (6, Wallet health).
+- `unfoldOnExit?` (ms): how the bloom leaves when its view is taken away. Each petal unfolds from where it stands to the full flower on the reveal spring as the unfold passes it (`unfoldExit`), the flower holds open while whatever carries it off moves it, and it fades in the last 140ms of the stay; its drawings keep their look rather than fade. Under Reduce Motion the petals dip out and come back open within a crossfade. Every part lasts the whole stay, since a part whose exit ends first is taken away early. The lock's bud leaves this way (R-1), carried by the flight to the mark over the same 880ms.
 
 ### 10.3 Keypad
 

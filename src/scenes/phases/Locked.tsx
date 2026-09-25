@@ -129,18 +129,13 @@ export function LockScreen({
           style={styles.screen}
         >
           <View style={styles.bud}>
-            <Reanimated.View
-              exiting={unfoldOut(mark, reduced)}
-              style={styles.flower}
-            >
-              <Bloom size={SIZES.bud} open={1} />
-            </Reanimated.View>
-            <Reanimated.View exiting={budOut(reduced)}>
+            <Reanimated.View exiting={unfoldOut(mark, reduced)}>
               <Bloom
                 size={SIZES.bud}
                 open={BUD_OPEN}
                 mode="breathe"
                 event={refusal}
+                unfoldOnExit={leaveMs(reduced)}
               />
             </Reanimated.View>
           </View>
@@ -276,48 +271,30 @@ function budIn(): EntryExitAnimationFunction {
   };
 }
 
-/** The bud gives way to the open flower beneath it. */
-function budOut(reduced: boolean): EntryExitAnimationFunction {
-  return () => {
+/**
+ * R-1's first beats, carried: the bud's own petals unfold where it stands
+ * (0 to 500ms), then it flies to the status row's mark and shrinks to it
+ * (500 to 880ms) as the wallet builds beneath, and fades as it lands. Under
+ * Reduce Motion the petals come back open within a crossfade and the flower
+ * fades where it is. The bloom times its petals to the same stay.
+ */
+function unfoldOut(mark: Point, reduced: boolean): EntryExitAnimationFunction {
+  const stay = leaveMs(reduced);
+  return (values: ExitAnimationsValues) => {
     'worklet';
-    const config = {
-      duration: reduced ? durations.crossfade : durations.enter,
+    const fade = reduced ? durations.crossfade : durations.exit;
+    const out = {
+      duration: fade,
       easing: curves.exit,
       reduceMotion: ReduceMotion.Never,
     };
-    return {
-      initialValues: { opacity: 1, transform: [{ scale: 1 }] },
-      animations: {
-        opacity: withTiming(0, config),
-        transform: [{ scale: withTiming(reduced ? 1 : 1.08, config) }],
-      },
-    };
-  };
-}
-
-/**
- * R-1's first beats: the flower, drawn unseen under the bud all along, opens
- * as the bud fades (0 to 500ms), then flies to the status row's mark and
- * shrinks to it (500 to 880ms) as the wallet builds beneath. Under Reduce
- * Motion it only crossfades in and out where it is.
- */
-function unfoldOut(mark: Point, reduced: boolean): EntryExitAnimationFunction {
-  return (values: ExitAnimationsValues) => {
-    'worklet';
+    const opacity = withDelay(
+      stay - fade,
+      withTiming(0, out),
+      ReduceMotion.Never,
+    );
     if (reduced) {
-      const fade = {
-        duration: durations.crossfade,
-        reduceMotion: ReduceMotion.Never,
-      };
-      return {
-        initialValues: { opacity: 0 },
-        animations: {
-          opacity: withSequence(
-            withTiming(1, fade),
-            withDelay(UNFOLD_MS - durations.crossfade, withTiming(0, fade)),
-          ),
-        },
-      };
+      return { initialValues: { opacity: 1 }, animations: { opacity } };
     }
     const flight = markFlight(
       mark,
@@ -327,35 +304,36 @@ function unfoldOut(mark: Point, reduced: boolean): EntryExitAnimationFunction {
       },
       SIZES.bud,
     );
-    const open = { duration: UNFOLD_MS, easing: curves.enter };
-    const fly = { duration: FLIGHT_MS, easing: curves.standard };
+    const fly = (to: number) =>
+      withDelay(
+        UNFOLD_MS,
+        withTiming(to, {
+          duration: FLIGHT_MS,
+          easing: curves.standard,
+          reduceMotion: ReduceMotion.Never,
+        }),
+        ReduceMotion.Never,
+      );
     return {
       initialValues: {
-        opacity: 0,
-        transform: [{ translateX: 0 }, { translateY: 0 }, { scale: 0.7 }],
+        opacity: 1,
+        transform: [{ translateX: 0 }, { translateY: 0 }, { scale: 1 }],
       },
       animations: {
-        opacity: withSequence(
-          withTiming(1, { duration: durations.enter, easing: curves.enter }),
-          withDelay(
-            UNFOLD_MS + FLIGHT_MS - durations.enter - durations.exit,
-            withTiming(0, { duration: durations.exit, easing: curves.exit }),
-          ),
-        ),
+        opacity,
         transform: [
-          { translateX: withDelay(UNFOLD_MS, withTiming(flight.dx, fly)) },
-          { translateY: withDelay(UNFOLD_MS, withTiming(flight.dy, fly)) },
-          {
-            scale: withSequence(
-              withTiming(1, open),
-              withTiming(flight.scale, fly),
-            ),
-          },
+          { translateX: fly(flight.dx) },
+          { translateY: fly(flight.dy) },
+          { scale: fly(flight.scale) },
         ],
       },
     };
   };
 }
+
+/** How long the bud stays as it leaves: it unfolds, then flies or fades. */
+const leaveMs = (reduced: boolean) =>
+  UNFOLD_MS + (reduced ? durations.crossfade : FLIGHT_MS);
 
 const UNFOLD_MS = 500;
 const FLIGHT_MS = 380;
@@ -374,7 +352,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  flower: { ...StyleSheet.absoluteFill, opacity: 0 },
   glyph: { padding: space.xs },
   glyphFrame: { width: GLYPH_SIZE, height: GLYPH_SIZE },
   window: { width: GLYPH_SIZE, height: GLYPH_SIZE, overflow: 'hidden' },

@@ -17,7 +17,7 @@ import Svg, {
   Pattern,
 } from 'react-native-svg';
 import type { WalletRecord } from '@beignet/wallet-core';
-import { Bloom } from '../src/glyphs/Bloom';
+import { Bloom, petalState } from '../src/glyphs/Bloom';
 import type { BloomEvent, BloomMode, BloomTone } from '../src/glyphs/Bloom';
 import { Odometer } from '../src/glyphs/Odometer';
 import type { OdometerVariant } from '../src/glyphs/Odometer';
@@ -242,6 +242,55 @@ describe('Bloom', () => {
     expect(scaleOf(wrapper(inner))).toBe(1);
     expect(scaleOf(centre(inner))).toBeCloseTo(1.25);
     expect(petals(inner)).toHaveLength(12);
+  });
+
+  test('a bloom that leaves by unfolding opens each petal from where it stands', async () => {
+    type Exit = () => {
+      initialValues: { opacity: number; transform: Array<{ rotate: string }> };
+      animations: { transform: Array<{ rotate: string }> };
+    };
+    /** The view a petal's drawing sits in, inside the one that turns it. */
+    const drawing = (group: ReactTestInstance) => {
+      let at = group.parent;
+      while (at && !(typeof at.type === 'string' && at.props.entering)) {
+        at = at.parent;
+      }
+      return at!;
+    };
+    const exitOf = (group: ReactTestInstance) => {
+      let at = drawing(group).parent;
+      while (at && typeof at.type !== 'string') at = at.parent;
+      return at!.props.exiting as Exit | undefined;
+    };
+    for (const reduced of [false, true]) {
+      reducedMotion(reduced);
+      const bud = await render(
+        <Bloom size={120} open={0.08} unfoldOnExit={880} />,
+      );
+      petals(bud).forEach((petal, i) => {
+        const exit = exitOf(petal)!();
+        // From the bud's pose to the open flower's, whatever the setting.
+        expect(exit.initialValues.transform[0].rotate).toBe(
+          `${petalState(0.08, i).rotate}deg`,
+        );
+        expect(exit.initialValues.opacity).toBeCloseTo(
+          petalState(0.08, i).opacity,
+        );
+        expect(exit.animations.transform[0].rotate).toBe(
+          `${petalState(1, i).rotate}deg`,
+        );
+        // The drawing keeps its look on the way out, rather than fading.
+        expect(drawing(petal).props.exiting).toBeUndefined();
+      });
+    }
+    // A bloom that simply goes fades its drawings, and its petals do not
+    // move.
+    reducedMotion(false);
+    const plain = await render(<Bloom size={120} open={0.08} />);
+    for (const petal of petals(plain)) {
+      expect(exitOf(petal)).toBeUndefined();
+      expect(drawing(petal).props.exiting).toBeDefined();
+    }
   });
 
   test('a labelled chase is busy', async () => {

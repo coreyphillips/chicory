@@ -699,6 +699,29 @@ describe('phase behaviour', () => {
     await act(async () => tree.unmount());
   });
 
+  test('unlocking unfolds the bud itself, then carries it off', async () => {
+    const stays = async (render: () => Promise<ReactTestRenderer>) => {
+      const tree = await render();
+      // One bloom: the breathing bud, whose own petals open as it leaves,
+      // rather than an open flower faded in over it.
+      const blooms = tree.root.findAllByType(Bloom);
+      expect(blooms).toHaveLength(1);
+      expect(blooms[0].props).toMatchObject({ mode: 'breathe', open: 0.08 });
+      let carrier = blooms[0].parent;
+      while (carrier && typeof carrier.type !== 'string') {
+        carrier = carrier.parent;
+      }
+      expect(carrier!.props.exiting).toEqual(expect.any(Function));
+      const stay = blooms[0].props.unfoldOnExit;
+      await act(async () => tree.unmount());
+      return stay;
+    };
+    // R-1: the unfold to 500ms, then the flight to the mark by 880ms.
+    expect(await stays(() => lock())).toBe(880);
+    // Reduced, it opens within a crossfade and fades where it is.
+    expect(await stays(() => reduced(() => lock()))).toBe(660);
+  });
+
   test('leaving the lock right after a prompt is an unlock the hand can feel', async () => {
     const tree = await lock({ prompting: true });
     haptic.mockClear();
