@@ -935,8 +935,24 @@ export function Odometer({
   const label =
     accessibilityLabel ??
     (masked ? copy.amount.hidden : copy.amount.spoken(sats));
+  // The hero keeps the line box of its largest size whatever size it steps
+  // to, its figures centred in it, so what sits under it never moves.
+  const box =
+    variant === 'hero'
+      ? {
+          minHeight: cellHeight(
+            HERO_AT[HERO_SIZES[0]].lineHeight ?? 0,
+            scale,
+            PixelRatio.get(),
+          ),
+        }
+      : null;
   return (
-    <View accessible accessibilityLabel={label} style={styles.row}>
+    <View
+      accessible
+      accessibilityLabel={label}
+      style={box ? [styles.box, box] : styles.row}
+    >
       <View
         style={styles.row}
         accessibilityElementsHidden
@@ -949,40 +965,45 @@ export function Odometer({
             exiting={STEP_OUT}
             style={styles.cells}
           >
+            {/* One child, so only the size's own fade plays as it goes: a
+                config over several children wraps each in its own, and each
+                cell that left would skip its lift and vanish. */}
             <LayoutAnimationConfig skipEntering skipExiting>
-              {signed ? (
-                <Reanimated.Text
-                  style={[...rig.text, ink]}
-                  maxFontSizeMultiplier={maxScale}
-                >
-                  {signed === '-' ? '−' : '+'}
-                </Reanimated.Text>
-              ) : null}
-              {dots
-                ? DOTS.map((_, i) => (
-                    <DotCell key={`mask${i}`} index={i} rig={rig} />
-                  ))
-                : cells.map((cell, i) =>
-                    cell.kind === 'digit' ? (
-                      <DigitCell
-                        key={keyOf(cell)}
-                        place={cell.place}
-                        digit={cell.digit}
-                        dim={cell.dim}
-                        index={i}
-                        motion={motion}
-                        rig={rig}
-                      />
-                    ) : (
-                      <MarkCell
-                        key={keyOf(cell)}
-                        char={cell.char}
-                        index={i}
-                        rolling={phase === 'roll'}
-                        rig={rig}
-                      />
-                    ),
-                  )}
+              <View collapsable={false} style={styles.cells}>
+                {signed ? (
+                  <Reanimated.Text
+                    style={[...rig.text, ink]}
+                    maxFontSizeMultiplier={maxScale}
+                  >
+                    {signed === '-' ? '−' : '+'}
+                  </Reanimated.Text>
+                ) : null}
+                {dots
+                  ? DOTS.map((_, i) => (
+                      <DotCell key={`mask${i}`} index={i} rig={rig} />
+                    ))
+                  : cells.map((cell, i) =>
+                      cell.kind === 'digit' ? (
+                        <DigitCell
+                          key={keyOf(cell)}
+                          place={cell.place}
+                          digit={cell.digit}
+                          dim={cell.dim}
+                          index={i}
+                          motion={motion}
+                          rig={rig}
+                        />
+                      ) : (
+                        <MarkCell
+                          key={keyOf(cell)}
+                          char={cell.char}
+                          index={i}
+                          rolling={phase === 'roll'}
+                          rig={rig}
+                        />
+                      ),
+                    )}
+              </View>
             </LayoutAnimationConfig>
           </Reanimated.View>
           <Reanimated.Text
@@ -1002,6 +1023,7 @@ export function Odometer({
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  box: { flexDirection: 'row', alignItems: 'center' },
   cells: { flexDirection: 'row' },
   cell: { overflow: 'hidden' },
   // A figure's line box and nothing more: no font padding over it on
