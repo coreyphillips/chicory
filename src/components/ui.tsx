@@ -267,17 +267,24 @@ export function LinkButton({
   );
 }
 
-/** An option pill. Like `Button`, a chip takes no touches without an `onPress`. */
+/**
+ * An option pill. Like `Button`, a chip takes no touches without an `onPress`.
+ * Its label grows with Dynamic Type without a cap unless
+ * `maxFontSizeMultiplier` sets one, as an amount's presets do (REDESIGN.md
+ * 3.3); Settings' chips leave it uncapped.
+ */
 export function Chip({
   label,
   selected,
   onPress,
   disabled,
+  maxFontSizeMultiplier,
 }: {
   label: string;
   selected: boolean;
   onPress?: () => void;
   disabled?: boolean;
+  maxFontSizeMultiplier?: number;
 }) {
   return (
     <Pressable
@@ -294,7 +301,10 @@ export function Chip({
       }
       style={[styles.chip, selected && styles.chipSelected]}
     >
-      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+      <Text
+        style={[styles.chipText, selected && styles.chipTextSelected]}
+        maxFontSizeMultiplier={maxFontSizeMultiplier}
+      >
         {label}
       </Text>
     </Pressable>

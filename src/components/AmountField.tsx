@@ -36,6 +36,9 @@ import { Chip } from './ui';
  * with a bang and one shake past what it can ever be, and dust under the
  * least it can be. Each change of `shake` shakes it once more.
  */
+/** How far a preset's amount grows with Dynamic Type (REDESIGN.md 3.3). */
+const PRESET_SCALE = 1.4;
+
 /** The readout's tone for each colour an amount can take against a limit. */
 const TONES: Record<'honey' | 'radish' | 'dust', AmountTone> = {
   honey: 'over-spendable',
@@ -100,6 +103,9 @@ export function AmountField({
               label={copy.amount.preset(preset)}
               selected={digits === String(preset)}
               disabled={!editable || busy}
+              // An amount, so it stops growing with the line and row
+              // amounts (REDESIGN.md 3.3).
+              maxFontSizeMultiplier={PRESET_SCALE}
               onPress={
                 live && !busy ? () => onChangeText(String(preset)) : undefined
               }

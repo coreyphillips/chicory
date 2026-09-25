@@ -298,6 +298,13 @@ test('presets are chips labelled with their amount alone', async () => {
   );
   await press(tree, '10,000');
   expect(onChangeText).toHaveBeenLastCalledWith('10000');
+  // They are amounts, so they stop growing at 1.4 as the line amounts do.
+  for (const label of ['1,000', '10,000', '50,000']) {
+    const caps = find(tree, label)!
+      .findAllByType(Text)
+      .map(node => node.props.maxFontSizeMultiplier);
+    expect(caps).toEqual([1.4]);
+  }
   await act(async () => tree.unmount());
 });
 
