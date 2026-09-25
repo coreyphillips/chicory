@@ -4,9 +4,11 @@ import { snapshotOf } from '../../../../test-support/fixtures';
 import {
   alreadySubmitted,
   amountTone,
+  amountWords,
   fixedAmount,
   isUncertain,
   requestRail,
+  requestRefusal,
   resultVisual,
   reviewRail,
   sendFailure,
@@ -51,6 +53,97 @@ test('an amount is measured against what can be sent and what is held', () => {
   expect(amountTone(balance.totalSats, balance)).toBe('over-spendable');
   expect(amountTone(balance.totalSats + 1, balance)).toBe('over-total');
   expect(amountTone(1_000_000)).toBe('plain');
+});
+
+describe('an amount past what can be sent', () => {
+  // As the P7 walk found it: the channel's reserve sits between what can be
+  // sent and the total, and nothing is on its way.
+  const reserved = snapshotOf({
+    balance: { totalSats: 67_235, availableSats: 66_543, pendingSats: 0 },
+  }).balance;
+  // 5,000 on its way, and a 5,000 reserve that never will be.
+  const arriving = snapshotOf({
+    balance: { totalSats: 70_000, availableSats: 60_000, pendingSats: 5_000 },
+  }).balance;
+
+  test('is honey, with its clock, only while what is arriving would cover it', () => {
+    expect(amountTone(67_000, reserved)).toBe('over-total');
+    expect(amountTone(64_000, arriving)).toBe('over-spendable');
+    expect(amountTone(66_000, arriving)).toBe('over-total');
+    expect(amountTone(70_001, arriving)).toBe('over-total');
+  });
+
+  test('never says the rest is arriving when it is not', () => {
+    expect(amountWords('over-total', 67_000, reserved)).toBe(
+      `${copy.home.split(66_543, 0)}.`,
+    );
+    expect(amountWords('over-spendable', 64_000, arriving)).toBe(
+      copy.amount.overSpendable,
+    );
+    expect(amountWords('over-total', 66_000, arriving)).toBe(
+      `${copy.home.split(60_000, 5_000)}.`,
+    );
+    expect(amountWords('over-total', 70_001, arriving)).toBe(
+      copy.amount.overTotal,
+    );
+    expect(amountWords('plain', 1_000, arriving)).toBeNull();
+  });
+
+  test('refused by the engine, is radish unless what is arriving would cover it', () => {
+    const short = (amountSats: number | null, balance = reserved) =>
+      sendFailure(
+        Object.assign(new Error('short'), { code: 'INSUFFICIENT_FUNDS' }),
+        {
+          message: 'short',
+          amountSats,
+          balance,
+        },
+      );
+    expect(short(67_000)).toMatchObject({
+      tone: 'radish',
+      glyphs: ['bang'],
+      shake: true,
+    });
+    expect(short(null)).toMatchObject({ tone: 'radish', glyphs: ['bang'] });
+    expect(short(64_000, arriving)).toMatchObject({
+      tone: 'honey',
+      glyphs: ['clock'],
+      shake: false,
+    });
+    expect(short(null, arriving)).toMatchObject({ tone: 'honey' });
+  });
+});
+
+describe('a request as it is entered', () => {
+  const LNURL =
+    'LNURL1DP68GURN8GHJ7UM9WFMXJCM99E3K7MF0V9CXJ0M385EKVCENXC6R2C35XVUKXEFCV5MKVV34X5EKZD3EV56NYD3HXQURZEPEXEJXXEPNXSCRVWFNV9NXZCN9XQ6XYEFHVGCXXCMYXYMNSERXFQ5FNS';
+
+  test.each([
+    ['an LNURL', LNURL, 'LNURL_UNSUPPORTED'],
+    [
+      'a Lightning address',
+      'user@example.com',
+      'LIGHTNING_ADDRESS_UNSUPPORTED',
+    ],
+    ['words', 'demo', 'NOT_PAYABLE'],
+  ])('is refused with a cross when it is %s', (_, request, code) => {
+    expect(requestRefusal(request)).toMatchObject({
+      code,
+      target: 'request',
+      tone: 'radish',
+      glyphs: ['cross'],
+      haptic: 'error',
+    });
+    expect(requestRefusal(request)?.message).toBeTruthy();
+  });
+
+  test('is taken when it reads as a payment, and nothing is nothing to refuse', () => {
+    expect(requestRefusal(INVOICE)).toBeNull();
+    expect(requestRefusal(`bitcoin:${ADDRESS}?amount=0.001`)).toBeNull();
+    expect(requestRefusal(` ${ADDRESS} `)).toBeNull();
+    expect(requestRefusal('')).toBeNull();
+    expect(requestRefusal('   ')).toBeNull();
+  });
 });
 
 test('a review names the rail it settled on', () => {

@@ -162,12 +162,44 @@ export function shortRequest(request: string): string {
   )}`;
 }
 
-/** How an amount sits against the balance. */
+/**
+ * Whether money on its way would let `sats` go, once it lands. Only then does
+ * waiting help: the gap between what can be sent and the total may be money
+ * that never becomes spendable, such as the channel's reserve.
+ */
+export function arrivalCovers(sats: number, balance: Balance): boolean {
+  return (
+    balance.pendingSats > 0 &&
+    sats <= balance.totalSats &&
+    sats <= balance.availableSats + balance.pendingSats
+  );
+}
+
+/**
+ * How an amount sits against the balance (REDESIGN.md 5, Keypad): honey,
+ * with its clock, only while what is arriving would cover it, and radish past
+ * what can be sent when waiting would not help.
+ */
 export function amountTone(sats: number, balance?: Balance): AmountTone {
-  if (!balance || !(sats > 0)) return 'plain';
-  if (sats > balance.totalSats) return 'over-total';
-  if (sats > balance.availableSats) return 'over-spendable';
-  return 'plain';
+  if (!balance || !(sats > 0) || sats <= balance.availableSats) return 'plain';
+  return arrivalCovers(sats, balance) ? 'over-spendable' : 'over-total';
+}
+
+/**
+ * What a screen reader hears about an amount held against the balance, for
+ * `tone`: that the rest is on its way only while it is, that the wallet holds
+ * less only past its total, and otherwise how much can be sent now, which is
+ * the limit the amount went past. Null while the amount is fine.
+ */
+export function amountWords(
+  tone: AmountTone,
+  sats: number,
+  balance?: Balance,
+): string | null {
+  if (tone === 'over-spendable') return copy.amount.overSpendable;
+  if (tone !== 'over-total') return null;
+  if (!balance || sats > balance.totalSats) return copy.amount.overTotal;
+  return `${copy.home.split(balance.availableSats, balance.pendingSats)}.`;
 }
 
 /**
@@ -239,6 +271,41 @@ export const isUncertain = (error: unknown) => UNCERTAIN.has(errorCode(error));
 export const alreadySubmitted = (error: unknown) =>
   errorCode(error) === 'ALREADY_SUBMITTED';
 
+/** A failure of `code` with the engine's `message`, drawn as the rest say. */
+function failureOf(
+  code: string,
+  message: string,
+  target: Failure['target'],
+  tone: Failure['tone'],
+  glyphs: GlyphName[],
+): Failure {
+  return {
+    code,
+    message,
+    target,
+    tone,
+    glyphs,
+    shake: tone === 'radish',
+    haptic: tone === 'radish' ? 'error' : 'warning',
+  };
+}
+
+/**
+ * Why a request cannot be paid, read as it is entered (pasted, scanned,
+ * brought by a link, or typed and left) by the parser the engine reads it
+ * with, or null when it reads as a payment or is empty. A refused request
+ * never takes the accepted look: it stays in the well with a cross
+ * (REDESIGN.md 6, Engine errors). The engine still has the last word at
+ * review, for what only it can know, such as the wallet's network.
+ */
+export function requestRefusal(request: string): Failure | null {
+  const payment = parsed(request);
+  if (payment?.kind !== 'invalid') return null;
+  return failureOf(payment.code, payment.message, 'request', 'radish', [
+    'cross',
+  ]);
+}
+
 export function sendFailure(
   error: unknown,
   context: { message: string; amountSats: number | null; balance?: Balance },
@@ -248,26 +315,22 @@ export function sendFailure(
     target: Failure['target'],
     tone: Failure['tone'],
     glyphs: GlyphName[],
-  ): Failure => ({
-    code,
-    message: context.message,
-    target,
-    tone,
-    glyphs,
-    shake: tone === 'radish',
-    haptic: tone === 'radish' ? 'error' : 'warning',
-  });
+  ): Failure => failureOf(code, context.message, target, tone, glyphs);
   if (REFUSED.has(code) || REFUSED_FAMILY.test(code)) {
     return failure('request', 'radish', ['cross']);
   }
   if (code === 'INSUFFICIENT_FUNDS') {
-    // Radish only for an amount known to be past all the wallet holds.
+    // Honey and a clock say waiting will help, so only while money on its
+    // way would cover the amount; otherwise it is past what can be sent.
     const { amountSats, balance } = context;
-    const pastTotal =
-      amountSats !== null && !!balance && amountSats > balance.totalSats;
-    return pastTotal
-      ? failure('amount', 'radish', ['bang'])
-      : failure('amount', 'honey', ['clock']);
+    const waits =
+      !balance ||
+      (amountSats === null
+        ? balance.pendingSats > 0
+        : arrivalCovers(amountSats, balance));
+    return waits
+      ? failure('amount', 'honey', ['clock'])
+      : failure('amount', 'radish', ['bang']);
   }
   if (AMOUNT_REFUSED.has(code)) return failure('amount', 'radish', ['bang']);
   switch (code) {

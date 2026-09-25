@@ -119,6 +119,26 @@ test('a screen reader clears the amount with the long press action', async () =>
   await act(async () => tree.unmount());
 });
 
+test('the unit and its mark travel with the digits as one comes or goes', async () => {
+  const tree = await mount(
+    <AmountField value="42" onChangeText={jest.fn()} tone="honey" />,
+  );
+  // Everything in the amount's row moves by the same layout transition, so
+  // nothing in it jumps ahead of a digit sliding over.
+  const row = readout(tree).findAll(
+    node =>
+      typeof node.type === 'string' &&
+      StyleSheet.flatten(node.props.style)?.flexDirection === 'row',
+  )[0];
+  const moved = row.children.filter(
+    child => typeof child !== 'string' && child.props.layout !== undefined,
+  );
+  expect(moved).toHaveLength(row.children.length);
+  // Two digits, the unit and the clock.
+  expect(moved).toHaveLength(4);
+  await act(async () => tree.unmount());
+});
+
 test('the amount and its unit stop growing at 1.2', async () => {
   const tree = await mount(<Field start="4200" />);
   const caps = readout(tree)
@@ -130,16 +150,16 @@ test('the amount and its unit stop growing at 1.2', async () => {
 });
 
 test('a 17th digit is refused, with a rigid tap, and a screen reader hears why', async () => {
-  const said = jest.mocked(AccessibilityInfo.announceForAccessibilityWithOptions);
+  const said = jest.mocked(
+    AccessibilityInfo.announceForAccessibilityWithOptions,
+  );
   said.mockClear();
   const full = '2100000000000000';
   const tree = await mount(<Field start={full} />);
   await press(tree, '7');
   expect(amountValue(tree)).toBe(full);
   expect(felt()).toEqual(['rigid']);
-  expect(said.mock.calls.map(([text]) => text)).toEqual([
-    copy.keypad.refused,
-  ]);
+  expect(said.mock.calls.map(([text]) => text)).toEqual([copy.keypad.refused]);
   // A key that is taken says nothing.
   said.mockClear();
   await press(tree, copy.keypad.backspace);
@@ -148,10 +168,44 @@ test('a 17th digit is refused, with a rigid tap, and a screen reader hears why',
   await act(async () => tree.unmount());
 });
 
-test('a zero in front of nothing leaves the amount empty', async () => {
+/** The key labelled `label`, as a screen reader reaches it. */
+const keyed = (tree: ReactTestRenderer, label: string) =>
+  tree.root.find(
+    node =>
+      typeof node.type === 'string' && node.props.accessibilityLabel === label,
+  );
+
+test('every key is a button a screen reader can name', async () => {
+  const tree = await mount(<Field start="42" />);
+  for (const label of [...copy.keypad.digits, copy.keypad.backspace]) {
+    expect(keyed(tree, label).props.accessibilityRole).toBe('button');
+    expect(keyed(tree, label).props.accessibilityState).toEqual({
+      disabled: false,
+    });
+  }
+  await act(async () => tree.unmount());
+});
+
+test('with nothing entered, zero and backspace are dimmed and disabled until a digit comes', async () => {
   const tree = await mount(<Field />);
+  for (const label of ['0', copy.keypad.backspace]) {
+    expect(keyed(tree, label).props.accessibilityRole).toBe('button');
+    expect(keyed(tree, label).props.accessibilityState).toEqual({
+      disabled: true,
+    });
+    expect(find(tree, label)).toBeUndefined();
+  }
+  const zero = keyed(tree, '0').findByType(Text);
+  expect(StyleSheet.flatten(zero.props.style).color).toBe(palette.dust);
+  expect(keyed(tree, '5').props.accessibilityState).toEqual({
+    disabled: false,
+  });
+  await press(tree, '5');
   await press(tree, '0');
-  expect(amountValue(tree)).toBe('');
+  expect(amountValue(tree)).toBe('50');
+  expect(keyed(tree, copy.keypad.backspace).props.accessibilityState).toEqual({
+    disabled: false,
+  });
   await act(async () => tree.unmount());
 });
 

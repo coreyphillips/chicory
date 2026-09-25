@@ -18,6 +18,7 @@ import {
   activate,
   alerts,
   find,
+  holdMs,
   holds,
   meaning,
   press,
@@ -361,12 +362,7 @@ test('a direct-funding review names its method and fee ceiling, and a refusal sa
   expect(shown).toContain('1,000 sats');
   expect(shown).toContain(review.warnings[0]);
   // Warned about, the hold takes longer.
-  expect(
-    tree.root.findAllByProps({
-      accessibilityLabel: 'Send 4,200 sats',
-      delayLongPress: 1000,
-    }),
-  ).not.toEqual([]);
+  expect(holdMs(tree, 'Send 4,200 sats')).toBe(1000);
   await activate(tree, 'Send 4,200 sats');
   const after = meaning(tree);
   expect(after).toContain('Payment failed.');
@@ -504,6 +500,13 @@ test('a Lightning review shows the expected fee beside the maximum it can cost',
   });
 });
 
+/**
+ * A request the parser reads as a payment, so it is taken as a chip, and so
+ * can be held. A string it cannot read is refused as it is entered.
+ */
+const HELD_AT = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
+const HELD = `bitcoin:${HELD_AT}?label=held`;
+
 /** Reviews `request` on a fresh Send and commits it with the hold. */
 async function payOnce(client: WalletAdapter, request: string) {
   const tree = await renderSend(
@@ -540,7 +543,7 @@ test('a request whose payment is unknown cannot be paid again: it lands on the h
       message: 'Payment status unknown.',
     });
     const client = adapter({ prepareSend, send });
-    const paid = await payOnce(client, 'lnbc-held');
+    const paid = await payOnce(client, HELD);
     // Unknown is said loudly, once a screen reader has landed on its mark.
     await act(async () => {
       jest.advanceTimersByTime(stepInMs() + 50);
@@ -552,7 +555,11 @@ test('a request whose payment is unknown cannot be paid again: it lands on the h
       queue: false,
     });
     await act(async () => paid.unmount());
-    for (const again of ['lnbc-held', '  LIGHTNING:LNBC-HELD ']) {
+    // Held however it is spelled: case, space and the scheme aside.
+    for (const again of [
+      HELD,
+      `  BITCOIN:${HELD_AT.toUpperCase()}?label=held `,
+    ]) {
       const tree = await renderSend(
         <SendScreen
           client={client}

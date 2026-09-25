@@ -323,9 +323,11 @@ test('a held payment opens its detail by way of Activity, which back returns to'
   const txid = hex(77);
   const payment = activityOf('sent', 'uncertain', { rail: 'chain', txid });
   history = [payment];
-  holdRequest('lnbc-scene-held', { status: 'uncertain', txid });
+  // A request the parser reads, so it is taken as a chip and can be held.
+  const held = 'bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?label=held';
+  holdRequest(held, { status: 'uncertain', txid });
   const tree = await mount(<OnCanvas />);
-  await act(async () => stage.actions.openSend('lnbc-scene-held'));
+  await act(async () => stage.actions.openSend(held));
   await press(tree, copy.send.unknown);
   expect(stage.state.scene).toMatchObject({
     name: 'detail',

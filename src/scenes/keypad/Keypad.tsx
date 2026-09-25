@@ -15,6 +15,7 @@ import { overlap, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { type as typography } from '../../theme';
+import { keyIdle } from './keys';
 import type { KeyName } from './keys';
 
 /** 1 to 9, then a blank, 0 and backspace (REDESIGN.md 5, Keypad). */
@@ -46,17 +47,25 @@ const CLEAR_ACTIONS = [
 
 const KEY_HEIGHT = 60;
 
+/**
+ * One key: a button labelled with its digit, or backspace with its words.
+ * While it would do nothing, as zero and backspace do to an empty amount
+ * (`idle`), it is dimmed and disabled, and a screen reader hears so.
+ */
 const Key = memo(function KeyView({
   name,
-  live,
+  live: inUse,
+  idle,
   onKey,
   onClear,
 }: {
   name: KeyName;
   live: boolean;
+  idle: boolean;
   onKey: (key: KeyName) => void;
   onClear: () => void;
 }) {
+  const live = inUse && !idle;
   const { reduced } = useMotionPrefs();
   const pressed = useSharedValue(0);
   // The disc springs in behind the key; under Reduce Motion it only fades.
@@ -70,7 +79,8 @@ const Key = memo(function KeyView({
   const back = name === 'back';
   return (
     <Pressable
-      accessibilityRole={back ? 'button' : 'keyboardkey'}
+      accessible
+      accessibilityRole="button"
       accessibilityLabel={
         back ? copy.keypad.backspace : copy.keypad.digits[Number(name)]
       }
@@ -103,9 +113,16 @@ const Key = memo(function KeyView({
     >
       <Reanimated.View style={[styles.disc, disc]} />
       {back ? (
-        <Glyph name="backspace" size={26} color={palette.steam} />
+        <Glyph
+          name="backspace"
+          size={26}
+          color={idle ? palette.dust : palette.steam}
+        />
       ) : (
-        <Text style={styles.digit} maxFontSizeMultiplier={1.2}>
+        <Text
+          style={[styles.digit, idle && styles.idle]}
+          maxFontSizeMultiplier={1.2}
+        >
           {name}
         </Text>
       )}
@@ -121,16 +138,20 @@ const Key = memo(function KeyView({
  * The container is labelled "Amount keypad", each digit with its digit and
  * backspace with its own words, which is how the suites find and press them.
  * Holding backspace clears the amount, and a screen reader clears it with
- * backspace's `longpress` action.
+ * backspace's `longpress` action. While the amount is `blank`, zero and
+ * backspace do nothing, so they are disabled until a digit comes.
  * While `disabled`, or while its pane is out of use, no key takes a touch.
  */
 export const Keypad = memo(function KeypadView({
   onKey,
   onClear,
+  blank = false,
   disabled = false,
 }: {
   onKey: (key: KeyName) => void;
   onClear: () => void;
+  /** The amount has no digit but zeros yet. */
+  blank?: boolean;
   disabled?: boolean;
 }) {
   const live = usePaneActive() && !disabled;
@@ -152,6 +173,7 @@ export const Keypad = memo(function KeypadView({
                 key={name}
                 name={name}
                 live={live}
+                idle={keyIdle(blank, name)}
                 onKey={onKey}
                 onClear={onClear}
               />
@@ -184,4 +206,5 @@ const styles = StyleSheet.create({
     backgroundColor: palette.mocha,
   },
   digit: { ...typography.keypad, color: palette.cream },
+  idle: { color: palette.dust },
 });

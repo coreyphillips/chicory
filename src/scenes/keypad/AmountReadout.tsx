@@ -22,7 +22,7 @@ import { BANG, DrawnGlyph } from '../send/DrawnGlyph';
 import type { Stroke } from '../send/DrawnGlyph';
 import { WaitingClock } from '../send/LoopingGlyphs';
 import { Keypad } from './Keypad';
-import { amountCells, digitsOnly, grouped, pressKey } from './keys';
+import { amountCells, digitsOnly, grouped, isBlank, pressKey } from './keys';
 import type { AmountTone, KeyName } from './keys';
 
 /** Amounts are entered in sats, whatever unit the balance shows. */
@@ -262,15 +262,19 @@ export function AmountReadout({
               0
             </Text>
           )}
-          <Text style={styles.unit} maxFontSizeMultiplier={AMOUNT_SCALE}>
-            {UNIT}
-          </Text>
+          {/* The unit and the marks travel with the digits as one comes or
+            goes, rather than jumping ahead of them. */}
+          <Reanimated.View layout={smooth()}>
+            <Text style={styles.unit} maxFontSizeMultiplier={AMOUNT_SCALE}>
+              {UNIT}
+            </Text>
+          </Reanimated.View>
           {marks.map(mark => (
-            <View key={mark} style={styles.mark}>
+            <Reanimated.View key={mark} layout={smooth()} style={styles.mark}>
               <Whisper label={hint ?? ''} enabled={!!hint}>
                 <Mark name={mark} color={color} />
               </Whisper>
-            </View>
+            </Reanimated.View>
           ))}
         </View>
       </Reanimated.View>
@@ -279,6 +283,7 @@ export function AmountReadout({
         <Keypad
           onKey={onKey}
           onClear={onClear}
+          blank={isBlank(digits)}
           disabled={busy || !onChangeText}
         />
       ) : null}

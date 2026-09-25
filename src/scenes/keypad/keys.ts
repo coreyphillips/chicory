@@ -59,6 +59,19 @@ export function pressKey(digits: string, key: KeyName): string | null {
   return digits + key;
 }
 
+/** Whether `digits` hold no amount yet: nothing, or only zeros. */
+export const isBlank = (digits: string) => /^0*$/.test(digits);
+
+/**
+ * Whether `key` does nothing to an amount that is `blank`: a zero before any
+ * other digit, or backspace with nothing to take away. Such a key is drawn
+ * dimmed and told to a screen reader as disabled, rather than taking a press
+ * and doing nothing.
+ */
+export function keyIdle(blank: boolean, key: KeyName): boolean {
+  return blank && (key === '0' || key === 'back');
+}
+
 /**
  * The amount as cells, one per digit from the left, each carrying the
  * separator that follows it. A digit keeps its cell as others are keyed after

@@ -356,20 +356,17 @@ const holds: Shot[] = [
   glyph('hold, on a test network', () => hold({ test: true })),
   touched('hold, held', () => ({
     view: hold(),
-    steps: [drive => drive.fire(SEND, 'onPressIn')],
+    steps: [drive => drive.hold(SEND, 'down')],
   })),
   touched('hold, let go early', () => ({
     view: hold(),
-    steps: [
-      drive => drive.fire(SEND, 'onPressIn'),
-      drive => drive.fire(SEND, 'onPressOut'),
-    ],
+    steps: [drive => drive.hold(SEND, 'down'), drive => drive.hold(SEND, 'up')],
   })),
   touched('hold, committing', () => ({
     view: hold(),
     steps: [
-      drive => drive.fire(SEND, 'onPressIn'),
-      drive => drive.fire(SEND, 'onLongPress'),
+      drive => drive.hold(SEND, 'down'),
+      drive => drive.hold(SEND, 'complete'),
     ],
   })),
 ];

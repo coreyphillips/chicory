@@ -60,6 +60,15 @@ interface Fiber {
 type Props = Record<string, unknown>;
 type Handler = (...args: unknown[]) => unknown;
 
+/** A finger's long press on a hold, as the gesture handler reports it. */
+export type HoldStep = 'down' | 'complete' | 'up';
+
+const HOLD_CALLBACKS: Record<HoldStep, string> = {
+  down: 'onBegin',
+  complete: 'onActivate',
+  up: 'onFinalize',
+};
+
 /** The first fiber from `start`, its siblings and all below, in tree order. */
 function first(start: Fiber | null, test: (fiber: Fiber) => boolean) {
   const stack = start ? [start] : [];
@@ -106,6 +115,11 @@ export interface Drive {
   type: (label: string, text: string) => void;
   /** Calls `handler` of the control labelled `label` with `args`. */
   fire: (label: string, handler: string, ...args: unknown[]) => void;
+  /**
+   * Moves the hold labelled `label` through `step` of a finger's long press:
+   * down on it, held until it completes, or lifted.
+   */
+  hold: (label: string, step: HoldStep) => void;
   /** Calls the first `handler` anywhere in the state with `args`. */
   call: (handler: string, ...args: unknown[]) => void;
   /** Shows the whisper labelled `label`, as a long press does. */
@@ -160,6 +174,36 @@ export function driver(probe: RefObject<Probe | null>, name: string): Drive {
       args,
     );
 
+  /**
+   * A hold is a long press the gesture handler times, with no handler on
+   * the control itself, so the step goes to the innermost long press around
+   * the control labelled `label`, as the handler would report it.
+   */
+  function holdOf(label: string, step: HoldStep): Handler | null {
+    const instance = probe.current;
+    const root = instance ? committed(instance) : null;
+    const labelled = (fiber: Fiber) =>
+      !!first(
+        fiber.child,
+        inner => propsOf(inner)?.accessibilityLabel === label,
+      );
+    let innermost: Handler | null = null;
+    first(root?.child ?? null, fiber => {
+      const config = (propsOf(fiber)?.gesture as { config?: Props } | undefined)
+        ?.config;
+      const callback = config?.[HOLD_CALLBACKS[step]];
+      if (
+        typeof config?.minDurationMs === 'number' &&
+        typeof callback === 'function' &&
+        labelled(fiber)
+      ) {
+        innermost = callback as Handler;
+      }
+      return false;
+    });
+    return innermost;
+  }
+
   return {
     press: label => fire(label, 'onPress'),
     activate: label =>
@@ -175,6 +219,10 @@ export function driver(probe: RefObject<Probe | null>, name: string): Drive {
       ),
     type: (label, text) => fire(label, 'onChangeText', text),
     fire,
+    hold: (label, step) =>
+      invoke(`hold ${step} "${label}"`, holdOf(label, step), [
+        step === 'up' ? { canceled: false } : {},
+      ]),
     call: (handler, ...args) =>
       invoke(
         handler,

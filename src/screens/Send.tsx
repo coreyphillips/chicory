@@ -26,7 +26,7 @@ import type { GlyphName } from '../design/glyphs';
 import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
 import { CopyChip } from '../glyphs/CopyChip';
-import { sceneIn, sceneOut } from '../motion/presets';
+import { sceneIn, sceneOut, smooth } from '../motion/presets';
 import { announceSafety } from '../motion/speech';
 import { AmountReadout } from '../scenes/keypad/AmountReadout';
 import { digitsOnly, grouped } from '../scenes/keypad/keys';
@@ -40,11 +40,13 @@ import {
   HOME_AFTER_MS,
   alreadySubmitted,
   amountTone,
+  amountWords,
   errorCode,
   fixedAmount,
   isUncertain,
   resultVisual,
   reviewRail,
+  requestRefusal,
   reviewWords,
   sendFailure,
 } from '../scenes/send/model';
@@ -86,15 +88,15 @@ const shownIn = (sats: number, unit: Unit) => {
   return `${value} ${suffix}`;
 };
 
+/**
+ * The control under a result that opens the history. An orbit there would
+ * read as money still moving, under a payment that is done or held, so it
+ * is `restore`: an arrow turning back round a list, the history's shape.
+ */
+const ACTIVITY_GLYPH: GlyphName = 'restore';
+
 /** A quote this close to running out is said aloud once. */
 const LATE_MS = 10_000;
-
-const TONE_WORDS: Record<AmountTone, string | null> = {
-  plain: null,
-  'over-spendable': copy.amount.overSpendable,
-  'over-total': copy.amount.overTotal,
-  under: null,
-};
 
 /**
  * A quote that ran out on its clock. An expired quote is a safety state
@@ -189,8 +191,12 @@ export function SendScreen({
 }) {
   const live = usePaneActive();
   const [request, setRequest] = useState(initialRequest);
-  // A request that arrived whole shows as a chip; one being typed as text.
-  const [collapsed, setCollapsed] = useState(initialRequest !== '');
+  // A request that arrived whole shows as a chip; one being typed as text,
+  // and one the parser refuses stays in the well with its cross, so it never
+  // takes the accepted look first.
+  const [collapsed, setCollapsed] = useState(
+    () => initialRequest !== '' && !requestRefusal(initialRequest),
+  );
   // Without the overlay, the camera is a view inside this screen, so a typed
   // request or amount survives a scan that is cancelled or replaces it.
   const [scanning, setScanning] = useState(initialScanning);
@@ -201,7 +207,9 @@ export function SendScreen({
   const [result, setResult] = useState<SendResult | null>(null);
   const [rail, setRail] = useState<GlyphName>('bolt');
   const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<Failure | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(() =>
+    requestRefusal(initialRequest),
+  );
   // Each refusal of the amount shakes it, the same one again included.
   const [amountShakes, setAmountShakes] = useState(0);
   // A completed payment goes home on its own unless the screen is touched or
@@ -235,10 +243,14 @@ export function SendScreen({
     reviewing.current = review !== null && !expired;
   });
 
+  // A request brought by a scan or a link is taken as a pasted one is, and
+  // refused as it arrives when it cannot be paid.
+  const entered = useRef(accept);
+  useLayoutEffect(() => {
+    entered.current = accept;
+  });
   useEffect(() => {
-    if (!initialRequest) return;
-    setRequest(initialRequest);
-    setCollapsed(true);
+    if (initialRequest) entered.current(initialRequest);
   }, [initialRequest]);
   // The stage is told busy by the handlers that send, as a request goes out
   // and as its answer comes back (`goingOut` and `cameBack` below), and
@@ -387,36 +399,73 @@ export function SendScreen({
     setBusy(false);
   }
 
-  function accept(code: string) {
+  /**
+   * Takes a request as it is entered, pasted, scanned or brought by a link,
+   * as a chip. One the parser refuses is refused here, before an amount is
+   * keyed for it: it stays in the well with a cross (REDESIGN.md 6, Engine
+   * errors). Returns whether it was taken.
+   */
+  function accept(code: string): boolean {
     setRequest(code);
+    setScanning(false);
+    const refused = requestRefusal(code);
+    if (refused) {
+      refuse(refused);
+      return false;
+    }
     setCollapsed(true);
     setFailure(null);
-    setScanning(false);
+    return true;
+  }
+
+  /** Typing is done: a request is taken as a chip, or refused in the well. */
+  function collapse() {
+    if (!request.trim()) {
+      setCollapsed(false);
+      return;
+    }
+    if (failure?.target === 'request') return;
+    const refused = requestRefusal(request);
+    if (refused) refuse(refused);
+    else setCollapsed(true);
   }
 
   /**
-   * An engine refusal: felt and logged as it comes, and said once a screen
-   * reader has landed where `landing` says, when the refusal moves it on.
+   * A refusal: felt and logged as it comes, and said once a screen reader has
+   * landed where `landing` says, when the refusal moves it on.
    */
-  function fail(
-    error: unknown,
+  function refuse(
+    next: Failure,
     landing?: (next: Failure) => Landing | null,
   ): Failure {
-    const message = errorMessage(error);
-    const next = sendFailure(error, {
-      message,
-      amountSats: fixedSats ?? (amount ? Number(amount) : null),
-      balance,
-    });
     haptics[next.haptic]();
     const target = landing?.(next);
     if (target) land(target);
-    say(message, true);
-    recordDiagnostic({ phase: 'ui', code: next.code || undefined, message });
+    say(next.message, true);
+    recordDiagnostic({
+      phase: 'ui',
+      code: next.code || undefined,
+      message: next.message,
+    });
     if (next.target === 'request') setCollapsed(false);
     if (next.target === 'amount' && next.shake) setAmountShakes(n => n + 1);
     setFailure(next);
     return next;
+  }
+
+  /** An engine refusal, drawn where its code says. */
+  function fail(
+    error: unknown,
+    landing?: (next: Failure) => Landing | null,
+  ): Failure {
+    return refuse(
+      sendFailure(error, {
+        message: errorMessage(error),
+        amountSats: fixedSats ?? (amount ? Number(amount) : null),
+        balance,
+      }),
+      landing,
+    );
   }
 
   /**
@@ -574,8 +623,8 @@ export function SendScreen({
         say(copy.send.clipboardEmpty);
         return false;
       }
-      accept(pasted);
-      say(copy.send.pasted);
+      // A refused paste is said with its refusal instead.
+      if (accept(pasted)) say(copy.send.pasted);
       return true;
     } catch (e) {
       fail(e);
@@ -699,7 +748,7 @@ export function SendScreen({
         </View>
         <View style={[styles.controls, styles.centred]}>
           <GlyphButton
-            glyph="orbit"
+            glyph={ACTIVITY_GLYPH}
             accessibilityLabel={copy.send.viewActivity}
             onPress={live ? onActivity : undefined}
           />
@@ -740,7 +789,7 @@ export function SendScreen({
         </View>
         <View style={[styles.controls, styles.centred]}>
           <GlyphButton
-            glyph="orbit"
+            glyph={ACTIVITY_GLYPH}
             accessibilityLabel={copy.send.viewActivity}
             onPress={live ? onActivity : undefined}
           />
@@ -764,7 +813,7 @@ export function SendScreen({
           <ReviewLines review={review} unit={unit} />
         </View>
         <View style={styles.controls}>
-          <View style={styles.side}>
+          <View style={[styles.side, styles.start]}>
             <GlyphButton
               glyph="pencil"
               accessibilityLabel={copy.send.edit}
@@ -786,7 +835,7 @@ export function SendScreen({
             onRefreshQuote={live && !busy ? refreshQuote : undefined}
             onRefresh={live ? onRefresh : undefined}
           />
-          <View style={styles.side}>
+          <View style={[styles.side, styles.end]}>
             {failure ? <FailureMark failure={failure} /> : null}
           </View>
         </View>
@@ -802,7 +851,7 @@ export function SendScreen({
       : amountTone(Number(shownAmount) || 0, balance);
     const hint = [
       fixedSats === null ? null : copy.amount.fixed,
-      TONE_WORDS[tone],
+      amountWords(tone, Number(shownAmount) || 0, balance),
       amountFailure?.message,
     ]
       .filter(Boolean)
@@ -852,7 +901,7 @@ export function SendScreen({
             busy={busy}
             stale={disabled}
           />
-          <View style={styles.side}>
+          <View style={[styles.side, styles.end]}>
             {failure && failure.target !== 'request' ? (
               <FailureMark failure={failure} />
             ) : null}
@@ -879,7 +928,7 @@ export function SendScreen({
             onExpand={
               busy ? undefined : review ? edit : () => setCollapsed(false)
             }
-            onCollapse={() => setCollapsed(request.trim() !== '')}
+            onCollapse={collapse}
             fixed={fixedSats !== null}
             refused={
               composing && failure?.target === 'request' ? failure : null
@@ -889,10 +938,13 @@ export function SendScreen({
             onScan={composing ? scan : undefined}
           />
         )}
+        {/* The step slides, rather than jumps, as the request above it opens
+          into the well or closes into a chip. */}
         <Reanimated.View
           key={step}
           entering={sceneIn()}
           exiting={sceneOut()}
+          layout={smooth()}
           onTouchStart={result ? stay : undefined}
           onFocus={result ? stay : undefined}
           style={styles.step}
@@ -922,7 +974,11 @@ const styles = StyleSheet.create({
     paddingTop: space.xs,
   },
   centred: { justifyContent: 'center' },
-  side: { width: 56, alignItems: 'center' },
+  // A side slot holds its control against the page edge, as the pencil and
+  // a refusal's mark sit at the edges the rest of the scene keeps.
+  side: { width: 56 },
+  start: { alignItems: 'flex-start' },
+  end: { alignItems: 'flex-end' },
   fee: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   feeText: { ...typography.line, color: palette.steam },
 });

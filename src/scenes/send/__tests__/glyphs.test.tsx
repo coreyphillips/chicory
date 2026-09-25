@@ -1,6 +1,11 @@
 import React from 'react';
 import { AccessibilityInfo, StyleSheet } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import {
+  GestureDetector,
+  GestureHandlerRootView,
+  State,
+} from 'react-native-gesture-handler';
+import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
 import * as Reanimated from 'react-native-reanimated';
 import { ReduceMotion } from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
@@ -12,6 +17,7 @@ import { ExpiryRing } from '../../../glyphs/ExpiryRing';
 import { HoldButton } from '../../../glyphs/HoldButton';
 import { durations } from '../../../motion/tokens';
 import { mount } from '../../../../test-support/guard';
+import { activate } from '../../../../test-support/query';
 import { GLYPHS } from '../../../design/glyphs';
 import { QuoteRefresh } from '../Controls';
 import { BANG, DrawnGlyph } from '../DrawnGlyph';
@@ -50,12 +56,23 @@ const failureFor = (code: string) =>
 const felt = () =>
   jest.mocked(HapticFeedback.trigger).mock.calls.map(([kind]) => kind);
 
+/** The hold's long press, as the gesture handler times it. */
 const hold = (tree: ReactTestRenderer) =>
-  tree.root.find(
-    node =>
-      node.props.accessibilityLabel === LABEL &&
-      typeof node.props.onPressIn === 'function',
-  );
+  tree.root.findByType(GestureDetector).props.gesture;
+
+/** Each step of a hold, as the gesture handler reports it. */
+const press = {
+  in: (tree: ReactTestRenderer) =>
+    act(async () => hold(tree).config.onBegin({})),
+  complete: (tree: ReactTestRenderer) =>
+    act(async () => hold(tree).config.onActivate({})),
+  out: (tree: ReactTestRenderer) =>
+    act(async () => hold(tree).config.onFinalize({ canceled: false })),
+};
+
+/** A hold on the canvas, where the gesture handler's root is. */
+const onCanvas = (element: React.ReactElement) =>
+  mount(<GestureHandlerRootView>{element}</GestureHandlerRootView>);
 
 /** The steps of the transform on the view that moves the hold's arrow. */
 function arrowSteps(tree: ReactTestRenderer): string[] {
@@ -69,7 +86,9 @@ function arrowSteps(tree: ReactTestRenderer): string[] {
 }
 
 beforeEach(() => {
-  jest.useFakeTimers();
+  // A hold's gesture runs on the UI thread and hands back to this one on a
+  // microtask, which the fake clock would otherwise hold back.
+  jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
   jest.mocked(HapticFeedback.trigger).mockClear();
 });
 afterEach(() => jest.useRealTimers());
@@ -77,10 +96,10 @@ afterEach(() => jest.useRealTimers());
 describe('HoldButton', () => {
   test('a hold is felt at each quarter and lands with a thud', async () => {
     const onCommit = jest.fn();
-    const tree = await mount(
+    const tree = await onCanvas(
       <HoldButton accessibilityLabel={LABEL} onCommit={onCommit} />,
     );
-    await act(async () => hold(tree).props.onPressIn());
+    await press.in(tree);
     expect(felt()).toEqual(['impactLight']);
     await act(async () => jest.advanceTimersByTime(525));
     expect(felt()).toEqual([
@@ -89,7 +108,7 @@ describe('HoldButton', () => {
       'selection',
       'selection',
     ]);
-    await act(async () => hold(tree).props.onLongPress());
+    await press.complete(tree);
     expect(felt().at(-1)).toBe('impactMedium');
     expect(onCommit).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
@@ -97,12 +116,12 @@ describe('HoldButton', () => {
 
   test('let go early, nothing commits and the ramp stops', async () => {
     const onCommit = jest.fn();
-    const tree = await mount(
+    const tree = await onCanvas(
       <HoldButton accessibilityLabel={LABEL} onCommit={onCommit} warning />,
     );
-    await act(async () => hold(tree).props.onPressIn());
+    await press.in(tree);
     await act(async () => jest.advanceTimersByTime(300));
-    await act(async () => hold(tree).props.onPressOut());
+    await press.out(tree);
     await act(async () => jest.advanceTimersByTime(2000));
     // With warnings the quarters are 250ms apart: one had passed.
     expect(felt()).toEqual(['impactLight', 'selection']);
@@ -110,8 +129,31 @@ describe('HoldButton', () => {
     await act(async () => tree.unmount());
   });
 
+  test('the long press that times the hold commits it, and nothing commits it twice', async () => {
+    const onCommit = jest.fn();
+    const tree = await onCanvas(
+      <HoldButton accessibilityLabel={LABEL} onCommit={onCommit} />,
+    );
+    // Timed by the gesture handler, where the fill runs, not by a timer on
+    // the JavaScript thread.
+    expect(hold(tree).config.minDurationMs).toBe(durations.hold);
+    await act(async () =>
+      fireGestureHandler(hold(tree), [
+        { state: State.BEGAN },
+        { state: State.ACTIVE },
+        { state: State.END },
+      ]),
+    );
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    // A screen reader's activate on a hold that has committed adds nothing.
+    await activate(tree, LABEL);
+    await press.complete(tree);
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
   test('complete, its arrow launches up and to the right', async () => {
-    const tree = await mount(
+    const tree = await onCanvas(
       <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} />,
     );
     expect(arrowSteps(tree)).toEqual(['translateX', 'translateY']);
@@ -119,11 +161,38 @@ describe('HoldButton', () => {
   });
 
   test('sending, an orbit runs round the ring', async () => {
-    const tree = await mount(
+    const tree = await onCanvas(
       <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} busy />,
     );
     expect(tree.root.findAllByType(Orbit)).toHaveLength(1);
     await act(async () => tree.unmount());
+  });
+
+  test('sending after a warned hold, the orbit is bloom against the honey it held with', async () => {
+    const tree = await onCanvas(
+      <HoldButton
+        accessibilityLabel={LABEL}
+        onCommit={jest.fn()}
+        warning
+        busy
+      />,
+    );
+    expect(tree.root.findByType(Orbit).props.color).toBe(palette.bloom);
+    await act(async () => tree.unmount());
+  });
+
+  test('while sending, or out of use, the long press is off', async () => {
+    for (const busy of [true, false]) {
+      const tree = await onCanvas(
+        <HoldButton
+          accessibilityLabel={LABEL}
+          onCommit={jest.fn()}
+          busy={busy}
+        />,
+      );
+      expect(hold(tree).config.enabled).toBe(!busy);
+      await act(async () => tree.unmount());
+    }
   });
 });
 
@@ -291,11 +360,11 @@ describe('under Reduce Motion', () => {
 
   test('the hold is still felt and still commits, but its arrow only fades', async () => {
     const onCommit = jest.fn();
-    const tree = await mount(
+    const tree = await onCanvas(
       <HoldButton accessibilityLabel={LABEL} onCommit={onCommit} />,
     );
     expect(arrowSteps(tree)).toEqual([]);
-    await act(async () => hold(tree).props.onPressIn());
+    await press.in(tree);
     await act(async () => jest.advanceTimersByTime(525));
     expect(felt()).toEqual([
       'impactLight',
@@ -303,7 +372,7 @@ describe('under Reduce Motion', () => {
       'selection',
       'selection',
     ]);
-    await act(async () => hold(tree).props.onLongPress());
+    await press.complete(tree);
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(felt().at(-1)).toBe('impactMedium');
     await act(async () => tree.unmount());
@@ -322,29 +391,24 @@ describe('under Reduce Motion', () => {
     return started;
   }
 
-  test('a commit still flashes cream and fades its arrow, and the arrow fades back', async () => {
+  test('a send that comes back without a result fades its arrow back', async () => {
     const element = (busy: boolean) => (
       <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} busy={busy} />
     );
-    const tree = await mount(element(false));
-    const committing = await timed(() =>
-      act(async () => hold(tree).props.onLongPress()),
+    // The commit's own fades are held to it in hold.test.ts.
+    const tree = await onCanvas(element(false));
+    await press.complete(tree);
+    await act(async () =>
+      tree.update(
+        <GestureHandlerRootView>{element(true)}</GestureHandlerRootView>,
+      ),
     );
-    // The flash in and out, and the arrow's crossfade away, each a colour
-    // or a fade, so none is skipped.
-    expect(committing).toEqual([
-      { to: 1, duration: durations.tick, reduceMotion: ReduceMotion.Never },
-      { to: 0, duration: durations.move, reduceMotion: ReduceMotion.Never },
-      {
-        to: 1,
-        duration: durations.crossfade,
-        reduceMotion: ReduceMotion.Never,
-      },
-    ]);
-    // A send that comes back without a result gives the arrow back.
-    await act(async () => tree.update(element(true)));
     const returning = await timed(() =>
-      act(async () => tree.update(element(false))),
+      act(async () =>
+        tree.update(
+          <GestureHandlerRootView>{element(false)}</GestureHandlerRootView>,
+        ),
+      ),
     );
     expect(returning).toEqual([
       {

@@ -204,6 +204,34 @@ export async function activate(
 }
 
 /**
+ * How long the hold labelled `label` must be held, in ms, or undefined when
+ * no hold carries that label. A finger's hold is a long press the gesture
+ * handler times, so this is the least duration of the innermost long press
+ * around the hold, not a timer's delay.
+ */
+export function holdMs(
+  tree: ReactTestRenderer,
+  label: string,
+): number | undefined {
+  const timed = (node: ReactTestInstance) =>
+    typeof node.props.gesture?.config?.minDurationMs === 'number';
+  const around = tree.root.findAll(
+    node =>
+      timed(node) &&
+      node.findAll(
+        inner =>
+          typeof inner.type === 'string' &&
+          inner.props.accessibilityLabel === label,
+      ).length > 0,
+  );
+  const innermost = around.find(
+    node =>
+      !node.findAll(inner => inner !== node && around.includes(inner)).length,
+  );
+  return innermost?.props.gesture.config.minDurationMs;
+}
+
+/**
  * The text field labelled `label`. Throws, naming the fields there are, when
  * there is none.
  */
