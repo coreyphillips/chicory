@@ -5,6 +5,7 @@ import {
   countWords,
   holdSteps,
   petalAngle,
+  petalPose,
   phraseBloom,
   wordDelay,
 } from '../src/scenes/settings/motion';
@@ -279,6 +280,24 @@ describe('the restore bloom', () => {
     expect(countWords('')).toBe(0);
     expect(countWords('   ')).toBe(0);
     expect(countWords('  a\n b\t\tc  ')).toBe(3);
+  });
+
+  test('opens each petal from a narrow, turned bud, and wilts it to .92', () => {
+    expect(petalPose(0, 0)).toEqual({
+      opacity: 0,
+      turn: -14,
+      scaleX: 0.18,
+      scaleY: 0.25,
+    });
+    expect(petalPose(1, 0)).toEqual({
+      opacity: 1,
+      turn: 0,
+      scaleX: 1,
+      scaleY: 1,
+    });
+    const wilted = petalPose(1, 1);
+    expect(wilted.turn).toBe(10);
+    expect(wilted.scaleY).toBeCloseTo(0.92);
   });
 
   test('lights clockwise from the top, the second ring between the first', () => {

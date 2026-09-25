@@ -66,3 +66,20 @@ export function phraseBloom(count: number): {
 export function petalAngle(ring: 'inner' | 'outer', index: number): number {
   return 30 * index + (ring === 'outer' ? 15 : 0);
 }
+
+/**
+ * A petal's pose at unfold `q` and wilt `w`, each 0 to 1, the way the
+ * bloom's own petals open (REDESIGN.md 5, Bloom): a narrow, short bud turned
+ * back 14 degrees opens to full width and length. A wilted petal leans 10
+ * degrees further and falls to .92 of its length. `turn` is in degrees,
+ * added to the petal's place.
+ */
+export function petalPose(q: number, w: number) {
+  'worklet';
+  return {
+    opacity: q,
+    turn: 10 * w - 14 * (1 - q),
+    scaleX: 0.18 + 0.82 * q,
+    scaleY: (0.25 + 0.75 * q) * (1 - 0.08 * w),
+  };
+}

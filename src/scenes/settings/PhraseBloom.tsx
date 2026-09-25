@@ -21,7 +21,7 @@ import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { durations, shake, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
-import { RING, petalAngle, phraseBloom } from './motion';
+import { RING, petalAngle, petalPose, phraseBloom } from './motion';
 
 const SIZE = 120;
 
@@ -97,8 +97,9 @@ const PetalShape = memo(function PetalSvg({
 
 /**
  * A petal lighting for a word: it unfolds on the reveal spring from a turned,
- * narrow bud into its place, the way the bloom's own petals open. Under
- * Reduce Motion it only fades in.
+ * narrow bud into its place, the way the bloom's own petals open, and a
+ * wilted one droops and shortens. Under Reduce Motion it only fades in or
+ * out, and wilting is left to the colour.
  */
 const Petal = memo(function PetalView({
   ring,
@@ -114,6 +115,8 @@ const Petal = memo(function PetalView({
   const { reduced } = useMotionPrefs();
   const angle = petalAngle(ring, index);
   const q = useSharedValue(lit ? 1 : 0);
+  const w = useSharedValue(0);
+  const wilted = tint === 'wilted';
   useEffect(() => {
     const target = lit ? 1 : 0;
     q.set(
@@ -122,13 +125,27 @@ const Petal = memo(function PetalView({
         : withSpring(target, springs.reveal),
     );
   }, [lit, reduced, q]);
+  useEffect(() => {
+    w.set(reduced ? 0 : withSpring(wilted ? 1 : 0, springs.soft));
+  }, [wilted, reduced, w]);
+  useEffect(
+    () => () => {
+      cancelAnimation(q);
+      cancelAnimation(w);
+    },
+    [q, w],
+  );
   const pose = useAnimatedStyle(() => {
-    const open = q.get();
+    if (reduced) {
+      return { opacity: q.get(), transform: [{ rotate: `${angle}deg` }] };
+    }
+    const at = petalPose(q.get(), w.get());
     return {
-      opacity: open,
+      opacity: at.opacity,
       transform: [
-        { rotate: `${reduced ? angle : angle - 14 * (1 - open)}deg` },
-        { scale: reduced ? 1 : 0.4 + 0.6 * open },
+        { rotate: `${angle + at.turn}deg` },
+        { scaleX: at.scaleX },
+        { scaleY: at.scaleY },
       ],
     };
   });
