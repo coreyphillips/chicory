@@ -61,7 +61,7 @@ export function SheetPane({
   /** The scene the canvas shows. */
   shown: CanvasSceneName;
 }) {
-  const { actions, dispatch, panes: motion } = useStage();
+  const { actions } = useStage();
   const live = usePaneActive();
   const panes = usePanes();
   const { reduced } = useMotionPrefs();
@@ -131,14 +131,6 @@ export function SheetPane({
     was.current = shown;
   }, [shown, setFilter, setQuery]);
 
-  // The stage's table opens Settings from home only, so the shield on the
-  // open list moves to Settings as the session does, as its tab, and back
-  // from there is home. Like a tap, it waits while a pane is still moving.
-  const openBackup = useCallback(() => {
-    if (motion.current?.moving()) return;
-    dispatch({ type: 'tab', tab: 'Settings' });
-  }, [motion, dispatch]);
-
   const binding: SheetBinding = {
     opened,
     barStyle,
@@ -168,10 +160,11 @@ export function SheetPane({
           onRetry={session.manualRefresh}
           // A recovery phrase still to save is pinned first on the open
           // list, as the shield that opens Settings, where the phrase and
-          // its words are. At home the status row carries the shield.
+          // its words are; back from there returns to the list. At home the
+          // status row carries the shield.
           banner={
             opened && backup?.pending ? (
-              <BackupShelf onOpen={openBackup} />
+              <BackupShelf onOpen={actions.openSettings} />
             ) : undefined
           }
           sheet={binding}

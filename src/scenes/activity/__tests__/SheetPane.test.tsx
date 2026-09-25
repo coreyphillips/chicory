@@ -599,6 +599,26 @@ describe('a recovery phrase still to save', () => {
     // Settings leads with the phrase to save.
     await settle();
     expect(pressableLabels(tree)).toContain('Reveal recovery phrase');
+    // Back from there is the list the shield was pinned to.
+    await act(async () => stage.actions.back());
+    await settle();
+    expect(stage.state.scene.name).toBe('activity');
+    expect(pressableLabels(tree)).toContain(copy.health.backupPending);
+    await act(async () => tree.unmount());
+  });
+
+  test('waits, as a tap does, while a pane is still moving', async () => {
+    const tree = await render(<OnCanvas backup={backup()} />);
+    await act(async () => stage.actions.openActivity());
+    await settle();
+    const moving = jest
+      .spyOn(stage.panes.current!, 'moving')
+      .mockReturnValue(true);
+    await press(tree, copy.health.backupPending);
+    expect(stage.state.scene.name).toBe('activity');
+    moving.mockRestore();
+    await press(tree, copy.health.backupPending);
+    expect(stage.state.scene.name).toBe('settings');
     await act(async () => tree.unmount());
   });
 

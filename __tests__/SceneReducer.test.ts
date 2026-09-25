@@ -94,6 +94,18 @@ describe('open', () => {
     expect(stageReducer(home, { type: 'back' })).toBe(home);
   });
 
+  test('activity opens Settings, and back returns to the list', () => {
+    const settings = run(openActivity, openSettings);
+    expect(settings.scene).toEqual({ name: 'settings', key: 2 });
+    expect(names(settings)).toEqual(['home', 'activity']);
+    const activity = stageReducer(settings, { type: 'back' });
+    expect(activity.scene).toBe(settings.stack[1]);
+    expect(names(activity)).toEqual(['home']);
+    // Busy holds it shut, as it does every open.
+    const busy = from(run(openActivity), { type: 'busy', busy: true });
+    expect(stageReducer(busy, openSettings)).toBe(busy);
+  });
+
   test.each<['send' | 'receive', StageAction]>([
     ['send', openSend(REQUEST)],
     ['receive', openReceive],
@@ -120,7 +132,6 @@ describe('open', () => {
     ['home from home', [], { type: 'open', scene: { name: 'home' } }],
     ['send from activity', [openActivity], openSend()],
     ['receive from activity', [openActivity], openReceive],
-    ['settings from activity', [openActivity], openSettings],
     ['activity from activity', [openActivity], openActivity],
     ['activity from detail', [openDetail], openActivity],
     ['detail from send', [openSend()], openDetail],
@@ -147,6 +158,7 @@ describe('open', () => {
     expect(canOpen(activity, 'detail')).toBe(true);
     expect(canOpen(activity, 'home')).toBe(true);
     expect(canOpen(activity, 'send')).toBe(false);
+    expect(canOpen(activity, 'settings')).toBe(true);
     const send = run(openSend());
     expect(canOpen(send, 'activity')).toBe(true);
     expect(canOpen(send, 'receive')).toBe(false);

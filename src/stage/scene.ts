@@ -63,13 +63,14 @@ export type StageAction =
 type SceneName = Scene['name'];
 
 /**
- * Home reaches everything. Activity reaches a payment's detail, and Send and
- * Receive reach the Activity that shows what they just did. Home is always a
- * way out.
+ * Home reaches everything. Activity reaches a payment's detail, and Settings
+ * for a recovery phrase still to save, which the open list pins first; back
+ * from either returns to the list. Send and Receive reach the Activity that
+ * shows what they just did. Home is always a way out.
  */
 const OPENS: Record<SceneName, readonly SceneName[]> = {
   home: ['activity', 'detail', 'send', 'receive', 'settings'],
-  activity: ['home', 'detail'],
+  activity: ['home', 'detail', 'settings'],
   detail: ['home'],
   send: ['home', 'activity'],
   receive: ['home', 'activity'],
