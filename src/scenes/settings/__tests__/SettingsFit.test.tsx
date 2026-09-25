@@ -1,6 +1,6 @@
 import React from 'react';
 import type { PropsWithChildren } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import type { WalletSnapshot } from '@beignet/wallet-core';
@@ -10,6 +10,7 @@ import type { CanvasSession, CanvasView } from '../../../stage/Canvas';
 import { StageProvider, useStageStore } from '../../../stage/StageContext';
 import { snapshotOf } from '../../../../test-support/fixtures';
 import { mount } from '../../../../test-support/guard';
+import { press } from '../../../../test-support/query';
 import { RecoveryWords } from '../RecoveryWords';
 import { SettingsLayer } from '../SettingsLayer';
 import { NetworkChoice, Section } from '../ui';
@@ -17,7 +18,8 @@ import { NetworkChoice, Section } from '../ui';
 /**
  * Settings on the phone (the P7 device pass): it has no ceiling on text size
  * (REDESIGN.md 3.3), so its bar, headings and pills must reflow rather than
- * clip; and its cards hold what rises into them.
+ * clip; its cards hold what rises into them; and the network a wallet is on
+ * is a checked radio, never a heading.
  *
  * Jest lays nothing out, so the layout is held here as the styles that make
  * it, and the reasons are in the components.
@@ -107,7 +109,46 @@ const pills = (tree: ReactTestRenderer) => {
   return rows[rows.length - 1];
 };
 
+/** The radio group the network pills sit in. */
+const group = (tree: ReactTestRenderer) =>
+  tree.root.find(
+    node => node.type === View && node.props.accessibilityRole === 'radiogroup',
+  );
+
 const unmount = (tree: ReactTestRenderer) => act(async () => tree.unmount());
+
+describe('the network a wallet is on', () => {
+  test('is a checked radio in a radio group, never a heading or a bare button', async () => {
+    const tree = await settings(regtest);
+    const chips = ['mainnet', 'testnet', 'regtest'].map(label =>
+      host(tree, label),
+    );
+    for (const chip of chips) {
+      expect(chip.props.accessibilityRole).toBe('radio');
+    }
+    expect(chips.map(chip => chip.props.accessibilityState.checked)).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect(
+      group(tree).findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.accessibilityRole === 'radio',
+      ),
+    ).toHaveLength(3);
+    await unmount(tree);
+  });
+
+  test('checks another once it is chosen', async () => {
+    const tree = await settings(regtest);
+    await press(tree, 'mainnet');
+    expect(host(tree, 'mainnet').props.accessibilityState.checked).toBe(true);
+    expect(host(tree, 'regtest').props.accessibilityState.checked).toBe(false);
+    await unmount(tree);
+  });
+});
 
 describe('at the largest text size', () => {
   test('the bar grows, and its title gives way before the close does', async () => {

@@ -741,7 +741,8 @@ export const testNetwork = (network: string) => network !== 'mainnet';
  * a flask so the difference is a shape as well as a colour, and says what a
  * test network is to a screen reader.
  *
- * The pills share a line equally while their words fit,
+ * Only one can be chosen, so they are a radio group to a screen reader, the
+ * chosen one checked. The pills share a line equally while their words fit,
  * and past that each takes the width its word needs, so a large text size
  * breaks the row onto more lines, or stacks it, and never breaks a word.
  */
@@ -760,7 +761,7 @@ export function NetworkChoice<T extends string>({
 }) {
   const live = usePaneActive();
   return (
-    <View style={styles.choice}>
+    <View accessibilityRole="radiogroup" style={styles.choice}>
       {options.map(option => {
         const selected = option === value;
         const test = testNetwork(option);
@@ -768,12 +769,12 @@ export function NetworkChoice<T extends string>({
         return (
           <Pressable
             key={option}
-            accessibilityRole="button"
+            accessibilityRole="radio"
             accessibilityLabel={labelFor(option)}
             accessibilityHint={
               test ? copy.settings.testNetwork(option) : undefined
             }
-            accessibilityState={{ selected, disabled }}
+            accessibilityState={{ checked: selected, disabled }}
             disabled={disabled}
             onPress={
               live
