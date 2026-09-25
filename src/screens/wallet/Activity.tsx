@@ -26,6 +26,7 @@ import { Bloom } from '../../glyphs/Bloom';
 import { ActivityRow, RowListContext } from '../../scenes/activity/ActivityRow';
 import type { RowList } from '../../scenes/activity/ActivityRow';
 import { FilterBar } from '../../scenes/activity/FilterBar';
+import { isTestNetwork } from '../../scenes/home/visual';
 import {
   DAY_HEIGHT,
   activitySections,
@@ -114,6 +115,7 @@ export function ActivityScreen({
   // A poll that changed nothing a row shows hands back the same objects, so
   // the memoized rows stay put across it.
   const activity = useStableActivity(snapshot.activity);
+  const test = isTestNetwork(snapshot.wallet.network);
   // Filtering trails typing by a frame. The field itself still binds `query`,
   // so it never feels behind; only the list waits.
   const needle = useDeferredValue(query).trim().toLowerCase();
@@ -152,10 +154,11 @@ export function ActivityScreen({
           band={row.band}
           hidden={hidden}
           unit={unit}
+          test={test}
           onPress={onDetail}
         />
       ),
-    [hidden, unit, onDetail],
+    [hidden, unit, test, onDetail],
   );
   const { bottom } = useSafeAreaInsets();
   const inset = sheet ? sheet.bottomInset : bottom;

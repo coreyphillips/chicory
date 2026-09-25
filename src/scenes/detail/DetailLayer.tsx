@@ -13,6 +13,7 @@ import type { Rect } from '../../stage/scene';
 import { useStage } from '../../stage/StageContext';
 import { measureRow } from '../activity/rowRects';
 import { DETAIL_DROP } from '../activity/sheet';
+import { isTestNetwork } from '../home/visual';
 import { DetailFlight } from './motion';
 
 /**
@@ -80,6 +81,7 @@ export function DetailLayer({
               unit={view.unit}
               onRefresh={session.refresh}
               onBusy={actions.setBusy}
+              test={isTestNetwork(snapshot.wallet.network)}
             />
             {/* The canvas runs under the system bars; the end of the detail
                 stays clear of them. */}

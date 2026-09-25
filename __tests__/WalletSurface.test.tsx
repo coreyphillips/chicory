@@ -11,6 +11,7 @@ import {
 } from '../src/screens/Wallet';
 import { copy } from '../src/design/copy';
 import { chipText } from '../src/glyphs/CopyChip';
+import { StatusRing } from '../src/glyphs/StatusRing';
 import { useNow } from '../src/services/clock';
 import { copyViolations } from '../test-support/copyGuard';
 import { mount } from '../test-support/guard';
@@ -152,6 +153,23 @@ test('the Requests filter keeps a request that has since been paid', async () =>
   // user sent someone, which is how they will look for it.
   expect(meaning(tree)).toContain('Paid request');
   expect(meaning(tree)).not.toContain('Coffee');
+  await act(async () => tree.unmount());
+});
+
+test('the rows ring in slate on a test network, and in bloom on mainnet', async () => {
+  const rings = (tree: ReactTestRenderer) =>
+    tree.root.findAllByType(StatusRing).map(ring => ring.props.test);
+  let tree = await renderActivity();
+  expect(snapshot.wallet.network).not.toBe('mainnet');
+  expect(new Set(rings(tree))).toEqual(new Set([true]));
+  await act(async () => tree.unmount());
+  tree = await renderActivity({
+    snapshot: {
+      ...snapshot,
+      wallet: { ...snapshot.wallet, network: 'mainnet' },
+    },
+  });
+  expect(new Set(rings(tree))).toEqual(new Set([false]));
   await act(async () => tree.unmount());
 });
 

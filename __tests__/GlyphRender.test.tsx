@@ -21,7 +21,7 @@ import type { BloomEvent, BloomMode, BloomTone } from '../src/glyphs/Bloom';
 import { Odometer } from '../src/glyphs/Odometer';
 import type { OdometerVariant } from '../src/glyphs/Odometer';
 import { PulseDot } from '../src/glyphs/PulseDot';
-import { StatusRing } from '../src/glyphs/StatusRing';
+import { StatusRing, ringColor } from '../src/glyphs/StatusRing';
 import type { RingVisual } from '../src/glyphs/StatusRing';
 import { Vessel } from '../src/glyphs/Vessel';
 import { Whisper, WhisperProvider } from '../src/glyphs/Whisper';
@@ -875,6 +875,26 @@ describe('StatusRing', () => {
     tree.root
       .findAllByType(Path)
       .filter(path => Array.isArray(path.props.strokeDasharray));
+
+  test('on a test network slate stands in for bloom, and for nothing else', async () => {
+    expect(ringColor('bloom', true)).toBe(palette.slate);
+    expect(ringColor('bloom')).toBe(palette.bloom);
+    for (const tone of ['sage', 'honey', 'radish', 'dust', 'steam'] as const) {
+      expect(ringColor(tone, true)).toBe(ringColor(tone));
+    }
+    const strokes = async (test: boolean) => {
+      const tree = await render(
+        <StatusRing size={40} visual={PENDING} test={test} />,
+      );
+      return new Set(
+        [...tree.root.findAllByType(Circle), ...tree.root.findAllByType(Path)]
+          .map(node => node.props.stroke)
+          .filter(stroke => stroke !== undefined && stroke !== palette.husk),
+      );
+    };
+    expect(await strokes(true)).toEqual(new Set([palette.slate]));
+    expect(await strokes(false)).toEqual(new Set([palette.bloom]));
+  });
 
   test('a ring that mounts in a state shows it still', async () => {
     const tree = await render(

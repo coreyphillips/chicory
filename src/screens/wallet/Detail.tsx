@@ -68,6 +68,7 @@ export function DetailScreen({
   unit = 'sats',
   onRefresh,
   onBusy,
+  test = false,
 }: {
   item: Activity;
   client?: WalletAdapter;
@@ -75,6 +76,8 @@ export function DetailScreen({
   unit?: Unit;
   onRefresh?: () => void;
   onBusy?: (busy: boolean) => void;
+  /** On a test network, whose ring is slate where it would be bloom. */
+  test?: boolean;
 }) {
   const words = ringWords(item);
   const visual = ringVisual(item);
@@ -152,7 +155,7 @@ export function DetailScreen({
           accessibilityValue={{ text: words.value }}
           accessibilityLiveRegion={words.safety ? 'assertive' : 'polite'}
         >
-          <StatusRing size={HEADER_RING} visual={visual} />
+          <StatusRing size={HEADER_RING} visual={visual} test={test} />
         </Reanimated.View>
         {look.open ? (
           <Reanimated.View

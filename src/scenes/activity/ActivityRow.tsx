@@ -95,6 +95,7 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   hidden = false,
   unit = 'sats',
   band,
+  test = false,
 }: {
   item: Activity;
   onPress: (item: Activity, rect?: Rect) => void;
@@ -102,6 +103,8 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   unit?: Unit;
   /** Pinned to the honey band at the top of the list, and where in it. */
   band?: Band;
+  /** On a test network, whose rings are slate where they would be bloom. */
+  test?: boolean;
 }) {
   const live = usePaneActive();
   const list = useContext(RowListContext);
@@ -156,7 +159,7 @@ export const ActivityRow = React.memo(function ActivityRowItem({
           pressed && styles.pressed,
         ]}
       >
-        <StatusRing size={ROW_RING} visual={ring} />
+        <StatusRing size={ROW_RING} visual={ring} test={test} />
         <View style={styles.middle}>
           {look.open ? (
             <Glyph name="infinity" size={ROW_OPEN} color={TONES[look.tone]} />

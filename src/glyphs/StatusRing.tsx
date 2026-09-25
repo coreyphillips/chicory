@@ -45,12 +45,18 @@ export type { RingVisual } from '../scenes/activity/visual';
  * cross; an unknown outcome scales the pause bars in under its halo; and
  * expiring fades to dashes. A ring that mounts in a state simply shows it,
  * so a list scrolling past does not replay history.
+ *
+ * On a test network (`test`) slate stands in for bloom, as it does for the
+ * mark (REDESIGN.md 3.1), so a pending payment there never looks like one
+ * of real money.
  */
 export type RingSize = 40 | 96 | 120;
 
 export interface StatusRingProps {
   size: RingSize;
   visual: RingVisual;
+  /** The payment is on a test network. */
+  test?: boolean;
 }
 
 const TONES: Record<RingVisual['tone'], string> = {
@@ -61,6 +67,11 @@ const TONES: Record<RingVisual['tone'], string> = {
   dust: palette.dust,
   steam: palette.steam,
 };
+
+/** The colour a ring of `tone` is drawn in, on a test network or not. */
+export function ringColor(tone: RingVisual['tone'], test = false): string {
+  return tone === 'bloom' && test ? palette.slate : TONES[tone];
+}
 
 const STROKE: Record<RingSize, number> = { 40: 2.5, 96: 4, 120: 5 };
 const GLYPH: Record<RingSize, number> = { 40: 18, 96: 40, 120: 48 };
@@ -525,7 +536,7 @@ const RingGlyph = memo(function StatusGlyph({
   return <Glyph name={name} size={size} color={color} />;
 });
 
-export function StatusRing({ size, visual }: StatusRingProps) {
+export function StatusRing({ size, visual, test = false }: StatusRingProps) {
   const { reduced } = useMotionPrefs();
   const awake = useAwake();
 
@@ -584,7 +595,7 @@ export function StatusRing({ size, visual }: StatusRingProps) {
   const tintStyle = useAnimatedStyle(() => ({ opacity: tint.get() }));
 
   const geometry = ringGeometry(size);
-  const color = TONES[visual.tone];
+  const color = ringColor(visual.tone, test);
   const moving = awake && !reduced;
   const glyphSize = GLYPH[size];
   const badge = visual.badge;

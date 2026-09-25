@@ -542,6 +542,15 @@ describe('the detail on the canvas', () => {
     await act(async () => tree.unmount());
   });
 
+  test('rings in slate on a test network, as the rows do', async () => {
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openDetail(item, rect));
+    const ring = tree.root.findByType(DetailCard).findByType(StatusRing);
+    expect(snapshot.wallet.network).not.toBe('mainnet');
+    expect(ring.props.test).toBe(true);
+    await act(async () => tree.unmount());
+  });
+
   test('fades when it closes onto home, where the row is moving', async () => {
     const tree = await render(<OnCanvas />);
     await act(async () => stage.actions.openDetail(item, rect));
