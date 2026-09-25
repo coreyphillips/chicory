@@ -184,6 +184,29 @@ export function seedBob(t: number, k: number, count?: number): number {
 }
 
 const RIPPLE_MS = 700;
+
+/**
+ * How long the pill keeps its split look once everything in flight has
+ * moved into the channel (REDESIGN.md 5, Channelize), so the solid segment
+ * is seen growing across it on the soft spring before it settles to the
+ * hairline.
+ */
+export const CHANNELIZE_MS = 600;
+
+/**
+ * Whether a change of the balance from `before` to `after` is money moving
+ * into the channel: less arriving, and more that can be spent.
+ */
+export function channelized(
+  before: { availableSats: number; pendingSats: number },
+  after: { availableSats: number; pendingSats: number },
+): boolean {
+  return (
+    after.pendingSats < before.pendingSats &&
+    after.availableSats > before.availableSats
+  );
+}
+
 /** How long the pill takes to dim when the balance goes stale. */
 const STALE_MS = 600;
 
@@ -447,11 +470,58 @@ export function Vessel({
   const awake = useAwake();
   const active = usePaneActive();
   const visual = vesselVisual({ availableSats, pendingSats }, lfbw);
+  // Everything in flight moving into the channel at once would take the
+  // pill straight to its hairline, and the solid segment's growth would
+  // never show. So the pill holds its split look, and the arriving part's
+  // look, for CHANNELIZE_MS while the solid grows across it (`held`). A
+  // change is read during the render that brings it, so the first frame
+  // already holds.
+  const [channel, setChannel] = useState({
+    availableSats,
+    pendingSats,
+    visual,
+    held: null as { visual: VesselVisual; key: number } | null,
+  });
+  let now = channel;
+  if (
+    channel.availableSats !== availableSats ||
+    channel.pendingSats !== pendingSats
+  ) {
+    const into =
+      channel.visual.weight === 'swollen' &&
+      visual.weight === 'hairline' &&
+      channelized(channel, { availableSats, pendingSats }) &&
+      !masked &&
+      !reduced;
+    now = {
+      availableSats,
+      pendingSats,
+      visual,
+      held: into
+        ? { visual: channel.visual, key: (channel.held?.key ?? 0) + 1 }
+        : channel.held,
+    };
+    setChannel(now);
+  }
+  const held = masked ? null : now.held;
+  useEffect(() => {
+    if (!held) return;
+    const settle = setTimeout(
+      () =>
+        setChannel(last =>
+          last.held?.key === held.key ? { ...last, held: null } : last,
+        ),
+      CHANNELIZE_MS,
+    );
+    return () => clearTimeout(settle);
+  }, [held]);
+  // What the arriving part looked like before it moved, while held.
+  const was = held?.visual ?? visual;
+  const look = was.fill;
   // Slate in place of bloom on a test network.
   const spendable = test ? palette.slate : palette.bloom;
-  const fill =
-    visual.fill === 'glass' && test ? palette.slateGlass : FILLS[visual.fill];
-  const split = visual.weight === 'swollen' && !masked;
+  const fill = look === 'glass' && test ? palette.slateGlass : FILLS[look];
+  const split = (visual.weight === 'swollen' || !!held) && !masked;
   const [width, setWidth] = useState(0);
   const [open, setOpen] = useState(false);
   const opened = open && !masked;
@@ -474,8 +544,9 @@ export function Vessel({
     );
   }, [tall, height, opened, reduced]);
 
-  // The spendable share, and whether the solid part shows at all.
-  const solid = split ? visual.solid : 1;
+  // The spendable share, and whether the solid part shows at all. Held, it
+  // grows across the whole pill.
+  const solid = split && !held ? visual.solid : 1;
   const share = useSharedValue(solid);
   useEffect(() => {
     if (share.get() === solid) return;
@@ -542,7 +613,7 @@ export function Vessel({
     sheening && awake && !reduced && width > 0,
     true,
   );
-  const seeds = split && visual.fill === 'seeds';
+  const seeds = split && look === 'seeds';
   const bob = useLoop(durations.pulse, seeds && awake && !reduced, true);
   const reversed = visual.sheen === 'reversed';
 
@@ -666,7 +737,7 @@ export function Vessel({
             </Reanimated.View>
           ) : null}
           {seeds && !opened && width > 0
-            ? seedSpots(visual.solid).map((spot, k) => (
+            ? seedSpots(was.solid).map((spot, k) => (
                 <Seed key={k} k={k} at={spot * width} bob={bob} />
               ))
             : null}
