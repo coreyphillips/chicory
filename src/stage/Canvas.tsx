@@ -1,45 +1,54 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import type { PropsWithChildren, ReactNode } from 'react';
-import {
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import type { ReactNode } from 'react';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
 import type { WalletSnapshot } from '@beignet/wallet-core';
-import { IconButton, Notice, StatusDot } from '../components/ui';
-import { copy } from '../design/copy';
-import { haptics } from '../design/haptics';
-import { sceneIn, sceneOut, slideIn, slideOut } from '../motion/presets';
+import { slideIn, slideOut } from '../motion/presets';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
-import { ActivityScreen, DetailScreen, HomeScreen } from '../screens/Wallet';
-import { ReceiveScreen, SendScreen } from '../screens/Payments';
-import { SettingsScreen } from '../screens/Settings';
+import { SheetPane } from '../scenes/activity/SheetPane';
+import { DetailLayer } from '../scenes/detail/DetailLayer';
+import { HomePane } from '../scenes/home/HomePane';
+import { StatusRow } from '../scenes/home/StatusRow';
+import { ReceiveScene } from '../scenes/receive/ReceiveScene';
+import { SendScene } from '../scenes/send/SendScene';
+import { SettingsLayer } from '../scenes/settings/SettingsLayer';
 import type { useWalletSession } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
-import { HIT_SLOP, colors, radius, space, type as typography } from '../theme';
+import { colors, radius } from '../theme';
 import type { Unit } from '../theme';
-import { DetailCard } from './layers/DetailCard';
-import {
-  COVERED,
-  HERO_MINI,
-  STATUS_ROW,
-  canvasLayout,
-  canvasScene,
-} from './layout';
-import { CornerControl } from './panes/CornerControl';
-import { Pane, PanesProvider, usePaneActive } from './panes/Pane';
-import { SceneSlot } from './panes/SceneSlot';
+import { COVERED, STATUS_ROW, canvasLayout, canvasScene } from './layout';
+import { Pane, PanesProvider } from './panes/Pane';
 import { usePaneMotion } from './panes/usePaneMotion';
 import type { Overlay, Scene } from './scene';
 import { useStage } from './StageContext';
 
 type Session = ReturnType<typeof useWalletSession>;
+
+/** What the canvas and the regions drawn on it use of the wallet session. */
+export type CanvasSession = Pick<
+  Session,
+  | 'error'
+  | 'switchError'
+  | 'refreshing'
+  | 'connecting'
+  | 'refresh'
+  | 'manualRefresh'
+  | 'disconnect'
+  | 'chooseWallet'
+  | 'switchNetwork'
+  | 'eraseDevice'
+>;
+
+/**
+ * A recovery phrase backup, as data, for each region to draw its own way.
+ * `pending` holds until the user confirms the phrase is saved.
+ */
+export interface Backup {
+  pending: boolean;
+  loadPhrase: () => Promise<string>;
+  onSaved: () => void;
+}
 
 /**
  * How the wallet is being looked at. The stage keeps it rather than the
@@ -63,6 +72,8 @@ export function useCanvasView() {
   };
 }
 
+export type CanvasView = ReturnType<typeof useCanvasView>;
+
 /**
  * The wallet as one surface (REDESIGN.md 2.3). A top pane at the back holds
  * the status row and Home, and takes Send and Receive in its slot. A sheet
@@ -74,6 +85,9 @@ export function useCanvasView() {
  * its instance, its scroll and its search from Home to Activity. What a scene
  * does not use stays drawn while it moves away, but inactive: it cannot be
  * touched, a screen reader skips it, and its controls have no handlers.
+ *
+ * The canvas owns where each region sits, which panes are in use and how
+ * they move. What each region draws lives with its scene, under src/scenes.
  */
 export function Canvas({
   scene,
@@ -82,34 +96,21 @@ export function Canvas({
   snapshot,
   session,
   stale,
-  banner,
+  backup,
   view,
 }: {
   scene: Scene;
   overlay: Overlay;
   client: WalletAdapter;
   snapshot: WalletSnapshot;
-  session: Pick<
-    Session,
-    | 'error'
-    | 'switchError'
-    | 'refreshing'
-    | 'connecting'
-    | 'refresh'
-    | 'manualRefresh'
-    | 'disconnect'
-    | 'chooseWallet'
-    | 'switchNetwork'
-    | 'eraseDevice'
-  >;
+  session: CanvasSession;
   stale: boolean;
-  /** What must stay above Home, Activity and Settings, such as a pending backup. */
-  banner: ReactNode;
-  view: ReturnType<typeof useCanvasView>;
+  backup: Backup | null;
+  view: CanvasView;
 }) {
-  const { state, actions } = useStage();
+  const { state } = useStage();
   const { reduced } = useMotionPrefs();
-  const { hidden, unit, setHidden, setUnit } = view;
+  const { hidden, setHidden } = view;
 
   // Measured rather than assumed: the canvas is whatever the safe area
   // leaves. The window's height stands in until the first layout.
@@ -138,11 +139,6 @@ export function Canvas({
         : null,
     [snapshot.activity, opened],
   );
-  const scanInSend = useCallback(() => actions.openSend('', true), [actions]);
-  const toggleUnit = useCallback(
-    () => setUnit(value => (value === 'sats' ? 'btc' : 'sats')),
-    [setUnit],
-  );
 
   // Settings dims and shrinks what it covers. Under Reduce Motion it only
   // dims, since a shrinking canvas is movement too.
@@ -152,60 +148,31 @@ export function Canvas({
     if (reduced) return { opacity };
     return { opacity, transform: [{ scale: 1 - (1 - COVERED.scale) * cover }] };
   }, [reduced]);
-  const homeStyle = useAnimatedStyle(() => ({
-    opacity: panes.bar.get(),
-    transform: [{ scale: HERO_MINI + (1 - HERO_MINI) * panes.hero.get() }],
-  }));
   const sheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: panes.seam.get() }],
   }));
 
-  const notice = session.error ? (
-    <Notice kind="error" icon="alert">
-      {copy.notice.refreshFailed(session.error)}
-    </Notice>
-  ) : null;
-  const refreshControl = (
-    <RefreshControl
-      refreshing={session.refreshing}
-      onRefresh={session.manualRefresh}
-      tintColor={colors.primary}
-      colors={[colors.primary]}
-    />
-  );
-
   let top: ReactNode = null;
   if (scene.name === 'send') {
     top = (
-      <Arriving key={scene.key}>
-        <SceneSlot label={copy.scene.send} offset={STATUS_ROW}>
-          <SendScreen
-            client={client}
-            initialRequest={scene.prefill}
-            initialScanning={scene.scanning}
-            disabled={stale}
-            onActivity={actions.openActivity}
-            onRefresh={session.refresh}
-            onBusy={actions.setBusy}
-          />
-        </SceneSlot>
-      </Arriving>
+      <SendScene
+        key={scene.key}
+        prefill={scene.prefill}
+        scanning={scene.scanning}
+        client={client}
+        stale={stale}
+        session={session}
+      />
     );
   } else if (scene.name === 'receive') {
     top = (
-      <Arriving key={scene.key}>
-        <SceneSlot label={copy.scene.receive} offset={STATUS_ROW}>
-          <ReceiveScreen
-            client={client}
-            receivableSats={snapshot.balance.receivableSats}
-            offlineReceivableSats={snapshot.balance.offlineReceivableSats}
-            disabled={stale}
-            onRefresh={session.refresh}
-            onActivity={actions.openActivity}
-            onBusy={actions.setBusy}
-          />
-        </SceneSlot>
-      </Arriving>
+      <ReceiveScene
+        key={scene.key}
+        snapshot={snapshot}
+        client={client}
+        stale={stale}
+        session={session}
+      />
     );
   }
 
@@ -223,33 +190,16 @@ export function Canvas({
           />
           <Pane
             active={home}
-            style={[
-              styles.home,
-              { height: panes.stops.home - STATUS_ROW },
-              homeStyle,
-            ]}
+            style={[styles.home, { height: panes.stops.home - STATUS_ROW }]}
           >
-            <ScrollView
-              contentContainerStyle={styles.homeContent}
-              refreshControl={refreshControl}
-            >
-              {/* The backup brings controls of its own, so it only sits in
-                  a pane in use. Under Settings it shows there instead. */}
-              {home && live ? banner : null}
-              {home ? notice : null}
-              <HomeScreen
-                snapshot={snapshot}
-                hidden={hidden}
-                unit={unit}
-                stale={stale}
-                onSend={actions.openSend}
-                onReceive={actions.openReceive}
-                onScan={scanInSend}
-                onActivity={actions.openActivity}
-                onDetail={actions.openDetail}
-                onToggleUnit={toggleUnit}
-              />
-            </ScrollView>
+            <HomePane
+              home={home}
+              snapshot={snapshot}
+              session={session}
+              view={view}
+              stale={stale}
+              backup={backup}
+            />
           </Pane>
           <View
             style={styles.topSlot}
@@ -265,23 +215,12 @@ export function Canvas({
                 the end of the list is reachable there. Lower down the rest
                 simply runs past the bottom edge. */}
             <View style={{ height: height - panes.stops.compact }}>
-              {home ? (
-                <SheetHandle />
-              ) : shown === 'activity' && notice ? (
-                <View style={styles.sheetNotice}>{notice}</View>
-              ) : null}
-              <ActivityScreen
+              <SheetPane
+                shown={shown}
                 snapshot={snapshot}
-                hidden={hidden}
-                unit={unit}
-                onDetail={actions.openDetail}
-                filter={view.filter}
-                onFilter={view.setFilter}
-                query={view.query}
-                onQuery={view.setQuery}
-                refreshing={session.refreshing}
-                onRefresh={session.manualRefresh}
-                banner={shown === 'activity' && live ? banner : undefined}
+                session={session}
+                view={view}
+                backup={backup}
               />
             </View>
           </Pane>
@@ -290,21 +229,14 @@ export function Canvas({
             pointerEvents={blocking ? 'none' : 'box-none'}
           >
             {scene.name === 'detail' && detail ? (
-              <DetailCard key={scene.key} item={detail} from={scene.from}>
-                <SceneSlot
-                  label={copy.scene.detail}
-                  offset={panes.stops.compact}
-                >
-                  <DetailScreen
-                    item={detail}
-                    client={client}
-                    hidden={hidden}
-                    unit={unit}
-                    onRefresh={session.refresh}
-                    onBusy={actions.setBusy}
-                  />
-                </SceneSlot>
-              </DetailCard>
+              <DetailLayer
+                key={scene.key}
+                item={detail}
+                from={scene.from}
+                client={client}
+                view={view}
+                session={session}
+              />
             ) : null}
           </View>
         </Pane>
@@ -320,25 +252,12 @@ export function Canvas({
               style={styles.settings}
             >
               <Pane active={!overlay} style={styles.flex}>
-                <View style={styles.settingsBar}>
-                  <CornerControl home={false} />
-                </View>
-                <SceneSlot refreshControl={refreshControl}>
-                  <View style={styles.stack}>
-                    {banner}
-                    {notice}
-                    <SettingsScreen
-                      snapshot={snapshot}
-                      client={client}
-                      switchError={session.switchError}
-                      onDisconnect={session.disconnect}
-                      onChooseWallet={session.chooseWallet}
-                      onRefresh={session.manualRefresh}
-                      onNetwork={session.switchNetwork}
-                      onErase={session.eraseDevice}
-                    />
-                  </View>
-                </SceneSlot>
+                <SettingsLayer
+                  snapshot={snapshot}
+                  client={client}
+                  session={session}
+                  backup={backup}
+                />
               </Pane>
             </Reanimated.View>
           ) : null}
@@ -349,150 +268,11 @@ export function Canvas({
 }
 Canvas.displayName = 'Canvas';
 
-/**
- * A scene in the top slot. It arrives once the outgoing one is on its way and
- * leaves with a short fade, so for a moment both are drawn and neither pops.
- */
-function Arriving({ children }: PropsWithChildren) {
-  return (
-    <Reanimated.View
-      entering={sceneIn()}
-      exiting={sceneOut()}
-      style={styles.flex}
-    >
-      {children}
-    </Reanimated.View>
-  );
-}
-
-/** The grip at the top of the sheet at home, which opens Activity. */
-function SheetHandle() {
-  const { actions } = useStage();
-  const live = usePaneActive();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={copy.home.activity}
-      hitSlop={HIT_SLOP}
-      onPress={
-        live
-          ? () => {
-              haptics.tick();
-              actions.openActivity();
-            }
-          : undefined
-      }
-      style={styles.handle}
-    >
-      <View style={styles.grabber} />
-    </Pressable>
-  );
-}
-
-/**
- * The wallet's name and connection, the two controls every scene keeps, and
- * the corner control.
- */
-function StatusRow({
-  snapshot,
-  hidden,
-  refreshing,
-  home,
-  onToggleHidden,
-  onRefresh,
-}: {
-  snapshot: WalletSnapshot;
-  hidden: boolean;
-  refreshing: boolean;
-  home: boolean;
-  onToggleHidden: () => void;
-  onRefresh: () => void;
-}) {
-  const live = usePaneActive();
-  const { wallet, primary } = snapshot;
-  return (
-    <View style={styles.status}>
-      <View style={styles.identity}>
-        <Text numberOfLines={1} style={styles.wallet}>
-          {wallet.name}
-          <Text style={styles.network}>{`  ·  ${wallet.network}`}</Text>
-        </Text>
-        <View
-          accessible
-          accessibilityLabel={
-            primary.connected ? copy.health.fresh : copy.health.reconnecting
-          }
-        >
-          <StatusDot tone={primary.connected ? 'good' : 'wait'} />
-        </View>
-      </View>
-      <View style={styles.controls}>
-        <IconButton
-          name={hidden ? 'eyeOff' : 'eye'}
-          tone="plain"
-          accessibilityLabel={
-            hidden ? copy.home.showBalance : copy.home.hideBalance
-          }
-          accessibilityHint={copy.home.hideHint}
-          onPress={live ? onToggleHidden : undefined}
-        />
-        <IconButton
-          name="refresh"
-          tone="plain"
-          disabled={refreshing}
-          accessibilityLabel={copy.home.refresh}
-          onPress={live ? onRefresh : undefined}
-        />
-        <CornerControl home={home} />
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   canvas: { flex: 1, overflow: 'hidden' },
-  stack: { gap: space.lg },
-  status: {
-    height: STATUS_ROW,
-    paddingHorizontal: space.xl,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: space.sm,
-  },
-  identity: {
-    flexShrink: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-  },
-  wallet: { ...typography.micro, color: colors.muted, flexShrink: 1 },
-  network: {
-    ...typography.micro,
-    color: colors.faint,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  controls: { flexDirection: 'row', alignItems: 'center', gap: space.xxs },
   fill: StyleSheet.absoluteFill,
   flex: { flex: 1 },
-  // Scaled from its top edge, so the mini strip sits under the status row.
-  home: {
-    position: 'absolute',
-    top: STATUS_ROW,
-    left: 0,
-    right: 0,
-    transformOrigin: 'top',
-  },
-  homeContent: {
-    paddingHorizontal: space.xl,
-    paddingTop: space.md,
-    paddingBottom: space.xl,
-    gap: space.lg,
-    maxWidth: 640,
-    width: '100%',
-    alignSelf: 'center',
-  },
+  home: { position: 'absolute', top: STATUS_ROW, left: 0, right: 0 },
   topSlot: {
     position: 'absolute',
     top: STATUS_ROW,
@@ -509,21 +289,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.pane,
     borderTopRightRadius: radius.pane,
   },
-  handle: { alignItems: 'center', paddingVertical: space.sm },
-  grabber: {
-    width: 36,
-    height: 4,
-    borderRadius: radius.round,
-    backgroundColor: colors.line,
-  },
-  sheetNotice: { paddingHorizontal: space.xl, paddingTop: space.md },
   detailSlot: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   settings: { ...StyleSheet.absoluteFill, backgroundColor: colors.background },
-  settingsBar: {
-    height: STATUS_ROW,
-    paddingHorizontal: space.xl,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-  },
 });

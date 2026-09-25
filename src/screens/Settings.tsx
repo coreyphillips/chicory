@@ -64,7 +64,9 @@ export function WalletPicker({
 }) {
   return (
     <View style={styles.stack}>
-      <Title>{wallets.length ? 'Choose your wallet.' : 'Create a wallet.'}</Title>
+      <Title>
+        {wallets.length ? 'Choose your wallet.' : 'Create a wallet.'}
+      </Title>
       {wallets.map(wallet => (
         <Pressable
           key={wallet.id}
@@ -137,7 +139,9 @@ export function CreateWalletScreen({
   // Which existing wallet, if any, will supply this one's recovery phrase.
   // Creating a wallet on another network reuses the original seed, but the flow
   // said nothing about it, so it read as an entirely new wallet.
-  const [seedSource, setSeedSource] = useState<'mainnet' | 'testnet' | 'regtest' | null>(null);
+  const [seedSource, setSeedSource] = useState<
+    'mainnet' | 'testnet' | 'regtest' | null
+  >(null);
   const working = useRef(false);
   useEffect(() => {
     let active = true;
@@ -299,7 +303,10 @@ export function CreateWalletScreen({
     <View style={styles.stack}>
       <Title>{restoring ? 'Restore a wallet' : 'New wallet'}</Title>
       {restoring ? (
-        <Body>A phrase restores keys and on-chain funds, not Lightning channel state.</Body>
+        <Body>
+          A phrase restores keys and on-chain funds, not Lightning channel
+          state.
+        </Body>
       ) : null}
       {restoring ? (
         <Field
@@ -388,7 +395,9 @@ export function CreateWalletScreen({
         </Notice>
       ) : null}
       <Button
-        label={restoring ? `Restore ${network} wallet` : `Create ${network} wallet`}
+        label={
+          restoring ? `Restore ${network} wallet` : `Create ${network} wallet`
+        }
         busy={busy}
         disabled={
           !name.trim() || !primary.trim() || (restoring && !phraseReady)
@@ -434,8 +443,8 @@ function EraseWallet({ onErase }: { onErase: () => Promise<void> }) {
       <Eyebrow>Erase wallet</Eyebrow>
       <Notice kind="warning" icon="alert">
         Deletes this wallet's keys, channel state and history from this phone,
-        on every network. Without the recovery phrase and current channel
-        state, funds are lost.
+        on every network. Without the recovery phrase and current channel state,
+        funds are lost.
       </Notice>
       {error ? (
         <Notice kind="error" icon="alert">
@@ -453,7 +462,9 @@ function EraseWallet({ onErase }: { onErase: () => Promise<void> }) {
           setError('');
           try {
             if (!(await requireUnlock('Confirm to erase this wallet')))
-              throw new Error('The wallet was not erased because this was not confirmed.');
+              throw new Error(
+                'The wallet was not erased because this was not confirmed.',
+              );
             await onErase();
           } catch (e) {
             setError(
@@ -654,6 +665,9 @@ export function SettingsScreen({
   onNetwork: (profile: NetworkProfile) => Promise<void>;
   /** Erase every device wallet from this phone. Device mode only. */
   onErase?: () => Promise<void>;
+  // The settings track draws the recovery phrase flow with these two.
+  backupPending?: boolean;
+  onBackupSaved?: () => void;
 }) {
   const [editingNetwork, setEditingNetwork] = useState(false);
   const [editingPrimary, setEditingPrimary] = useState(false);
@@ -814,14 +828,8 @@ export function SettingsScreen({
 
       <Card>
         <Eyebrow>Your connection</Eyebrow>
-        <Row
-          label="Wallet runs"
-          value="On this device"
-        />
-        <Row
-          label="Keys stored"
-          value="Encrypted on this device"
-        />
+        <Row label="Wallet runs" value="On this device" />
+        <Row label="Keys stored" value="Encrypted on this device" />
       </Card>
 
       <Card>

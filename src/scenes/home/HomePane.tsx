@@ -1,0 +1,97 @@
+import React, { useCallback } from 'react';
+import { RefreshControl, ScrollView, StyleSheet } from 'react-native';
+import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
+import type { WalletSnapshot } from '@beignet/wallet-core';
+import { HomeScreen } from '../../screens/wallet/Home';
+import type { Backup, CanvasSession, CanvasView } from '../../stage/Canvas';
+import { HERO_MINI } from '../../stage/layout';
+import { usePaneActive, usePanes } from '../../stage/panes/Pane';
+import { useStage } from '../../stage/StageContext';
+import { colors, space } from '../../theme';
+import { BackupBanner } from '../shared/BackupBanner';
+import { RefreshFailed } from './StatusRow';
+
+/**
+ * Everything the home pane shows under the status row: the balance and the
+ * actions, with a pull to refresh, and above them what must not wait, a
+ * backup still to save and a refresh that failed.
+ *
+ * The canvas places the pane; this grows and fades what is in it with the
+ * panes' `hero` and `bar`.
+ */
+export function HomePane({
+  home,
+  snapshot,
+  session,
+  view,
+  stale,
+  backup,
+}: {
+  /** Home is the scene the canvas shows, whether or not Settings covers it. */
+  home: boolean;
+  snapshot: WalletSnapshot;
+  session: Pick<CanvasSession, 'error' | 'refreshing' | 'manualRefresh'>;
+  view: CanvasView;
+  stale: boolean;
+  backup: Backup | null;
+}) {
+  const { actions } = useStage();
+  const panes = usePanes();
+  const live = usePaneActive();
+  const { hidden, unit, setUnit } = view;
+  const scanInSend = useCallback(() => actions.openSend('', true), [actions]);
+  const toggleUnit = useCallback(
+    () => setUnit(value => (value === 'sats' ? 'btc' : 'sats')),
+    [setUnit],
+  );
+  const style = useAnimatedStyle(() => ({
+    opacity: panes.bar.get(),
+    transform: [{ scale: HERO_MINI + (1 - HERO_MINI) * panes.hero.get() }],
+  }));
+  return (
+    <Reanimated.View style={[styles.pane, style]}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={session.refreshing}
+            onRefresh={session.manualRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
+        {/* The backup brings controls of its own, so it only sits in a pane
+            in use. Under Settings it shows there instead. */}
+        {live ? <BackupBanner backup={backup} /> : null}
+        {home ? <RefreshFailed error={session.error} /> : null}
+        <HomeScreen
+          snapshot={snapshot}
+          hidden={hidden}
+          unit={unit}
+          stale={stale}
+          onSend={actions.openSend}
+          onReceive={actions.openReceive}
+          onScan={scanInSend}
+          onActivity={actions.openActivity}
+          onDetail={actions.openDetail}
+          onToggleUnit={toggleUnit}
+        />
+      </ScrollView>
+    </Reanimated.View>
+  );
+}
+
+const styles = StyleSheet.create({
+  // Scaled from its top edge, so the mini strip sits under the status row.
+  pane: { flex: 1, transformOrigin: 'top' },
+  content: {
+    paddingHorizontal: space.xl,
+    paddingTop: space.md,
+    paddingBottom: space.xl,
+    gap: space.lg,
+    maxWidth: 640,
+    width: '100%',
+    alignSelf: 'center',
+  },
+});

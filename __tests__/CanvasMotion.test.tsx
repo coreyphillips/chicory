@@ -4,10 +4,12 @@ import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
-import { Button } from '../src/components/ui';
+import { HomePane } from '../src/scenes/home/HomePane';
+import { BackupBanner } from '../src/scenes/shared/BackupBanner';
 import { ActivityScreen, HomeScreen } from '../src/screens/Wallet';
 import { SettingsScreen } from '../src/screens/Settings';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
+import type { Backup } from '../src/stage/Canvas';
 import { COVERED, HERO_MINI, SCENE_LAYOUT, stops } from '../src/stage/layout';
 import type { CanvasSceneName } from '../src/stage/layout';
 import { Pane } from '../src/stage/panes/Pane';
@@ -64,7 +66,7 @@ const session: React.ComponentProps<typeof Canvas>['session'] = {
 let stage!: StageStore;
 const client = new DemoWalletClient();
 
-function OnCanvas({ banner = null }: { banner?: React.ReactNode }) {
+function OnCanvas({ backup = null }: { backup?: Backup | null }) {
   stage = useStageStore();
   const view = useCanvasView();
   return (
@@ -76,7 +78,7 @@ function OnCanvas({ banner = null }: { banner?: React.ReactNode }) {
         snapshot={snapshot}
         session={session}
         stale={false}
-        banner={banner}
+        backup={backup}
         view={view}
       />
     </StageProvider>
@@ -114,6 +116,14 @@ function panes(tree: ReactTestRenderer) {
   const [canvas, home, sheet] = tree.root.findAllByType(Pane);
   return { canvas, home, sheet };
 }
+
+/** The first host view a component draws, where its style lands. */
+const host = (node: ReactTestInstance) =>
+  node.findAll(inner => typeof inner.type === 'string')[0];
+
+/** What the home pane draws, which grows and fades with the panes. */
+const homeContent = (tree: ReactTestRenderer) =>
+  host(tree.root.findByType(HomePane));
 
 /** Where each stop is for the height the canvas has. */
 const at = (height = Dimensions.get('window').height) =>
@@ -179,8 +189,10 @@ describe('the canvas', () => {
     const tree = await render(<OnCanvas />);
     const expectPose = (name: CanvasSceneName) => {
       const pose = SCENE_LAYOUT[name];
-      const { home, sheet } = panes(tree);
-      expect(transformOf(sheet, 'translateY')).toBe(at()[pose.seam]);
+      const home = homeContent(tree);
+      expect(transformOf(panes(tree).sheet, 'translateY')).toBe(
+        at()[pose.seam],
+      );
       expect(flat(home).opacity).toBe(pose.bar);
       expect(transformOf(home, 'scale')).toBeCloseTo(
         HERO_MINI + (1 - HERO_MINI) * pose.hero,
@@ -254,10 +266,10 @@ describe('the canvas', () => {
     expect(tree.root.findAllByType(ActivityScreen)).toHaveLength(1);
     const { home, sheet } = panes(tree);
     for (const pane of [home, sheet]) {
-      const host = pane.findAll(node => typeof node.type === 'string')[0];
-      expect(host.props.pointerEvents).toBe('none');
-      expect(host.props.accessibilityElementsHidden).toBe(true);
-      expect(host.props.importantForAccessibility).toBe('no-hide-descendants');
+      const { props } = host(pane);
+      expect(props.pointerEvents).toBe('none');
+      expect(props.accessibilityElementsHidden).toBe(true);
+      expect(props.importantForAccessibility).toBe('no-hide-descendants');
     }
     await act(async () => tree.unmount());
   });
@@ -273,16 +285,24 @@ describe('the canvas', () => {
   });
 
   test('the backup is pressable in exactly one place, wherever it shows', async () => {
-    const save = jest.fn();
-    const tree = await render(
-      <OnCanvas banner={<Button label="Save phrase" onPress={save} />} />,
-    );
+    const backup: Backup = {
+      pending: true,
+      loadPhrase: jest.fn(),
+      onSaved: jest.fn(),
+    };
+    const tree = await render(<OnCanvas backup={backup} />);
+    // Settings keeps a recovery phrase of its own, so only the banner's
+    // count.
     const places = () =>
-      tree.root.findAll(
-        node =>
-          node.props.accessibilityLabel === 'Save phrase' &&
-          typeof node.props.onPress === 'function',
-      ).length;
+      tree.root
+        .findAllByType(BackupBanner)
+        .flatMap(banner =>
+          banner.findAll(
+            node =>
+              node.props.accessibilityLabel === 'Reveal recovery phrase' &&
+              typeof node.props.onPress === 'function',
+          ),
+        ).length;
     expect(places()).toBe(1);
     await act(async () => stage.actions.openActivity());
     expect(places()).toBe(1);
@@ -291,6 +311,12 @@ describe('the canvas', () => {
     expect(places()).toBe(1);
     await act(async () => stage.actions.back());
     await act(async () => stage.actions.openSend());
+    expect(places()).toBe(0);
+    // Once it is saved, it shows nowhere.
+    await act(async () => stage.actions.back());
+    await act(async () =>
+      tree.update(<OnCanvas backup={{ ...backup, pending: false }} />),
+    );
     expect(places()).toBe(0);
     await act(async () => tree.unmount());
   });
@@ -343,10 +369,9 @@ describe('the canvas', () => {
     const tree = await render(<OnCanvas />);
     await act(async () => stage.actions.openCreate(false));
     expect(pressableLabels(tree).size).toBe(0);
-    const host = panes(tree).canvas.findAll(
-      node => typeof node.type === 'string',
-    )[0];
-    expect(host.props.accessibilityElementsHidden).toBe(true);
+    expect(host(panes(tree).canvas).props.accessibilityElementsHidden).toBe(
+      true,
+    );
     await act(async () => tree.unmount());
   });
 

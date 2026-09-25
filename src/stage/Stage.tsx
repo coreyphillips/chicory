@@ -8,9 +8,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Notice } from '../components/ui';
-import { RecoveryPhrase } from '../components/RecoveryPhrase';
-import { copy } from '../design/copy';
 import { WhisperProvider } from '../glyphs/Whisper';
 import { useStaleAfter } from '../services/clock';
 import { useEnter } from '../services/motion';
@@ -24,8 +21,10 @@ import { Welcome } from '../scenes/phases/Welcome';
 import { Picker } from '../scenes/phases/Picker';
 import { OpeningWallet } from '../scenes/phases/Loading';
 import { OfflineWallet } from '../scenes/phases/Offline';
+import { BackupBanner } from '../scenes/shared/BackupBanner';
 import { colors, space } from '../theme';
 import { Canvas, useCanvasView } from './Canvas';
+import type { Backup } from './Canvas';
 import { CreateSheet } from './layers/CreateSheet';
 import { SceneSlot } from './panes/SceneSlot';
 import { backupPending } from './phase';
@@ -90,19 +89,14 @@ export function Stage({
   }
 
   // A pending backup sits above whatever is showing, the Activity list
-  // included, rather than replacing it.
-  const backup =
-    backupPending(session) && client ? (
-      <View style={styles.stack}>
-        <Notice kind="warning" icon="alert">
-          {copy.health.backupPending}
-        </Notice>
-        <RecoveryPhrase
-          loadPhrase={() => client.getRecoveryPhrase()}
-          onSaved={session.acknowledgeBackup}
-        />
-      </View>
-    ) : null;
+  // included, rather than replacing it. Each surface draws it its own way.
+  const backup: Backup | null = client
+    ? {
+        pending: backupPending(session),
+        loadPhrase: () => client.getRecoveryPhrase(),
+        onSaved: session.acknowledgeBackup,
+      }
+    : null;
 
   let content: ReactNode = null;
   switch (phase.kind) {
@@ -211,7 +205,7 @@ export function Stage({
             snapshot={snapshot}
             session={session}
             stale={stale}
-            banner={backup}
+            backup={backup}
             view={view}
           />
         ) : null;
@@ -267,7 +261,7 @@ export function Stage({
                 }
               >
                 <Animated.View style={[enter, styles.stack]}>
-                  {backup}
+                  <BackupBanner backup={backup} />
                   {content}
                 </Animated.View>
               </SceneSlot>
