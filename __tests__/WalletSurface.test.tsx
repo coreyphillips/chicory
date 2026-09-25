@@ -220,8 +220,9 @@ test('payment details keep a hidden balance hidden and follow the unit', async (
   let rendered = text(tree);
   expect(rendered).toContain('••••••');
   expect(rendered).not.toContain('4,200');
-  // A reference is not an amount; it stays readable.
-  expect(rendered).toContain('abc123txid');
+  expect(meaning(tree)).not.toContain('4,200');
+  // A reference is not an amount; it stays readable, and copies whole.
+  expect(meaning(tree)).toContain('abc123txid');
   await act(async () => tree.unmount());
   await act(async () => {
     tree = create(<DetailScreen item={item} unit="btc" />);
