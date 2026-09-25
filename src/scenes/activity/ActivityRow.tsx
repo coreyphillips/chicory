@@ -6,6 +6,7 @@ import React, {
   useState,
 } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { ViewStyle } from 'react-native';
 import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
@@ -30,7 +31,16 @@ import {
   type as typography,
 } from '../../theme';
 import type { Unit } from '../../theme';
-import { ROW_HEIGHT, activityStatus, timeLabel } from './model';
+import {
+  NOTE_GAP,
+  ROW_BAND,
+  ROW_GAP,
+  ROW_HEIGHT,
+  ROW_OPEN,
+  ROW_RING,
+  activityStatus,
+  timeLabel,
+} from './model';
 import type { Band } from './model';
 import { measureNode, registerRow } from './rowRects';
 import type { RowNode } from './rowRects';
@@ -146,10 +156,10 @@ export const ActivityRow = React.memo(function ActivityRowItem({
           pressed && styles.pressed,
         ]}
       >
-        <StatusRing size={40} visual={ring} />
+        <StatusRing size={ROW_RING} visual={ring} />
         <View style={styles.middle}>
           {look.open ? (
-            <Glyph name="infinity" size={22} color={TONES[look.tone]} />
+            <Glyph name="infinity" size={ROW_OPEN} color={TONES[look.tone]} />
           ) : (
             <View style={styles.amount}>
               <Text
@@ -214,7 +224,7 @@ function Strike({ struck }: { struck: boolean }) {
   );
 }
 
-const BANDS: Record<Band, object> = {
+const BANDS: Record<Band, ViewStyle> = {
   solo: { borderRadius: radius.md },
   start: { borderTopLeftRadius: radius.md, borderTopRightRadius: radius.md },
   middle: {},
@@ -229,18 +239,18 @@ const styles = StyleSheet.create({
     height: ROW_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    gap: ROW_GAP,
   },
   // The honey band runs a little wider than the rows, so what sits in it
   // still lines up with the rows below.
   band: {
-    marginHorizontal: -space.sm,
-    paddingHorizontal: space.sm,
+    marginHorizontal: -ROW_BAND,
+    paddingHorizontal: ROW_BAND,
     backgroundColor: palette.honeyWash,
   },
   expired: { opacity: EXPIRED_OPACITY },
   pressed: { backgroundColor: palette.mocha },
-  middle: { flex: 1, gap: 2, justifyContent: 'center' },
+  middle: { flex: 1, gap: NOTE_GAP, justifyContent: 'center' },
   amount: { alignSelf: 'flex-start' },
   figure: { ...typography.row },
   unit: { ...typography.meta, color: palette.steam, fontWeight: '400' },

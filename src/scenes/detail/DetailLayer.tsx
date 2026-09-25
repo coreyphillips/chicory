@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,6 +13,7 @@ import type { Rect } from '../../stage/scene';
 import { useStage } from '../../stage/StageContext';
 import { measureRow } from '../activity/rowRects';
 import { DETAIL_DROP } from '../activity/sheet';
+import { DetailFlight } from './motion';
 
 /**
  * A payment's detail, in the slot the canvas keeps at the sheet's compact
@@ -20,10 +21,11 @@ import { DETAIL_DROP } from '../activity/sheet';
  * open changes here too; `from` is the tapped row, for the card to grow out
  * of.
  *
- * The card folds back into its row when it closes onto the list it came
- * from, which stays at this stop. Back to home the list is on its way down,
- * so the card fades instead. While it is open a poll can move the row, so it
- * is found again whenever the history changes.
+ * Grown out of a row, the card carries the header's ring and amount out of
+ * it too, from where the row drew them. It folds back into its row when it
+ * closes onto the list it came from, which stays at this stop. Back to home
+ * the list is on its way down, so the card fades instead. While it is open a
+ * poll can move the row, so it is found again whenever the history changes.
  */
 export function DetailLayer({
   item,
@@ -38,10 +40,16 @@ export function DetailLayer({
 }) {
   const { state, actions } = useStage();
   const panes = usePanes();
-  const { top, bottom } = useSafeAreaInsets();
+  const { top, bottom, left } = useSafeAreaInsets();
   const below = state.stack[state.stack.length - 1]?.name;
   const returns = below === 'activity';
   const back = useSharedValue<Rect | null>(returns ? from : null);
+  // The canvas keeps this slot at the compact stop, and narrows the canvas
+  // only for a side cutout, which is where the card comes to rest.
+  const flight = useMemo(
+    () => (from ? { from, card: { x: left, y: panes.stops.compact } } : null),
+    [from, left, panes.stops.compact],
+  );
 
   const opened = useRef(snapshot.activity);
   useEffect(() => {
@@ -59,21 +67,26 @@ export function DetailLayer({
 
   return (
     <DetailReturn value={back}>
-      <DetailCard item={item} from={from}>
-        <SceneSlot label={copy.scene.detail} offset={panes.stops.compact - top}>
-          <DetailScreen
-            item={item}
-            client={client}
-            hidden={view.hidden}
-            unit={view.unit}
-            onRefresh={session.refresh}
-            onBusy={actions.setBusy}
-          />
-          {/* The canvas runs under the system bars; the end of the detail
-              stays clear of them. */}
-          <View style={{ height: bottom }} />
-        </SceneSlot>
-      </DetailCard>
+      <DetailFlight value={flight}>
+        <DetailCard item={item} from={from}>
+          <SceneSlot
+            label={copy.scene.detail}
+            offset={panes.stops.compact - top}
+          >
+            <DetailScreen
+              item={item}
+              client={client}
+              hidden={view.hidden}
+              unit={view.unit}
+              onRefresh={session.refresh}
+              onBusy={actions.setBusy}
+            />
+            {/* The canvas runs under the system bars; the end of the detail
+                stays clear of them. */}
+            <View style={{ height: bottom }} />
+          </SceneSlot>
+        </DetailCard>
+      </DetailFlight>
     </DetailReturn>
   );
 }

@@ -23,8 +23,16 @@ import {
   snapshotOf,
 } from '../../../../test-support/fixtures';
 import { alerts, meaning, visibleText } from '../../../../test-support/query';
+import * as motionPrefs from '../../../services/motion';
 import { ringWords, statusSentence } from '../model';
-import { CARD_RADIUS, ROW_RADIUS, frameOver } from '../motion';
+import {
+  CARD_RADIUS,
+  ROW_RADIUS,
+  frameOver,
+  headerIn,
+  launch,
+  rowParts,
+} from '../motion';
 
 /**
  * A payment's detail (REDESIGN.md 6, Detail, and 7, T4): what its ring says,
@@ -333,6 +341,91 @@ describe('the card', () => {
   });
 });
 
+describe('the header flying out of its row', () => {
+  const rect = { x: 24, y: 480, width: 327, height: 64 };
+
+  test('starts where the row drew its ring and its amount', () => {
+    expect(rowParts(rect, { banded: false, note: false })).toEqual({
+      ring: { x: 44, y: 512 },
+      amount: { x: 76, y: 512 },
+    });
+    // A pinned row pads its content in from the band, and a note under the
+    // amount lifts it above the row's middle.
+    expect(rowParts(rect, { banded: true, note: true })).toEqual({
+      ring: { x: 56, y: 512 },
+      amount: { x: 88, y: 503 },
+    });
+  });
+
+  test('flies straight to its place while the card grows around it', () => {
+    const flight = { from: rect, card: { x: 0, y: 72 } };
+    const target = { originX: 139.5, originY: 88, width: 96, height: 96 };
+    const start = { x: 44, y: 512 };
+    const off = launch(target, flight, start, 40 / 96, 'center');
+    expect(off.scale).toBe(40 / 96);
+    // The card and the transform share a clock and a curve, so at any
+    // point `e` of it the card has come that far and the transform has that
+    // far left to go.
+    const centre = (e: number) => ({
+      x:
+        rect.x +
+        (flight.card.x - rect.x) * e +
+        (target.originX - flight.card.x) +
+        target.width / 2 +
+        off.translateX * (1 - e),
+      y:
+        rect.y +
+        (flight.card.y - rect.y) * e +
+        (target.originY - flight.card.y) +
+        target.height / 2 +
+        off.translateY * (1 - e),
+    });
+    const place = { x: 187.5, y: 136 };
+    expect(centre(0)).toEqual(start);
+    expect(centre(1)).toEqual(place);
+    expect(centre(0.5)).toEqual({
+      x: (start.x + place.x) / 2,
+      y: (start.y + place.y) / 2,
+    });
+  });
+
+  test('an amount keeps its left end on the row’s as it grows', () => {
+    const flight = { from: rect, card: { x: 0, y: 72 } };
+    const target = { originX: 100, originY: 190, width: 175, height: 48 };
+    const off = launch(target, flight, { x: 76, y: 512 }, 0.4, 'left');
+    const left =
+      rect.x +
+      target.originX -
+      flight.card.x +
+      target.width / 2 +
+      off.translateX -
+      (target.width * off.scale) / 2;
+    expect(left).toBe(76);
+  });
+
+  test('without a row, the ring grows where it stands and the amount waits', () => {
+    const header = headerIn(null, EVERY['sent completed']);
+    expect(header.amount).toBeUndefined();
+    expect(header.ring({} as never)).toMatchObject({
+      initialValues: { opacity: 0, transform: [{ scale: 40 / 96 }] },
+    });
+  });
+
+  test('under Reduce Motion nothing flies', () => {
+    jest.spyOn(motionPrefs, 'motionReduced').mockReturnValue(true);
+    const header = headerIn(
+      { from: rect, card: { x: 0, y: 72 } },
+      EVERY['sent completed'],
+    );
+    expect(header.amount).toBeUndefined();
+    const ring = header.ring({} as never);
+    expect(ring.initialValues).toMatchObject({ opacity: 0 });
+    expect(ring.initialValues.transform).not.toContainEqual({
+      scale: 40 / 96,
+    });
+  });
+});
+
 describe('the detail on the canvas', () => {
   let stage!: StageStore;
   const item = activityOf('sent', 'completed', { title: 'Coffee' });
@@ -400,6 +493,41 @@ describe('the detail on the canvas', () => {
       borderRadius: ROW_RADIUS,
       opacity: 0,
     });
+    await act(async () => tree.unmount());
+  });
+
+  test('flies its ring and amount out of the row it grew from', async () => {
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openActivity());
+    await act(async () => {});
+    await act(async () => stage.actions.openDetail(item, rect));
+    const entering = (node: ReactTestInstance) =>
+      node.props.entering({
+        targetOriginX: 0,
+        targetOriginY: 0,
+        targetGlobalOriginX: node === ring ? 139.5 : 100,
+        targetGlobalOriginY: node === ring ? 88 : 190,
+        targetWidth: node === ring ? 96 : 175,
+        targetHeight: node === ring ? 96 : 48,
+      });
+    const ring = spoken(tree, ringWords(item).label);
+    const amount = tree.root.findByType(Odometer).parent!;
+    // The slot sits at the compact stop, 72 below the top with no insets.
+    expect(entering(ring).initialValues.transform).toEqual([
+      { translateX: 44 - (24 + 139.5 + 48) },
+      { translateY: 512 - (480 + 88 - 72 + 48) },
+      { scale: 40 / 96 },
+    ]);
+    expect(entering(amount).initialValues.transform).toEqual([
+      { translateX: 76 + (175 * 0.4) / 2 - (24 + 100 + 87.5) },
+      { translateY: 512 - (480 + 190 - 72 + 24) },
+      { scale: 0.4 },
+    ]);
+    expect(entering(amount).animations.transform).toEqual([
+      { translateX: 0 },
+      { translateY: 0 },
+      { scale: 1 },
+    ]);
     await act(async () => tree.unmount());
   });
 

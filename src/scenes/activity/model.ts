@@ -1,7 +1,7 @@
 import type { Activity } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import type { GlyphName } from '../../design/glyphs';
-import { dayLabel, statusLabel } from '../../theme';
+import { dayLabel, space, statusLabel } from '../../theme';
 
 export function activityStatus(item: Activity) {
   if (item.receiveStatus?.phase === 'partial') return 'Partially received';
@@ -131,6 +131,19 @@ export function activitySections(
 export const ROW_HEIGHT = 64;
 /** A day header's height. */
 export const DAY_HEIGHT = 36;
+
+/**
+ * Where a row draws what a payment's detail flies out of (REDESIGN.md 7, T4):
+ * its ring at the left, then after a gap the amount, and a note under the
+ * amount when there is one. A pinned row's band reaches past the rows around
+ * it by `ROW_BAND` on each side, and pads its content back into line.
+ */
+export const ROW_RING = 40;
+export const ROW_GAP = space.sm;
+export const ROW_BAND = space.sm;
+export const NOTE_GAP = 2;
+/** The infinity a request of any amount shows in place of a figure. */
+export const ROW_OPEN = 22;
 
 /** Where each section sits in the list, for `getItemLayout`. */
 export function sectionLayout(

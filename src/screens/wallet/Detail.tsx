@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Reanimated from 'react-native-reanimated';
@@ -22,7 +22,13 @@ import {
 } from '../../scenes/activity/visual';
 import type { AmountVisual, RingVisual } from '../../scenes/activity/visual';
 import { ringWords } from '../../scenes/detail/model';
-import { lineIn, ringIn } from '../../scenes/detail/motion';
+import {
+  DetailFlight,
+  HEADER_OPEN,
+  HEADER_RING,
+  headerIn,
+  lineIn,
+} from '../../scenes/detail/motion';
 import type { WalletAdapter } from '../../services/wallet';
 import {
   MASK,
@@ -45,7 +51,8 @@ const TONES: Record<AmountVisual['tone'], string> = {
  * glyph, the amount at 40pt, then a line for each thing known about it, each
  * led by a glyph (when, the rail and its fee, the note), and a chip for each
  * reference it can copy. A request's receipt and the request itself follow,
- * as Receive draws them.
+ * as Receive draws them. Opened from a row on the canvas, the ring and the
+ * amount fly out of that row into place (T4).
  *
  * The outcome is the ring's to say: its sentence is what a screen reader
  * hears. An unknown outcome is held honey, announced at once, and never
@@ -73,6 +80,8 @@ export function DetailScreen({
   const visual = ringVisual(item);
   const look = amountVisual(item);
   useSafetyNotice(visual, words.label);
+  const flight = useContext(DetailFlight);
+  const [entering] = useState(() => headerIn(flight, item));
 
   const date = dateLabel(item.timestamp);
   const fee = amountIn(item.feeSats, unit);
@@ -136,42 +145,52 @@ export function DetailScreen({
       />
       <View style={styles.header}>
         <Reanimated.View
-          entering={ringIn()}
+          entering={entering.ring}
           accessible
           accessibilityRole={words.safety ? 'alert' : undefined}
           accessibilityLabel={words.label}
           accessibilityValue={{ text: words.value }}
           accessibilityLiveRegion={words.safety ? 'assertive' : 'polite'}
         >
-          <StatusRing size={96} visual={visual} />
+          <StatusRing size={HEADER_RING} visual={visual} />
         </Reanimated.View>
         {look.open ? (
-          <View accessible accessibilityLabel={copy.amount.any}>
-            <Glyph name="infinity" size={48} color={TONES[look.tone]} />
-          </View>
+          <Reanimated.View
+            entering={entering.amount}
+            accessible
+            accessibilityLabel={copy.amount.any}
+          >
+            <Glyph
+              name="infinity"
+              size={HEADER_OPEN}
+              color={TONES[look.tone]}
+            />
+          </Reanimated.View>
         ) : (
-          <Odometer
-            sats={item.amountSats}
-            unit={unit}
-            masked={hidden}
-            variant="amountDetail"
-            color={TONES[look.tone]}
-            // A masked amount is the mask alone, as it is in the rows.
-            sign={
-              hidden
-                ? null
-                : look.sign === '+'
-                ? '+'
-                : look.sign === '−'
-                ? '-'
-                : null
-            }
-            accessibilityLabel={
-              hidden
-                ? copy.detail.amountHidden
-                : copy.detail.amount(item.amountSats)
-            }
-          />
+          <Reanimated.View entering={entering.amount}>
+            <Odometer
+              sats={item.amountSats}
+              unit={unit}
+              masked={hidden}
+              variant="amountDetail"
+              color={TONES[look.tone]}
+              // A masked amount is the mask alone, as it is in the rows.
+              sign={
+                hidden
+                  ? null
+                  : look.sign === '+'
+                  ? '+'
+                  : look.sign === '−'
+                  ? '-'
+                  : null
+              }
+              accessibilityLabel={
+                hidden
+                  ? copy.detail.amountHidden
+                  : copy.detail.amount(item.amountSats)
+              }
+            />
+          </Reanimated.View>
         )}
       </View>
       <View style={styles.lines}>

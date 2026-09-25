@@ -1,3 +1,4 @@
+import { createContext } from 'react';
 import { withSpring, withTiming } from 'react-native-reanimated';
 import type {
   EntryAnimationsValues,
@@ -5,11 +6,21 @@ import type {
   ExitAnimationsValues,
   SharedValue,
 } from 'react-native-reanimated';
+import type { Activity } from '@beignet/wallet-core';
 import { riseIn, sceneIn, sceneOut } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
 import type { Rect } from '../../stage/scene';
-import { radius } from '../../theme';
+import { radius, type as typography } from '../../theme';
+import {
+  NOTE_GAP,
+  ROW_BAND,
+  ROW_GAP,
+  ROW_OPEN,
+  ROW_RING,
+  attentionOf,
+} from '../activity/model';
+import { amountVisual } from '../activity/visual';
 
 /**
  * A payment's detail growing out of its row and folding back into it
@@ -79,6 +90,7 @@ export function expandFrom(rect: Rect | null): EntryExitAnimationFunction {
 
 const FOLD = { duration: durations.move, easing: curves.standard };
 const FADE = { duration: durations.exit, easing: curves.exit };
+const ENTER = { duration: durations.enter, easing: curves.enter };
 
 /**
  * The card leaving: back into the row `back` holds when it leaves, fading as
@@ -124,24 +136,162 @@ export function collapseTo(
   };
 }
 
-/** The header ring's size as it leaves the row, against its size here. */
-const RING_FROM = 40 / 96;
+/** The detail header's ring, and its infinity for a request of any amount. */
+export const HEADER_RING = 96;
+export const HEADER_OPEN = 48;
+
+/** A point in window coordinates. */
+export interface Point {
+  x: number;
+  y: number;
+}
 
 /**
- * The header ring arriving: from a row ring's size up to its own on the pane
- * spring, as the card grows around it.
+ * Where a detail's card grows from and where it comes to rest, both in
+ * window coordinates: the tapped row's rect, and the top left of the slot the
+ * canvas keeps at the compact stop. The header flies out of the row inside
+ * it. Null, or no provider, when the card only fades.
  */
-export function ringIn(): EntryExitAnimationFunction {
+export interface Flight {
+  from: Rect;
+  card: Point;
+}
+
+export const DetailFlight = createContext<Flight | null>(null);
+
+/**
+ * Where the row in `from` drew what flies to the header: the centre of its
+ * ring, and the left end of its amount at the amount's middle. A pinned row
+ * pads its content by the band's reach, and a note under the amount lifts it.
+ */
+export function rowParts(
+  from: Rect,
+  { banded, note }: { banded: boolean; note: boolean },
+): { ring: Point; amount: Point } {
+  const left = from.x + (banded ? ROW_BAND : 0);
+  const middle = from.y + from.height / 2;
+  const lift = note ? (typography.meta.lineHeight + NOTE_GAP) / 2 : 0;
+  return {
+    ring: { x: left + ROW_RING / 2, y: middle },
+    amount: { x: left + ROW_RING + ROW_GAP, y: middle - lift },
+  };
+}
+
+/** How a flying view starts: its offset from its place, and its scale. */
+export interface Launch {
+  translateX: number;
+  translateY: number;
+  scale: number;
+}
+
+/**
+ * Where a view in the card starts its flight, as a transform from its place:
+ * over `start` at `scale`, centred on it, or with its left end on it when
+ * `anchor` is 'left'. `target` is the view's final frame in window
+ * coordinates.
+ *
+ * The card carries the view as it grows. Run back to nothing on the card's
+ * own clock and curve, the transform gives back the card's travel as it goes,
+ * so the view flies straight from `start` to its place.
+ */
+export function launch(
+  target: Frame,
+  flight: Flight,
+  start: Point,
+  scale: number,
+  anchor: 'center' | 'left',
+): Launch {
+  'worklet';
+  // Its centre as the card starts, laid out where it will end in the card.
+  const x = flight.from.x + target.originX - flight.card.x + target.width / 2;
+  const y = flight.from.y + target.originY - flight.card.y + target.height / 2;
+  const to = anchor === 'left' ? start.x + (target.width * scale) / 2 : start.x;
+  return { translateX: to - x, translateY: start.y - y, scale };
+}
+
+/** One part of the header flying in from `start`; see `launch`. */
+function flyIn(
+  flight: Flight,
+  start: Point,
+  scale: number,
+  anchor: 'center' | 'left',
+): EntryExitAnimationFunction {
+  return (values: EntryAnimationsValues) => {
+    'worklet';
+    const from = launch(
+      {
+        originX: values.targetGlobalOriginX,
+        originY: values.targetGlobalOriginY,
+        width: values.targetWidth,
+        height: values.targetHeight,
+      },
+      flight,
+      start,
+      scale,
+      anchor,
+    );
+    return {
+      initialValues: {
+        transform: [
+          { translateX: from.translateX },
+          { translateY: from.translateY },
+          { scale: from.scale },
+        ],
+      },
+      animations: {
+        transform: [
+          { translateX: withTiming(0, MOVE) },
+          { translateY: withTiming(0, MOVE) },
+          { scale: withTiming(1, MOVE) },
+        ],
+      },
+    };
+  };
+}
+
+/**
+ * The header ring without a row to leave: it grows from a row ring's size to
+ * its own where it stands, on the pane spring. Under Reduce Motion it fades.
+ */
+function ringIn(): EntryExitAnimationFunction {
   if (motionReduced()) return sceneIn();
   return () => {
     'worklet';
     return {
-      initialValues: { opacity: 0, transform: [{ scale: RING_FROM }] },
+      initialValues: {
+        opacity: 0,
+        transform: [{ scale: ROW_RING / HEADER_RING }],
+      },
       animations: {
-        opacity: withTiming(1, { duration: durations.enter }),
+        opacity: withTiming(1, ENTER),
         transform: [{ scale: withSpring(1, springs.pane) }],
       },
     };
+  };
+}
+
+/**
+ * How a detail's header arrives (REDESIGN.md 7, T4). Out of a row, the ring
+ * and the amount fly from where the row drew them to their places, growing
+ * from the row's sizes on the way, while the card grows around them.
+ * Otherwise the ring grows where it stands and the amount comes with the
+ * card. Under Reduce Motion nothing flies.
+ */
+export function headerIn(
+  flight: Flight | null,
+  item: Activity,
+): { ring: EntryExitAnimationFunction; amount?: EntryExitAnimationFunction } {
+  if (!flight || motionReduced()) return { ring: ringIn() };
+  const parts = rowParts(flight.from, {
+    banded: attentionOf(item) !== null,
+    note: !!item.description,
+  });
+  const figure = amountVisual(item).open
+    ? ROW_OPEN / HEADER_OPEN
+    : typography.row.fontSize / typography.amountDetail.fontSize;
+  return {
+    ring: flyIn(flight, parts.ring, ROW_RING / HEADER_RING, 'center'),
+    amount: flyIn(flight, parts.amount, figure, 'left'),
   };
 }
 
