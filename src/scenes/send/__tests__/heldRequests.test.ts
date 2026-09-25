@@ -1,5 +1,6 @@
 import { activityOf, hex } from '../../../../test-support/fixtures';
 import {
+  clearHeldRequests,
   heldRequest,
   holdRequest,
   normalizeRequest,
@@ -8,9 +9,10 @@ import {
 
 /**
  * The held set (REDESIGN.md rule 6): a request whose payment is pending or
- * of unknown outcome cannot be paid again. Each test uses requests of its
- * own, since the set lives as long as the process.
+ * of unknown outcome cannot be paid again. The set lives as long as the
+ * process, so each test starts with it empty.
  */
+beforeEach(() => clearHeldRequests());
 const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 
 /** Bytes as five-bit words, zero padded, as bolt11 writes a field. */

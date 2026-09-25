@@ -15,7 +15,7 @@ import { SendScreen } from '../../../screens/Send';
 import { isTestNetwork } from '../../home/visual';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
 import type { CanvasView } from '../../../stage/Canvas';
-import { holdRequest } from '../../../stage/heldRequests';
+import { clearHeldRequests, holdRequest } from '../../../stage/heldRequests';
 import { ScanReveal } from '../../../stage/layers/ScanReveal';
 import {
   StageProvider,
@@ -101,6 +101,9 @@ async function openSend() {
   return tree;
 }
 
+// The held set lives as long as the process, so each test starts with nothing
+// held, and a request one test held never holds another test's.
+beforeEach(() => clearHeldRequests());
 afterEach(() => {
   jest.restoreAllMocks();
   history = null;

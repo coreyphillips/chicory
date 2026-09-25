@@ -7,7 +7,7 @@ import { chipText } from '../../src/glyphs/CopyChip';
 import { shortRequest } from '../../src/scenes/send/model';
 import { SendScreen } from '../../src/screens/Send';
 import type { WalletAdapter } from '../../src/services/wallet';
-import { holdRequest } from '../../src/stage/heldRequests';
+import { clearHeldRequests, holdRequest } from '../../src/stage/heldRequests';
 import {
   activityOf,
   guardData,
@@ -18,6 +18,10 @@ import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
 import { enterAmount } from '../../test-support/keypad';
 import { activate } from '../../test-support/query';
+
+// The held set lives as long as the process, so each test starts with nothing
+// held, and a request one test held never holds another test's.
+beforeEach(() => clearHeldRequests());
 
 /**
  * Send under the copy guard (REDESIGN.md rule 1) and the accessibility check

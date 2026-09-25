@@ -12,6 +12,11 @@ import { SendScreen } from '../../../screens/Send';
 import type { WalletAdapter } from '../../../services/wallet';
 import { activate, field, press } from '../../../../test-support/query';
 import { bloomFor } from '../tone';
+import { clearHeldRequests } from '../../../stage/heldRequests';
+
+// The held set lives as long as the process, so each test starts with nothing
+// held, and a request one test held never holds another test's.
+beforeEach(() => clearHeldRequests());
 
 /**
  * A payment on a test network (REDESIGN.md 3.1 and rule 4): slate stands in

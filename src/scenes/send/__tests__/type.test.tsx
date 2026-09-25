@@ -10,6 +10,11 @@ import type { WalletAdapter } from '../../../services/wallet';
 import { activate, press } from '../../../../test-support/query';
 import { Amount } from '../Amount';
 import { ReviewLines } from '../ReviewLines';
+import { clearHeldRequests } from '../../../stage/heldRequests';
+
+// The held set lives as long as the process, so each test starts with nothing
+// held, and a request one test held never holds another test's.
+beforeEach(() => clearHeldRequests());
 
 /**
  * Send's figures against Dynamic Type (REDESIGN.md 3.3): an amount and its

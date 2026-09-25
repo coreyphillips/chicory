@@ -14,7 +14,11 @@ import {
   recentDiagnostics,
 } from '../../../services/diagnosticLog';
 import type { WalletAdapter } from '../../../services/wallet';
-import { heldRequest, holdRequest } from '../../../stage/heldRequests';
+import {
+  clearHeldRequests,
+  heldRequest,
+  holdRequest,
+} from '../../../stage/heldRequests';
 import {
   activate,
   alerts,
@@ -137,8 +141,10 @@ const focused = () =>
     );
 
 beforeEach(() => {
-  // A safety message one test left unheard is not said in the next.
+  // A safety message one test left unheard is not said in the next, and a
+  // request one test held does not hold the next test's.
   forgetSafety();
+  clearHeldRequests();
   said.mockClear();
   jest.mocked(HapticFeedback.trigger).mockClear();
   jest.mocked(AccessibilityInfo.sendAccessibilityEvent).mockClear();
