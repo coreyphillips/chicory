@@ -338,6 +338,61 @@ describe('Odometer', () => {
     for (const node of inked) expect(flat(node).color).toBe(palette.steam);
   });
 
+  test('the hero steps down to fit a long amount, and holds its size otherwise', async () => {
+    const size = async (sats: number, unit: 'sats' | 'btc') => {
+      const tree = await render(
+        <Odometer sats={sats} unit={unit} variant="hero" />,
+      );
+      const digit = hosts(tree, node => node.children[0] === '1')[0];
+      return flat(digit);
+    };
+    expect((await size(261_500, 'sats')).fontSize).toBe(64);
+    const whole = await size(2_100_000_000_000_000, 'btc');
+    expect([56, 48, 40]).toContain(whole.fontSize);
+    // Its line height and tracking come down with it.
+    expect(whole.lineHeight).toBe(Math.round((72 * whole.fontSize) / 64));
+    expect(whole.letterSpacing).toBeCloseTo((-1.5 * whole.fontSize) / 64);
+    // Hidden, it keeps the size of its six dots, so its size says nothing
+    // about how long the amount is.
+    const tree = await render(
+      <Odometer
+        sats={2_100_000_000_000_000}
+        unit="btc"
+        variant="hero"
+        masked
+      />,
+    );
+    const dot = hosts(tree, node => node.children[0] === MASK[0])[0];
+    expect(flat(dot).fontSize).toBe(64);
+  });
+
+  test('a roll lands every column on its own digit, even beside a nine', async () => {
+    const tree = await render(
+      <Odometer sats={1_450} unit="sats" variant="line" />,
+    );
+    act(() =>
+      tree.update(<Odometer sats={1_295} unit="sats" variant="line" />),
+    );
+    // The roll has landed but not yet settled into still digits: each
+    // column rests on the amount's own digit, where the carry alone would
+    // leave the hundreds halfway between 2 and 3.
+    const columns = hosts(tree, node =>
+      ((flat(node).transform as object[]) ?? []).some(
+        step => 'translateY' in step,
+      ),
+    );
+    const line = 26 * 1.4;
+    const shown = columns.map(column => {
+      const step = (
+        flat(column).transform as Array<{ translateY?: number }>
+      ).find(part => part.translateY !== undefined)!;
+      return Math.round((-step.translateY! / line) * 100) / 100;
+    });
+    expect(shown).toEqual([1, 2, 9, 5]);
+    await act(async () => {});
+    expect(visibleText(tree).join('')).toBe('1,295sats');
+  });
+
   test('under Reduce Motion a new amount crossfades instead of rolling', async () => {
     reducedMotion();
     const tree = await render(

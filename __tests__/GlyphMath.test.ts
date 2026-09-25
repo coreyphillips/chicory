@@ -18,12 +18,16 @@ import {
   wiltPose,
 } from '../src/glyphs/Bloom';
 import {
+  digitPosition,
+  heroSize,
   mixHex,
   nextPhase,
   rollCells,
   rollDuration,
+  rollPosition,
   scrambleDigit,
   staleDip,
+  startRoll,
 } from '../src/glyphs/Odometer';
 import { pingPose, pulseScale } from '../src/glyphs/PulseDot';
 import {
@@ -231,6 +235,86 @@ describe('Odometer', () => {
     expect(rollDuration(-9)).toBe(420);
     expect(rollDuration(99_999)).toBeCloseTo(980);
     expect(rollDuration(2_100_000_000_000_000)).toBe(1100);
+  });
+
+  describe('rollPosition', () => {
+    const digit = (v: number, k: number) => Math.floor(v / 10 ** k) % 10;
+    /** The shortest distance between two places on a column of ten. */
+    const apart = (a: number, b: number) => {
+      const d = Math.abs(a - b) % 10;
+      return Math.min(d, 10 - d);
+    };
+    const PAIRS: Array<[number, number]> = [
+      [1_295, 1_450],
+      [4_995, 5_210],
+      [99_950, 100_020],
+      [100_020, 99_950],
+      [999, 1_000],
+    ];
+
+    test('a roll sets out from the digits showing and lands on the amount', () => {
+      // digitPosition alone has 1,295's hundreds already halfway to 3.
+      expect(digitPosition(1_295, 2)).toBeCloseTo(2.5);
+      for (const [from, to] of PAIRS) {
+        const roll = startRoll(from, to, null);
+        for (let k = 0; k < 7; k++) {
+          expect(
+            apart(rollPosition(from, k, roll), digit(from, k)),
+          ).toBeCloseTo(0);
+          expect(apart(rollPosition(to, k, roll), digit(to, k))).toBeCloseTo(0);
+        }
+      }
+    });
+
+    test('every column moves smoothly all the way', () => {
+      const steps = 5_000;
+      for (const [from, to] of PAIRS) {
+        const roll = startRoll(from, to, null);
+        for (let k = 0; k < 6; k++) {
+          let last = rollPosition(from, k, roll);
+          let jump = 0;
+          let low = last;
+          let high = last;
+          for (let i = 1; i <= steps; i++) {
+            const at = rollPosition(from + ((to - from) * i) / steps, k, roll);
+            jump = Math.max(jump, apart(at, last));
+            low = Math.min(low, at);
+            high = Math.max(high, at);
+            last = at;
+          }
+          expect(jump).toBeLessThan(0.1);
+          expect(low).toBeGreaterThanOrEqual(0);
+          expect(high).toBeLessThan(10);
+        }
+      }
+    });
+
+    test('a roll that takes over from another picks up where it was', () => {
+      const first = startRoll(1_295, 1_450, null);
+      const second = startRoll(1_372.5, 1_200, first);
+      for (let k = 0; k < 5; k++) {
+        expect(
+          apart(
+            rollPosition(1_372.5, k, second),
+            rollPosition(1_372.5, k, first),
+          ),
+        ).toBeCloseTo(0);
+        expect(
+          apart(rollPosition(1_200, k, second), digit(1_200, k)),
+        ).toBeCloseTo(0);
+      }
+    });
+  });
+
+  test('the hero steps down from 64 until the amount fits', () => {
+    // 261,500 sats fits a phone at 64; 12,345,678 sats needs 56.
+    expect(heroSize(6, 1, 'sats', 342, 1)).toBe(64);
+    expect(heroSize(8, 2, 'sats', 342, 1)).toBe(56);
+    // Nothing fits the whole supply in BTC, so it holds at 40.
+    expect(heroSize(16, 1, 'BTC', 342, 1)).toBe(40);
+    // Larger type steps down sooner.
+    expect(heroSize(6, 1, 'sats', 300, 1)).toBe(64);
+    expect(heroSize(6, 1, 'sats', 300, 1.2)).toBe(48);
   });
 
   test('a roll draws the leading columns of either end', () => {

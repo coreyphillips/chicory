@@ -98,6 +98,10 @@ const odometers: GuardedState[] = [
     <Odometer sats={totalSats} unit="btc" variant="hero" />,
   ),
   still(
+    'the hero stepped down for the whole supply',
+    <Odometer sats={2_100_000_000_000_000} unit="btc" variant="hero" />,
+  ),
+  still(
     'the hero hidden',
     <Odometer sats={totalSats} unit="sats" variant="hero" masked />,
   ),

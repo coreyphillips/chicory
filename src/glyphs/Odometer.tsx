@@ -1,4 +1,11 @@
-import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { TextStyle } from 'react-native';
 import Reanimated, {
@@ -24,7 +31,7 @@ import { copy } from '../design/copy';
 import { palette } from '../design/palette';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
-import { MASK, type as typography } from '../theme';
+import { MASK, space, type as typography } from '../theme';
 import type { Unit } from '../theme';
 import { fract, useAwake, useLoop } from './Bloom';
 
@@ -100,6 +107,67 @@ export function digitPosition(v: number, k: number): number {
   return (whole % 10) + smoothstep(carry);
 }
 
+/** How far column `k` has carried toward its next digit at `v`, 0 to 1. */
+function carryOf(v: number, k: number): number {
+  'worklet';
+  return digitPosition(v, k) - (Math.floor(v / 10 ** k) % 10);
+}
+
+/** A column position folded back into its ten digits. */
+function wrap(pos: number): number {
+  'worklet';
+  return ((pos % 10) + 10) % 10;
+}
+
+/**
+ * A roll in flight: the amounts it runs between, and for each place how far
+ * the column was drawn from digitPosition when the roll set out.
+ */
+export interface Roll {
+  from: number;
+  to: number;
+  lead: number[];
+}
+
+/**
+ * Where column `k` is drawn at `v` during `roll`. digitPosition starts a
+ * column's carry while the places below it are in their last tenth, so on
+ * its own an amount such as 1,295 would sit with its hundreds halfway to 3.
+ * That difference is blended out across the roll: every column sets out
+ * from the digit that was showing and lands on the amount's own digit.
+ */
+export function rollPosition(v: number, k: number, roll: Roll): number {
+  'worklet';
+  const span = roll.to - roll.from;
+  const p = span === 0 ? 1 : Math.min(1, Math.max(0, (v - roll.from) / span));
+  return wrap(
+    digitPosition(v, k) +
+      (1 - p) * (roll.lead[k] ?? 0) -
+      p * carryOf(roll.to, k),
+  );
+}
+
+/**
+ * A roll from `from` to `to`. One that takes over from a roll still under
+ * way sets out from where that one had drawn each column, so nothing jumps.
+ */
+export function startRoll(
+  from: number,
+  to: number,
+  previous: Roll | null,
+): Roll {
+  const places = String(Math.ceil(Math.max(from, to))).length + 1;
+  const lead = Array.from({ length: places }, (_, k) => {
+    const shown = previous
+      ? rollPosition(from, k, previous)
+      : Math.floor(from / 10 ** k) % 10;
+    const off = shown - digitPosition(from, k);
+    // The short way round a column's ten digits.
+    return off - 10 * Math.round(off / 10);
+  });
+  return { from, to, lead };
+}
+
 /**
  * The cells for `sats` in `unit`, left to right. Sats group in threes; BTC
  * has a whole part with no grouping, a point and eight decimals.
@@ -148,6 +216,45 @@ export function rollCells(from: number, to: number, unit: Unit) {
   if (wide.length === target.length) return target;
   const kept = new Map(target.map(cell => [cell.key, cell]));
   return wide.map(cell => kept.get(cell.key) ?? cell);
+}
+
+/** The hero's sizes, largest first: it takes the first the amount fits. */
+export const HERO_SIZES = [64, 56, 48, 40];
+/**
+ * A tabular figure's advance as a share of its size. The hero picks its
+ * size before it draws, so a balance never changes size mid-roll, and this
+ * errs a little wide, since the system faces' figures sit just under it.
+ */
+const FIGURE_EM = 0.6;
+/** The unit beside the hero, at heroUnit's 15pt, and the gap before it. */
+const UNIT_EM = 0.62;
+const UNIT_SIZE = 15;
+const UNIT_GAP = 6;
+
+/**
+ * The hero's font size for `figures` digits (and a sign, if any) and
+ * `marks` separators beside `suffix`, in `room` points at `scale` times the
+ * type size: 64, stepping down to 56, 48 and 40 until it fits, and 40 when
+ * nothing does. Never `adjustsFontSizeToFit`, which would shrink it per frame.
+ */
+export function heroSize(
+  figures: number,
+  marks: number,
+  suffix: string,
+  room: number,
+  scale: number,
+): number {
+  const unit = suffix.length * UNIT_EM * UNIT_SIZE + UNIT_GAP;
+  const fits = (size: number) => {
+    const figure = FIGURE_EM * size + heroSpacing(size);
+    return (figures * figure + marks * MARK_EM * size + unit) * scale <= room;
+  };
+  return HERO_SIZES.find(fits) ?? HERO_SIZES[HERO_SIZES.length - 1];
+}
+
+/** The hero's tracking, which tightens with its size. */
+function heroSpacing(size: number): number {
+  return ((typography.hero.letterSpacing ?? 0) * size) / HERO_SIZES[0];
 }
 
 /** A roll's length: longer for a bigger change, never slow. */
@@ -252,6 +359,21 @@ const VARIANTS: Record<OdometerVariant, TextStyle> = {
   line: typography.line,
   row: typography.row,
 };
+
+/** The hero at each of its sizes, its line height and tracking in step. */
+const HERO_AT: Record<number, TextStyle> = Object.fromEntries(
+  HERO_SIZES.map(size => [
+    size,
+    {
+      ...typography.hero,
+      fontSize: size,
+      lineHeight: Math.round(
+        ((typography.hero.lineHeight ?? 0) * size) / HERO_SIZES[0],
+      ),
+      letterSpacing: heroSpacing(size),
+    },
+  ]),
+);
 
 const SUFFIX: Record<Unit, string> = { sats: 'sats', btc: 'BTC' };
 
@@ -378,6 +500,7 @@ const CELL_LAYOUT = LinearTransition.duration(durations.move).easing(
 /** What every cell of one odometer shares. */
 interface Rig {
   v: SharedValue<number>;
+  roll: SharedValue<Roll>;
   s: SharedValue<number>;
   shimmer: SharedValue<number>;
   /** The ink, which turns steam when stale. */
@@ -413,11 +536,11 @@ const Column = memo(function DigitColumn({
   motion: Motion;
   rig: Rig;
 }) {
-  const { v, s, height } = rig;
+  const { v, roll, s, height } = rig;
   const style = useAnimatedStyle(() => {
     const pos =
       motion === 'roll'
-        ? digitPosition(v.get(), place)
+        ? rollPosition(v.get(), place, roll.get())
         : scrambleDigit(digit, place, s.get(), motion === 'unscramble');
     return { transform: [{ translateY: -pos * height }] };
   }, [motion, place, digit, height]);
@@ -543,7 +666,7 @@ export function Odometer({
 }: OdometerProps) {
   const { reduced } = useMotionPrefs();
   const awake = useAwake();
-  const { fontScale } = useWindowDimensions();
+  const { fontScale, width } = useWindowDimensions();
 
   // Where the cells were last asked to be, and what they are doing about
   // it. A change is read during the render that brings it, so the first
@@ -572,24 +695,33 @@ export function Odometer({
     [],
   );
 
-  const v = useSharedValue(sats);
+  // The columns count the amount's size; a sign is drawn on its own.
+  const target = Math.abs(sats);
+  const v = useSharedValue(target);
+  const roll = useSharedValue<Roll>({ from: target, to: target, lead: [] });
+  const rolling = useRef<Roll | null>(null);
   useEffect(() => {
     cancelAnimation(v);
     if (phase !== 'roll') {
-      v.set(sats);
+      rolling.current = null;
+      v.set(target);
       return;
     }
+    const from = v.get();
+    const next = startRoll(from, target, rolling.current);
+    rolling.current = next;
+    roll.set(next);
     v.set(
       withTiming(
-        sats,
-        { duration: rollDuration(sats - v.get()), easing: curves.standard },
+        target,
+        { duration: rollDuration(target - from), easing: curves.standard },
         done => {
           'worklet';
           if (done) scheduleOnRN(settle);
         },
       ),
     );
-  }, [v, phase, sats, settle]);
+  }, [v, roll, phase, target, settle]);
 
   const s = useSharedValue(0);
   useEffect(() => {
@@ -628,13 +760,30 @@ export function Odometer({
   );
   const shimmer = useLoop(durations.shimmer, stale && awake && !reduced);
 
+  const dots = masked && phase !== 'scramble';
+  const motion: Motion = phase === 'rest' ? 'still' : phase;
+  const cells =
+    phase === 'roll' ? rollCells(span, sats, unit) : cellsFor(sats, unit);
+
   const maxScale = MAX_SCALE[variant];
   const scale = Math.min(fontScale, maxScale);
-  const base = VARIANTS[variant];
+  // The hero sizes itself to what it draws, across the page between its
+  // edges. A roll draws its widest end throughout, so it never resizes
+  // midway, and a mask is sized as its six dots, so a hidden balance does
+  // not give away how long it is.
+  const marks = dots ? 0 : cells.filter(cell => cell.kind === 'mark').length;
+  const figures = (dots ? DOTS.length : cells.length - marks) + (sign ? 1 : 0);
+  const base =
+    variant === 'hero'
+      ? HERO_AT[
+          heroSize(figures, marks, SUFFIX[unit], width - 2 * space.xl, scale)
+        ]
+      : VARIANTS[variant];
   const received = variant === 'row' && sign === '+';
   const rig = useMemo<Rig>(
     () => ({
       v,
+      roll,
       s,
       shimmer,
       ink,
@@ -644,13 +793,8 @@ export function Odometer({
       maxScale,
       reduced,
     }),
-    [v, s, shimmer, ink, base, received, scale, maxScale, reduced],
+    [v, roll, s, shimmer, ink, base, received, scale, maxScale, reduced],
   );
-
-  const dots = masked && phase !== 'scramble';
-  const motion: Motion = phase === 'rest' ? 'still' : phase;
-  const cells =
-    phase === 'roll' ? rollCells(span, sats, unit) : cellsFor(sats, unit);
   // Under Reduce Motion a changed digit is a new cell, so it crossfades
   // with the old one in place instead of changing under the eye.
   const keyOf = (cell: OdometerCell) =>
