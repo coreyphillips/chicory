@@ -11,6 +11,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
 import { haptics } from '../../design/haptics';
+import { steady } from '../../motion/steady';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { HomeScreen } from '../../screens/wallet/Home';
 import type { RegionProps } from '../../stage/Canvas';
@@ -104,13 +105,18 @@ export function HomePane({
   const counted = useSharedValue(0);
   useEffect(() => {
     if (!counting || !beats) return;
+    // On the steady clock, as the hero's fade is, so the count starts as
+    // the balance is seen rather than during a first frame that is slow to
+    // paint (see `steady`).
     counted.set(
-      withDelay(
-        beats.hero,
-        withTiming(1, { duration: 0 }, done => {
-          'worklet';
-          if (done) scheduleOnRN(setCounting, false);
-        }),
+      steady(
+        withDelay(
+          beats.hero,
+          withTiming(1, { duration: 0 }, done => {
+            'worklet';
+            if (done) scheduleOnRN(setCounting, false);
+          }),
+        ),
       ),
     );
   }, [counting, beats, counted]);

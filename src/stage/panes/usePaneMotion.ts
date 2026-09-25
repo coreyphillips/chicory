@@ -8,6 +8,7 @@ import {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
+import { steady } from '../../motion/steady';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { useTransitionLock } from '../../motion/useTransitionLock';
@@ -49,20 +50,58 @@ const JUMP = { duration: 0, reduceMotion: ReduceMotion.Never };
 const HALF = durations.crossfade / 2;
 
 /**
+ * How long past the settle a move's lock may last before the transition
+ * registry gives up on it: the panes run on a steady clock (`steady`), so a
+ * frame that takes long to paint, as one that mounts a scene can, holds the
+ * move and its lock back by about that long.
+ */
+const STALL_ALLOWANCE = 400;
+
+/**
+ * Whether a move starts in the tick it is asked for rather than once the
+ * render that shows its scene has been drawn: only one a gesture flung,
+ * which carries on from the finger.
+ */
+export function startsAtOnce(fling?: Fling): boolean {
+  return typeof fling?.velocity === 'number';
+}
+
+/**
+ * Whether the panes, where they are, need the Reduce Motion crossfade to
+ * reach `seam` and `hero`: a jump there would be seen. A gesture that already
+ * carried them there, as the sheet's drag does, needs none.
+ */
+export function veilNeeded(
+  from: { seam: number; hero: number },
+  to: { seam: number; hero: number },
+): boolean {
+  return (
+    Math.abs(from.seam - to.seam) > 0.5 || Math.abs(from.hero - to.hero) > 0.01
+  );
+}
+
+/**
  * Drives the canvas's panes toward `layout`, the pose of the scene it shows
  * (REDESIGN.md 2.3), for a canvas `height` points tall from the top of the
  * window.
  *
- * A move starts from one of two places. A tap starts it in its own tick,
- * through the stage store, before React has rendered the new scene. Anything
- * else, such as the session resetting the stage or a scene opened from a
- * screen's own code, starts it in the layout effect of the render that shows
- * the new scene. Either way it starts once: a pose already aimed for is not
- * aimed for again.
+ * A move is asked for from one of two places. A tap asks in its own tick,
+ * through the stage store, before React has rendered the new scene: the
+ * transition lock is taken there and then, so a second tap in the same tick
+ * is refused. Anything else, such as the session resetting the stage or a
+ * scene opened from a screen's own code, asks in the layout effect of the
+ * render that shows the new scene. Either way it is asked for once: a pose
+ * already aimed for is not aimed for again.
  *
- * A move a gesture asked for starts the seam's spring at the gesture's speed,
- * so a sheet flung toward a stop carries on from the finger rather than from
- * rest.
+ * The panes start moving once that render has been drawn, in its layout
+ * effect, and so after the frame that mounts the new scene, which can take
+ * a long while to paint: started with the tap, they would be most of the
+ * way there by the first frame anyone saw (`startsAtOnce`). Only a move a
+ * gesture asked for starts in the gesture's tick, and at the gesture's
+ * speed, so a sheet flung toward a stop carries on from the finger rather
+ * than stopping where it was let go. Every pane also runs on a steady clock
+ * (`steady`), the lock's clock too, so a long frame later on holds a move
+ * back rather than skipping it forward.
  *
  * While the panes move, the transition lock holds: taps are refused and
  * `blocking` is true. It lifts once the panes look settled, PANE_SETTLE_MS
@@ -70,8 +109,9 @@ const HALF = durations.crossfade / 2;
  * move that interrupts another ends the earlier lock and holds its own. A
  * payment's detail card opening on the list, or closing, is such a move,
  * though the panes stay where they are. Under Reduce Motion nothing
- * travels: the sheet and the balance crossfade to where they belong within
- * 160ms, the other fades take 160ms, and nothing is locked.
+ * travels: the sheet, the balance and the action row crossfade to where
+ * they belong within 160ms, fading out over the first half and back in
+ * over the second, the other fades take 160ms, and nothing is locked.
  */
 export function usePaneMotion(
   height: number,
@@ -93,6 +133,8 @@ export function usePaneMotion(
   const veil = useSharedValue(1);
   const settling = useSharedValue(0);
   const aimed = useRef(layout);
+  // A move asked for and not started yet, and the lock it holds.
+  const pending = useRef<{ start: () => void; end: () => void } | null>(null);
 
   const aim = useCallback(
     (next: CanvasLayout, fling?: Fling) => {
@@ -101,39 +143,66 @@ export function usePaneMotion(
       aimed.current = next;
       const covered = next.covered ? 1 : 0;
       const scanning = next.scanning ? 1 : 0;
+      let start: () => void;
+      let end = () => {};
       if (reduced) {
-        if (next.seam !== before.seam || next.hero !== before.hero) {
-          veil.set(0);
-          veil.set(withTiming(1, VEIL));
-          const jump = (to: number) =>
-            withDelay(HALF, withTiming(to, JUMP), ReduceMotion.Never);
-          seam.set(jump(at[next.seam]));
-          hero.set(jump(next.hero));
-        }
-        bar.set(withTiming(next.bar, FADE));
-        cover.set(withTiming(covered, FADE));
-        scan.set(withTiming(scanning, FADE));
-        return;
+        start = () => {
+          const to = { seam: at[next.seam], hero: next.hero };
+          if (veilNeeded({ seam: seam.get(), hero: hero.get() }, to)) {
+            veil.set(0);
+            veil.set(steady(withTiming(1, VEIL)));
+            const jump = (value: number) =>
+              steady(
+                withDelay(HALF, withTiming(value, JUMP), ReduceMotion.Never),
+              );
+            seam.set(jump(to.seam));
+            hero.set(jump(to.hero));
+            // The action row goes under the veil with the balance, so its
+            // circles never come back over the scene that is leaving.
+            bar.set(jump(next.bar));
+          } else {
+            seam.set(to.seam);
+            hero.set(to.hero);
+            bar.set(steady(withTiming(next.bar, FADE)));
+          }
+          cover.set(steady(withTiming(covered, FADE)));
+          scan.set(steady(withTiming(scanning, FADE)));
+        };
+      } else {
+        end = begin(PANE_SETTLE_MS + STALL_ALLOWANCE);
+        const settled = () => {
+          'worklet';
+          scheduleOnRN(end);
+        };
+        const velocity = fling?.velocity ?? 0;
+        start = () => {
+          seam.set(
+            steady(
+              withSpring(
+                at[next.seam],
+                velocity ? { ...springs.pane, velocity } : springs.pane,
+              ),
+            ),
+          );
+          hero.set(steady(withSpring(next.hero, springs.pane)));
+          bar.set(steady(withSpring(next.bar, springs.pane)));
+          cover.set(steady(withSpring(covered, springs.pane)));
+          scan.set(steady(withSpring(scanning, springs.pane)));
+          // Restarting the clock cuts the last one short, which ends its
+          // lock.
+          settling.set(0);
+          settling.set(steady(withTiming(1, SETTLE, settled)));
+        };
       }
-      const end = begin(PANE_SETTLE_MS);
-      const settled = () => {
-        'worklet';
-        scheduleOnRN(end);
-      };
-      const velocity = fling?.velocity ?? 0;
-      seam.set(
-        withSpring(
-          at[next.seam],
-          velocity ? { ...springs.pane, velocity } : springs.pane,
-        ),
-      );
-      hero.set(withSpring(next.hero, springs.pane));
-      bar.set(withSpring(next.bar, springs.pane));
-      cover.set(withSpring(covered, springs.pane));
-      scan.set(withSpring(scanning, springs.pane));
-      // Restarting the clock cuts the last one short, which ends its lock.
-      settling.set(0);
-      settling.set(withTiming(1, SETTLE, settled));
+      // A move asked for again before it started is replaced whole, and the
+      // lock the first one took is let go.
+      pending.current?.end();
+      pending.current = null;
+      if (startsAtOnce(fling)) {
+        start();
+      } else {
+        pending.current = { start, end };
+      }
     },
     [at, reduced, begin, seam, hero, bar, cover, scan, veil, settling],
   );
@@ -144,8 +213,13 @@ export function usePaneMotion(
     seam.set(at[aimed.current.seam]);
   }, [at, seam]);
 
+  // The render that shows the scene has been drawn: the move it asked for,
+  // or that a tap asked for ahead of it, starts now.
   useLayoutEffect(() => {
     aim(layout);
+    const move = pending.current;
+    pending.current = null;
+    move?.start();
   }, [aim, layout]);
 
   useLayoutEffect(() => {

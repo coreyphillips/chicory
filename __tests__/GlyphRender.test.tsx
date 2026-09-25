@@ -29,9 +29,9 @@ import type { BloomEvent, BloomMode, BloomTone } from '../src/glyphs/Bloom';
 import { Odometer, cellHeight, rollDuration } from '../src/glyphs/Odometer';
 import type { OdometerVariant } from '../src/glyphs/Odometer';
 import { PulseDot } from '../src/glyphs/PulseDot';
-import { StatusRing, ringColor } from '../src/glyphs/StatusRing';
+import { StatusRing, glyphRedraws, ringColor } from '../src/glyphs/StatusRing';
 import type { RingVisual } from '../src/glyphs/StatusRing';
-import { Vessel, WAIT_WORDS } from '../src/glyphs/Vessel';
+import { CHANNELIZE_MS, Vessel, WAIT_WORDS } from '../src/glyphs/Vessel';
 import { Whisper, WhisperProvider } from '../src/glyphs/Whisper';
 import { copy } from '../src/design/copy';
 import { GLYPHS } from '../src/design/glyphs';
@@ -975,6 +975,43 @@ describe('Vessel', () => {
     expect(seeds).toHaveLength(5);
   });
 
+  test('moving everything into the channel holds the split while the solid grows over it', async () => {
+    jest.useFakeTimers();
+    const below = decided('wait', 'below-floor');
+    const tree = await render(
+      <Vessel
+        availableSats={0}
+        pendingSats={10_000}
+        lfbw={below}
+        unit="sats"
+      />,
+    );
+    await act(async () =>
+      tree.root.findByProps({ accessible: true }).props.onLayout({
+        nativeEvent: { layout: { width: 300, height: 8 } },
+      }),
+    );
+    const seeds = () =>
+      hosts(tree, node => flat(node).backgroundColor === palette.dust);
+    expect(seeds()).toHaveLength(5);
+    await act(async () =>
+      tree.update(
+        <Vessel
+          availableSats={10_000}
+          pendingSats={0}
+          lfbw={below}
+          unit="sats"
+        />,
+      ),
+    );
+    // The seeds stay under the solid segment as it grows across them, so
+    // the move is seen (REDESIGN.md 5, Channelize), and then the pill
+    // settles to the hairline.
+    expect(seeds()).toHaveLength(5);
+    await act(async () => jest.advanceTimersByTime(CHANNELIZE_MS));
+    expect(seeds()).toHaveLength(0);
+  });
+
   test('everything spendable is a cream hairline; a hidden balance too', async () => {
     const settled = await render(
       <Vessel availableSats={250_000} pendingSats={0} unit="sats" />,
@@ -1222,19 +1259,47 @@ describe('StatusRing', () => {
     expect(dashes(tree)).toEqual([]);
   });
 
-  test('completing draws the glyph after the fill starts', async () => {
+  test('completing draws a glyph the ring did not have after the fill starts', async () => {
     const tree = await render(<StatusRing size={96} visual={PENDING} />);
     await act(async () =>
       tree.update(
         <StatusRing
           size={96}
-          visual={{ tone: 'steam', pattern: 'full', glyph: 'send' }}
+          visual={{ tone: 'sage', pattern: 'full', glyph: 'receive' }}
         />,
       ),
     );
     expect(dashes(tree).map(path => path.props.d)).toEqual(
-      GLYPHS.send.map(part => part.d),
+      GLYPHS.receive.map(part => part.d),
     );
+  });
+
+  test('completing keeps the glyph the ring had, so it never drops out', async () => {
+    expect(
+      glyphRedraws(PENDING, { tone: 'steam', pattern: 'full', glyph: 'send' }),
+    ).toBe(false);
+    const tree = await render(<StatusRing size={40} visual={PENDING} />);
+    await act(async () =>
+      tree.update(
+        <StatusRing
+          size={40}
+          visual={{ tone: 'steam', pattern: 'full', glyph: 'send' }}
+        />,
+      ),
+    );
+    // Still, as a ring that mounted in the state shows it: no stroke is
+    // waiting to be drawn.
+    expect(dashes(tree)).toEqual([]);
+    // A later change that brings a new glyph draws that one.
+    await act(async () =>
+      tree.update(
+        <StatusRing
+          size={40}
+          visual={{ tone: 'radish', pattern: 'full', glyph: 'cross' }}
+        />,
+      ),
+    );
+    expect(dashes(tree)).toHaveLength(2);
   });
 
   test('failing draws the cross in two strokes', async () => {

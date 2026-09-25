@@ -35,12 +35,12 @@ type Session = ReturnType<typeof useWalletSession>;
 
 /**
  * The device is open and no wallet is chosen yet: the saved ones, and how to
- * add one. Each wallet is a row of its mark, in its network's tone, and its
- * name, with a flask on a test network. With none saved, a sprout row makes
- * one. Restore, the network settings and the lock sit along the bottom.
- * Choosing a wallet starts the chase on its mark and dims the others while
- * it opens, and the wallet's page takes that mark from the row as it arrives
- * (R-2).
+ * add one (REDESIGN.md 6, picker). Each wallet is a row of its mark, in its
+ * network's tone, and its name, with a flask on a test network. A sprout row
+ * under them always makes another. Restore, the network settings and the
+ * lock sit along the bottom, under the rows. Choosing a wallet starts the
+ * chase on its mark and dims the other rows while it opens, and the wallet's
+ * page takes that mark from the row as it arrives (R-2).
  */
 export function Picker({
   wallets,
@@ -113,49 +113,59 @@ export function Picker({
   const { network } = activeProfile;
   const tone = bloomTone(network);
   const reason = [...new Set([error, switchError].filter(Boolean))].join(' ');
+  // The sprout chases only while it is what is being made; while a chosen
+  // wallet opens it dims with the other rows.
+  const creating = selecting && chosen === null;
   return (
     <PhaseRoot style={styles.picker}>
-      <View style={styles.header}>
-        <View
-          ref={focus}
-          accessible
-          accessibilityRole="header"
-          accessibilityLabel={
-            wallets.length ? copy.phase.chooseTitle : copy.phase.createTitle
-          }
-          accessibilityValue={{ text: network }}
-          accessibilityHint={
-            tone === 'test' ? copy.phase.testNetwork(network) : undefined
-          }
-          style={styles.mark}
-        >
-          <Bloom size={SIZES.cog} tone={tone} />
-          {tone === 'test' ? (
-            <Glyph name="flask" size={16} color={palette.slate} />
-          ) : null}
+      <View style={styles.middle}>
+        <View style={styles.header}>
+          <View
+            ref={focus}
+            accessible
+            accessibilityRole="header"
+            accessibilityLabel={
+              wallets.length ? copy.phase.chooseTitle : copy.phase.createTitle
+            }
+            accessibilityValue={{ text: network }}
+            accessibilityHint={
+              tone === 'test' ? copy.phase.testNetwork(network) : undefined
+            }
+            style={styles.mark}
+          >
+            <Bloom size={SIZES.cog} tone={tone} />
+            {tone === 'test' ? (
+              <Glyph name="flask" size={16} color={palette.slate} />
+            ) : null}
+          </View>
+          {reason ? <StatusPip tone="radish" label={reason} /> : null}
         </View>
-        {reason ? <StatusPip tone="radish" label={reason} /> : null}
-      </View>
-      <View style={styles.rows}>
-        {wallets.map((wallet, index) => (
-          <WalletRow
-            key={wallet.id}
-            wallet={wallet}
-            index={index}
-            busy={selecting}
-            chosen={chosen === wallet.id}
-            onOpen={open}
+        <View style={styles.rows}>
+          {wallets.map((wallet, index) => (
+            <WalletRow
+              key={wallet.id}
+              wallet={wallet}
+              index={index}
+              busy={selecting}
+              chosen={chosen === wallet.id}
+              onOpen={open}
+            />
+          ))}
+          <SproutRow
+            index={wallets.length}
+            busy={creating}
+            disabled={selecting}
+            dimmed={selecting && !creating}
+            tone={tone}
+            onPress={create}
           />
-        ))}
-        {wallets.length === 0 ? (
-          <SproutRow busy={selecting} tone={tone} onPress={create} />
+        </View>
+        {networkEditor && !covered ? (
+          <SetupPanel>
+            <NetworkSettings initialNetwork={network} onApply={switchNetwork} />
+          </SetupPanel>
         ) : null}
       </View>
-      {networkEditor && !covered ? (
-        <SetupPanel>
-          <NetworkSettings initialNetwork={network} onApply={switchNetwork} />
-        </SetupPanel>
-      ) : null}
       <View style={styles.bar}>
         <GlyphButton
           glyph="restore"
@@ -261,26 +271,36 @@ const WalletRow = memo(function SavedWallet({
   );
 });
 
-/** Makes a wallet from the network's defaults: a sprout, then the chase. */
+/**
+ * Makes a wallet from the network's defaults: a sprout, then the chase. It
+ * comes after the saved wallets, the last row to rise in.
+ */
 function SproutRow({
+  index,
   busy,
+  disabled,
+  dimmed,
   tone,
   onPress,
 }: {
+  index: number;
   busy: boolean;
+  disabled: boolean;
+  dimmed: boolean;
   tone: BloomTone;
   onPress: () => void;
 }) {
+  const dim = useDim(dimmed);
   return (
-    <Reanimated.View entering={stagger(0)}>
+    <Reanimated.View entering={stagger(index)} style={dim}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={copy.phase.createWallet}
         accessibilityValue={
           busy ? { text: copy.phase.startingWallet } : undefined
         }
-        accessibilityState={{ disabled: busy, busy }}
-        disabled={busy}
+        accessibilityState={{ disabled, busy }}
+        disabled={disabled}
         onPress={() => {
           haptics.tap();
           onPress();
@@ -310,7 +330,9 @@ function SproutRow({
 const ROW = 64;
 
 const styles = StyleSheet.create({
-  picker: { alignItems: 'stretch' },
+  // The rows in the middle of the page, and the tools at its foot.
+  picker: { alignItems: 'stretch', justifyContent: 'space-between' },
+  middle: { flexGrow: 1, justifyContent: 'center', gap: space.xl },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

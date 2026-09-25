@@ -626,9 +626,9 @@ describe('Whisper', () => {
     expect(pillPlace(source, 120, 26, 390)).toEqual({ x: 60, y: 266 });
   });
 
-  test('it stays inside the screen', () => {
-    expect(pillPlace({ ...source, x: 0 }, 120, 26, 390).x).toBe(16);
-    expect(pillPlace({ ...source, x: 380 }, 120, 26, 390).x).toBe(254);
+  test('it stays inside the page edge, 24 from either side of the screen', () => {
+    expect(pillPlace({ ...source, x: 0 }, 120, 26, 390).x).toBe(24);
+    expect(pillPlace({ ...source, x: 380 }, 120, 26, 390).x).toBe(246);
   });
 
   test('with no room above, it goes below', () => {

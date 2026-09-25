@@ -157,6 +157,16 @@ export function ringEntrance(
   return 'none';
 }
 
+/**
+ * Whether the glyph in the ring draws in anew on a change from `before` to
+ * `after`: only when it is another glyph. The same glyph stays as it is, so
+ * a payment's kind never drops out of its ring while the ring around it
+ * fills, as a transfer's `swap` did as its orbit closed.
+ */
+export function glyphRedraws(before: RingVisual, after: RingVisual): boolean {
+  return before.glyph !== after.glyph;
+}
+
 export interface StrokePlan {
   delay: number;
   duration: number;
@@ -547,19 +557,27 @@ export function StatusRing({ size, visual, test = false }: StatusRingProps) {
     visual,
     entrance: 'none' as RingEntrance,
     play: 0,
+    // How many times the glyph has been drawn anew, and how it came in the
+    // last time: it plays an entrance only as a glyph the ring did not have.
+    drawn: 0,
+    glyphIn: 'none' as RingEntrance,
     from: filled(visual),
   });
   let now = seen;
   if (!sameVisual(seen.visual, visual)) {
+    const entering = ringEntrance(seen.visual, visual);
+    const redraws = glyphRedraws(seen.visual, visual);
     now = {
       visual,
-      entrance: ringEntrance(seen.visual, visual),
+      entrance: entering,
       play: seen.play + 1,
+      drawn: seen.drawn + (redraws ? 1 : 0),
+      glyphIn: redraws ? entering : seen.glyphIn,
       from: filled(seen.visual),
     };
     setSeen(now);
   }
-  const { entrance, play, from } = now;
+  const { entrance, play, drawn, glyphIn, from } = now;
 
   const grow = useSharedValue(1);
   const nudge = useSharedValue(0);
@@ -636,11 +654,11 @@ export function StatusRing({ size, visual, test = false }: StatusRingProps) {
         </Reanimated.View>
         <View style={styles.center}>
           <RingGlyph
-            key={`${visual.glyph}:${play}`}
+            key={`${visual.glyph}:${drawn}`}
             name={visual.glyph}
             size={glyphSize}
             color={color}
-            entrance={reduced ? 'none' : entrance}
+            entrance={reduced ? 'none' : glyphIn}
           />
         </View>
         {badge ? (

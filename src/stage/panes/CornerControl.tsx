@@ -1,18 +1,41 @@
 import React from 'react';
-import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
-import { IconButton } from '../../components/ui';
+import { Pressable, StyleSheet } from 'react-native';
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+import { Icon } from '../../components/ui';
 import { copy } from '../../design/copy';
+import type { GlyphName } from '../../design/glyphs';
+import { haptics } from '../../design/haptics';
+import { palette } from '../../design/palette';
 import { spinIn, spinOut } from '../../motion/presets';
+import { springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { space } from '../../theme';
 import { useStage } from '../StageContext';
 import { useCanvasPanes, usePaneActive } from './Pane';
 
 /**
- * The room the canvas's corner control takes at the right of the status row,
- * an icon button and the gap before it, which the row leaves free.
+ * The corner control's touch target, the least any control gets
+ * (REDESIGN.md 3.4), and the glyph drawn in the middle of it.
  */
-export const CORNER_ROOM = 40 + space.xxs;
+export const CORNER_TARGET = 48;
+const GLYPH = 20;
+
+/**
+ * How far the target reaches past the edge of the 40pt disc the corner
+ * control drew before, on each side: the canvas hangs it this much nearer
+ * the screen's edge, so its glyph stays where it always sat.
+ */
+export const CORNER_REACH = (CORNER_TARGET - 40) / 2;
+
+/**
+ * The room the canvas's corner control takes at the right of the status row,
+ * its target and the gap before it, which the row leaves free.
+ */
+export const CORNER_ROOM = CORNER_TARGET + space.xxs;
 
 /** How far the cog turns as Settings covers the canvas (REDESIGN.md 7, T6). */
 export const COG_TURN = 120;
@@ -49,17 +72,15 @@ export function CornerControl({ home }: { home: boolean }) {
         exiting={spinOut()}
       >
         {home ? (
-          <IconButton
-            name="cog"
-            tone="plain"
-            accessibilityLabel={copy.home.settings}
+          <CornerButton
+            glyph="cog"
+            label={copy.home.settings}
             onPress={live ? actions.openSettings : undefined}
           />
         ) : (
-          <IconButton
-            name="close"
-            tone="plain"
-            accessibilityLabel={copy.home.close}
+          <CornerButton
+            glyph="close"
+            label={copy.home.close}
             disabled={state.busy}
             onPress={live ? actions.back : undefined}
           />
@@ -68,3 +89,59 @@ export function CornerControl({ home }: { home: boolean }) {
     </Reanimated.View>
   );
 }
+
+/**
+ * A plain glyph in a 48pt target, which dips as it is pressed. Like the
+ * canvas's other controls, it takes no touches without an `onPress`.
+ */
+function CornerButton({
+  glyph,
+  label,
+  disabled = false,
+  onPress,
+}: {
+  glyph: GlyphName;
+  label: string;
+  disabled?: boolean;
+  onPress?: () => void;
+}) {
+  const { reduced } = useMotionPrefs();
+  const press = useSharedValue(1);
+  const style = useAnimatedStyle(() => ({
+    transform: [{ scale: press.get() }],
+  }));
+  const to = (value: number) =>
+    press.set(reduced ? 1 : withSpring(value, springs.snap));
+  return (
+    <Reanimated.View style={style}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled }}
+        disabled={disabled}
+        onPressIn={onPress && (() => to(0.94))}
+        onPressOut={onPress && (() => to(1))}
+        onPress={
+          onPress &&
+          (() => {
+            haptics.tick();
+            onPress();
+          })
+        }
+        style={[styles.target, disabled && styles.disabled]}
+      >
+        <Icon name={glyph} size={GLYPH} color={palette.cream} />
+      </Pressable>
+    </Reanimated.View>
+  );
+}
+
+const styles = StyleSheet.create({
+  target: {
+    width: CORNER_TARGET,
+    height: CORNER_TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  disabled: { opacity: 0.45 },
+});

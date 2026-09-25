@@ -11,7 +11,9 @@ import { copy } from '../src/design/copy';
 import * as ambient from '../src/motion/ambient';
 import { wakeOnTouch } from '../src/motion/ambient';
 import { palette } from '../src/design/palette';
+import { OpeningWallet } from '../src/scenes/phases/Loading';
 import { LockScreen } from '../src/scenes/phases/Locked';
+import { QUIET_MS } from '../src/scenes/phases/visual';
 import { SETTINGS_SURFACE } from '../src/scenes/settings/ui';
 import { defaultProfile } from '../src/services/networks';
 import type { useWalletSession } from '../src/services/useWalletSession';
@@ -149,7 +151,7 @@ describe('the lock', () => {
       .findAllByType(LayoutAnimationConfig)
       .find(config => config.props.skipExiting);
     expect(unlocked).toBeDefined();
-    expect(unlocked!.findAllByType(SceneSlot)).not.toHaveLength(0);
+    expect(unlocked!.findAllByType(OpeningWallet)).not.toHaveLength(0);
     await act(async () =>
       tree.update(<Staged phase={LOCKED} session={session} />),
     );
@@ -163,26 +165,33 @@ describe('the lock', () => {
 });
 
 test.each([
-  ['over the opening lock', LOCKED, 'unlock'],
-  ['from loading', LOADING, 'load'],
-  ['back from offline', OFFLINE, 'reconnect'],
-] as const)('the canvas knows it arrives %s', async (_how, from, arrival) => {
-  const idle = sessionOf({ rememberedSession: null });
-  const tree = await mount(<Staged phase={from} session={idle} />);
-  await act(async () =>
-    tree.update(
-      <Staged
-        phase={{ kind: 'wallet', error: '' }}
-        session={sessionOf({
-          rememberedSession: null,
-          snapshot: snapshotOf(),
-        })}
-      />,
-    ),
-  );
-  expect(tree.root.findByType(Canvas).props.arrival).toBe(arrival);
-  await act(async () => tree.unmount());
-});
+  ['over the opening lock', LOCKED, QUIET_MS, 'unlock'],
+  ['over a lock that opened before its bud showed', LOCKED, 0, 'load'],
+  ['from loading', LOADING, 0, 'load'],
+  ['back from offline', OFFLINE, 0, 'reconnect'],
+] as const)(
+  'the canvas knows it arrives %s',
+  async (_how, from, held, arrival) => {
+    const idle = sessionOf({ rememberedSession: null });
+    const start = Date.now();
+    const now = jest.spyOn(Date, 'now').mockReturnValue(start);
+    const tree = await mount(<Staged phase={from} session={idle} />);
+    now.mockReturnValue(start + held);
+    await act(async () =>
+      tree.update(
+        <Staged
+          phase={{ kind: 'wallet', error: '' }}
+          session={sessionOf({
+            rememberedSession: null,
+            snapshot: snapshotOf(),
+          })}
+        />,
+      ),
+    );
+    expect(tree.root.findByType(Canvas).props.arrival).toBe(arrival);
+    await act(async () => tree.unmount());
+  },
+);
 
 test('the new wallet sheet slides in over the phase and back out', async () => {
   const tree = await mount(
@@ -295,7 +304,7 @@ describe('decoration', () => {
     );
     expect(roots).toHaveLength(1);
     // Outermost: everything the stage draws, the lock included, is under it.
-    expect(roots[0].findAllByType(SceneSlot).length).toBeGreaterThan(0);
+    expect(roots[0].findAllByType(OpeningWallet).length).toBeGreaterThan(0);
     expect(roots[0].props.onMoveShouldSetResponderCapture).toBe(
       wakeOnTouch.onMoveShouldSetResponderCapture,
     );

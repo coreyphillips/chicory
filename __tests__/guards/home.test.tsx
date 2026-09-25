@@ -967,8 +967,12 @@ describe('the hero', () => {
 
   test('fits its size to the width it is laid out in, not the window', async () => {
     const { tree } = await hero();
-    const odometer = tree.root.findByType(Odometer);
-    expect(odometer.props.room).toBeUndefined();
+    // The hero's own figures; the mini strip draws the balance again.
+    const figures = () =>
+      tree.root
+        .findAllByType(Odometer)
+        .find(odometer => odometer.props.variant === 'hero')!;
+    expect(figures().props.room).toBeUndefined();
     const box = tree.root.find(
       node =>
         typeof node.type === 'string' && node.props.testID === 'home-hero',
@@ -978,7 +982,7 @@ describe('the hero', () => {
         nativeEvent: { layout: { x: 0, y: 120, width: 200, height: 88 } },
       }),
     );
-    expect(tree.root.findByType(Odometer).props.room).toBe(200);
+    expect(figures().props.room).toBe(200);
     await act(async () => tree.unmount());
   });
 

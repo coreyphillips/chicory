@@ -11,6 +11,7 @@ import {
 import type { EntryExitAnimationFunction } from 'react-native-reanimated';
 import { motionReduced } from '../services/motion';
 import { riseIn } from './presets';
+import { steady } from './steady';
 import { curves, durations, shake, springs } from './tokens';
 import { useMotionPrefs } from './useMotionPrefs';
 
@@ -62,7 +63,8 @@ export function useShake() {
 
 /**
  * Something that arrives as a whole, such as a chip: it pops into place,
- * `delay` ms after it mounts.
+ * `delay` ms after it mounts, counted on a steady clock (`steady`), so a
+ * slow first frame spends none of it.
  */
 export function popIn(from = 0.85, delay = 0): EntryExitAnimationFunction {
   if (motionReduced()) return riseIn(0);
@@ -71,14 +73,18 @@ export function popIn(from = 0.85, delay = 0): EntryExitAnimationFunction {
     return {
       initialValues: { opacity: 0, transform: [{ scale: from }] },
       animations: {
-        opacity: withDelay(
-          delay,
-          withTiming(1, {
-            duration: durations.enter,
-            easing: curves.enter,
-          }),
+        opacity: steady(
+          withDelay(
+            delay,
+            withTiming(1, {
+              duration: durations.enter,
+              easing: curves.enter,
+            }),
+          ),
         ),
-        transform: [{ scale: withDelay(delay, withSpring(1, springs.reveal)) }],
+        transform: [
+          { scale: steady(withDelay(delay, withSpring(1, springs.reveal))) },
+        ],
       },
     };
   };

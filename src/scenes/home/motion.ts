@@ -1,7 +1,12 @@
 import { ReduceMotion } from 'react-native-reanimated';
 import type { WithTimingConfig } from 'react-native-reanimated';
 import { curves } from '../../motion/tokens';
-import { HERO_MINI, MINI_STRIP, STATUS_ROW } from '../../stage/layout';
+import {
+  HERO_MINI,
+  MINI_STRIP,
+  PRIMARY_CONTROL,
+  STATUS_ROW,
+} from '../../stage/layout';
 
 /**
  * Home's motion as plain arithmetic, so each pose is a table test and the
@@ -133,10 +138,13 @@ export function rowBack(bar: number, before: number | null): boolean {
   return bar >= 1 || (before !== null && bar < before);
 }
 
-/** The Send and Receive circles are 56pt; the scene's hold control is 88. */
-const LAUNCH_GROWTH = 88 / 56 - 1;
+/** The Send and Receive circles are 56pt; the scene's own control is 88. */
+const LAUNCH_GROWTH = PRIMARY_CONTROL / 56 - 1;
 
-/** How far the tapped circle drops toward the bottom as it goes. */
+/**
+ * How far the tapped circle drops toward the bottom as it goes, when where
+ * it lands is not known, as when Home is drawn off the canvas.
+ */
 export const LAUNCH_DROP = 96;
 
 /** A circle's pose in the action row. */
@@ -154,6 +162,25 @@ const clamp01 = (x: number) => {
 };
 
 /**
+ * How far from the mini strip, in `hero`, the hero hands over to the strip's
+ * own figures: over the last stretch of the way, where the two are all but
+ * the same size.
+ */
+const STRIP_SWAP = 0.15;
+
+/**
+ * The opacity of the mini strip's own figures at `hero`: none at home, whole
+ * in the strip. The hero, scaled to a third, would draw its unit at 5pt,
+ * too small to read, so the strip draws the balance again at a size of its
+ * own, its unit at 15pt (REDESIGN.md 3.3), and the two crossfade as the
+ * hero lands. The hero's own figures take the rest.
+ */
+export function stripOpacity(hero: number): number {
+  'worklet';
+  return clamp01(1 - hero / STRIP_SWAP);
+}
+
+/**
  * How much of the way the circles not tapped have faded by: two thirds,
  * which the pane spring reaches at about 140ms (REDESIGN.md 7, T1).
  */
@@ -167,41 +194,52 @@ const HANDOVER = 0.3;
  * to 1 once it has gone. With nothing launching it is the row's own fade,
  * which the sheet's drag shapes (T5). On the way to Send or Receive the
  * circles not tapped are gone within 140ms (T1), and the tapped one stays
- * whole while it travels and grows, handing over to the scene's own control
- * over the last 30%. Coming back, each comes in the same way in reverse.
+ * whole while it travels and grows. On the canvas it stays whole where it
+ * lands, standing in for the scene's own control, until `handover` (0 to 1)
+ * says the control has come in over it; drawn on its own it hands over
+ * across the last 30% of the way. Coming back, each comes in the same way
+ * in reverse.
  */
 export function circleOpacity(
   away: number,
   tapped: boolean,
   launch: Launch,
+  handover?: number,
 ): number {
   'worklet';
   if (launch === 'none') return clamp01(1 - away);
-  if (tapped) return clamp01((1 - away) / HANDOVER);
+  if (tapped) {
+    return handover === undefined
+      ? clamp01((1 - away) / HANDOVER)
+      : clamp01(1 - handover);
+  }
   return clamp01(1 - away / OTHERS_GONE);
 }
 
 /**
  * One circle of the action row while the row fades on the way to Send or
  * Receive (REDESIGN.md 7, T1 and T2). `away` runs from 0 at home to 1 once
- * the row has gone. The tapped circle grows toward the scene's 88pt control
- * as it travels to the bottom centre, `toCentre` points across and a drop
- * down; the others shrink to .8, done by the time the row is half gone. With
- * nothing launching the row is at rest.
+ * the row has gone. The tapped circle travels to the bottom centre, where
+ * the scene draws its own 88pt control, `toCentre` points across and `drop`
+ * points down, and grows from 56 to 88 into it; the others shrink to .8,
+ * done by the time the row is half gone. With nothing launching the row is
+ * at rest.
  */
 export function launchPose(
   away: number,
   tapped: boolean,
   launch: Launch,
   toCentre = 0,
+  drop?: number,
 ): CirclePose {
   'worklet';
   if (launch === 'none') return AT_REST;
   if (tapped) {
+    // Read in the body, where the worklet captures it (see tintTiming).
     return {
       scale: 1 + LAUNCH_GROWTH * away,
       translateX: toCentre * away,
-      translateY: LAUNCH_DROP * away,
+      translateY: (drop ?? LAUNCH_DROP) * away,
     };
   }
   return {

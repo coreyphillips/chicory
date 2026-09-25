@@ -58,8 +58,11 @@ const DELAY_MS = 400;
 const SHOWN_MS = 2400;
 /** Between the pill and what it speaks for. */
 const GAP = space.xs;
-/** The pill never comes closer than this to the screen's edge. */
-const EDGE = space.md;
+/**
+ * The pill never comes closer than this to the screen's edge: the page edge
+ * (REDESIGN.md 3.4), where everything else on the page stops too.
+ */
+const EDGE = space.xl;
 
 /** A rectangle in the window's coordinates. */
 export interface Anchor {
@@ -165,7 +168,15 @@ function Pill({
       onLayout={onLayout}
       style={[styles.pill, { maxWidth: bounds - 2 * EDGE }, style]}
     >
-      <Text style={styles.text}>{label}</Text>
+      {/* Balanced lines, so a short last word is never left alone on its
+          own line. */}
+      <Text
+        style={styles.text}
+        lineBreakStrategyIOS="standard"
+        textBreakStrategy="balanced"
+      >
+        {label}
+      </Text>
     </Reanimated.View>
   );
 }
