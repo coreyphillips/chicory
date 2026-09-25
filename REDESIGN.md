@@ -747,10 +747,20 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
   - `usePaneActive()`: whether the pane a component is drawn in is in use. It is true outside any pane.
   - `usePanes()`: the canvas's shared values: `seam` (the sheet's top edge in points), `hero` (0 is the mini strip, 1 the full balance), `bar` (the action row's opacity), `cover` (0 to 1 as Settings covers the canvas), and `stops`.
 - **Rules for anything drawn on the canvas.**
+
   - A control in a pane passes its handlers (`onPress`, `onLongPress`, `onChangeText`, `onAccessibilityAction`) only while `usePaneActive()` is true. `Button`, `IconButton` and `Chip` take no touches without an `onPress`.
   - Panes stay mounted and only move. Scene content in a slot is keyed by the scene's key and enters with `sceneIn` and leaves with `sceneOut`; Settings slides with `slideIn` and `slideOut`.
   - The stage actions are taps. A tap is refused while a pane moves, and otherwise starts the panes in its own tick. `setBusy`, the session's `tab` and `reset`, and payment links never wait on the lock. Android back is swallowed while a pane moves.
   - `SceneSlot` takes `offset`, how far below the top of the safe area its parent starts, so a lower slot still clears the keyboard.
+
+- **Regions.** The canvas places the regions, activates the panes and runs the motion; what each region draws lives with its scene under `src/scenes`. Each takes typed props (`snapshot`, `client`, the subset of `CanvasSession` it uses, `view`, `stale`, `backup`) and reads the stage actions from `useStage()`:
+  - `scenes/home/StatusRow` (with `RefreshFailed`, the refresh notice Home still writes), `scenes/home/HomePane` (`hero` scales the balance, `bar` fades only the action row);
+  - `scenes/activity/SheetPane` (the grip at home, the one Activity list);
+  - `scenes/detail/DetailLayer` (the `DetailCard` in the slot at the compact stop);
+  - `scenes/send/SendScene` and `scenes/receive/ReceiveScene` (in the top slot, arriving through `panes/Arriving`);
+  - `scenes/settings/SettingsLayer`, whose root carries the copy guard's marker, `testID="scene-settings"`. `SettingsScreen` takes `backupPending` and `onBackupSaved` for the recovery phrase flow.
+- **Backup.** A pending backup reaches the regions as data, `backup: { pending, loadPhrase, onSaved } | null`, never as a rendered node. `scenes/shared/BackupBanner` draws it as the old screens did until Home and Settings replace it.
+- **Responders.** `useSceneBack(handler, active)` and `usePhaseBack(handler)` from `StageContext` answer Android back (2.2). `useScanReceiver(receiver, active)` takes a code scanned for the Send already open (2.3).
 
 ### 10.2 Glyphs and layers
 
@@ -778,3 +788,19 @@ The amount keypad (`src/scenes/keypad`) replaces the system keyboard for amounts
 - **Backspace.** A button labelled `copy.keypad.backspace`, "Delete last digit", with the hint `copy.keypad.backspaceHint`. `enterAmount` presses it until the amount reads empty, at most 16 times.
 - **The amount.** Stays labelled `copy.amount.field`, "Amount in sats", and carries its digits in `accessibilityValue.text` (for example "4,200 sats"). An amount showing only zeros counts as empty.
 - **Presets** stay chips labelled with the amount alone, as `copy.amount.preset` formats it.
+
+## 11. Track ownership
+
+The parallel tracks each edit only the files they own, so they never touch the same file and merge without conflicts. A track that needs a shared file changed asks the integrator instead of editing it. Each track adds the states it redraws to its own guard file under `__tests__/guards`, drawn from `test-support/fixtures.ts`, and its words to its own file under `src/design/copy/`.
+
+- Shared (integrator only, no track edits): `App.tsx`, `src/stage/{Canvas,Stage,StageContext,scene,phase,layout,useBackHandler,useScanReceiver}.ts(x)`, `src/stage/panes/**`, `src/motion/**`, `src/design/{palette,glyphs,glyphLengths,haptics,announce}.ts(x)`, `src/design/copy/{index,shared}.ts`, `src/theme.ts`, `src/components/ui.tsx`, `src/screens/{Wallet,Payments}.tsx` (re-export shims), `test-support/**`, `jest.setup.js`, `.eslintrc.js`, `__tests__/{LabelContract,CopyGuard,A11yCoverage,StorageContract,SceneReducer,Phase,BackNavigation,ScanOverlay}.test.*`
+- A Glyph motion: `src/glyphs/{Bloom,Odometer,Vessel,PulseDot,StatusRing,Whisper}.tsx` and their tests.
+- B Home: `src/scenes/home/**`, `src/screens/wallet/Home.tsx`, `src/scenes/shared/BackupBanner.tsx`, `src/stage/useIncoming.ts` (new), `src/design/copy/home.ts`, `__tests__/guards/home.test.tsx`.
+- C Activity and detail: `src/scenes/activity/**`, `src/scenes/detail/**`, `src/screens/wallet/{Activity,Detail}.tsx`, `src/stage/layers/DetailCard.tsx`, `src/stage/useStableActivity.ts` (new), `src/design/copy/{activity,detail}.ts`, `__tests__/guards/{activity,detail}.test.tsx`.
+- D Send: `src/scenes/send/**`, `src/scenes/keypad/**` (new), `src/screens/Send.tsx`, `src/components/AmountField.tsx`, `src/glyphs/{HoldButton,ExpiryRing}.tsx`, `src/stage/heldRequests.ts` (new), `src/design/copy/send.ts`, `__tests__/guards/send.test.tsx`.
+- E Receive: `src/scenes/receive/**`, `src/screens/Receive.tsx`, `src/components/{ReceiveReceipt,ReceiveRequestDetails,CopyValue,Toast}.tsx`, `src/glyphs/{QrBloom,CopyChip}.tsx`, `src/design/copy/receive.ts`, `__tests__/guards/receive.test.tsx`.
+- F Scan: `src/stage/layers/ScanReveal.tsx`, `src/components/Scanner.tsx`, `src/design/copy/scan.ts`, `__tests__/guards/scan.test.tsx`.
+- G Phases: `src/scenes/phases/**`, `ios/chicory/LaunchScreen.storyboard`, the Android launch background resources, `src/design/copy/phases.ts`, `__tests__/guards/phases.test.tsx`, `__tests__/NativeCopy.test.ts` (new).
+- H Settings: `src/scenes/settings/**`, `src/screens/{Settings,NetworkSettings,DeviceSetup}.tsx`, `src/components/RecoveryPhrase.tsx`, `src/stage/layers/CreateSheet.tsx`, `src/services/hapticsPreference.ts` (new), `src/design/copy/settings.ts`, `__tests__/guards/settings.test.tsx`.
+- Any other source file not named above is shared: a track that needs it changed asks the integrator.
+- Existing test suites are edited by the track whose surface they exercise; where two tracks must edit the same suite, each edits only the tests (it blocks) for its own surface.
