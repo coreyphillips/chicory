@@ -56,6 +56,7 @@ export function ReceiveScreen({
   onActivity,
   onRefresh,
   onBusy,
+  completionsFelt = false,
 }: {
   client: WalletAdapter;
   receivableSats?: number;
@@ -73,6 +74,14 @@ export function ReceiveScreen({
   onActivity: () => void;
   onRefresh?: () => void;
   onBusy: (busy: boolean) => void;
+  /**
+   * Set where each payment that completes is felt elsewhere, as the canvas
+   * feels it once for every region when the wallet reads it (`useIncoming`,
+   * REDESIGN.md 10.1). Receive then leaves a completed payment to that, and
+   * feels only what the wallet's history does not show as arrived: money
+   * seen on its way, or part of what was asked.
+   */
+  completionsFelt?: boolean;
 }) {
   const { useBack } = useReceiveHost();
   const live = usePaneActive();
@@ -185,7 +194,7 @@ export function ReceiveScreen({
   const night = request ? !!request.offlineReceive && !face?.expired : offline;
   useHoldTint(night ? 'night' : null);
 
-  useArrival(receipt, request);
+  useArrival(receipt, request, completionsFelt);
   useWarning(!!face?.expired && !receipt && !tracking?.ambiguous, () => {
     announce(copy.receive.expired, { assertive: true });
     recordDiagnostic({ phase: 'ui', message: copy.receive.expired });
@@ -473,11 +482,13 @@ export function ReceiveScreen({
 /**
  * Money arriving (REDESIGN.md 3.6 and 5): the incoming haptic the first time
  * a request sees any, a success when it completes after that, and each new
- * phase said to a screen reader.
+ * phase said to a screen reader. Where completions are felt elsewhere, a
+ * payment completing is left to that, so one arrival is felt once.
  */
 function useArrival(
   receipt: ReceiveStatus | null,
   request: ReceiveRequest | null,
+  completionsFelt: boolean,
 ) {
   const heard = useRef<{
     request: ReceiveRequest | null;
@@ -489,8 +500,11 @@ function useArrival(
     const first = last.request !== request;
     if (!first && last.phase === receipt.phase) return;
     heard.current = { request, phase: receipt.phase };
-    if (first) haptics.incoming();
-    else if (receipt.phase === 'completed') haptics.success();
+    const completed = receipt.phase === 'completed';
+    if (!(completed && completionsFelt)) {
+      if (first) haptics.incoming();
+      else if (completed) haptics.success();
+    }
     announce(
       receipt.phase === 'completed'
         ? copy.receive.received
@@ -498,7 +512,7 @@ function useArrival(
         ? copy.receive.partial
         : copy.receive.detected,
     );
-  }, [receipt, request]);
+  }, [receipt, request, completionsFelt]);
 }
 
 /**

@@ -1,11 +1,15 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { AccessibilityInfo, AppState } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
+import { DemoWalletClient } from '@beignet/wallet-core';
 import type {
+  Activity,
   ReceiveQuote,
   ReceiveRequest,
   ReceiveStatus,
+  WalletSnapshot,
 } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
 import { Glyph } from '../../../design/glyphs';
@@ -14,9 +18,12 @@ import { palette } from '../../../design/palette';
 import * as tokens from '../../../motion/tokens';
 import { ReceiveScreen } from '../../../screens/Receive';
 import type { WalletAdapter } from '../../../services/wallet';
+import { Canvas, useCanvasView } from '../../../stage/Canvas';
+import { StageProvider, useStageStore } from '../../../stage/StageContext';
+import type { StageStore } from '../../../stage/StageContext';
 import { mount } from '../../../../test-support/guard';
 import { enterAmount } from '../../../../test-support/keypad';
-import { alerts, find } from '../../../../test-support/query';
+import { alerts, find, meaning } from '../../../../test-support/query';
 import { Unplugged } from '../../send/LoopingGlyphs';
 import { Spin } from '../loops';
 
@@ -307,6 +314,202 @@ describe('the primary node away', () => {
     expect(warning).not.toHaveBeenCalled();
     expect(shakes).toHaveBeenCalledTimes(1);
     expect(marks(tree)).toEqual({ bangs: 1, unplugs: [] });
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('money arriving with Receive open on the canvas', () => {
+  const HASH = 'ab'.repeat(32);
+  /** The request as the wallet's history lists it until it is paid. */
+  const asked: Activity = {
+    id: `payment:${HASH}`,
+    kind: 'request',
+    title: 'Payment request',
+    description: '',
+    amountSats: 1000,
+    feeSats: 0,
+    status: 'pending',
+    timestamp: Date.now(),
+    reference: HASH,
+    paymentHash: HASH,
+  };
+  /** The same payment, paid over Lightning. */
+  const paidAsked: Activity = {
+    ...asked,
+    kind: 'received',
+    status: 'completed',
+  };
+  /** A Bitcoin payment to the request's address, seen or confirmed. */
+  const onChain = (status: Activity['status']): Activity => ({
+    id: 'transaction:tx-one',
+    kind: 'received',
+    title: 'Bitcoin received',
+    description: '',
+    amountSats: 1000,
+    feeSats: 0,
+    status,
+    timestamp: Date.now(),
+    reference: 'tx-one',
+    txid: 'tx-one',
+  });
+  const base: WalletSnapshot = {
+    wallet: {
+      id: 'w',
+      name: 'Everyday',
+      network: 'mainnet',
+      status: 'running',
+    },
+    balance: {
+      totalSats: 261_500,
+      availableSats: 250_000,
+      pendingSats: 0,
+      receivableSats: 100_000,
+    },
+    activity: [asked],
+    primary: { uri: 'node', connected: true, setup: 'ready' },
+    notes: [],
+    updatedAt: Date.now(),
+    demo: false,
+  };
+
+  let stage!: StageStore;
+
+  /**
+   * The canvas on a wallet whose every read lists `read()`: a refresh is a
+   * new read, as the session makes one.
+   */
+  function OnCanvas({
+    client,
+    read,
+  }: {
+    client: WalletAdapter;
+    read: () => Activity[];
+  }) {
+    stage = useStageStore();
+    const view = useCanvasView();
+    const [snapshot, setSnapshot] = useState(base);
+    const session = useMemo<React.ComponentProps<typeof Canvas>['session']>(
+      () => ({
+        error: '',
+        switchError: '',
+        refreshing: false,
+        connecting: false,
+        refresh: async () =>
+          setSnapshot(last => ({
+            ...last,
+            updatedAt: last.updatedAt + 1,
+            activity: read(),
+          })),
+        manualRefresh: jest.fn(),
+        disconnect: jest.fn(),
+        chooseWallet: jest.fn(),
+        switchNetwork: jest.fn(),
+        eraseDevice: jest.fn(),
+      }),
+      [read],
+    );
+    return (
+      <GestureHandlerRootView>
+        <StageProvider value={stage}>
+          <Canvas
+            scene={stage.state.scene}
+            overlay={stage.state.overlay}
+            client={client}
+            snapshot={snapshot}
+            session={session}
+            stale={false}
+            backup={null}
+            view={view}
+          />
+        </StageProvider>
+      </GestureHandlerRootView>
+    );
+  }
+
+  /** A wallet that answers Receive from `status` and the rest as a demo. */
+  const walletOf = (status: () => ReceiveStatus) =>
+    Object.assign(Object.create(new DemoWalletClient()), {
+      quoteReceive: jest.fn().mockResolvedValue(quoteOf()),
+      receive: jest.fn().mockResolvedValue(requestOf()),
+      getReceiveStatus: jest.fn(async () => status()),
+    }) as WalletAdapter;
+
+  /** Receive open on the canvas, with a request made. */
+  async function requested(client: WalletAdapter, read: () => Activity[]) {
+    const tree = await mount(<OnCanvas client={client} read={read} />);
+    await act(async () => stage.actions.openReceive());
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    await toRequest(tree);
+    return tree;
+  }
+
+  /** Two polls of the request's status, and the reads they ask for. */
+  const polls = async () => {
+    for (let i = 0; i < 2; i++) {
+      await act(async () => {
+        jest.advanceTimersByTime(2100);
+      });
+    }
+  };
+
+  test('a Lightning payment is felt once, as the wallet reads it', async () => {
+    let paid = false;
+    const client = walletOf(() =>
+      paid
+        ? {
+            phase: 'completed',
+            receivedSats: 1000,
+            confirmedSats: 1000,
+            pendingSats: 0,
+            txids: [],
+            method: 'lightning',
+          }
+        : waiting,
+    );
+    const incoming = jest.spyOn(haptics, 'incoming');
+    const success = jest.spyOn(haptics, 'success');
+    const tree = await requested(client, () => [paid ? paidAsked : asked]);
+    expect(incoming).not.toHaveBeenCalled();
+    paid = true;
+    await polls();
+    expect(meaning(tree)).toContain(copy.receive.received);
+    expect(incoming).toHaveBeenCalledTimes(1);
+    expect(success).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('on chain, money seen is felt as it is seen, and once more as it confirms', async () => {
+    let now: 'waiting' | 'seen' | 'confirmed' = 'waiting';
+    const client = walletOf(() =>
+      now === 'waiting'
+        ? waiting
+        : {
+            phase: now === 'seen' ? 'pending' : 'completed',
+            receivedSats: 1000,
+            confirmedSats: now === 'seen' ? 0 : 1000,
+            pendingSats: now === 'seen' ? 1000 : 0,
+            txids: ['tx-one'],
+            method: 'bitcoin',
+          },
+    );
+    const incoming = jest.spyOn(haptics, 'incoming');
+    const success = jest.spyOn(haptics, 'success');
+    const tree = await requested(client, () =>
+      now === 'waiting'
+        ? [asked]
+        : [asked, onChain(now === 'seen' ? 'pending' : 'completed')],
+    );
+    now = 'seen';
+    await polls();
+    expect(meaning(tree)).toContain(copy.receive.detected);
+    expect(incoming).toHaveBeenCalledTimes(1);
+    now = 'confirmed';
+    await polls();
+    expect(meaning(tree)).toContain(copy.receive.received);
+    expect(incoming).toHaveBeenCalledTimes(2);
+    expect(success).not.toHaveBeenCalled();
     await act(async () => tree.unmount());
   });
 });
