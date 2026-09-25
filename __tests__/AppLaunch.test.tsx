@@ -6,6 +6,8 @@ import App from '../App';
 import * as DeviceWallet from '../src/embedded/client';
 import { DemoWalletClient, EmbeddedWalletClient } from '@beignet/wallet-core';
 import { defaultPreferences } from '../src/services/networks';
+import { WhisperProvider } from '../src/glyphs/Whisper';
+import { LockScreen } from '../src/scenes/phases/Locked';
 
 const SESSION = 'com.beignet.wallet.last-session';
 const LOCK = 'com.beignet.wallet.lock';
@@ -16,7 +18,10 @@ function strings(children: unknown, out: string[] = []): string[] {
     out.push(String(children));
   else if (Array.isArray(children)) children.forEach(c => strings(c, out));
   else if (children && typeof children === 'object')
-    strings((children as { props?: { children?: unknown } }).props?.children, out);
+    strings(
+      (children as { props?: { children?: unknown } }).props?.children,
+      out,
+    );
   return out;
 }
 const text = (tree: ReactTestRenderer) =>
@@ -95,6 +100,10 @@ test('an enabled lock holds the wallet back until it is unlocked', async () => {
     // The lock screen shows, and nothing about the wallet is on it.
     expect(text(tree)).toContain('Locked');
     expect(text(tree)).not.toContain('My saved wallet');
+    // A long press can summon a whisper here too.
+    expect(
+      tree.root.findByType(WhisperProvider).findAllByType(LockScreen),
+    ).toHaveLength(1);
     // Crucially the vault is never opened, so no engine runs for someone who
     // has not authenticated.
     expect(opened).not.toHaveBeenCalled();
@@ -141,7 +150,9 @@ test('with no lock set the app opens straight into its wallet', async () => {
       locked: false,
     }),
   );
-  jest.spyOn(DeviceWallet, 'openDeviceWallet').mockResolvedValue(deviceClient());
+  jest
+    .spyOn(DeviceWallet, 'openDeviceWallet')
+    .mockResolvedValue(deviceClient());
   jest
     .spyOn(DeviceWallet, 'loadDevicePreferences')
     .mockResolvedValue(defaultPreferences());

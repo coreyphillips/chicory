@@ -78,13 +78,18 @@ export function Stage({
   );
   const enter = useEnter(phase.kind);
 
+  // The whisper pill is drawn above every phase and the canvas alike, the
+  // lock included, from the window's own origin, so it lands where the
+  // finger is.
   if (phase.kind === 'locked') {
     return (
-      <LockScreen
-        prompting={phase.prompting}
-        error={phase.error}
-        onUnlock={onUnlock}
-      />
+      <WhisperProvider>
+        <LockScreen
+          prompting={phase.prompting}
+          error={phase.error}
+          onUnlock={onUnlock}
+        />
+      </WhisperProvider>
     );
   }
 
@@ -212,9 +217,10 @@ export function Stage({
       break;
   }
 
-  // Drawn once, here, above every phase. A phase change under it never
-  // remounts it, so a new wallet's phrase that has not been saved yet cannot
-  // be lost to one.
+  // Drawn once, here, above every phase but the lock. A change between those
+  // phases never remounts it, so a new wallet's phrase that has not been
+  // saved yet is not lost to one. Locking the app does unmount it, as on
+  // main: nothing of a wallet stays drawn under the lock.
   const overlay = state.overlay;
   const creating =
     overlay?.name === 'create' && client ? (
@@ -226,8 +232,6 @@ export function Stage({
         onCreated={wallet => session.selectWallet(wallet, true)}
       />
     ) : null;
-  // The whisper pill is drawn above every phase and the canvas alike, from
-  // the window's own origin, so it lands where the finger is.
   return (
     <WhisperProvider>
       <StatusBar barStyle="light-content" />
