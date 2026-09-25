@@ -457,6 +457,10 @@ const GUARDED: GuardedState[] = [
     receive(clientOf(), [...toRequest, tap(copy.receive.qr)]),
   ),
   state(
+    'a request copied',
+    receive(clientOf(), [...toRequest, tap(copy.receive.copy)]),
+  ),
+  state(
     'a request expired',
     receive(clientOf({ request: made({ expiresAt: NOW + MINUTE }) }), [
       ...toRequest,
@@ -522,6 +526,19 @@ const GUARDED: GuardedState[] = [
 
   // A request as a payment's detail keeps it.
   detail('a detail, awaiting payment', payments['request pending']),
+  detail('a detail, copied', payments['request pending'], [
+    tap(copy.receive.copyOriginal),
+  ]),
+  detail('a detail, for any amount', payments['request for any amount']),
+  detail('a detail, offline', payments['request offline']),
+  detail('a detail, part of it here', payments['request partly paid']),
+  detail('a detail, over Lightning only', {
+    ...payments['request pending'],
+    receiveRequest: requestOf(
+      { address: undefined, bitcoinTracking: 'lightning-only' },
+      20,
+    ),
+  }),
   detail('a detail, expired', payments['request expired']),
   detail('a detail, paid', payments['request paid']),
   detail('a detail, reused address', payments['request with a reused address']),
