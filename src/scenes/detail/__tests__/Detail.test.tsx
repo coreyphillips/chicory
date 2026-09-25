@@ -15,6 +15,7 @@ import { DemoWalletClient } from '@beignet/wallet-core';
 import type { Activity } from '@beignet/wallet-core';
 import { forgetSpoken } from '../../../design/announce';
 import { copy } from '../../../design/copy';
+import { Glyph } from '../../../design/glyphs';
 import { haptics } from '../../../design/haptics';
 import { palette } from '../../../design/palette';
 import { CopyChip } from '../../../glyphs/CopyChip';
@@ -196,12 +197,22 @@ describe('the detail', () => {
     await act(async () => tree.unmount());
   });
 
-  test('copies each reference once, each with a glyph for what it is', async () => {
+  test('copies each reference once, each led by a glyph for what it is', async () => {
     const chips = async (item: Activity) => {
       const tree = await render(<DetailScreen item={item} />);
-      const found = tree.root
-        .findAllByType(CopyChip)
-        .map(chip => [chip.props.label, chip.props.glyph]);
+      const found = tree.root.findAllByType(CopyChip).map(chip => {
+        // The chip keeps its copy glyph, so it shows that it copies; the
+        // glyph before it on its line says what the value is.
+        expect(chip.props.glyph ?? 'copy').toBe('copy');
+        // The glyph is memoized; the test renderer sees the one inside.
+        const drawn = (Glyph as unknown as { type: React.ComponentType }).type;
+        const own = chip.findAllByType(drawn);
+        const leads = (node: ReactTestInstance) =>
+          node.findAllByType(drawn).filter(glyph => !own.includes(glyph));
+        let line = chip.parent!;
+        while (!leads(line).length) line = line.parent!;
+        return [chip.props.label, leads(line)[0].props.name];
+      });
       await act(async () => tree.unmount());
       return found;
     };

@@ -54,7 +54,8 @@ const TONES: Record<AmountVisual['tone'], string> = {
  * A payment's detail (REDESIGN.md 6, Detail): its ring at 96pt with the kind
  * glyph, the amount at 40pt, then a line for each thing known about it, each
  * led by a glyph (when, the rail and its fee, the note), and a chip for each
- * reference it can copy. A request's receipt and the request itself follow,
+ * reference it can copy, led by the glyph of what it is, with the chip's own
+ * copy glyph in it. A request's receipt and the request itself follow,
  * as Receive draws them. Opened from a row on the canvas, the ring and the
  * amount fly out of that row into place (T4).
  *
@@ -264,13 +265,15 @@ export function DetailScreen({
       ) : null}
       {chips.length ? (
         <Reanimated.View entering={lineIn(line++)} style={styles.chips}>
+          {/* Led by a glyph for what the value is, like the lines above,
+              each in a chip that hugs it and shows it copies. */}
           {chips.map(chip => (
-            <CopyChip
-              key={chip.label}
-              label={chip.label}
-              value={chip.value}
-              glyph={chip.glyph}
-            />
+            <View key={chip.label} style={styles.line}>
+              <Glyph name={chip.glyph} size={20} color={palette.dust} />
+              <View style={styles.chip}>
+                <CopyChip label={chip.label} value={chip.value} />
+              </View>
+            </View>
           ))}
         </Reanimated.View>
       ) : null}
@@ -353,4 +356,6 @@ const styles = StyleSheet.create({
   note: { flex: 1, color: palette.steam },
   dim: { color: palette.dust },
   chips: { gap: space.xs },
+  // Its content's width, and no wider than the line leaves it.
+  chip: { flexShrink: 1 },
 });
