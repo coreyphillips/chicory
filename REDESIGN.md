@@ -701,6 +701,8 @@ Release on velocity over 800pt/s, or past 40% going up or 25% going down. Rubber
 
 **R-6, live to closing, switching or erasing.** The sheet drops, the digits roll out, and the mark flies to center.
 
+**How the canvas builds.** The stage tells the canvas how it arrives (`arrival`: `unlock`, `load` or `reconnect`, from the phase before the wallet's), and the canvas plays the build once, as it mounts, from `buildBeats(arrival)` in `stage/layout.ts`: the hero's beat is 600ms after an unlock, when the bud has unfolded, and 80ms after a load or a reconnect; the sheet follows 50ms later, the actions 100ms later and 50ms apart, the rows 150ms later and 30ms apart. The parts read the build with `useBuild()` from `stage/panes/Build` as they mount. The hero holds 0, unseen, until its beat, then fades up as it counts to the balance (its label always says the balance); the vessel draws out from its middle; the sheet rises from past the bottom edge on the pane spring; a reconnect bursts the mark and plays a success haptic. The build counts as a transition, so focus and safety messages wait for it. Leaving, the sheet drops away past the bottom edge and the figures drop and fade; the lock alone takes the canvas away with no exits. Under Reduce Motion every part crossfades in within 160ms and the hero does not count.
+
 ## 8. Reduced motion
 
 - Movement through space becomes a crossfade of 160ms or less, and loops become static states. The panes do not travel: the sheet and the balance fade out over the first 80ms, jump to their new place unseen, and fade back in over the next 80ms.

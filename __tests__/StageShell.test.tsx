@@ -13,6 +13,7 @@ import { LockScreen } from '../src/scenes/phases/Locked';
 import { SETTINGS_SURFACE } from '../src/scenes/settings/ui';
 import { defaultProfile } from '../src/services/networks';
 import type { useWalletSession } from '../src/services/useWalletSession';
+import { Canvas } from '../src/stage/Canvas';
 import { BackupPanel } from '../src/stage/layers/BackupPanel';
 import { CreateSheet } from '../src/stage/layers/CreateSheet';
 import { SceneSlot } from '../src/stage/panes/SceneSlot';
@@ -157,6 +158,28 @@ describe('the lock', () => {
     ).toHaveLength(0);
     await act(async () => tree.unmount());
   });
+});
+
+test.each([
+  ['over the opening lock', LOCKED, 'unlock'],
+  ['from loading', LOADING, 'load'],
+  ['back from offline', OFFLINE, 'reconnect'],
+] as const)('the canvas knows it arrives %s', async (_how, from, arrival) => {
+  const idle = sessionOf({ rememberedSession: null });
+  const tree = await mount(<Staged phase={from} session={idle} />);
+  await act(async () =>
+    tree.update(
+      <Staged
+        phase={{ kind: 'wallet', error: '' }}
+        session={sessionOf({
+          rememberedSession: null,
+          snapshot: snapshotOf(),
+        })}
+      />,
+    ),
+  );
+  expect(tree.root.findByType(Canvas).props.arrival).toBe(arrival);
+  await act(async () => tree.unmount());
 });
 
 test('the new wallet sheet slides in over the phase and back out', async () => {

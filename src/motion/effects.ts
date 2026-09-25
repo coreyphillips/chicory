@@ -60,19 +60,25 @@ export function useShake() {
   return { style, tint, play };
 }
 
-/** Something that arrives as a whole, such as a chip: it pops into place. */
-export function popIn(from = 0.85): EntryExitAnimationFunction {
+/**
+ * Something that arrives as a whole, such as a chip: it pops into place,
+ * `delay` ms after it mounts.
+ */
+export function popIn(from = 0.85, delay = 0): EntryExitAnimationFunction {
   if (motionReduced()) return riseIn(0);
   return () => {
     'worklet';
     return {
       initialValues: { opacity: 0, transform: [{ scale: from }] },
       animations: {
-        opacity: withTiming(1, {
-          duration: durations.enter,
-          easing: curves.enter,
-        }),
-        transform: [{ scale: withSpring(1, springs.reveal) }],
+        opacity: withDelay(
+          delay,
+          withTiming(1, {
+            duration: durations.enter,
+            easing: curves.enter,
+          }),
+        ),
+        transform: [{ scale: withDelay(delay, withSpring(1, springs.reveal)) }],
       },
     };
   };

@@ -34,6 +34,7 @@ import { CreateSheet } from './layers/CreateSheet';
 import { SceneSlot } from './panes/SceneSlot';
 import { backupPending } from './phase';
 import type { Phase } from './phase';
+import type { Arrival } from './layout';
 import { useBackHandler } from './useBackHandler';
 import { useStage } from './StageContext';
 
@@ -80,6 +81,23 @@ export function Stage({
     [wallets, activeProfile.network],
   );
   const locked = phase.kind === 'locked';
+  // How the canvas arrives, from the phase before the wallet's: over the
+  // opening lock (R-1), back from offline (R-5), or from loading or anything
+  // else (R-3). Kept until the next arrival, so the canvas is told once.
+  const [shown, setShown] = useState(phase.kind);
+  const [arrival, setArrival] = useState<Arrival>('load');
+  if (phase.kind !== shown) {
+    setShown(phase.kind);
+    if (phase.kind === 'wallet') {
+      setArrival(
+        shown === 'locked'
+          ? 'unlock'
+          : shown === 'offline'
+          ? 'reconnect'
+          : 'load',
+      );
+    }
+  }
 
   // A pending backup sits above whatever is showing, the Activity list
   // included, rather than replacing it. Each surface draws it its own way.
@@ -212,6 +230,7 @@ export function Stage({
             stale={stale}
             backup={backup}
             view={view}
+            arrival={arrival}
           />
         ) : null;
       break;

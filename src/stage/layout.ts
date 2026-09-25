@@ -53,6 +53,57 @@ export function veilOpacity(veil: number): number {
 export const PANE_SETTLE_MS = 340;
 
 /**
+ * How the canvas came to be drawn: the lock opening over it (R-1), a wallet
+ * that finished loading (R-3), or one that was offline and answered again
+ * (R-5). Each is a build: the canvas does not appear at rest, it builds in.
+ */
+export type Arrival = 'unlock' | 'load' | 'reconnect';
+
+/**
+ * When each part of the canvas builds in, in ms from the canvas mounting
+ * (REDESIGN.md 7, R-1): the hero counts up from 0, then 50ms later the
+ * sheet rises, 50ms after that the actions pop in 50ms apart, and then the
+ * rows stagger in 30ms apart. After an unlock the bud unfolds first, so the
+ * build waits for it; after a load or a reconnect it starts as the phase
+ * leaves.
+ */
+export const BUILD = {
+  lead: { unlock: 600, load: 80, reconnect: 80 } as Record<Arrival, number>,
+  sheet: 50,
+  actions: 100,
+  actionStep: 50,
+  rows: 150,
+  rowStep: 30,
+  /** How long after the rows begin the build counts as over. */
+  settle: 400,
+};
+
+export interface BuildBeats {
+  hero: number;
+  sheet: number;
+  actions: number;
+  actionStep: number;
+  rows: number;
+  rowStep: number;
+  /** When the whole build has landed. */
+  done: number;
+}
+
+/** The beats of the build for an `arrival`. */
+export function buildBeats(arrival: Arrival): BuildBeats {
+  const hero = BUILD.lead[arrival];
+  return {
+    hero,
+    sheet: hero + BUILD.sheet,
+    actions: hero + BUILD.actions,
+    actionStep: BUILD.actionStep,
+    rows: hero + BUILD.rows,
+    rowStep: BUILD.rowStep,
+    done: hero + BUILD.rows + BUILD.settle,
+  };
+}
+
+/**
  * The stops for a canvas `height` points tall whose top edge sits `top`
  * points below the system status bar's.
  *

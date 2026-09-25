@@ -13,6 +13,8 @@ import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import { haptics } from '../src/design/haptics';
+import { Bloom } from '../src/glyphs/Bloom';
+import { Odometer } from '../src/glyphs/Odometer';
 import { ActionCircle } from '../src/scenes/home/ActionCircle';
 import { Backdrop } from '../src/scenes/home/Backdrop';
 import { HomePane } from '../src/scenes/home/HomePane';
@@ -34,9 +36,10 @@ import {
   SCANNING,
   SCENE_LAYOUT,
   STATUS_ROW,
+  buildBeats,
   stops,
 } from '../src/stage/layout';
-import type { CanvasSceneName } from '../src/stage/layout';
+import type { Arrival, CanvasSceneName } from '../src/stage/layout';
 import { COG_TURN, CornerControl } from '../src/stage/panes/CornerControl';
 import {
   EDGE,
@@ -106,9 +109,11 @@ const client = new DemoWalletClient();
 function OnCanvas({
   backup = null,
   read = snapshot,
+  arrival,
 }: {
   backup?: Backup | null;
   read?: WalletSnapshot;
+  arrival?: Arrival;
 }) {
   stage = useStageStore();
   const view = useCanvasView();
@@ -124,6 +129,7 @@ function OnCanvas({
           stale={false}
           backup={backup}
           view={view}
+          arrival={arrival}
         />
       </StageProvider>
     </GestureHandlerRootView>
@@ -309,6 +315,92 @@ describe('the tint channel', () => {
     await act(async () => stage.tint.flash('sage'));
     await act(async () => stage.tint.flash('radish'));
     expect(stage.tint.read().flash).toEqual({ tint: 'radish', key: 2 });
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('the canvas arriving', () => {
+  /** The view that rises and drops the sheet as the canvas comes and goes. */
+  const sheetLayer = (tree: ReactTestRenderer) =>
+    panes(tree).sheet.parent!.parent!;
+  const figures = (tree: ReactTestRenderer) =>
+    byTestID(tree, 'home-figures')[0];
+
+  test('builds in on its beats: the hero, then the sheet, then the actions', async () => {
+    const beats = buildBeats('unlock');
+    expect(beats).toMatchObject({ hero: 600, sheet: 650, actions: 700 });
+    expect(buildBeats('load').hero).toBeLessThan(beats.hero);
+    const tree = await render(<OnCanvas arrival="unlock" />);
+    expect(sheetLayer(tree).props.entering).toEqual(expect.any(Function));
+    expect(figures(tree).props.entering).toEqual(expect.any(Function));
+    const slots = byTestID(tree, 'home-slot');
+    expect(slots).toHaveLength(3);
+    for (const slot of slots) {
+      expect(slot.props.entering).toEqual(expect.any(Function));
+    }
+    // Each circle its own entrance, one after the other.
+    expect(new Set(slots.map(slot => slot.props.entering)).size).toBe(3);
+    await act(async () => tree.unmount());
+
+    // Drawn without an arrival, as a suite draws it, it is simply there.
+    const still = await render(<OnCanvas />);
+    expect(sheetLayer(still).props.entering).toBeUndefined();
+    expect(figures(still).props.entering).toBeUndefined();
+    for (const slot of byTestID(still, 'home-slot')) {
+      expect(slot.props.entering).toBeUndefined();
+    }
+    await act(async () => still.unmount());
+  });
+
+  test('the hero counts up from 0 on its beat, and always says the balance', async () => {
+    // Hold every beat, as a device would until it falls.
+    const timing = Reanimated.withTiming;
+    jest
+      .spyOn(Reanimated, 'withTiming')
+      .mockImplementation((to, config, done) =>
+        config?.duration === 0 ? to : timing(to, config, done),
+      );
+    const tree = await render(<OnCanvas arrival="load" />);
+    const hero = () => tree.root.findByType(HomeScreen).findByType(Odometer);
+    expect(hero().props.sats).toBe(0);
+    expect(hero().props.accessibilityLabel).toBe(
+      copy.home.totalBalance(261_500, 'sats'),
+    );
+    await act(async () => tree.unmount());
+    jest.restoreAllMocks();
+
+    // Once the beat falls it rolls to the balance.
+    const again = await render(<OnCanvas arrival="load" />);
+    await settle();
+    expect(
+      again.root.findByType(HomeScreen).findByType(Odometer).props.sats,
+    ).toBe(261_500);
+    await act(async () => again.unmount());
+  });
+
+  test('a wallet back from offline bursts its mark with a success', async () => {
+    const success = jest.spyOn(haptics, 'success');
+    const tree = await render(<OnCanvas arrival="reconnect" />);
+    await settle();
+    expect(success).toHaveBeenCalledTimes(1);
+    const mark = tree.root.findByType(StatusRow).findByType(Bloom);
+    expect(mark.props.event?.kind).toBe('burst');
+    await act(async () => tree.unmount());
+
+    success.mockClear();
+    const loaded = await render(<OnCanvas arrival="load" />);
+    await settle();
+    expect(success).not.toHaveBeenCalled();
+    expect(
+      loaded.root.findByType(StatusRow).findByType(Bloom).props.event,
+    ).toBeUndefined();
+    await act(async () => loaded.unmount());
+  });
+
+  test('leaving, the sheet drops away and the figures roll out', async () => {
+    const tree = await render(<OnCanvas />);
+    expect(sheetLayer(tree).props.exiting).toEqual(expect.any(Function));
+    expect(figures(tree).props.exiting).toEqual(expect.any(Function));
     await act(async () => tree.unmount());
   });
 });

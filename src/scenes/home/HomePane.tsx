@@ -1,12 +1,16 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { scheduleOnRN } from 'react-native-worklets';
 import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
 import { haptics } from '../../design/haptics';
+import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { HomeScreen } from '../../screens/wallet/Home';
 import type { RegionProps } from '../../stage/Canvas';
 import { canvasScene } from '../../stage/layout';
+import { useBuild } from '../../stage/panes/Build';
 import { usePanes } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
 import type { Point } from './ActionCircle';
@@ -72,6 +76,29 @@ export function HomePane({
     : 'none';
   if (launching !== launched) setLaunched(launching);
 
+  // As the canvas builds in, the hero counts up from 0 on its beat (R-1):
+  // it holds 0 until then, unseen, and rolls to the balance as it fades
+  // in. A hidden balance, and one under Reduce Motion, simply shows.
+  const { reduced } = useMotionPrefs();
+  const build = useBuild();
+  const [beats] = useState(() => build?.beats);
+  const [counting, setCounting] = useState(
+    () => !!build && !hidden && !reduced,
+  );
+  const counted = useSharedValue(0);
+  useEffect(() => {
+    if (!counting || !beats) return;
+    counted.set(
+      withDelay(
+        beats.hero,
+        withTiming(1, { duration: 0 }, done => {
+          'worklet';
+          if (done) scheduleOnRN(setCounting, false);
+        }),
+      ),
+    );
+  }, [counting, beats, counted]);
+
   const overdue = useOverdue(stale && session.connecting, LIVE_OVERDUE_MS);
   const aged = stale && (!session.connecting || overdue) && !spending;
   useSafetySignal(aged, copy.health.stale, haptics.warning, 'stale');
@@ -119,7 +146,10 @@ export function HomePane({
         hidden={hidden}
         unit={unit}
         stale={stale}
-        heroSats={spending ? snapshot.balance.availableSats : undefined}
+        heroSats={
+          counting ? 0 : spending ? snapshot.balance.availableSats : undefined
+        }
+        build={beats}
         progress={panes}
         launching={launching}
         arrived={arrived}

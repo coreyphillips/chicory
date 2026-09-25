@@ -17,7 +17,9 @@ import { copy } from '../../design/copy';
 import { haptics } from '../../design/haptics';
 import { Odometer } from '../../glyphs/Odometer';
 import { Vessel } from '../../glyphs/Vessel';
-import { curves, durations, springs } from '../../motion/tokens';
+import { popIn } from '../../motion/effects';
+import { drawIn, dropOut, fadeIn } from '../../motion/presets';
+import { curves, durations, overlap, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { ActionCircle } from '../../scenes/home/ActionCircle';
 import type { Point } from '../../scenes/home/ActionCircle';
@@ -33,6 +35,7 @@ import {
 import type { HeroFrame, Launch } from '../../scenes/home/motion';
 import { isTestNetwork } from '../../scenes/home/visual';
 import { veilOpacity } from '../../stage/layout';
+import type { BuildBeats } from '../../stage/layout';
 import type { Panes } from '../../stage/panes/Pane';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { usePrimary } from '../../stage/panes/Primary';
@@ -86,6 +89,7 @@ export function HomeScreen({
   progress,
   launching = 'none',
   arrived = 0,
+  build,
 }: {
   snapshot: WalletSnapshot;
   hidden?: boolean;
@@ -113,6 +117,12 @@ export function HomeScreen({
   launching?: Launch;
   /** A count that rises with each read that brought money in. */
   arrived?: number;
+  /**
+   * The beats of the canvas's build as it arrives (REDESIGN.md 7, R-1 and
+   * R-3), read as Home mounts: the balance fades up as it counts, the
+   * vessel draws, and the actions pop in one after another.
+   */
+  build?: BuildBeats;
 }) {
   // On the canvas, Home stays drawn while other scenes show, so its controls
   // only get their handlers while its pane is the one in use.
@@ -232,6 +242,17 @@ export function HomeScreen({
   const scanLaunch = useLaunchStyle(row, null);
   const receiveLaunch = useLaunchStyle(row, 'receive', receiveAt);
 
+  // How each part enters as the canvas builds in, read once as Home mounts,
+  // and how the figures roll out as it leaves (R-6).
+  const [arrive] = useState(() => ({
+    hero: build ? fadeIn(build.hero) : undefined,
+    vessel: build ? drawIn(build.sheet) : undefined,
+    actions: [0, 1, 2].map(at =>
+      build ? popIn(0.6, build.actions + at * build.actionStep) : undefined,
+    ),
+  }));
+  const [heroOut] = useState(() => dropOut(overlap.rise));
+
   // The width the balance has, which it fits its size to (REDESIGN.md 3.3).
   const [room, setRoom] = useState<number | undefined>(undefined);
   const measureHero = (event: LayoutChangeEvent) => {
@@ -313,27 +334,35 @@ export function HomeScreen({
                   accessibilityElementsHidden
                   importantForAccessibility="no-hide-descendants"
                 >
-                  <Odometer
-                    sats={heroSats ?? balance.totalSats}
-                    unit={unit}
-                    masked={hidden}
-                    stale={stale}
-                    variant="hero"
-                    room={room}
-                    accessibilityLabel={label}
-                  />
+                  <Reanimated.View
+                    testID="home-figures"
+                    entering={arrive.hero}
+                    exiting={heroOut}
+                  >
+                    <Odometer
+                      sats={heroSats ?? balance.totalSats}
+                      unit={unit}
+                      masked={hidden}
+                      stale={stale}
+                      variant="hero"
+                      room={room}
+                      accessibilityLabel={label}
+                    />
+                  </Reanimated.View>
                 </Reanimated.View>
               </Pressable>
             </Reanimated.View>
             <Reanimated.View style={[styles.vessel, vesselStyle]}>
-              <Vessel
-                availableSats={balance.availableSats}
-                pendingSats={balance.pendingSats}
-                lfbw={snapshot.wallet.lfbw}
-                unit={unit}
-                masked={hidden}
-                stale={stale}
-              />
+              <Reanimated.View entering={arrive.vessel}>
+                <Vessel
+                  availableSats={balance.availableSats}
+                  pendingSats={balance.pendingSats}
+                  lfbw={snapshot.wallet.lfbw}
+                  unit={unit}
+                  masked={hidden}
+                  stale={stale}
+                />
+              </Reanimated.View>
             </Reanimated.View>
           </Reanimated.View>
           {/* Each circle sits in a slot as tall as the row, so the three
@@ -343,6 +372,7 @@ export function HomeScreen({
           <View testID="home-bar" onLayout={measureRow} style={styles.bar}>
             <Reanimated.View
               testID="home-slot"
+              entering={arrive.actions[0]}
               style={styles.slot}
               onLayout={centreOf(sendAt)}
             >
@@ -358,7 +388,11 @@ export function HomeScreen({
                 />
               </Reanimated.View>
             </Reanimated.View>
-            <Reanimated.View testID="home-slot" style={styles.slot}>
+            <Reanimated.View
+              testID="home-slot"
+              entering={arrive.actions[1]}
+              style={styles.slot}
+            >
               <Reanimated.View style={scanLaunch}>
                 <ActionCircle
                   glyph="scan"
@@ -375,6 +409,7 @@ export function HomeScreen({
             </Reanimated.View>
             <Reanimated.View
               testID="home-slot"
+              entering={arrive.actions[2]}
               style={styles.slot}
               onLayout={centreOf(receiveAt)}
             >
