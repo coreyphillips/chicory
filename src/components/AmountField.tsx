@@ -1,10 +1,15 @@
-import React from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import type { ComponentRef } from 'react';
+import { AccessibilityInfo, StyleSheet, View } from 'react-native';
+import { copy } from '../design/copy';
+import { AmountReadout } from '../scenes/keypad/AmountReadout';
+import { digitsOnly, grouped } from '../scenes/keypad/keys';
+import { usePaneActive } from '../stage/panes/Pane';
+import { space } from '../theme';
 import { Chip } from './ui';
-import { colors, fonts, number, radius, space, type } from '../theme';
 
 /**
- * Satoshi entry.
+ * Satoshi entry, on the amount keypad (REDESIGN.md 10.3).
  *
  * The old field advertised `e.g. 10,000` while `parseSats` refuses anything but
  * digits, so following the placeholder produced "Enter a whole number of sats."
@@ -15,13 +20,13 @@ import { colors, fonts, number, radius, space, type } from '../theme';
  * Entry stays in satoshis even when balances are displayed in BTC. A decimal
  * amount field would put float parsing in the money path for the sake of a
  * display preference; the core's exact BigInt helpers are for rendering.
+ *
+ * There is no system keyboard. `label`, `placeholder` and `hint` are spoken
+ * rather than drawn, and presets are chips labelled with their amount alone.
+ * `autoFocus` moves a screen reader to the amount once it is shown.
  */
-const digitsOnly = (value: string) => value.replace(/[^0-9]/g, '');
-const grouped = (digits: string) =>
-  digits ? number(Number(digits)) : '';
-
 export function AmountField({
-  label = 'Amount in sats',
+  label = copy.amount.field,
   value,
   onChangeText,
   placeholder,
@@ -39,74 +44,46 @@ export function AmountField({
   presets?: number[];
   autoFocus?: boolean;
 }) {
+  const live = usePaneActive();
   const digits = digitsOnly(value);
+  const readout = useRef<ComponentRef<typeof View>>(null);
+  useEffect(() => {
+    if (autoFocus && readout.current) {
+      AccessibilityInfo.sendAccessibilityEvent(readout.current, 'focus');
+    }
+  }, [autoFocus]);
   return (
-    <View style={styles.group}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={styles.display}>
-        <TextInput
-          accessibilityLabel={label}
-          style={styles.input}
-          value={grouped(digits)}
-          onChangeText={next => onChangeText(digitsOnly(next))}
-          placeholder={placeholder}
-          placeholderTextColor={colors.faint}
-          selectionColor={colors.primary}
-          keyboardType="number-pad"
-          inputMode="numeric"
-          autoCorrect={false}
-          editable={editable}
-          autoFocus={autoFocus}
-          // 16 digits, the most the supply needs, plus their five separators.
-          maxLength={21}
-          returnKeyType="done"
-        />
-        <Text style={styles.suffix}>sats</Text>
-      </View>
+    <AmountReadout
+      ref={readout}
+      accessibilityLabel={label}
+      value={grouped(digits)}
+      onChangeText={next => onChangeText(digitsOnly(next))}
+      placeholder={placeholder}
+      hint={hint}
+      editable={editable}
+    >
       {presets?.length ? (
         <View style={styles.presets}>
           {presets.map(preset => (
             <Chip
               key={preset}
-              label={number(preset)}
+              label={copy.amount.preset(preset)}
               selected={digits === String(preset)}
               disabled={!editable}
-              onPress={() => onChangeText(String(preset))}
+              onPress={live ? () => onChangeText(String(preset)) : undefined}
             />
           ))}
         </View>
       ) : null}
-      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
-    </View>
+    </AmountReadout>
   );
 }
 
 const styles = StyleSheet.create({
-  group: { gap: space.sm },
-  label: { ...type.label, color: colors.text },
-  display: {
+  presets: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    justifyContent: 'center',
     gap: space.xs,
-    backgroundColor: colors.surface,
-    borderColor: colors.line,
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    minHeight: 72,
+    paddingVertical: space.xs,
   },
-  input: {
-    flex: 1,
-    fontSize: 34,
-    lineHeight: 42,
-    letterSpacing: -1.2,
-    fontWeight: '600',
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-    padding: 0,
-  },
-  suffix: { ...type.caption, fontSize: 14, color: colors.muted, fontFamily: fonts.mono },
-  presets: { flexDirection: 'row', gap: space.xs },
-  hint: { ...type.caption, color: colors.muted },
 });

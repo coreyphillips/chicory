@@ -1,4 +1,5 @@
 import React from 'react';
+import { Text } from 'react-native';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import { AmountField } from '../src/components/AmountField';
 
@@ -13,9 +14,7 @@ test('separators are shown to the reader but never reported to the caller', asyn
   const onChangeText = jest.fn();
   let tree!: ReactTestRenderer;
   await act(async () => {
-    tree = create(
-      <AmountField value="10000" onChangeText={onChangeText} />,
-    );
+    tree = create(<AmountField value="10000" onChangeText={onChangeText} />);
   });
   expect(field(tree, 'Amount in sats').props.value).toBe('10,000');
 
@@ -61,5 +60,35 @@ test('a preset reports a bare integer and shows as selected', async () => {
     .findAllByProps({ accessibilityLabel: '10,000' })
     .find(node => node.props.accessibilityState)!;
   expect(selected.props.accessibilityState.selected).toBe(true);
+  await act(async () => tree.unmount());
+});
+
+test('the label, placeholder and hint are spoken, never drawn', async () => {
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <AmountField
+        value=""
+        onChangeText={jest.fn()}
+        placeholder="Any amount"
+        hint="Enter an amount for your payment request."
+      />,
+    );
+  });
+  const amount = tree.root.find(
+    node =>
+      typeof node.type === 'string' &&
+      node.props.accessibilityLabel === 'Amount in sats',
+  );
+  expect(amount.props.accessibilityValue.text).toBe('Any amount');
+  expect(amount.props.accessibilityHint).toBe(
+    'Enter an amount for your payment request.',
+  );
+  const drawn = JSON.stringify(
+    tree.root.findAllByType(Text).map(node => node.props.children),
+  );
+  for (const words of ['Amount in sats', 'Any amount', 'Enter an amount']) {
+    expect(drawn).not.toContain(words);
+  }
   await act(async () => tree.unmount());
 });
