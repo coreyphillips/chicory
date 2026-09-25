@@ -30,8 +30,6 @@ export const amount = {
   overTotal: 'More than this wallet holds.',
   overOfflineCap: (cap: number) =>
     `Offline requests are limited to ${sats(cap)}.`,
-  backspace: 'Delete last digit',
-  backspaceHint: 'Hold to clear the amount.',
 };
 
 /**

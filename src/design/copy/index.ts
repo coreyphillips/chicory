@@ -27,7 +27,12 @@ export const copy = {
   health,
   activity,
   detail,
-  amount,
+  amount: {
+    ...amount,
+    // The keypad's words, which send.ts keeps with the keypad.
+    backspace: keypad.backspace,
+    backspaceHint: keypad.backspaceHint,
+  },
   send,
   keypad,
   receive,
