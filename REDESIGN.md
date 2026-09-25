@@ -388,6 +388,7 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 
 - **Cells.**
   - Each cell is a clipped column holding "0..9,0".
+  - A cell is exactly one line box of its figures tall, its line height in whole pixels rounded up, as Android sets a line (`cellHeight`), and the figures carry no font padding (`includeFontPadding: false`, `textAlignVertical: 'center'`), so nothing of the digits above and below shows in it.
   - Cells are keyed by place value from the right.
   - Separator cells are .30em wide.
   - BTC always shows 8 decimals, with trailing zeros in dust.
@@ -396,7 +397,8 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
   - whole = floor(v / u)
   - rem = v - whole × u
   - pos = whole % 10 + rem when k is 0. Otherwise pos = whole % 10 + smoothstep(clamp((rem - .9u) / (.1u), 0, 1)).
-  - translateY = -pos × lineHeight.
+  - translateY = -pos × cell height.
+  - A rolling column is two layers, its even rows and its odd rows, since a cell shows at most one row of each. Each layer fades by its one row in view, 1 - smoothstep(|row - pos|), so a digit fades as it slides over the cell's edge and the two in view always add to one. A scramble lands on whole rows, so each jump shows one digit whole.
 - **Unit swap.** The outgoing cells lift and fade (140ms, 12ms apart). The incoming cells rise with the snap spring.
 - **Mask.** Each digit jumps 4 times at 40ms, then crossfades to a 6-dot mask (scale in with snap, 20ms apart).
 - **Stale.** The color moves to steam, and each cell dips in opacity to .65 in turn, 60ms apart, repeating every 2600ms.

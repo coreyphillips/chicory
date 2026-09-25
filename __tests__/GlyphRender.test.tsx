@@ -1,6 +1,12 @@
 import React from 'react';
 import * as Reanimated from 'react-native-reanimated';
-import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  PixelRatio,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { LayoutAnimationConfig } from 'react-native-reanimated';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -20,7 +26,7 @@ import Svg, {
 import type { WalletRecord } from '@beignet/wallet-core';
 import { Bloom, petalState } from '../src/glyphs/Bloom';
 import type { BloomEvent, BloomMode, BloomTone } from '../src/glyphs/Bloom';
-import { Odometer, rollDuration } from '../src/glyphs/Odometer';
+import { Odometer, cellHeight, rollDuration } from '../src/glyphs/Odometer';
 import type { OdometerVariant } from '../src/glyphs/Odometer';
 import { PulseDot } from '../src/glyphs/PulseDot';
 import { StatusRing, ringColor } from '../src/glyphs/StatusRing';
@@ -674,12 +680,16 @@ describe('Odometer', () => {
     // The roll has landed but not yet settled into still digits: each
     // column rests on the amount's own digit, where the carry alone would
     // leave the hundreds halfway between 2 and 3.
-    const columns = hosts(tree, node =>
-      ((flat(node).transform as object[]) ?? []).some(
-        step => 'translateY' in step,
-      ),
+    // A column rolls as two layers, its even rows and its odd rows over
+    // them; the even rows, in the cell's flow, stand for it.
+    const columns = hosts(
+      tree,
+      node =>
+        ((flat(node).transform as object[]) ?? []).some(
+          step => 'translateY' in step,
+        ) && flat(node).position !== 'absolute',
     );
-    const line = 26 * 1.4;
+    const line = cellHeight(26, 1.4, PixelRatio.get());
     const shown = columns.map(column => {
       const step = (
         flat(column).transform as Array<{ translateY?: number }>
