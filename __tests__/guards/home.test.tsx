@@ -1016,6 +1016,34 @@ describe('safety states', () => {
     jest.useRealTimers();
   });
 
+  test('the gate trips on its timer even when the clock has been stepped back', async () => {
+    jest.useFakeTimers();
+    const drawn: boolean[] = [];
+    function Probe({ updatedAt }: { updatedAt?: number }) {
+      drawn.push(useStale(updatedAt));
+      return null;
+    }
+    const read = Date.now();
+    const tree = await mount(<Probe updatedAt={read} />);
+    await act(async () => jest.advanceTimersByTime(STALE_AFTER_MS - 1));
+    expect(drawn.at(-1)).toBe(false);
+    // The wall clock steps back, so when the timer fires the read's age at
+    // that render falls short of the threshold. The timer still closes it.
+    jest.setSystemTime(read);
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(Date.now() - read).toBeLessThan(STALE_AFTER_MS);
+    expect(drawn.at(-1)).toBe(true);
+    // A clock stepped forward closes it at the next render, timer or not.
+    const fresh = Date.now();
+    await act(async () => tree.update(<Probe updatedAt={fresh} />));
+    expect(drawn.at(-1)).toBe(false);
+    jest.setSystemTime(fresh + STALE_AFTER_MS);
+    await act(async () => tree.update(<Probe updatedAt={fresh} />));
+    expect(drawn.at(-1)).toBe(true);
+    await act(async () => tree.unmount());
+    jest.useRealTimers();
+  });
+
   test('a cached launch is not warned about, nor is the read that ends it', async () => {
     const warned = jest.spyOn(haptics, 'warning');
     const cached = {

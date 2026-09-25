@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { RefreshControl, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -278,13 +278,27 @@ Stage.displayName = 'Stage';
  *
  * The gate trips on its own, at the one moment it can, rather than by
  * re-rendering the whole app every few seconds to ask whether it has: the
- * timer only draws the stage again once the read goes old. Its flag is set
- * in an effect, a render behind each new read, so the answer is the read's
- * own age, and a fresh read is never drawn as stale.
+ * timer only draws the stage again once the read goes old. The answer is
+ * either the timer's flag or the read's age at this render, so neither can
+ * hold the gate open alone. The age catches a clock stepped forward before
+ * the timer fires; the flag holds when the clock was stepped back and the
+ * age at the timer's render falls short of the threshold.
+ *
+ * The flag is set in an effect, a render behind each new read, so it only
+ * counts for the read it was set for: a fresh read is never drawn as stale
+ * on the strength of the old read's flag.
  */
 export function useStale(updatedAt: number | undefined): boolean {
-  useStaleAfter(updatedAt, STALE_AFTER_MS);
-  return updatedAt !== undefined && Date.now() - updatedAt >= STALE_AFTER_MS;
+  const flag = useStaleAfter(updatedAt, STALE_AFTER_MS);
+  // The read the flag was last set for. The timer's effect runs before this
+  // one, so by the next render the flag answers for this read.
+  const flagged = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    flagged.current = updatedAt;
+  }, [updatedAt]);
+  if (updatedAt === undefined) return false;
+  const aged = Date.now() - updatedAt >= STALE_AFTER_MS;
+  return aged || (flag && flagged.current === updatedAt);
 }
 
 /** Every edge of the window that the phase views and the sheet keep clear of. */
