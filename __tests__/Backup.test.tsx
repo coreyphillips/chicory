@@ -78,6 +78,50 @@ test('new wallet requires deliberate recovery reveal and backup acknowledgement 
   });
 });
 
+test('a VoiceOver double tap confirms the phrase saved, as the activate action does', async () => {
+  // On iOS a screen reader's double tap reaches onAccessibilityTap rather
+  // than the activate action, so the hold answers both (REDESIGN.md rule 5).
+  const onCreated = jest.fn().mockResolvedValue(undefined);
+  const client = {
+    connection: { url: 'https://wallet.example.com', token: 'test' },
+    getConfig: jest.fn().mockResolvedValue({ hasDefaultElectrum: true }),
+    createWallet: jest.fn().mockResolvedValue({
+      id: 'tapped',
+      name: 'Everyday wallet',
+      network: 'mainnet',
+      status: 'running',
+      mnemonic: 'sample fixture words only never use this phrase',
+    }),
+  } as unknown as WalletAdapter;
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <CreateWalletScreen
+        client={client}
+        onCreated={onCreated}
+        onBusy={jest.fn()}
+      />,
+    );
+  });
+  await act(async () => {
+    await label(tree, 'Create mainnet wallet').props.onPress();
+  });
+  await act(async () => {
+    await label(tree, 'Reveal recovery phrase').props.onPress();
+  });
+  const hold = tree.root
+    .findAllByProps({ accessibilityLabel: 'I saved my recovery phrase' })
+    .find(item => item.props.accessibilityActions)!;
+  expect(typeof hold.props.onAccessibilityTap).toBe('function');
+  await act(async () => {
+    hold.props.onAccessibilityTap();
+  });
+  expect(onCreated).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    tree.unmount();
+  });
+});
+
 test('failed wallet startup keeps the created wallet backup available for retry', async () => {
   const onCreated = jest
     .fn()

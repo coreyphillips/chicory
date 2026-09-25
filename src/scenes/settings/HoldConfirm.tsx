@@ -40,9 +40,11 @@ const DRAIN = { ...springs.snap, reduceMotion: ReduceMotion.Never };
  * it on the snap spring and nothing happens.
  *
  * It is the send track's HoldButton interaction: a screen reader has no hold
- * to give, so it gets one `activate` action that commits at once. A press
- * that no finger started, such as a switch control's or a keyboard's, is
- * the same deliberate act and commits too; a finger's own tap never does.
+ * to give, so it gets one `activate` action that commits at once, and
+ * VoiceOver's double tap, which reaches `onAccessibilityTap` rather than the
+ * action, commits too. A press that no finger started, such as a switch
+ * control's or a keyboard's, is the same deliberate act and commits too; a
+ * finger's own tap never does.
  */
 export function HoldConfirm({
   label,
@@ -129,6 +131,7 @@ export function HoldConfirm({
             }
           : undefined
       }
+      onAccessibilityTap={live ? commit : undefined}
       onPressIn={live ? begin : undefined}
       onPressOut={live ? release : undefined}
       onPress={
