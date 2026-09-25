@@ -42,8 +42,14 @@ import type { Unit } from '../theme';
  * `celebrate` plays the arrival the first time it is seen: the ring draws,
  * the amount counts up, and a completed payment draws its check and bursts
  * its petals as the ground behind the canvas flashes sage (REDESIGN.md 3.2,
- * G3). A payment's detail shows the same receipt still. The words are in its
- * label, masked like the amounts when `hidden`.
+ * G3). The words are in its label, masked like the amounts when `hidden`.
+ *
+ * A payment's detail keeps the receipt `bare`: its header already draws the
+ * ring and the amount, so a second ring and a second amount would give the
+ * card two focal points (P10, 22-t4-detail). Bare, it keeps only what the
+ * header does not say: what arrived over what was asked while only part of
+ * it has, and each Bitcoin transaction with its own ring, led in the
+ * detail's glyph column.
  */
 export function ReceiveReceipt({
   status,
@@ -51,6 +57,7 @@ export function ReceiveReceipt({
   hidden = false,
   unit = 'sats',
   celebrate = false,
+  bare = false,
   size = 96,
   focusRef,
 }: {
@@ -60,6 +67,8 @@ export function ReceiveReceipt({
   unit?: Unit;
   /** Plays the arrival, where the request's code was. */
   celebrate?: boolean;
+  /** No ring and no amount of its own, under a header that has them. */
+  bare?: boolean;
   /** The ring's size, the same as the code it replaces. */
   size?: number;
   /** Where a screen reader's focus is sent to hear what arrived. */
@@ -115,6 +124,67 @@ export function ReceiveReceipt({
     );
     return () => clearTimeout(timer);
   }, [play, status.receivedSats]);
+
+  const transactions = bitcoin
+    ? receiptTransactions(status).map(({ txid, confirmed }) => (
+        <View key={txid} style={[styles.tx, bare && styles.led]}>
+          <View style={bare ? styles.lead : undefined}>
+            <TxRing confirmed={confirmed} />
+          </View>
+          <View style={styles.chip}>
+            <CopyChip label={copy.receive.transaction} value={txid} />
+          </View>
+        </View>
+      ))
+    : null;
+
+  if (bare) {
+    const split = partial && amountSats != null;
+    return (
+      <View style={styles.bare}>
+        {split ? (
+          <View
+            accessible
+            accessibilityRole="text"
+            accessibilityLabel={summary}
+            accessibilityValue={
+              bitcoin
+                ? {
+                    text: copy.receive.breakdown(
+                      said(status.receivedSats),
+                      said(status.confirmedSats),
+                      said(status.pendingSats),
+                    ),
+                  }
+                : undefined
+            }
+            style={styles.led}
+          >
+            <View style={styles.lead}>
+              <Glyph name="receive" size={20} color={palette.dust} />
+            </View>
+            <Odometer
+              sats={status.receivedSats}
+              unit={unit}
+              masked={hidden}
+              variant="line"
+              color={palette.sage}
+              sign="+"
+            />
+            <View style={styles.slash} />
+            <Odometer
+              sats={amountSats}
+              unit={unit}
+              masked={hidden}
+              variant="line"
+              color={palette.steam}
+            />
+          </View>
+        ) : null}
+        {transactions}
+      </View>
+    );
+  }
 
   return (
     // Where it celebrates, Receive says what arrived itself.
@@ -175,16 +245,7 @@ export function ReceiveReceipt({
           ) : null}
         </View>
       </View>
-      {bitcoin
-        ? receiptTransactions(status).map(({ txid, confirmed }) => (
-            <View key={txid} style={styles.tx}>
-              <TxRing confirmed={confirmed} />
-              <View style={styles.chip}>
-                <CopyChip label={copy.receive.transaction} value={txid} />
-              </View>
-            </View>
-          ))
-        : null}
+      {transactions}
     </View>
   );
 }
@@ -457,4 +518,22 @@ const styles = StyleSheet.create({
   },
   txRing: { width: 16, height: 16 },
   chip: { flexShrink: 1 },
+  // Bare, in a payment's detail: its lines start at the detail's edge, each
+  // led by a glyph in the detail's 20pt column, as its other lines are.
+  bare: { alignSelf: 'stretch', gap: space.xs },
+  led: {
+    alignSelf: 'stretch',
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  lead: { width: 20, alignItems: 'center' },
+  // What arrived over what was asked, as a fraction's stroke.
+  slash: {
+    width: 1,
+    height: 16,
+    backgroundColor: palette.husk,
+    transform: [{ rotate: '20deg' }],
+  },
 });

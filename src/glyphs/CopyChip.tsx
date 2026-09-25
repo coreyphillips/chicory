@@ -32,15 +32,16 @@ import { space, type as typography } from '../theme';
  * is: no toast.
  *
  * `label` names the value, as in "Transaction", and `glyph` swaps the copy
- * glyph for one that says what the value is. A chip that is not `copyable`
- * only shows its value, in steam, as the record of something that must not
- * be paid again, such as a request that expired; a long press still shows
- * all of it, and a screen reader hears the label and the value.
+ * glyph for one that says what the value is, or with null leaves it out. A
+ * chip that is not `copyable` only shows its value, in steam, as the record
+ * of something that must not be paid again, such as a request that expired;
+ * a long press still shows all of it, and a screen reader hears the label
+ * and the value.
  */
 export interface CopyChipProps {
   label: string;
   value: string;
-  glyph?: GlyphName;
+  glyph?: GlyphName | null;
   copyable?: boolean;
 }
 
@@ -275,12 +276,14 @@ export function CopyChip({
         >
           {chipText(value, expanded)}
         </Text>
-        <CopiedGlyph
-          name={glyph}
-          size={GLYPH}
-          color={copyable ? palette.steam : palette.dust}
-          copies={copies}
-        />
+        {glyph ? (
+          <CopiedGlyph
+            name={glyph}
+            size={GLYPH}
+            color={copyable ? palette.steam : palette.dust}
+            copies={copies}
+          />
+        ) : null}
       </Pressable>
     </Reanimated.View>
   );

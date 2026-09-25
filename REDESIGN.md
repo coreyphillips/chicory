@@ -463,8 +463,8 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 - **Look.** A mocha pill holding the value in mono, shortened in the middle and grouped in fours, with a `copy` glyph. A URI's scheme and the human-readable part of an address or invoice up to its `1` (`bitcoin:`, `bcrt1`, `lnbcrt30u1`) stay whole, and what follows them is grouped (`chipLead`).
 - **Tap.** A tick, then `copy` morphs into a sage check while a cream wash sweeps across (180ms in, 700ms hold, 600ms out). Screen readers hear "{Label} copied".
 - **Long press.** Expands to show the full value.
-- **Record.** A chip that is not `copyable` shows its value in steam and copies nothing; a screen reader hears its label and the value. A payment's detail draws its request string as a chip (`qr`, or `bolt` for an old Lightning invoice), which copies while the request can be paid and is only the record once it cannot.
-- **Kind glyphs.** The request string's chip is the one that carries its kind inside it. A payment's detail leads every other chip with a glyph for what it holds, outside the chip as its lines do (`hash` for the reference, `chain` for the transaction, `bolt` for the payment hash, `pin` for the address), and the chip keeps `copy`, so what shows a value copies is always the same glyph.
+- **Record.** A chip that is not `copyable` shows its value in steam and copies nothing, and carries no `copy`; a screen reader hears its label and the value. A payment's detail draws its request string as a chip, which copies while the request can be paid and is only the record once it cannot.
+- **Kind glyphs.** A payment's detail leads every chip with a glyph for what it holds, outside the chip as its lines do, in the lines' 20pt column at the detail's edge (`qr` for the request string, or `bolt` for an old Lightning invoice, `hash` for the reference, `chain` for the transaction, `bolt` for the payment hash, `pin` for the address), and a chip that copies carries `copy`, so what shows a value copies is always the same glyph.
 - **Shape.** A pill round its value and glyph, at least 48pt tall and rounded by half that, which hugs its value wherever it sits rather than stretching across its row.
 
 ### HoldButton
@@ -612,6 +612,7 @@ A cocoa pill anchored above its source (see rule 3), kept inside the page edge (
 - **Attention shelf.** Pinned first: the backup tile, then uncertain items, then partial ones.
 - **Filters.** Glyph chips: send, receive, qr, orbit. Tapping the active chip again clears it. `search` expands into a field.
 - **Empty.** A dormant bud outline that breathes.
+- **A payment's detail.** One focal point: the 96pt ring and the 40pt amount in the header. Under them, lines led by a glyph in a 20pt column, each read as text: the date, the fee (money sent or moved always has one; money that came in only when the engine says it cost something), the note. A paid request's receipt adds only what the header cannot say, as lines (`ReceiveReceipt` `bare`): what arrived over what was asked while part of it has, and each Bitcoin transaction with its own ring in the glyph column. The request itself follows as a line (its code above it while it can still be paid), then how it could be paid, a line of rail glyphs, then the reference chips.
 
 ### Send
 

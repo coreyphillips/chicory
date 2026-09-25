@@ -21,7 +21,7 @@ import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { MASK, radius, space, type as typography } from '../../theme';
 import type { Unit } from '../../theme';
-import { ErrorPip, GlyphButton, WarningPips } from './controls';
+import { ErrorPip, GlyphButton, TARGET, WarningPips } from './controls';
 import type { Focus } from './focus';
 import { Rock } from './loops';
 import type { Refused, RequestFace } from './model';
@@ -329,9 +329,12 @@ function About({
           {request.description}
         </Text>
       ) : null}
+      {/* A place a finger can hold to hear how it can be paid whispered,
+          48pt as every target is, and text rather than a control. */}
       <Whisper label={[how, left].filter(Boolean).join('. ')}>
         <View
           accessible
+          accessibilityRole="text"
           accessibilityLabel={how}
           accessibilityValue={left ? { text: left } : undefined}
           style={styles.rails}
@@ -370,7 +373,15 @@ const styles = StyleSheet.create({
   about: { alignItems: 'center', gap: space.xs },
   amount: { ...typography.line, color: palette.cream },
   note: { ...typography.meta, color: palette.steam, textAlign: 'center' },
-  rails: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  rails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    minWidth: TARGET,
+    minHeight: TARGET,
+    paddingHorizontal: space.xs,
+  },
   // The whole badge answers a long press, not only its glyph.
   whole: {
     alignSelf: 'stretch',

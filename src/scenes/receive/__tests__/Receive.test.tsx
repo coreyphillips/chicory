@@ -755,6 +755,25 @@ describe('the amount step', () => {
   });
 });
 
+describe('the request', () => {
+  test('holds how it can be paid in a place a finger can hold, as text', async () => {
+    // It was a 48 by 18 element, under the 48pt target (P10, 39-c3-request).
+    const tree = await screen(clientOf());
+    await toRequest(tree);
+    const [rails] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === copy.receive.unified,
+    );
+    expect(rails.props.accessibilityRole).toBe('text');
+    expect(StyleSheet.flatten(rails.props.style)).toMatchObject({
+      minWidth: 48,
+      minHeight: 48,
+    });
+    await act(async () => tree.unmount());
+  });
+});
+
 describe('the quote', () => {
   test("lines up its signs and its values in columns, as Send's review does", async () => {
     const tree = await screen(
@@ -960,15 +979,27 @@ describe("the request a payment's detail keeps", () => {
     )}`,
   });
   const chipOf = (tree: ReactTestRenderer) => tree.root.findByType(CopyChip);
+  /** The glyph leading `chip` on its line, outside the chip. */
+  const leadOf = (chip: ReactTestInstance) => {
+    const own = glyphsIn(chip);
+    let line = chip.parent!;
+    while (!glyphsIn(line).filter(glyph => !own.includes(glyph)).length) {
+      line = line.parent!;
+    }
+    return glyphsIn(line).filter(glyph => !own.includes(glyph))[0].props.name;
+  };
 
   test('is a chip, shortened in the middle, that copies the whole request', async () => {
     const tree = await mount(<ReceiveRequestDetails item={detailOf(LONG)} />);
+    // It copies, so it carries copy, as the detail's other chips do; what
+    // it holds leads its line.
     expect(chipOf(tree).props).toMatchObject({
       label: copy.receive.original,
       value: LONG.uri,
-      glyph: 'qr',
+      glyph: 'copy',
       copyable: true,
     });
+    expect(leadOf(chipOf(tree))).toBe('qr');
     // Never the whole string at once: the chip's two ends, in fours.
     const drawn = visibleText(tree);
     expect(drawn).not.toContain(LONG.uri);
@@ -1029,8 +1060,8 @@ describe("the request a payment's detail keeps", () => {
     );
     expect(chipOf(tree).props).toMatchObject({
       label: copy.receive.legacyInvoice,
-      glyph: 'bolt',
     });
+    expect(leadOf(chipOf(tree))).toBe('bolt');
     await act(async () => tree.unmount());
   });
 });

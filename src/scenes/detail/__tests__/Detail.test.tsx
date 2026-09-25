@@ -48,7 +48,7 @@ import {
   whispers,
 } from '../../../../test-support/query';
 import * as motionPrefs from '../../../services/motion';
-import { ringWords, statusSentence } from '../model';
+import { feeShown, ringWords, statusSentence } from '../model';
 import {
   CARD_RADIUS,
   EXPAND_MS,
@@ -169,16 +169,64 @@ describe('the detail', () => {
     });
     const date = dateLabel(item.timestamp);
     expect(spoken(tree, `Date, ${date}`)).toBeDefined();
-    expect(spoken(tree, 'Fee, 0 sats')).toBeDefined();
     expect(spoken(tree, 'Note, Lunch with Sam')).toBeDefined();
     expect(visibleText(tree)).toEqual(
-      expect.arrayContaining([date, '0 sats', 'Lunch with Sam']),
+      expect.arrayContaining([date, 'Lunch with Sam']),
     );
     // The engine's title and the outcome are for a screen reader only.
     expect(visibleText(tree)).not.toContain(item.title);
     expect(visibleText(tree)).not.toContain(copy.detail.completed);
     expect(meaning(tree)).toContain(item.title);
     expect(meaning(tree)).toContain(copy.detail.completed);
+    await act(async () => tree.unmount());
+  });
+
+  test('draws a fee line for money that came in only when it cost something', async () => {
+    // A fee of nothing, or one that could not be read, read as a broken line
+    // on a receive: a bolt and a lone question (P10, 22-t4-detail).
+    const fees = async (item: Activity) => {
+      const tree = await render(<DetailScreen item={item} />);
+      const found = tree.root
+        .findAll(
+          node =>
+            typeof node.type === 'string' &&
+            /fee/i.test(node.props.accessibilityLabel ?? ''),
+        )
+        .map(node => node.props.accessibilityLabel);
+      await act(async () => tree.unmount());
+      return found;
+    };
+    expect(await fees(EVERY['received completed'])).toEqual([]);
+    expect(await fees(EVERY['request paid'])).toEqual([]);
+    expect(await fees(EVERY['request pending'])).toEqual([]);
+    expect(
+      await fees({ ...EVERY['received completed'], feeKnown: false }),
+    ).toEqual([]);
+    // A channel made just in time costs something, and that is said.
+    expect(
+      await fees({ ...EVERY['received completed'], feeSats: 1_000 }),
+    ).toEqual(['Fee, 1,000 sats']);
+    // Money sent keeps its line, known or not.
+    expect(await fees(EVERY['sent completed'])).toEqual(['Fee, 12 sats']);
+    expect(await fees(EVERY['sent with an unknown fee'])).toEqual([
+      copy.detail.feeUnavailable,
+    ]);
+    expect(feeShown(EVERY['transfer completed'])).toBe(true);
+  });
+
+  test('says its lines as text, never as headings', async () => {
+    // "Fee, Unavailable" came back as a Heading (P10, 22-t4-detail.ax).
+    const tree = await render(
+      <DetailScreen item={EVERY['sent with an unknown fee']} />,
+    );
+    const lines = [
+      `Date, ${dateLabel(EVERY['sent with an unknown fee'].timestamp)}`,
+      copy.detail.feeUnavailable,
+    ].map(label => spoken(tree, label));
+    expect(lines.map(line => line.props.accessibilityRole)).toEqual([
+      'text',
+      'text',
+    ]);
     await act(async () => tree.unmount());
   });
 
@@ -424,6 +472,110 @@ describe('the lines', () => {
     expect(lines.map(text => text.props.maxFontSizeMultiplier)).toEqual(
       lines.map(() => 1.4),
     );
+    await act(async () => tree.unmount());
+  });
+
+  test("give a paid request one ring and one amount, the header's", async () => {
+    // A second sage ring with a check and a second "+5,000 sats" drew under
+    // the header's own (P10, 22-t4-detail).
+    for (const name of ['request paid', 'request paid, confirming']) {
+      const tree = await render(<DetailScreen item={EVERY[name]} />);
+      expect(tree.root.findAllByType(StatusRing)).toHaveLength(1);
+      expect(
+        tree.root.findAll(
+          node =>
+            typeof node.type === 'string' &&
+            node.props.testID === 'receipt-track',
+        ),
+      ).toHaveLength(0);
+      expect(
+        tree.root
+          .findAllByType(Odometer)
+          .filter(odometer => odometer.props.sats === 10_000),
+      ).toHaveLength(0);
+      expect(tree.root.findAllByType(Odometer)).toHaveLength(1);
+      await act(async () => tree.unmount());
+    }
+    // Part of it here: what arrived over what was asked is the one thing the
+    // header cannot say, so it stays, as a line.
+    const tree = await render(
+      <DetailScreen item={EVERY['request partly paid']} />,
+    );
+    const split = spoken(
+      tree,
+      [
+        copy.receive.partial,
+        copy.receive.partialSplit(
+          copy.amount.spoken(4_000),
+          copy.amount.spoken(10_000),
+        ),
+        copy.receive.partialCheck,
+      ].join(' '),
+    );
+    expect(split).toBeDefined();
+    expect(split.props.accessibilityRole).toBe('text');
+    expect(
+      split.findAllByType(Odometer).map(odometer => odometer.props.variant),
+    ).toEqual(['line', 'line']);
+    await act(async () => tree.unmount());
+  });
+
+  test("start the request's chip where the other chips start, led by its kind", async () => {
+    // The request's chip sat centred with its kind inside it, while the
+    // references under it started at the edge, led by theirs (P10).
+    const drawn = (Glyph as unknown as { type: React.ComponentType }).type;
+    /** The glyphs leading `chip` on its line, and the inset in front of it. */
+    const led = (chip: ReactTestInstance, root: ReactTestInstance) => {
+      const own = chip.findAllByType(drawn);
+      let line = chip.parent!;
+      while (
+        !line.findAllByType(drawn).filter(glyph => !own.includes(glyph)).length
+      ) {
+        line = line.parent!;
+      }
+      let inset = 0;
+      for (let at: ReactTestInstance | null = line; at && at !== root; ) {
+        const style = StyleSheet.flatten(at.props.style) ?? {};
+        for (const key of [
+          'padding',
+          'paddingHorizontal',
+          'paddingLeft',
+          'paddingStart',
+          'margin',
+          'marginHorizontal',
+          'marginLeft',
+          'marginStart',
+        ] as const) {
+          if (typeof style[key] === 'number') inset += style[key] as number;
+        }
+        at = at.parent;
+      }
+      const [glyph] = line
+        .findAllByType(drawn)
+        .filter(inside => !own.includes(inside));
+      return {
+        glyph: glyph.props.name,
+        size: glyph.props.size,
+        inset,
+        row: StyleSheet.flatten(line.props.style).flexDirection,
+      };
+    };
+    const tree = await render(<DetailScreen item={EVERY['request paid']} />);
+    const root = tree.root.findByType(DetailScreen);
+    const found = tree.root
+      .findAllByType(CopyChip)
+      .map(chip => [chip.props.label, led(chip, root)]);
+    expect(found).toEqual([
+      [copy.receive.original, { glyph: 'qr', size: 20, inset: 0, row: 'row' }],
+      [
+        copy.detail.paymentHash,
+        { glyph: 'bolt', size: 20, inset: 0, row: 'row' },
+      ],
+    ]);
+    // Paid, it is the record: its kind leads it, and no copy glyph sits in a
+    // chip that copies nothing.
+    const request = tree.root.findAllByType(CopyChip)[0];
+    expect(request.props).toMatchObject({ copyable: false, glyph: null });
     await act(async () => tree.unmount());
   });
 
