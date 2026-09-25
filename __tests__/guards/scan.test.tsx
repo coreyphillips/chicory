@@ -7,6 +7,7 @@ import {
   Platform,
   StyleSheet,
 } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -27,6 +28,7 @@ import {
 import * as Announce from '../../src/design/announce';
 import { copy } from '../../src/design/copy';
 import { haptics } from '../../src/design/haptics';
+import { Whisper } from '../../src/glyphs/Whisper';
 import { durations } from '../../src/motion/tokens';
 import { STATUS_ROW } from '../../src/stage/layout';
 import {
@@ -133,19 +135,27 @@ const LNURL =
 
 const data = guardData(snapshotOf());
 
+// The app draws the scan under its gesture root, which the camera-off
+// status's whisper needs.
 function scanner(props: Partial<React.ComponentProps<typeof Scanner>> = {}) {
-  return <Scanner onDetected={jest.fn()} onCancel={jest.fn()} {...props} />;
+  return (
+    <GestureHandlerRootView>
+      <Scanner onDetected={jest.fn()} onCancel={jest.fn()} {...props} />
+    </GestureHandlerRootView>
+  );
 }
 
 function reveal(props: Partial<ScanRevealProps> = {}) {
   return (
-    <ScanReveal
-      origin={{ x: 187, y: 520 }}
-      target="home"
-      onDetected={jest.fn()}
-      onCancel={jest.fn()}
-      {...props}
-    />
+    <GestureHandlerRootView>
+      <ScanReveal
+        origin={{ x: 187, y: 520 }}
+        target="home"
+        onDetected={jest.fn()}
+        onCancel={jest.fn()}
+        {...props}
+      />
+    </GestureHandlerRootView>
   );
 }
 
@@ -295,10 +305,46 @@ const GUARDED: GuardedState[] = [
     data,
   },
   {
+    name: 'the scanner after the camera failed',
+    render: () =>
+      after(scanner(), async tree => {
+        await act(async () => cameras(tree)[0].props.onError());
+      }),
+    data,
+  },
+  {
+    name: 'the scanner with the camera switched off and a pasted code it cannot pay',
+    render: () => {
+      denied();
+      return after(
+        scanner(),
+        pasting(async () => LNURL),
+      );
+    },
+    data,
+  },
+  {
     name: 'the scanner under Reduce Motion',
     render: () => {
       reducedMotion();
       return mount(scanner());
+    },
+    data,
+  },
+  {
+    name: 'the scanner asking for the camera under Reduce Motion',
+    render: () => {
+      reducedMotion();
+      asking();
+      return mount(scanner());
+    },
+    data,
+  },
+  {
+    name: 'the scanner under Reduce Motion with a code it cannot pay',
+    render: () => {
+      reducedMotion();
+      return after(scanner(), tree => readCode(tree, UNPAYABLE));
     },
     data,
   },
@@ -339,6 +385,16 @@ const GUARDED: GuardedState[] = [
       mockCamera = false;
       return mount(reveal());
     },
+    data,
+  },
+  {
+    name: 'the overlay with a code it cannot pay',
+    render: () => after(reveal(), tree => readCode(tree, UNPAYABLE)),
+    data,
+  },
+  {
+    name: 'the overlay with a code it can pay',
+    render: () => after(reveal(), tree => readCode(tree, PAYABLE)),
     data,
   },
   {
@@ -579,20 +635,42 @@ describe('the reticle', () => {
   });
 
   test('a caught code holds the corners pulled in; a close fades them at once', () => {
-    const breath = { get: () => 1 };
+    const pose = { turn: { get: () => 90 }, breath: { get: () => 1 } };
     const caught = reticleOut(
-      { caught: { get: () => 1 }, pinch: { get: () => CAUGHT_SCALE } },
-      breath,
+      {
+        caught: { get: () => 1 },
+        pinch: { get: () => CAUGHT_SCALE },
+        nudge: { get: () => 0 },
+      },
+      pose,
       false,
     )({} as never);
-    expect(caught.animations.transform).toEqual([{ scale: CAUGHT_SCALE }]);
+    expect(caught.animations.transform).toEqual([
+      { translateX: 0 },
+      { rotate: '90deg' },
+      { scale: CAUGHT_SCALE },
+    ]);
     const closed = reticleOut(
-      { caught: { get: () => 0 }, pinch: { get: () => 1 } },
-      breath,
+      {
+        caught: { get: () => 0 },
+        pinch: { get: () => 1 },
+        nudge: { get: () => -5 },
+      },
+      pose,
       false,
     )({} as never);
+    // It leaves from where its shake and turn had it, rather than jumping.
+    expect(closed.initialValues.transform).toEqual([
+      { translateX: -5 },
+      { rotate: '90deg' },
+      { scale: 1 },
+    ]);
     expect(closed.animations.opacity).toBe(0);
-    expect(closed.animations.transform).toEqual([{ scale: 0.98 }]);
+    expect(closed.animations.transform).toEqual([
+      { translateX: 0 },
+      { rotate: '90deg' },
+      { scale: 0.98 },
+    ]);
   });
 });
 
@@ -801,6 +879,15 @@ describe('the camera', () => {
     await act(async () => tree.unmount());
   });
 
+  test('switched off, it is said, and its glyph whispers why', async () => {
+    denied();
+    const said = jest.spyOn(Announce, 'announce');
+    const tree = await mount(scanner());
+    expect(said).toHaveBeenCalledWith(copy.scan.denied);
+    expect(tree.root.findByType(Whisper).props.label).toBe(copy.scan.denied);
+    await act(async () => tree.unmount());
+  });
+
   test('coming back with the camera switched on starts it', async () => {
     denied();
     const tree = await mount(scanner());
@@ -828,6 +915,7 @@ describe('the camera', () => {
       new Set([copy.scan.paste, copy.scan.close]),
     );
     expect(onAccess).toHaveBeenLastCalledWith('missing');
+    expect(tree.root.findByType(Whisper).props.label).toBe(copy.scan.missing);
     await act(async () => tree.unmount());
   });
 });

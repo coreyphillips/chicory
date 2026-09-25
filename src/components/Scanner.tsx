@@ -43,6 +43,7 @@ import { Glyph } from '../design/glyphs';
 import type { GlyphName } from '../design/glyphs';
 import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
+import { Whisper } from '../glyphs/Whisper';
 import { riseIn, sceneOut } from '../motion/presets';
 import { curves, durations, overlap, shake, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
@@ -327,12 +328,13 @@ interface Cues {
 type Reading = Pick<SharedValue<number>, 'get'>;
 
 /**
- * The reticle leaving. A caught code holds the corners pulled in for a beat,
- * sage, before they fade; anything else fades them at once.
+ * The reticle leaving, from wherever its shake, turn and breath have it, so
+ * it does not jump as it goes. A caught code holds the corners pulled in for
+ * a beat, sage, before they fade; anything else fades them at once.
  */
 export function reticleOut(
-  cues: { caught: Reading; pinch: Reading },
-  breath: Reading,
+  cues: { caught: Reading; pinch: Reading; nudge: Reading },
+  pose: { turn: Reading; breath: Reading },
   reduced: boolean,
 ): EntryExitAnimationFunction {
   return () => {
@@ -343,20 +345,35 @@ export function reticleOut(
         animations: { opacity: withTiming(0, FADE) },
       };
     }
-    const scale = breath.get() * cues.pinch.get();
+    const scale = pose.breath.get() * cues.pinch.get();
+    const rotate = `${pose.turn.get()}deg`;
+    const initialValues = {
+      opacity: 1,
+      transform: [{ translateX: cues.nudge.get() }, { rotate }, { scale }],
+    };
+    const still = withTiming(0, EXIT);
+    const turned = withTiming(rotate, EXIT);
     if (cues.caught.get() === 1) {
       return {
-        initialValues: { opacity: 1, transform: [{ scale }] },
+        initialValues,
         animations: {
-          transform: [{ scale: withSpring(CAUGHT_SCALE, springs.snap) }],
+          transform: [
+            { translateX: still },
+            { rotate: turned },
+            { scale: withSpring(CAUGHT_SCALE, springs.snap) },
+          ],
           opacity: withDelay(CAUGHT_HOLD, withTiming(0, EXIT)),
         },
       };
     }
     return {
-      initialValues: { opacity: 1, transform: [{ scale }] },
+      initialValues,
       animations: {
-        transform: [{ scale: withTiming(scale * 0.98, EXIT) }],
+        transform: [
+          { translateX: still },
+          { rotate: turned },
+          { scale: withTiming(scale * 0.98, EXIT) },
+        ],
         opacity: withTiming(0, EXIT),
       },
     };
@@ -516,8 +533,8 @@ const Reticle = memo(function ReticleMarks({
   const sage = useAnimatedStyle(() => ({ opacity: cues.sage.get() }));
   const radish = useAnimatedStyle(() => ({ opacity: cues.radish.get() }));
   const exiting = useMemo(
-    () => reticleOut(cues, breath, reduced),
-    [cues, breath, reduced],
+    () => reticleOut(cues, { turn, breath }, reduced),
+    [cues, turn, breath, reduced],
   );
   const sageExit = useMemo(() => sageOut(cues), [cues]);
   const path = useMemo(() => reticlePath(side), [side]);
@@ -650,26 +667,30 @@ function GlyphButton({
 
 /**
  * The camera cannot be used: `cameraOff`, steam when the user switched it
- * off and dust when this build has no camera at all.
+ * off and dust when this build has no camera at all. A long press whispers
+ * why (REDESIGN.md rule 3).
  */
 function CameraOff({ access }: { access: 'denied' | 'missing' }) {
   const denied = access === 'denied';
+  const label = denied ? copy.scan.denied : copy.scan.missing;
   return (
-    <Reanimated.View
-      entering={riseIn(overlap.rise, overlap.enterDelay)}
-      exiting={sceneOut()}
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel={denied ? copy.scan.denied : copy.scan.missing}
-      accessibilityHint={denied ? copy.scan.noCamera : copy.scan.missingHint}
-      style={styles.status}
-    >
-      <Glyph
-        name="cameraOff"
-        size={40}
-        color={denied ? palette.steam : palette.dust}
-      />
-    </Reanimated.View>
+    <Whisper label={label}>
+      <Reanimated.View
+        entering={riseIn(overlap.rise, overlap.enterDelay)}
+        exiting={sceneOut()}
+        accessible
+        accessibilityRole="image"
+        accessibilityLabel={label}
+        accessibilityHint={denied ? copy.scan.noCamera : copy.scan.missingHint}
+        style={styles.status}
+      >
+        <Glyph
+          name="cameraOff"
+          size={40}
+          color={denied ? palette.steam : palette.dust}
+        />
+      </Reanimated.View>
+    </Whisper>
   );
 }
 
@@ -760,6 +781,12 @@ export function Scanner({
   useEffect(() => {
     onAccess?.(access);
   }, [access, onAccess]);
+
+  // A camera found to be off changes the screen under a screen reader, which
+  // would otherwise not hear of it.
+  useEffect(() => {
+    if (access === 'denied') announce(copy.scan.denied);
+  }, [access]);
 
   // A screen reader lands on the scan as it opens (REDESIGN.md 9), where its
   // name is, rather than staying on the button that opened it.
