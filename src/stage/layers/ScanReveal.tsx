@@ -22,6 +22,7 @@ import {
   firstAccess,
 } from '../../components/Scanner';
 import type { CameraAccess } from '../../components/Scanner';
+import { steady } from '../../motion/steady';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { STATUS_ROW, WELL_DROP } from '../layout';
@@ -391,17 +392,23 @@ export function ScanReveal({
       return;
     }
     fade.set(1);
-    scale.set(withSpring(open, springs.pane));
+    // The frame that mounts the camera's layer can take a while to paint, so
+    // the disc and the clock that mounts the camera both run on the steady
+    // clock (REDESIGN.md 3.5): the reveal is seen from the button, and the
+    // camera still waits for the disc to look open.
+    scale.set(steady(withSpring(open, springs.pane)));
     clock.set(0);
     clock.set(
-      withTiming(
-        1,
-        {
-          duration: REVEAL_MS,
-          easing: curves.linear,
-          reduceMotion: ReduceMotion.Never,
-        },
-        done,
+      steady(
+        withTiming(
+          1,
+          {
+            duration: REVEAL_MS,
+            easing: curves.linear,
+            reduceMotion: ReduceMotion.Never,
+          },
+          done,
+        ),
       ),
     );
   }, [open, reduced, scale, fade, clock]);

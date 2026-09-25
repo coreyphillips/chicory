@@ -258,6 +258,15 @@ export const GLYPHS = {
 export type GlyphName = keyof typeof GLYPHS;
 
 /**
+ * The way to the payment list from a result that is over: Send's completed
+ * or held result and Receive's receipt draw it alike (REDESIGN.md 6). It is
+ * `restore`, an arrow turning back round a list, the history's shape. Never
+ * the orbit, which is money still in flight, and not `search`, which the
+ * list it opens draws for its own field.
+ */
+export const HISTORY_GLYPH: GlyphName = 'restore';
+
+/**
  * Stroke width in grid units by rendered size, interpolated between these
  * stops. A small glyph gets a relatively heavier stroke so it does not thin
  * out, and a large one a lighter stroke so it does not turn heavy.

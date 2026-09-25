@@ -9,8 +9,9 @@ import { Path } from 'react-native-svg';
 import { parsePayment } from '@beignet/wallet-core';
 import type { SendResult, SendReview } from '@beignet/wallet-core';
 import { announce } from '../../../design/announce';
+import { Scanner } from '../../../components/Scanner';
 import { copy } from '../../../design/copy';
-import { GLYPHS } from '../../../design/glyphs';
+import { GLYPHS, HISTORY_GLYPH } from '../../../design/glyphs';
 import { SendScreen } from '../../../screens/Send';
 import {
   clearDiagnostics,
@@ -175,6 +176,7 @@ function drawnBy(tree: ReactTestRenderer, label: string): string[] {
 
 describe('the way to the history', () => {
   const ORBIT = GLYPHS.orbit.map(part => part.d);
+  const HISTORY = GLYPHS[HISTORY_GLYPH].map(part => part.d);
 
   test('under a payment that is done is not the orbit of money moving', async () => {
     const sent: SendResult = {
@@ -197,6 +199,8 @@ describe('the way to the history', () => {
     const glyph = drawnBy(tree, copy.send.viewActivity);
     expect(glyph).not.toEqual([]);
     expect(glyph).not.toEqual(ORBIT);
+    // The history's glyph, as Receive's receipt draws it.
+    expect(glyph).toEqual(HISTORY);
     await act(async () => tree.unmount());
   });
 
@@ -205,6 +209,7 @@ describe('the way to the history', () => {
     holdRequest(request, { status: 'uncertain' });
     const tree = await draw({}, { initialRequest: request });
     expect(drawnBy(tree, copy.send.viewActivity)).not.toEqual(ORBIT);
+    expect(drawnBy(tree, copy.send.viewActivity)).toEqual(HISTORY);
     await act(async () => tree.unmount());
   });
 });
@@ -279,4 +284,19 @@ test('the step under the request slides as the request opens or closes', async (
   );
   expect(steps).not.toEqual([]);
   await act(async () => tree.unmount());
+});
+
+test('a scan Send opens by itself keeps a test network’s slate and flask', async () => {
+  // Without the canvas's overlay (no onScan), Send draws the camera itself.
+  for (const test of [true, false]) {
+    const tree = await draw({}, { test });
+    await press(tree, copy.send.scan);
+    const [scanner] = tree.root.findAllByType(Scanner);
+    expect(scanner.props.test).toBe(test);
+    const flasks = tree.root.findAll(
+      node => node.props.testID === 'scan-flask',
+    );
+    expect(flasks.length > 0).toBe(test);
+    await act(async () => tree.unmount());
+  }
 });

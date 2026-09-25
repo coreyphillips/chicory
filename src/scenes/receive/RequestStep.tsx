@@ -10,7 +10,7 @@ import Reanimated, {
 import type { ReceiveRequest, ReceiveStatus } from '@beignet/wallet-core';
 import { ReceiveReceipt } from '../../components/ReceiveReceipt';
 import { copy } from '../../design/copy';
-import { Glyph } from '../../design/glyphs';
+import { Glyph, HISTORY_GLYPH } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
@@ -29,11 +29,11 @@ import { useBloom, useTestNetwork } from './tone';
 import { lateAt, remainderSats, requestRails, shownSats } from './model';
 
 /**
- * The glyph of the way to the payment list from a receipt: search, which
- * says nothing about the money. The orbit is money in flight (REDESIGN.md
- * 6), so under a done mark it would read as still on its way.
+ * The glyph of the way to the payment list from a receipt, the one Send's
+ * results draw too (`HISTORY_GLYPH`). The orbit is money in flight
+ * (REDESIGN.md 6), so under a done mark it would read as still on its way.
  */
-export const ACTIVITY: GlyphName = 'search';
+export const ACTIVITY: GlyphName = HISTORY_GLYPH;
 
 /** The expiry ring runs this far outside the card. */
 export const RING_GAP = 8;

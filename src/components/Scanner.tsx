@@ -45,6 +45,7 @@ import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
 import { Whisper } from '../glyphs/Whisper';
 import { riseIn, sceneOut } from '../motion/presets';
+import { steady } from '../motion/steady';
 import { curves, durations, overlap, shake, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { bloomFor } from '../scenes/receive/tone';
@@ -437,9 +438,11 @@ const Corner = memo(function CornerMark({
     progress.set(
       reduced
         ? withTiming(1, FADE)
-        : withDelay(
-            FLY_DELAY + index * FLY_STAGGER,
-            withTiming(1, { duration: durations.move, easing: curves.enter }),
+        : steady(
+            withDelay(
+              FLY_DELAY + index * FLY_STAGGER,
+              withTiming(1, { duration: durations.move, easing: curves.enter }),
+            ),
           ),
     );
   }, [progress, reduced, index]);

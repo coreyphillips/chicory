@@ -22,7 +22,7 @@ import { AmountField } from '../../../components/AmountField';
 import { ReceiveReceipt } from '../../../components/ReceiveReceipt';
 import { ReceiveRequestDetails } from '../../../components/ReceiveRequestDetails';
 import { copy } from '../../../design/copy';
-import { Glyph } from '../../../design/glyphs';
+import { Glyph, HISTORY_GLYPH } from '../../../design/glyphs';
 import { haptics } from '../../../design/haptics';
 import { palette } from '../../../design/palette';
 import { CopyChip, chipText } from '../../../glyphs/CopyChip';
@@ -1079,6 +1079,8 @@ describe('the celebration', () => {
     // read as still on its way (P7, 51-c3-received).
     expect(glyphs).toEqual([ACTIVITY]);
     expect(ACTIVITY).not.toBe('orbit');
+    // The history's glyph, as Send's results draw it.
+    expect(ACTIVITY).toBe(HISTORY_GLYPH);
     await act(async () => tree.unmount());
   });
 

@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stop } from 'react-native-svg';
+import * as Reanimated from 'react-native-reanimated';
 import { ReduceMotion } from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -33,6 +34,7 @@ import { copy } from '../../src/design/copy';
 import { haptics } from '../../src/design/haptics';
 import { palette } from '../../src/design/palette';
 import { Whisper } from '../../src/glyphs/Whisper';
+import * as Steady from '../../src/motion/steady';
 import { durations } from '../../src/motion/tokens';
 import { bloomFor } from '../../src/scenes/receive/tone';
 import { STATUS_ROW } from '../../src/stage/layout';
@@ -603,6 +605,33 @@ describe('the disc', () => {
       expect(out.initialValues.transform).toEqual(pose(at(0)));
       expect(out.animations.transform).toEqual(pose(at(1)));
     }
+  });
+
+  test('opens on the steady clock, with its corners, so a slow first frame skips none of it', async () => {
+    // The frame that mounts the camera's layer was seen to take 118ms, and
+    // the disc was first seen already screen wide (REDESIGN.md 3.5).
+    jest
+      .spyOn(Reanimated, 'withSpring')
+      .mockImplementation(((to: number) => ({ spring: to })) as never);
+    jest
+      .spyOn(Reanimated, 'withDelay')
+      .mockImplementation(((delay: number) => ({ delay })) as never);
+    const steadied: unknown[] = [];
+    jest.spyOn(Steady, 'steady').mockImplementation(((animation: unknown) => {
+      steadied.push(animation);
+      return 1;
+    }) as never);
+    // An earlier test's Reduce Motion can outlast it on the shared mock.
+    jest
+      .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
+      .mockResolvedValue(false);
+    const tree = await mount(reveal());
+    expect(steadied).toContainEqual({ spring: 1 });
+    // The corners set off 200ms in, 40ms apart.
+    for (const delay of [200, 240, 280, 320]) {
+      expect(steadied).toContainEqual({ delay });
+    }
+    await act(async () => tree.unmount());
   });
 
   test('only fades under Reduce Motion', () => {

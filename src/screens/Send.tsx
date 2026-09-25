@@ -21,7 +21,7 @@ import type {
 } from '@beignet/wallet-core';
 import { Scanner } from '../components/Scanner';
 import { copy } from '../design/copy';
-import { Glyph } from '../design/glyphs';
+import { Glyph, HISTORY_GLYPH } from '../design/glyphs';
 import type { GlyphName } from '../design/glyphs';
 import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
@@ -91,9 +91,9 @@ const shownIn = (sats: number, unit: Unit) => {
 /**
  * The control under a result that opens the history. An orbit there would
  * read as money still moving, under a payment that is done or held, so it
- * is `restore`: an arrow turning back round a list, the history's shape.
+ * is the history's own glyph, as Receive's receipt draws it.
  */
-const ACTIVITY_GLYPH: GlyphName = 'restore';
+const ACTIVITY_GLYPH: GlyphName = HISTORY_GLYPH;
 
 /** A quote this close to running out is said aloud once. */
 const LATE_MS = 10_000;
@@ -655,7 +655,13 @@ export function SendScreen({
   }));
 
   if (scanning) {
-    return <Scanner onDetected={accept} onCancel={() => setScanning(false)} />;
+    return (
+      <Scanner
+        onDetected={accept}
+        onCancel={() => setScanning(false)}
+        test={test}
+      />
+    );
   }
 
   function typed(text: string) {

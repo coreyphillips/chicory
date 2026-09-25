@@ -287,6 +287,30 @@ describe('inside Send', () => {
     }
   });
 
+  test('the overlay takes the wallet’s network: slate and the flask on a test network, never on mainnet', async () => {
+    const saved = snapshot;
+    try {
+      for (const [network, test] of [
+        ['regtest', true],
+        ['testnet', true],
+        ['mainnet', false],
+      ] as const) {
+        snapshot = { ...saved, wallet: { ...saved.wallet, network } };
+        const tree = await render(<OnCanvas />);
+        await act(async () => stage.actions.openScan());
+        expect(tree.root.findByType(ScanReveal).props.test).toBe(test);
+        expect(scanner(tree)[0].props.test).toBe(test);
+        const flasks = tree.root.findAll(
+          node => node.props.testID === 'scan-flask',
+        );
+        expect(flasks.length > 0).toBe(test);
+        await act(async () => tree.unmount());
+      }
+    } finally {
+      snapshot = saved;
+    }
+  });
+
   test('a code read from home never reaches a receiver', async () => {
     const onCode = jest.fn();
     const tree = await render(

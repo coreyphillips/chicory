@@ -29,6 +29,7 @@ import { DetailLayer } from '../scenes/detail/DetailLayer';
 import { Backdrop } from '../scenes/home/Backdrop';
 import { HomePane } from '../scenes/home/HomePane';
 import { StatusRow } from '../scenes/home/StatusRow';
+import { isTestNetwork } from '../scenes/home/visual';
 import { ReceiveScene } from '../scenes/receive/ReceiveScene';
 import { SendScene } from '../scenes/send/SendScene';
 import { SettingsLayer } from '../scenes/settings/SettingsLayer';
@@ -506,6 +507,7 @@ export function Canvas({
                 target={scanning.target}
                 onDetected={onScanned}
                 onCancel={onScanCancelled}
+                test={isTestNetwork(snapshot.wallet.network)}
               />
             ) : null}
           </View>
