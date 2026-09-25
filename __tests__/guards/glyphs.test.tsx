@@ -1,6 +1,7 @@
 import React from 'react';
 import { Text } from 'react-native';
 import { act } from 'react-test-renderer';
+import type { ReactTestRenderer } from 'react-test-renderer';
 import {
   GestureDetector,
   GestureHandlerRootView,
@@ -18,6 +19,7 @@ import { Vessel } from '../../src/glyphs/Vessel';
 import { Whisper, WhisperProvider } from '../../src/glyphs/Whisper';
 import { copy } from '../../src/design/copy';
 import { ringVisual } from '../../src/scenes/activity/visual';
+import { Pane } from '../../src/stage/panes/Pane';
 import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
 import {
@@ -249,25 +251,51 @@ const whispered = (
   </GestureHandlerRootView>
 );
 
+const whisperedIn = (active: boolean) => (
+  <GestureHandlerRootView>
+    <WhisperProvider>
+      <Pane active={active}>
+        <Whisper label={copy.health.reconnecting}>
+          <PulseDot state="reconnecting" />
+        </Whisper>
+      </Pane>
+    </WhisperProvider>
+  </GestureHandlerRootView>
+);
+
+async function whisper(tree: ReactTestRenderer) {
+  const gesture = tree.root.findByType(GestureDetector).props.gesture;
+  await act(async () =>
+    fireGestureHandler(gesture, [
+      { state: State.BEGAN },
+      { state: State.ACTIVE, absoluteX: 40, absoluteY: 60 },
+      { state: State.END },
+    ]),
+  );
+}
+
 const whispers: GuardedState[] = [
   still('a whisper waiting to be asked', whispered),
   {
     name: 'a whisper shown',
     render: async () => {
       const tree = await mount(whispered);
-      const gesture = tree.root.findByType(GestureDetector).props.gesture;
-      await act(async () =>
-        fireGestureHandler(gesture, [
-          { state: State.BEGAN },
-          { state: State.ACTIVE, absoluteX: 40, absoluteY: 60 },
-          { state: State.END },
-        ]),
-      );
+      await whisper(tree);
       return tree;
     },
     // Rule 3: the one text a person can summon outside Settings is the
     // string a screen reader already hears, in the pill.
     data: [...data, copy.health.reconnecting],
+  },
+  {
+    name: 'a whisper whose pane has gone out of use',
+    render: async () => {
+      const tree = await mount(whisperedIn(true));
+      await whisper(tree);
+      await act(async () => tree.update(whisperedIn(false)));
+      return tree;
+    },
+    data,
   },
   still(
     'a whisper outside a provider',

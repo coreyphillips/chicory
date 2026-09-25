@@ -928,6 +928,38 @@ describe('Whisper', () => {
     expect(await scale()).toBe(1);
   });
 
+  test('the pill goes with its source, when it leaves or its pane goes out of use', async () => {
+    const pill = (tree: ReactTestRenderer) =>
+      hosts(tree, node => flat(node).backgroundColor === palette.cocoa);
+    const app = (active: boolean, shown = true) => (
+      <GestureHandlerRootView>
+        <WhisperProvider>
+          <Pane active={active}>
+            {shown ? (
+              <Whisper label="Connected.">
+                <Text>1</Text>
+              </Whisper>
+            ) : null}
+          </Pane>
+        </WhisperProvider>
+      </GestureHandlerRootView>
+    );
+    for (const after of [app(false), app(true, false)]) {
+      const tree = await render(app(true));
+      const gesture = tree.root.findByType(GestureDetector).props.gesture;
+      await act(async () =>
+        fireGestureHandler(gesture, [
+          { state: State.BEGAN },
+          { state: State.ACTIVE, absoluteX: 100, absoluteY: 300 },
+          { state: State.END },
+        ]),
+      );
+      expect(pill(tree)).toHaveLength(1);
+      await act(async () => tree.update(after));
+      expect(pill(tree)).toEqual([]);
+    }
+  });
+
   test('a pane out of use asks nothing', async () => {
     const { tree } = await held(
       <Pane active={false}>

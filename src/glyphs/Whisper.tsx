@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -41,8 +42,10 @@ import { radius, space } from '../theme';
  * `WhisperProvider` draws the pill above everything, once, near the top of
  * the app, so only one whisper shows at a time. The pill sits just above
  * the element that was pressed, centred on it and kept inside the screen,
- * and grows in from .92 as it fades up. `Whisper` wraps what can be asked
- * about; outside a provider it only renders its children.
+ * and grows in from .92 as it fades up. It goes with what it speaks for:
+ * when that leaves the screen or its pane goes out of use, the pill goes
+ * too. `Whisper` wraps what can be asked about; outside a provider it only
+ * renders its children.
  */
 const DELAY_MS = 400;
 const SHOWN_MS = 2400;
@@ -59,13 +62,20 @@ export interface Anchor {
   height: number;
 }
 
-type Show = (label: string, source: Anchor) => void;
+/** Who asked for a whisper, so only they can take it back. */
+type Owner = object;
 
-const WhisperContext = createContext<Show | null>(null);
+interface Whispers {
+  show: (label: string, source: Anchor, owner: Owner) => void;
+  hide: (owner: Owner) => void;
+}
+
+const WhisperContext = createContext<Whispers | null>(null);
 
 interface Shown {
   label: string;
   source: Anchor;
+  owner: Owner;
   key: number;
 }
 
@@ -159,7 +169,7 @@ export function WhisperProvider({ children }: PropsWithChildren) {
   const { width: windowWidth } = useWindowDimensions();
   const [bounds, setBounds] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const show = useCallback<Show>((label, source) => {
+  const show = useCallback<Whispers['show']>((label, source, owner) => {
     haptics.tick();
     clearTimeout(timer.current);
     // The pill is drawn in this root, which need not start at the window's
@@ -168,16 +178,26 @@ export function WhisperProvider({ children }: PropsWithChildren) {
     const local = origin
       ? { ...source, x: source.x - origin.x, y: source.y - origin.y }
       : source;
-    setShown(last => ({ label, source: local, key: (last?.key ?? 0) + 1 }));
+    setShown(last => ({
+      label,
+      source: local,
+      owner,
+      key: (last?.key ?? 0) + 1,
+    }));
     timer.current = setTimeout(() => setShown(null), SHOWN_MS);
   }, []);
+  const hide = useCallback<Whispers['hide']>(
+    owner => setShown(last => (last?.owner === owner ? null : last)),
+    [],
+  );
+  const whispers = useMemo(() => ({ show, hide }), [show, hide]);
   useEffect(() => () => clearTimeout(timer.current), []);
   const onLayout = useCallback(
     (event: LayoutChangeEvent) => setBounds(event.nativeEvent.layout.width),
     [],
   );
   return (
-    <WhisperContext.Provider value={show}>
+    <WhisperContext.Provider value={whispers}>
       <View ref={root} style={styles.root} onLayout={onLayout}>
         {children}
         {shown ? (
@@ -203,11 +223,18 @@ export function WhisperProvider({ children }: PropsWithChildren) {
 /** A long press on `children` whispers `label` above them. */
 function Heard({
   label,
-  show,
+  whispers,
   children,
-}: PropsWithChildren<{ label: string; show: Show }>) {
+}: PropsWithChildren<{ label: string; whispers: Whispers }>) {
   const source = useRef<ViewInstance>(null);
+  // This whisper's own identity, kept for its lifetime.
+  const [owner] = useState<Owner>(() => ({}));
   const active = usePaneActive();
+  const { show, hide } = whispers;
+  useEffect(() => {
+    if (!active) hide(owner);
+  }, [active, hide, owner]);
+  useEffect(() => () => hide(owner), [hide, owner]);
   const hold = useLongPressGesture({
     minDuration: DELAY_MS,
     runOnJS: true,
@@ -221,6 +248,7 @@ function Heard({
           width: 0,
           height: 0,
         },
+        owner,
       ),
   });
   return (
@@ -236,10 +264,10 @@ export function Whisper({
   label,
   children,
 }: PropsWithChildren<{ label: string }>) {
-  const show = useContext(WhisperContext);
-  if (!show) return <>{children}</>;
+  const whispers = useContext(WhisperContext);
+  if (!whispers) return <>{children}</>;
   return (
-    <Heard label={label} show={show}>
+    <Heard label={label} whispers={whispers}>
       {children}
     </Heard>
   );
