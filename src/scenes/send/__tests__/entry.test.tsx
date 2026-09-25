@@ -263,3 +263,20 @@ describe('what a finger holds', () => {
     await act(async () => tree.unmount());
   });
 });
+
+test('the step under the request slides as the request opens or closes', async () => {
+  const tree = await draw({}, { initialRequest: ADDRESS });
+  // The step that holds the amount enters as a whole and moves by a layout
+  // transition, so a chip opening into the taller well pushes it smoothly.
+  const steps = tree.root.findAll(
+    node =>
+      typeof node.type !== 'string' &&
+      node.props.entering !== undefined &&
+      node.props.layout !== undefined &&
+      node.findAll(
+        inner => inner.props.accessibilityLabel === copy.amount.field,
+      ).length > 0,
+  );
+  expect(steps).not.toEqual([]);
+  await act(async () => tree.unmount());
+});

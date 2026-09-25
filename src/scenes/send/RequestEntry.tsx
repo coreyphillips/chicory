@@ -9,7 +9,7 @@ import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { dissolve, popIn, useShake } from '../../motion/effects';
 import { useLoop, wave } from '../../motion/loops';
-import { durations } from '../../motion/tokens';
+import { durations, overlap } from '../../motion/tokens';
 import { WELL } from '../../stage/layout';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { HIT_SLOP, radius, space, type as typography } from '../../theme';
@@ -81,8 +81,9 @@ export function RequestEntry({
 }: RequestEntryProps) {
   const live = usePaneActive() && !busy;
   const bloom = useBloom();
-  // The well pops back in when a chip opens or dissolves into it, but not
-  // when the scene first arrives: the scene rises in as a whole.
+  // The well pops back in when a chip opens or dissolves into it, once the
+  // chip is on its way out, but not when the scene first arrives: the scene
+  // rises in as a whole.
   const settled = useRef(false);
   useEffect(() => {
     settled.current = true;
@@ -124,7 +125,7 @@ export function RequestEntry({
   }
   return (
     <Well
-      entering={settled.current ? popIn(0.96) : undefined}
+      entering={settled.current ? popIn(0.96, overlap.enterDelay) : undefined}
       focus={settled.current}
       accessibilityLabel={accessibilityLabel}
       value={value}

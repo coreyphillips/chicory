@@ -262,15 +262,19 @@ export function AmountReadout({
               0
             </Text>
           )}
-          <Text style={styles.unit} maxFontSizeMultiplier={AMOUNT_SCALE}>
-            {UNIT}
-          </Text>
+          {/* The unit and the marks travel with the digits as one comes or
+            goes, rather than jumping ahead of them. */}
+          <Reanimated.View layout={smooth()}>
+            <Text style={styles.unit} maxFontSizeMultiplier={AMOUNT_SCALE}>
+              {UNIT}
+            </Text>
+          </Reanimated.View>
           {marks.map(mark => (
-            <View key={mark} style={styles.mark}>
+            <Reanimated.View key={mark} layout={smooth()} style={styles.mark}>
               <Whisper label={hint ?? ''} enabled={!!hint}>
                 <Mark name={mark} color={color} />
               </Whisper>
-            </View>
+            </Reanimated.View>
           ))}
         </View>
       </Reanimated.View>

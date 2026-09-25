@@ -119,6 +119,26 @@ test('a screen reader clears the amount with the long press action', async () =>
   await act(async () => tree.unmount());
 });
 
+test('the unit and its mark travel with the digits as one comes or goes', async () => {
+  const tree = await mount(
+    <AmountField value="42" onChangeText={jest.fn()} tone="honey" />,
+  );
+  // Everything in the amount's row moves by the same layout transition, so
+  // nothing in it jumps ahead of a digit sliding over.
+  const row = readout(tree).findAll(
+    node =>
+      typeof node.type === 'string' &&
+      StyleSheet.flatten(node.props.style)?.flexDirection === 'row',
+  )[0];
+  const moved = row.children.filter(
+    child => typeof child !== 'string' && child.props.layout !== undefined,
+  );
+  expect(moved).toHaveLength(row.children.length);
+  // Two digits, the unit and the clock.
+  expect(moved).toHaveLength(4);
+  await act(async () => tree.unmount());
+});
+
 test('the amount and its unit stop growing at 1.2', async () => {
   const tree = await mount(<Field start="4200" />);
   const caps = readout(tree)

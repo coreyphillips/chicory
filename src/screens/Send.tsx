@@ -26,7 +26,7 @@ import type { GlyphName } from '../design/glyphs';
 import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
 import { CopyChip } from '../glyphs/CopyChip';
-import { sceneIn, sceneOut } from '../motion/presets';
+import { sceneIn, sceneOut, smooth } from '../motion/presets';
 import { announceSafety } from '../motion/speech';
 import { AmountReadout } from '../scenes/keypad/AmountReadout';
 import { digitsOnly, grouped } from '../scenes/keypad/keys';
@@ -938,10 +938,13 @@ export function SendScreen({
             onScan={composing ? scan : undefined}
           />
         )}
+        {/* The step slides, rather than jumps, as the request above it opens
+          into the well or closes into a chip. */}
         <Reanimated.View
           key={step}
           entering={sceneIn()}
           exiting={sceneOut()}
+          layout={smooth()}
           onTouchStart={result ? stay : undefined}
           onFocus={result ? stay : undefined}
           style={styles.step}
