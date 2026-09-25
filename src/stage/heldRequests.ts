@@ -13,7 +13,9 @@ import type { Activity, PaymentStatus } from '@beignet/wallet-core';
  * life of the process, and the history itself: a payment there that is
  * pending or uncertain, matched by the payment hash of the invoice the
  * request carries. The history also lets a request go, once the payment it
- * shows has completed or failed.
+ * shows has completed or failed, but never while this app's own call to pay
+ * it has not answered: an earlier attempt the history shows says nothing
+ * about the one still going out.
  *
  * The set is not per wallet. An invoice or address paid from one wallet
  * while the outcome is unknown is just as unsafe to pay from another.
@@ -31,9 +33,45 @@ interface Entry {
   status: HeldStatus;
   paymentHash?: string;
   txid?: string;
+  /** This app's call to pay it has not answered yet. */
+  calling?: boolean;
+}
+
+/** What paying a request came to, as far as this app has seen. */
+export interface HeldOutcome {
+  status: PaymentStatus;
+  paymentHash?: string;
+  txid?: string;
+  /**
+   * The payment is going out now and its call has not answered: nothing the
+   * history shows lets the request go until the call does.
+   */
+  calling?: boolean;
 }
 
 const held = new Map<string, Entry>();
+
+// Screens that show a request read the set as they draw, and are told when
+// this app changes it, so one that shows the request moves with it, even
+// when the change comes from a call a screen that has since gone made.
+let version = 0;
+const listeners = new Set<() => void>();
+
+function changed() {
+  version += 1;
+  listeners.forEach(listener => listener());
+}
+
+/** Calls `listener` whenever this app holds or lets go of a request. */
+export function subscribeHeld(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** A number that changes whenever this app holds or lets go of a request. */
+export const heldVersion = () => version;
 
 const SCHEME = /^(lightning|bitcoin):/;
 
@@ -121,10 +159,7 @@ export function paymentHashOf(request: string): string | null {
  * outcome is unknown, holds the request; one that completed or failed lets
  * it go.
  */
-export function holdRequest(
-  request: string,
-  outcome: { status: PaymentStatus; paymentHash?: string; txid?: string },
-) {
+export function holdRequest(request: string, outcome: HeldOutcome) {
   const key = normalizeRequest(request);
   if (!key) return;
   if (outcome.status === 'pending' || outcome.status === 'uncertain') {
@@ -132,16 +167,19 @@ export function holdRequest(
       status: outcome.status,
       paymentHash: outcome.paymentHash || paymentHashOf(request) || undefined,
       txid: outcome.txid || undefined,
+      calling: (outcome.status === 'pending' && outcome.calling) || undefined,
     });
   } else {
     held.delete(key);
   }
+  changed();
 }
 
 /**
  * Whether `request` is held, and by which payment in `activity` when the
  * history shows it. A payment the history shows as settled lets the request
- * go, whatever this app saw before.
+ * go, whatever this app saw before, unless this app's own call to pay it
+ * has not answered yet.
  */
 export function heldRequest(
   request: string,
@@ -161,7 +199,7 @@ export function heldRequest(
   if (item?.status === 'pending' || item?.status === 'uncertain') {
     return { status: item.status, item };
   }
-  if (item) {
+  if (item && !entry?.calling) {
     held.delete(key);
     return null;
   }
@@ -175,4 +213,5 @@ export function heldRequest(
  */
 export function clearHeldRequests() {
   held.clear();
+  changed();
 }

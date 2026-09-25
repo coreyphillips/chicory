@@ -2,9 +2,11 @@ import { activityOf, hex } from '../../../../test-support/fixtures';
 import {
   clearHeldRequests,
   heldRequest,
+  heldVersion,
   holdRequest,
   normalizeRequest,
   paymentHashOf,
+  subscribeHeld,
 } from '../../../stage/heldRequests';
 
 /**
@@ -141,6 +143,33 @@ test('an on-chain payment is found in the history by its transaction', () => {
   const item = activityOf('sent', 'pending', { rail: 'chain', txid });
   expect(heldRequest(request, [item])).toEqual({ status: 'pending', item });
   expect(heldRequest(request, [{ ...item, status: 'completed' }])).toBeNull();
+});
+
+test('a payment going out is held against an earlier attempt the history shows settled', () => {
+  const hash = hex(8);
+  const request = invoice(hash, 8);
+  const earlier = activityOf('sent', 'failed', { paymentHash: hash });
+  holdRequest(request, { status: 'pending', calling: true });
+  // The call has not answered: the failed attempt is an older one.
+  expect(heldRequest(request, [earlier])).toEqual({ status: 'pending' });
+  expect(heldRequest(request)).toEqual({ status: 'pending' });
+  // Its answer is what lets it go.
+  holdRequest(request, { status: 'failed' });
+  expect(heldRequest(request, [earlier])).toBeNull();
+});
+
+test('a screen is told each time this app holds or lets go of a request', () => {
+  const heard = jest.fn();
+  const stop = subscribeHeld(heard);
+  const before = heldVersion();
+  holdRequest('lnbc-told', { status: 'pending', calling: true });
+  holdRequest('lnbc-told', { status: 'failed' });
+  clearHeldRequests();
+  expect(heard).toHaveBeenCalledTimes(3);
+  expect(heldVersion()).toBe(before + 3);
+  stop();
+  holdRequest('lnbc-told', { status: 'uncertain' });
+  expect(heard).toHaveBeenCalledTimes(3);
 });
 
 test('nothing holds an empty request', () => {

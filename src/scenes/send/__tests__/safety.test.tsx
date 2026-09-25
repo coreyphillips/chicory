@@ -29,6 +29,8 @@ import {
   press,
   pressableLabels,
 } from '../../../../test-support/query';
+import { SEND_GRACE_MS } from '../model';
+import { ResultMark } from '../ResultMark';
 import { ReviewLines } from '../ReviewLines';
 import { stepInMs } from '../useLanding';
 import { FOCUS_SETTLE_MS, forgetSafety } from '../../../motion/speech';
@@ -413,6 +415,158 @@ describe('a quote', () => {
   });
 });
 
+describe('a payment whose call does not answer', () => {
+  /**
+   * `request` reviewed and held to send, under fake timers, with a call to
+   * pay it that answers only when the test says.
+   */
+  async function hanging(request: string, props: Props = {}) {
+    jest.useFakeTimers();
+    let answer!: (result: SendResult) => void;
+    let refuse!: (error: Error) => void;
+    const send = jest.fn(
+      () =>
+        new Promise<SendResult>((resolve, reject) => {
+          answer = resolve;
+          refuse = reject;
+        }),
+    );
+    const onBusy = jest.fn();
+    const prepareSend = jest.fn().mockResolvedValue(quote());
+    const tree = await draw(
+      { prepareSend, send },
+      { initialRequest: request, onBusy, ...props },
+    );
+    await press(tree, copy.send.review);
+    await activate(tree, HOLD);
+    expect(send).toHaveBeenCalledTimes(1);
+    return {
+      tree,
+      onBusy,
+      prepareSend,
+      answer: (result: SendResult) => act(async () => answer(result)),
+      refuse: (error: Error) => act(async () => refuse(error)),
+    };
+  }
+  const past = (ms: number) => act(async () => jest.advanceTimersByTime(ms));
+
+  test('holds its request from the moment the hold commits, so it lands on the held ring from anywhere', async () => {
+    const request = priced('out-now');
+    const { tree, prepareSend } = await hanging(request);
+    expect(heldRequest(request)).toEqual({ status: 'pending' });
+    // Entered again meanwhile, from a link or a paste, it is never reviewed.
+    const again = await draw({ prepareSend }, { initialRequest: request });
+    expect(meaning(again)).toContain(copy.send.onItsWay);
+    expect(meaning(again)).toContain(copy.send.held);
+    expect(pressableLabels(again)).not.toContain(copy.send.review);
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    await act(async () => again.unmount());
+    await act(async () => tree.unmount());
+  });
+
+  test('keeps the stage busy only for its grace, then moves to the held ring, with the way out free', async () => {
+    const { tree, onBusy } = await hanging(priced('grace'));
+    jest.mocked(HapticFeedback.trigger).mockClear();
+    expect(onBusy).toHaveBeenLastCalledWith(true);
+    onBusy.mockClear();
+    await past(SEND_GRACE_MS - 1);
+    // Still the review going out: most payments answer inside the grace.
+    expect(onBusy).not.toHaveBeenCalledWith(false);
+    expect(tree.root.findAllByType(ReviewLines)).toHaveLength(1);
+    expect(logged()).not.toContain('HELD');
+    await past(1);
+    expect(onBusy).toHaveBeenLastCalledWith(false);
+    expect(tree.root.findAllByType(ReviewLines)).toEqual([]);
+    // The held ring, honey, with an orbit round it: still under way.
+    const [mark] = tree.root.findAllByType(ResultMark);
+    expect(mark.props.visual).toMatchObject({
+      shape: 'held',
+      tone: 'honey',
+      orbit: true,
+    });
+    expect(meaning(tree)).toContain(copy.send.onItsWay);
+    expect(meaning(tree)).toContain(copy.send.held);
+    // Felt twice as a held payment is, logged, and said once it has landed.
+    await past(300);
+    expect(felt()).toEqual(['notificationWarning', 'notificationWarning']);
+    expect(logged()).toContain('HELD');
+    await heard(true);
+    expect(said).toHaveBeenCalledWith(copy.send.heldAnnouncement, {
+      assertive: true,
+    });
+    // The history is a tap away, and nothing on the screen pays.
+    expect(find(tree, copy.send.viewActivity)).toBeDefined();
+    expect(holds(tree, HOLD)).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+
+  test.each([
+    ['completed', copy.send.sent],
+    ['uncertain', copy.send.unknown],
+    ['failed', copy.send.failed],
+  ] as const)(
+    'answered %s after its grace, moves the held ring on to how it went',
+    async (status, title) => {
+      const { tree, answer } = await hanging(priced(`late-${status}`));
+      await past(SEND_GRACE_MS);
+      expect(meaning(tree)).toContain(copy.send.onItsWay);
+      await answer(outcome(status));
+      expect(meaning(tree)).toContain(title);
+      expect(meaning(tree)).not.toContain(copy.send.held);
+      await act(async () => tree.unmount());
+    },
+  );
+
+  test('refused after its grace, shows the payment failed and lets the request go', async () => {
+    const request = priced('late-refused');
+    const { tree, refuse } = await hanging(request);
+    await past(SEND_GRACE_MS);
+    await refuse(coded('NO_ROUTE', 'No route was found.'));
+    expect(meaning(tree)).toContain(copy.send.failed);
+    expect(heldRequest(request)).toBeNull();
+    expect(recentDiagnostics()).toContainEqual(
+      expect.objectContaining({
+        code: 'NO_ROUTE',
+        message: 'No route was found.',
+      }),
+    );
+    await act(async () => tree.unmount());
+  });
+
+  test('answered after Send has gone, is recorded all the same and draws nothing', async () => {
+    const errors = jest.spyOn(console, 'error');
+    const unknown = priced('gone-unknown');
+    const first = await hanging(unknown);
+    await past(SEND_GRACE_MS);
+    await act(async () => first.tree.unmount());
+    await first.answer(outcome('uncertain'));
+    expect(heldRequest(unknown)).toEqual({ status: 'uncertain' });
+    expect(logged()).toContain('UNCERTAIN');
+
+    const refused = priced('gone-refused');
+    const second = await hanging(refused);
+    await act(async () => second.tree.unmount());
+    await second.refuse(coded('NO_ROUTE'));
+    expect(heldRequest(refused)).toBeNull();
+    expect(logged()).toContain('NO_ROUTE');
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  test('answered once the screen has moved on to another request, is recorded without taking it back', async () => {
+    const request = priced('moved-on');
+    const { tree, answer } = await hanging(request);
+    await past(SEND_GRACE_MS);
+    // Opened from its chip, to take another request.
+    await press(tree, copy.send.request);
+    await type(tree, priced('another'));
+    await answer(outcome('uncertain'));
+    expect(heldRequest(request)).toEqual({ status: 'uncertain' });
+    expect(meaning(tree)).not.toContain(copy.send.unknown);
+    expect(field(tree, copy.send.request).props.value).toBe(priced('another'));
+    await act(async () => tree.unmount());
+  });
+});
+
 describe('the stage', () => {
   /** When the stage was first told busy, against when `call` was made. */
   const busyBefore = (onBusy: jest.Mock, call: jest.Mock) => {
@@ -440,6 +594,31 @@ describe('the stage', () => {
     await act(async () => tree.unmount());
   });
 
+  test('is let go once a slow quote outlasts its grace, and the quote still lands', async () => {
+    jest.useFakeTimers();
+    const onBusy = jest.fn();
+    let fresh!: (value: SendReview) => void;
+    const prepareSend = jest.fn(
+      () =>
+        new Promise<SendReview>(resolve => {
+          fresh = resolve;
+        }),
+    );
+    const tree = await draw(
+      { prepareSend },
+      { initialRequest: priced('slow-quote'), onBusy },
+    );
+    await act(async () => {
+      find(tree, copy.send.review)?.props.onPress();
+    });
+    expect(onBusy).toHaveBeenLastCalledWith(true);
+    await act(async () => jest.advanceTimersByTime(SEND_GRACE_MS));
+    expect(onBusy).toHaveBeenLastCalledWith(false);
+    await act(async () => fresh(quote()));
+    expect(holds(tree, HOLD)).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
   test('is held busy the moment the hold commits, before the payment goes out', async () => {
     const onBusy = jest.fn();
     const send = jest.fn(() => new Promise<SendResult>(() => {}));
@@ -451,7 +630,8 @@ describe('the stage', () => {
     onBusy.mockClear();
     await activate(tree, HOLD);
     expect(busyBefore(onBusy, send)).toBe(true);
-    // Released only as Send goes, never on the way into busy.
+    // Released as its grace runs out or as Send goes, never on the way into
+    // busy.
     expect(onBusy).not.toHaveBeenCalledWith(false);
     await act(async () => tree.unmount());
     expect(onBusy).toHaveBeenLastCalledWith(false);

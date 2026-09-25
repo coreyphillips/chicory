@@ -143,6 +143,10 @@ const sends: Shot[] = [
     holdRequest(ADDRESS, { status: 'uncertain' });
     return {};
   }),
+  send('a held request, its payment still under way', () => {
+    holdRequest(ADDRESS, { status: 'pending' });
+    return {};
+  }),
   refused('a held request, the engine says already out', 'ALREADY_SUBMITTED'),
   refused('a request refused', 'INVALID_REQUEST'),
   refused('short of funds, within what is held', 'INSUFFICIENT_FUNDS'),
