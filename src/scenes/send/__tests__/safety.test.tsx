@@ -282,6 +282,51 @@ describe('a quote', () => {
   });
 });
 
+describe('the stage', () => {
+  /** When the stage was first told busy, against when `call` was made. */
+  const busyBefore = (onBusy: jest.Mock, call: jest.Mock) => {
+    const told = onBusy.mock.calls.findIndex(([busy]) => busy === true);
+    expect(told).toBeGreaterThanOrEqual(0);
+    expect(call).toHaveBeenCalled();
+    return (
+      onBusy.mock.invocationCallOrder[told] < call.mock.invocationCallOrder[0]
+    );
+  };
+
+  test('is held busy as a review is asked for, before it goes out', async () => {
+    const onBusy = jest.fn();
+    const prepareSend = jest.fn(() => new Promise<SendReview>(() => {}));
+    const tree = await draw(
+      { prepareSend },
+      { initialRequest: 'lnbc-busy-review', onBusy },
+    );
+    onBusy.mockClear();
+    // The review never lands, so the press is not waited on.
+    await act(async () => {
+      find(tree, copy.send.review)?.props.onPress();
+    });
+    expect(busyBefore(onBusy, prepareSend)).toBe(true);
+    await act(async () => tree.unmount());
+  });
+
+  test('is held busy the moment the hold commits, before the payment goes out', async () => {
+    const onBusy = jest.fn();
+    const send = jest.fn(() => new Promise<SendResult>(() => {}));
+    const tree = await draw(
+      { prepareSend: jest.fn().mockResolvedValue(quote()), send },
+      { initialRequest: 'lnbc-busy-send', onBusy },
+    );
+    await press(tree, copy.send.review);
+    onBusy.mockClear();
+    await activate(tree, HOLD);
+    expect(busyBefore(onBusy, send)).toBe(true);
+    // Released only as Send goes, never on the way into busy.
+    expect(onBusy).not.toHaveBeenCalledWith(false);
+    await act(async () => tree.unmount());
+    expect(onBusy).toHaveBeenLastCalledWith(false);
+  });
+});
+
 test('a balance going stale closes the gate, felt, said and logged, and a tap refreshes', async () => {
   const send = jest.fn();
   const onRefresh = jest.fn();

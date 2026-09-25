@@ -181,10 +181,17 @@ export function SendScreen({
     setRequest(initialRequest);
     setCollapsed(true);
   }, [initialRequest]);
+  // The stage is told busy by the handlers that send, as a request goes out
+  // and as its answer comes back (`goingOut` and `cameBack` below), and
+  // released as Send goes, whatever is still in flight.
+  const mounted = useRef(true);
   useEffect(() => {
-    onBusy(busy);
-    return () => onBusy(false);
-  }, [busy, onBusy]);
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => () => onBusy(false), [onBusy]);
 
   // A quote runs out on its own clock, and is said aloud once as it gets
   // close.
@@ -264,6 +271,28 @@ export function SendScreen({
 
   const sending = useRef(false);
 
+  /**
+   * Marks a request to the engine as going out. The stage hears it now, in
+   * the handler that sends it, rather than from an effect a render later:
+   * until then a close or a back could still take Send away under a payment
+   * in flight, and its result would never be shown.
+   */
+  function goingOut() {
+    sending.current = true;
+    onBusy(true);
+    setBusy(true);
+  }
+
+  /**
+   * The answer is back. A Send that has already gone leaves the stage alone,
+   * which it released as it went and may since be holding for another.
+   */
+  function cameBack() {
+    sending.current = false;
+    if (mounted.current) onBusy(false);
+    setBusy(false);
+  }
+
   function accept(code: string) {
     setRequest(code);
     setCollapsed(true);
@@ -318,8 +347,7 @@ export function SendScreen({
       toHeld();
       return;
     }
-    sending.current = true;
-    setBusy(true);
+    goingOut();
     setFailure(null);
     try {
       const next = await client.prepareSend({
@@ -350,8 +378,7 @@ export function SendScreen({
         setExpired(false);
       }
     } finally {
-      sending.current = false;
-      setBusy(false);
+      cameBack();
     }
   }
 
@@ -368,8 +395,7 @@ export function SendScreen({
       toHeld();
       return;
     }
-    sending.current = true;
-    setBusy(true);
+    goingOut();
     setFailure(null);
     setRail(reviewRail(review).glyph);
     try {
@@ -396,8 +422,7 @@ export function SendScreen({
         fail(e);
       }
     } finally {
-      sending.current = false;
-      setBusy(false);
+      cameBack();
     }
   }
 
@@ -444,7 +469,8 @@ export function SendScreen({
 
   useImperativeHandle(ref, () => ({
     back: () => {
-      if (busy) return false;
+      // Sent but not yet rendered as busy counts too: the stage refuses it.
+      if (busy || sending.current) return false;
       if (review) {
         edit();
         return true;
