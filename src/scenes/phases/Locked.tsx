@@ -7,7 +7,6 @@ import {
 import Reanimated, {
   cancelAnimation,
   ReduceMotion,
-  useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -18,12 +17,10 @@ import Reanimated, {
 import type {
   EntryExitAnimationFunction,
   ExitAnimationsValues,
-  SharedValue,
 } from 'react-native-reanimated';
-import Svg, { Path } from 'react-native-svg';
 import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
-import { Glyph, GLYPH_LENGTHS, GLYPHS, strokeFor } from '../../design/glyphs';
+import { Glyph } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
@@ -191,17 +188,13 @@ const GLYPH_SIZE = 32;
 const DRAW_LOOP_MS = 900;
 const DRAW_REST_MS = 360;
 
-// Drawn heavier than the grid, as glyphs.tsx draws them, so the dots read as
-// keys rather than specks.
-const WEIGHT: Partial<Record<GlyphName, number>> = { passcode: 2.6 / 1.7 };
-
-const AnimatedPath = Reanimated.createAnimatedComponent(Path);
-
 /**
- * The unlock glyph. Its strokes are dashed exactly as long as they are, so
- * sliding the dash offset draws them in; while the prompt is up it redraws
- * over and over. A refusal lays the same glyph in radish over it, flashing
- * as it arrives and holding until the next try.
+ * The unlock glyph. While the system prompt is up it draws itself in from
+ * the left, over and over, like a scan: a window slides across the glyph
+ * while the glyph slides the other way inside it and so stays put. Only
+ * transforms move, and the glyph's drawing never changes. A refusal lays the
+ * same glyph in radish over it, flashing as it arrives and holding until the
+ * next try.
  */
 function UnlockGlyph({
   name,
@@ -233,6 +226,12 @@ function UnlockGlyph({
     );
     return () => cancelAnimation(drawn);
   }, [running, drawn]);
+  const windowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -GLYPH_SIZE * (1 - drawn.get()) }],
+  }));
+  const glyphStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: GLYPH_SIZE * (1 - drawn.get()) }],
+  }));
 
   const flash = useSharedValue(0);
   useEffect(() => {
@@ -254,58 +253,17 @@ function UnlockGlyph({
   // Under Reduce Motion the prompt is a still state: the glyph dims.
   const waiting = reduced && drawing;
 
-  const width = strokeFor(GLYPH_SIZE) * (WEIGHT[name] ?? 1);
   return (
     <View style={[styles.glyphFrame, waiting && styles.waiting]}>
-      <Svg
-        width={GLYPH_SIZE}
-        height={GLYPH_SIZE}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke={palette.steam}
-        strokeWidth={width}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        {GLYPHS[name].map((part, i) => (
-          <DrawnPart
-            key={part.id}
-            d={part.d}
-            length={GLYPH_LENGTHS[name][i]}
-            drawn={drawn}
-          />
-        ))}
-      </Svg>
+      <Reanimated.View style={[styles.window, windowStyle]}>
+        <Reanimated.View style={glyphStyle}>
+          <Glyph name={name} size={GLYPH_SIZE} color={palette.steam} />
+        </Reanimated.View>
+      </Reanimated.View>
       <Reanimated.View style={[styles.overlay, flashStyle]}>
-        <Glyph
-          name={name}
-          size={GLYPH_SIZE}
-          color={palette.radish}
-          strokeWidth={width}
-        />
+        <Glyph name={name} size={GLYPH_SIZE} color={palette.radish} />
       </Reanimated.View>
     </View>
-  );
-}
-
-function DrawnPart({
-  d,
-  length,
-  drawn,
-}: {
-  d: string;
-  length: number;
-  drawn: SharedValue<number>;
-}) {
-  const props = useAnimatedProps(() => ({
-    strokeDashoffset: length * (1 - drawn.get()),
-  }));
-  return (
-    <AnimatedPath
-      d={d}
-      strokeDasharray={[length, length]}
-      animatedProps={props}
-    />
   );
 }
 
@@ -438,6 +396,7 @@ const styles = StyleSheet.create({
   },
   glyph: { padding: space.xs },
   glyphFrame: { width: GLYPH_SIZE, height: GLYPH_SIZE },
+  window: { width: GLYPH_SIZE, height: GLYPH_SIZE, overflow: 'hidden' },
   waiting: { opacity: 0.6 },
   overlay: StyleSheet.absoluteFill,
 });
