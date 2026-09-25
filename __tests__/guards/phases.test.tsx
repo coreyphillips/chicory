@@ -1,6 +1,6 @@
 import React from 'react';
 import type { PropsWithChildren, ReactElement } from 'react';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, View } from 'react-native';
 import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -8,6 +8,7 @@ import * as Keychain from 'react-native-keychain';
 import HapticFeedback from 'react-native-haptic-feedback';
 import { copy } from '../../src/design/copy';
 import { Bloom } from '../../src/glyphs/Bloom';
+import { handOff, takeHandOff } from '../../src/scenes/phases/handoff';
 import { OpeningWallet } from '../../src/scenes/phases/Loading';
 import { LockScreen } from '../../src/scenes/phases/Locked';
 import { OfflineWallet } from '../../src/scenes/phases/Offline';
@@ -17,6 +18,7 @@ import { Saved } from '../../src/scenes/phases/Saved';
 import { Transit } from '../../src/scenes/phases/Transit';
 import {
   bloomTone,
+  flightFrom,
   lockVisual,
   markFlight,
   markPoint,
@@ -28,7 +30,7 @@ import {
 import { Welcome } from '../../src/scenes/phases/Welcome';
 import { defaultProfile } from '../../src/services/networks';
 import type { WalletSession } from '../../src/services/session';
-import { STATUS_ROW } from '../../src/stage/layout';
+import { PANE_SETTLE_MS, STATUS_ROW } from '../../src/stage/layout';
 import {
   newestFirst,
   StageProvider,
@@ -66,6 +68,25 @@ function Staged({ children }: PropsWithChildren) {
 }
 
 const staged = (element: ReactElement) => mount(<Staged>{element}</Staged>);
+
+/** Where a measured mark sits in the window. */
+const ROW_MARK = { x: 40, y: 320, width: SIZES.mark, height: SIZES.mark };
+
+/**
+ * Host views answer a measure the way a device does, reporting ROW_MARK,
+ * until `done` is called.
+ */
+function measuring() {
+  type Measured = (x: number, y: number, w: number, h: number) => void;
+  const measure = jest.mocked(
+    (View.prototype as unknown as { measureInWindow: (done: Measured) => void })
+      .measureInWindow,
+  );
+  measure.mockImplementation(done =>
+    done(ROW_MARK.x, ROW_MARK.y, ROW_MARK.width, ROW_MARK.height),
+  );
+  return { done: () => measure.mockReset() };
+}
 
 const everyday = walletOf();
 const savings = walletOf({
@@ -337,6 +358,14 @@ const GUARDED: GuardedState[] = [
     render: () => loading({ name: undefined, busy: true }),
     data: DATA,
   },
+  {
+    name: 'loading, arriving from the picker',
+    render: () => {
+      handOff(ROW_MARK);
+      return loading({ busy: true });
+    },
+    data: DATA,
+  },
   { name: 'offline', render: () => offline(), data: DATA },
   {
     name: 'offline, setup failed',
@@ -491,6 +520,35 @@ describe('phase visuals', () => {
       dy: 0,
       scale: 1,
     });
+  });
+
+  test('a flight from the picker starts over the row it came from', () => {
+    const to = { x: 24, y: 60, width: 28, height: 28 };
+    expect(flightFrom(ROW_MARK, to)).toEqual({
+      dx: ROW_MARK.x - to.x,
+      dy: ROW_MARK.y - to.y,
+      scale: 1,
+    });
+    // A larger source starts scaled up, centre over centre.
+    expect(flightFrom({ x: 0, y: 0, width: 96, height: 96 }, to)).toEqual({
+      dx: 48 - 38,
+      dy: 48 - 74,
+      scale: 96 / 28,
+    });
+  });
+
+  test("the picker's hand-off is taken once, and only while it is fresh", () => {
+    handOff(ROW_MARK);
+    expect(takeHandOff()).toEqual(ROW_MARK);
+    expect(takeHandOff()).toBeNull();
+    const now = Date.now();
+    handOff(ROW_MARK);
+    jest.spyOn(Date, 'now').mockReturnValue(now + 60_000);
+    try {
+      expect(takeHandOff()).toBeNull();
+    } finally {
+      jest.restoreAllMocks();
+    }
   });
 });
 
@@ -711,6 +769,46 @@ describe('phase behaviour', () => {
     await retry(false);
     expect(refused()).toHaveLength(1);
     await act(async () => tree.unmount());
+  });
+
+  test('choosing a wallet hands its mark to the page that follows', async () => {
+    const host = measuring();
+    try {
+      const chooser = await picker({
+        selectWallet: jest.fn(() => new Promise<void>(() => {})),
+      });
+      await press(chooser, 'Open Everyday');
+      await act(async () => chooser.unmount());
+    } finally {
+      host.done();
+    }
+    jest.useFakeTimers();
+    try {
+      const page = await loading({ busy: true });
+      const mark = () =>
+        page.root
+          .findAllByType(Bloom)
+          .find(node => node.props.size === SIZES.mark);
+      // It arrives still chasing, as the loader it became, and rests on
+      // landing.
+      expect(mark()?.props.mode).toBe('chase');
+      await act(async () => {
+        jest.advanceTimersByTime(PANE_SETTLE_MS);
+      });
+      expect(mark()?.props.mode).toBe('still');
+      await act(async () => page.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
+    // Taken by that page, so the next one arrives on its own.
+    expect(takeHandOff()).toBeNull();
+    const next = await loading();
+    expect(
+      next.root
+        .findAllByType(Bloom)
+        .find(node => node.props.size === SIZES.mark)?.props.mode,
+    ).toBe('still');
+    await act(async () => next.unmount());
   });
 
   describe('focus lands on what each phase is about', () => {

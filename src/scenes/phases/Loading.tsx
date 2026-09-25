@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { Ref } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { HostInstance } from 'react-native';
@@ -9,20 +9,29 @@ import Reanimated, {
   useSharedValue,
   withDelay,
   withRepeat,
+  withSequence,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import type { EntryExitAnimationFunction } from 'react-native-reanimated';
+import type {
+  EntryAnimationsValues,
+  EntryExitAnimationFunction,
+} from 'react-native-reanimated';
 import type { Network } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
 import { Bloom } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
 import { stagger } from '../../motion/presets';
-import { curves, durations } from '../../motion/tokens';
+import { curves, durations, springs } from '../../motion/tokens';
+import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { motionReduced } from '../../services/motion';
+import { PANE_SETTLE_MS } from '../../stage/layout';
+import type { Rect } from '../../stage/scene';
 import { radius, space, type as typography } from '../../theme';
+import { takeHandOff } from './handoff';
 import { GlyphButton, PhaseRoot, useArrivalFocus, useRunning } from './parts';
-import { bloomTone, SIZES, WAVE } from './visual';
+import { bloomTone, flightFrom, SIZES, WAVE } from './visual';
 
 /**
  * The wallet page before its first figures, drawn as the canvas will be:
@@ -31,6 +40,10 @@ import { bloomTone, SIZES, WAVE } from './visual';
  * outlines that cannot be used yet, and skeleton rows in the sheet. The lock
  * stays in its corner, since a wallet that never answers must still be
  * closable.
+ *
+ * A wallet chosen in the picker a moment ago brings its mark with it: the
+ * mark flies from that row to the status row, still chasing, and comes to
+ * rest as it lands (R-2).
  */
 export function OpeningWallet({
   name,
@@ -43,16 +56,31 @@ export function OpeningWallet({
   busy: boolean;
   onDisconnect: () => void;
 }) {
+  const { reduced } = useMotionPrefs();
+  // Taken once, as the page mounts; a hand-off is only good for one arrival.
+  const [origin] = useState(takeHandOff);
+  const flying = !!origin && !reduced;
+  const [landed, setLanded] = useState(!flying);
+  useEffect(() => {
+    if (landed) return;
+    const settle = setTimeout(() => setLanded(true), PANE_SETTLE_MS);
+    return () => clearTimeout(settle);
+  }, [landed]);
   const focus = useArrivalFocus();
   return (
-    <PhaseRoot style={styles.canvas}>
+    <PhaseRoot style={styles.canvas} delay={flying ? 0 : undefined}>
       <View style={styles.status}>
         <View style={styles.identity}>
-          <Bloom
-            size={SIZES.mark}
-            tone={bloomTone(network)}
-            accessibilityLabel={name ? undefined : copy.phase.yourWallet}
-          />
+          <Reanimated.View
+            entering={origin && flying ? arriveFrom(origin) : undefined}
+          >
+            <Bloom
+              size={SIZES.mark}
+              tone={bloomTone(network)}
+              mode={landed ? 'still' : 'chase'}
+              accessibilityLabel={name ? undefined : copy.phase.yourWallet}
+            />
+          </Reanimated.View>
           {name ? (
             <Text numberOfLines={1} style={styles.name}>
               {name}
@@ -99,6 +127,49 @@ export function OpeningWallet({
       </View>
     </PhaseRoot>
   );
+}
+
+/** How much the mark lifts as it leaves the picker row. */
+const LIFT = 1.25;
+
+/**
+ * The mark leaving the picker row it was chosen on: it lifts as it lets go,
+ * then settles into the status row on the pane spring.
+ */
+function arriveFrom(origin: Rect): EntryExitAnimationFunction {
+  return (values: EntryAnimationsValues) => {
+    'worklet';
+    const flight = flightFrom(origin, {
+      x: values.targetGlobalOriginX,
+      y: values.targetGlobalOriginY,
+      width: values.targetWidth,
+      height: values.targetHeight,
+    });
+    return {
+      initialValues: {
+        transform: [
+          { translateX: flight.dx },
+          { translateY: flight.dy },
+          { scale: flight.scale },
+        ],
+      },
+      animations: {
+        transform: [
+          { translateX: withSpring(0, springs.pane) },
+          { translateY: withSpring(0, springs.pane) },
+          {
+            scale: withSequence(
+              withTiming(flight.scale * LIFT, {
+                duration: durations.tick,
+                easing: curves.enter,
+              }),
+              withSpring(1, springs.pane),
+            ),
+          },
+        ],
+      },
+    };
+  };
 }
 
 /** The skeleton rows' first lines, each a little shorter than the last. */

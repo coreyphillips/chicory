@@ -4,6 +4,7 @@ import type { GlyphName } from '../../design/glyphs';
 import type { BloomMode, BloomTone } from '../../glyphs/Bloom';
 import type { BiometryKind } from '../../services/lock';
 import { STATUS_ROW } from '../../stage/layout';
+import type { Rect } from '../../stage/scene';
 import { space } from '../../theme';
 
 /**
@@ -214,6 +215,23 @@ export function markFlight(
     dx: mark.x - centre.x,
     dy: mark.y - centre.y,
     scale: SIZES.mark / size,
+  };
+}
+
+/**
+ * The offset and scale that put a view laid out at `to` over `from`, both in
+ * window points: where the loading page's mark starts, over the picker row it
+ * was chosen from (R-2).
+ */
+export function flightFrom(
+  from: Rect,
+  to: Rect,
+): { dx: number; dy: number; scale: number } {
+  'worklet';
+  return {
+    dx: from.x + from.width / 2 - (to.x + to.width / 2),
+    dy: from.y + from.height / 2 - (to.y + to.height / 2),
+    scale: to.width > 0 ? from.width / to.width : 1,
   };
 }
 

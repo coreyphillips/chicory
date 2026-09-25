@@ -1,5 +1,6 @@
-import React, { memo, useCallback, useEffect, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { HostInstance } from 'react-native';
 import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
@@ -18,6 +19,7 @@ import { NetworkSettings } from '../../screens/NetworkSettings';
 import type { useWalletSession } from '../../services/useWalletSession';
 import { usePhaseBack } from '../../stage/StageContext';
 import { radius, space } from '../../theme';
+import { handOff } from './handoff';
 import {
   GlyphButton,
   nameStyle,
@@ -37,7 +39,8 @@ type Session = ReturnType<typeof useWalletSession>;
  * name, with a flask on a test network. With none saved, a sprout row makes
  * one. Restore, the network settings and the lock sit along the bottom.
  * Choosing a wallet starts the chase on its mark and dims the others while
- * it opens (R-2).
+ * it opens, and the wallet's page takes that mark from the row as it arrives
+ * (R-2).
  */
 export function Picker({
   wallets,
@@ -210,6 +213,7 @@ const WalletRow = memo(function SavedWallet({
 }) {
   const tone = bloomTone(wallet.network);
   const dim = useDim(busy && !chosen);
+  const mark = useRef<HostInstance>(null);
   return (
     <Reanimated.View entering={stagger(index)} style={dim}>
       <Pressable
@@ -221,15 +225,22 @@ const WalletRow = memo(function SavedWallet({
         disabled={busy}
         onPress={() => {
           haptics.tick();
+          // Measured before the wallet opens: the page that follows flies its
+          // mark in from this one (R-2).
+          mark.current?.measureInWindow((x, y, width, height) =>
+            handOff({ x, y, width, height }),
+          );
           onOpen(wallet);
         }}
         style={({ pressed }) => [styles.row, pressed && styles.pressed]}
       >
-        <Bloom
-          size={SIZES.mark}
-          tone={tone}
-          mode={busy && chosen ? 'chase' : 'still'}
-        />
+        <View ref={mark} collapsable={false}>
+          <Bloom
+            size={SIZES.mark}
+            tone={tone}
+            mode={busy && chosen ? 'chase' : 'still'}
+          />
+        </View>
         <Text numberOfLines={1} style={styles.name}>
           {wallet.name}
         </Text>
