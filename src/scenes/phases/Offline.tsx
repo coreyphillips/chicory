@@ -12,6 +12,7 @@ import {
 import { RecoveryPhrase } from '../../components/RecoveryPhrase';
 import { NetworkSettings } from '../../screens/NetworkSettings';
 import type { NetworkProfile } from '../../services/networks';
+import { usePhaseBack } from '../../stage/StageContext';
 import { space } from '../../theme';
 
 /**
@@ -50,6 +51,12 @@ export function OfflineWallet({
   onDisconnect: () => void;
   loadPhrase: () => Promise<string>;
 }) {
+  // Back closes the network editor before it leaves the app.
+  usePhaseBack(() => {
+    if (!networkEditor) return false;
+    onToggleNetwork();
+    return true;
+  });
   return (
     <View style={styles.stack}>
       <Title>{name || 'Your wallet'}</Title>

@@ -4,6 +4,7 @@ import { Body, Button, LinkButton, Notice, Title } from '../../components/ui';
 import { DeviceSetup } from '../../screens/DeviceSetup';
 import { errorMessage } from '../../services/useWalletSession';
 import type { useWalletSession } from '../../services/useWalletSession';
+import { usePhaseBack } from '../../stage/StageContext';
 import { colors, space } from '../../theme';
 
 type Session = ReturnType<typeof useWalletSession>;
@@ -43,6 +44,17 @@ export function Welcome({
   onCreateWallet: (restoring: boolean) => void;
 }) {
   const opening = connecting || initializing;
+  const closeDevice = () => {
+    setDeviceVisible(false);
+    setError('');
+  };
+  // Back closes the device setup, as its own Back link does. While a wallet
+  // is opening from it the press is held, since the link is disabled too.
+  usePhaseBack(() => {
+    if (!deviceVisible) return false;
+    if (!connecting) closeDevice();
+    return true;
+  });
   return (
     <View style={styles.welcome}>
       {!deviceVisible ? (
@@ -111,10 +123,7 @@ export function Welcome({
           label="Back"
           tone="muted"
           disabled={connecting}
-          onPress={() => {
-            setDeviceVisible(false);
-            setError('');
-          }}
+          onPress={closeDevice}
         />
       ) : null}
     </View>

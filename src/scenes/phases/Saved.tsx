@@ -12,6 +12,7 @@ import {
 import { NetworkSettings } from '../../screens/NetworkSettings';
 import { errorMessage } from '../../services/useWalletSession';
 import type { useWalletSession } from '../../services/useWalletSession';
+import { usePhaseBack } from '../../stage/StageContext';
 import { space } from '../../theme';
 
 type Session = ReturnType<typeof useWalletSession>;
@@ -44,6 +45,12 @@ export function Saved({
   name?: string;
   network: Network;
 }) {
+  // Back closes the network editor before it leaves the app.
+  usePhaseBack(() => {
+    if (!networkEditor) return false;
+    setNetworkEditor(false);
+    return true;
+  });
   return (
     <View style={styles.stack}>
       <Title>{name || 'Your wallet'}</Title>

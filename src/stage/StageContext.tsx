@@ -5,6 +5,7 @@ import React, {
   useMemo,
   useReducer,
   useRef,
+  useState,
 } from 'react';
 import type { Dispatch, PropsWithChildren, RefObject } from 'react';
 import type { Activity } from '@beignet/wallet-core';
@@ -39,6 +40,28 @@ export interface PaneMotion {
   follow: (next: StageState) => void;
 }
 
+/** One registered answer, read at the moment it is asked for. */
+export type Responder<T> = { current: T };
+
+/**
+ * What surfaces inside the stage answer before the stage itself does. Each
+ * set is in the order its entries became active, so the newest, the
+ * innermost surface on screen, is asked first.
+ */
+export interface Responders {
+  /** Android back inside a scene: Send's review, a lifted QR, a search. */
+  sceneBack: Set<Responder<() => boolean>>;
+  /** Android back inside a shell phase: a panel or an editor it opened. */
+  phaseBack: Set<Responder<() => boolean>>;
+  /** Where a code scanned for the Send already open goes. */
+  scan: Set<Responder<(value: string) => void>>;
+}
+
+/** A registry's answers, newest first. */
+export function newestFirst<T>(registry: Set<Responder<T>>): T[] {
+  return [...registry].reverse().map(entry => entry.current);
+}
+
 export interface StageStore {
   state: StageState;
   dispatch: Dispatch<StageAction>;
@@ -48,6 +71,7 @@ export interface StageStore {
    * a shell phase, nothing is moving and taps go straight through.
    */
   panes: RefObject<PaneMotion | null>;
+  responders: Responders;
 }
 
 const StageContext = createContext<StageStore | null>(null);
@@ -60,6 +84,11 @@ const StageContext = createContext<StageStore | null>(null);
 export function useStageStore(): StageStore {
   const [state, dispatch] = useReducer(stageReducer, undefined, initialStage);
   const panes = useRef<PaneMotion | null>(null);
+  const [responders] = useState<Responders>(() => ({
+    sceneBack: new Set(),
+    phaseBack: new Set(),
+    scan: new Set(),
+  }));
   // The state as of the last tap, ahead of React while a render is pending,
   // so two taps in one tick each start from where the one before led. A scan
   // started inside Send also reads it, to hand its code to that Send.
@@ -111,7 +140,10 @@ export function useStageStore(): StageStore {
       setBusy: busy => dispatch({ type: 'busy', busy }),
     };
   }, []);
-  return useMemo(() => ({ state, dispatch, actions, panes }), [state, actions]);
+  return useMemo(
+    () => ({ state, dispatch, actions, panes, responders }),
+    [state, actions, responders],
+  );
 }
 
 export function StageProvider({
@@ -128,4 +160,47 @@ export function useStage(): StageStore {
   const stage = useContext(StageContext);
   if (!stage) throw new Error('useStage is only available inside a Stage.');
   return stage;
+}
+
+/**
+ * Keeps `value` in `registry` while `active`, always its latest version. An
+ * entry that turns active again moves to the end, as the newest.
+ */
+export function useResponder<T>(
+  registry: Set<Responder<T>>,
+  value: T,
+  active: boolean,
+) {
+  const entry = useRef(value);
+  useLayoutEffect(() => {
+    entry.current = value;
+  });
+  useLayoutEffect(() => {
+    if (!active) return;
+    registry.add(entry);
+    return () => {
+      registry.delete(entry);
+    };
+  }, [registry, active]);
+}
+
+/**
+ * Answers Android back inside a scene while `active`, before the stage steps
+ * back through its stack (REDESIGN.md 2.2). `handler` returns true when it
+ * took the press, such as Send's review returning to compose, and false to
+ * pass it on. The innermost wins: the one that became active last is asked
+ * first. A surface that another covers, such as one under the scan overlay,
+ * passes `active` false, which `usePaneActive()` tells it.
+ */
+export function useSceneBack(handler: () => boolean, active: boolean) {
+  useResponder(useStage().responders.sceneBack, handler, active);
+}
+
+/**
+ * Answers Android back inside a shell phase, once the stage has nothing of
+ * its own left to close: a panel or an editor the phase opened. `handler`
+ * returns true when it took the press, and false to let the system have it.
+ */
+export function usePhaseBack(handler: () => boolean) {
+  useResponder(useStage().responders.phaseBack, handler, true);
 }

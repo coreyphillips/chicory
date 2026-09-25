@@ -5,6 +5,7 @@ import { Eyebrow, LinkButton, Notice } from '../../components/ui';
 import { NetworkSettings } from '../../screens/NetworkSettings';
 import { WalletPicker } from '../../screens/Settings';
 import type { useWalletSession } from '../../services/useWalletSession';
+import { usePhaseBack } from '../../stage/StageContext';
 import { space } from '../../theme';
 
 type Session = ReturnType<typeof useWalletSession>;
@@ -41,6 +42,12 @@ export function Picker({
   /** Opens the new wallet sheet, in restore mode when `restoring` is set. */
   onCreateWallet: (restoring: boolean) => void;
 }) {
+  // Back closes the network editor before it leaves the app.
+  usePhaseBack(() => {
+    if (!networkEditor) return false;
+    setNetworkEditor(false);
+    return true;
+  });
   return (
     <View style={styles.stack}>
       {error ? <Notice kind="error">{error}</Notice> : null}

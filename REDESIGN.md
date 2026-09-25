@@ -69,7 +69,17 @@ This branch (`redesign`) is an experimental redesign of the Chicory app. It is n
   - The state also carries a back `stack`, a `busy` lock and a `step`.
   - `busy` blocks `back`, `home`, `open`, `link` and `overlay`. `reset` and `tab`, which come from session callbacks, always win.
   - A send scene's prefill lives inside the scene, so leaving it discards the prefill.
-- **Android back.** `useBackHandler` runs this chain: transition lock, then the innermost step responder, then busy, then overlay and stack, then phase back, and otherwise exits.
+- **Android back.** `useBackHandler` runs this chain, and the first rung that answers takes the press:
+
+  1. the transition lock, which swallows the press while a pane moves;
+  2. a locked app, which answers nothing;
+  3. the innermost scene responder, registered with `useSceneBack(handler, active)` (Send's review back to compose, a lifted QR, an open search); the one that became active last is asked first;
+  4. busy, which swallows the press with a warning haptic;
+  5. an open overlay, then the scene stack;
+  6. the phase responder, registered with `usePhaseBack(handler)` (Welcome's device setup, a network editor);
+  7. otherwise the system has the press, and the app is left.
+
+  A handler returns true when it took the press and false to pass it on.
 
 ### 2.3 Canvas
 
