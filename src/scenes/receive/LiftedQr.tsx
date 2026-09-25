@@ -6,6 +6,7 @@ import Reanimated, {
   withTiming,
 } from 'react-native-reanimated';
 import type { EntryExitAnimationFunction } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
 import { QrBloom } from '../../glyphs/QrBloom';
@@ -21,7 +22,8 @@ const RING_GAP = 8;
 
 /**
  * How far the scene slot's padding sits inside the slot, so the scrim can
- * reach past it to the slot's edges.
+ * reach past it to the slot's edges. Below, the scene also keeps clear of
+ * the system bar, which the scrim covers too.
  */
 const BLEED = {
   top: -space.md,
@@ -80,13 +82,14 @@ export function LiftedQr({
 }) {
   const live = usePaneActive();
   const { width } = useWindowDimensions();
+  const { bottom } = useSafeAreaInsets();
   const side = width - space.xs * 2;
   const ratio = Math.min(1, from / side);
   return (
     <Reanimated.View
       entering={fade(1)}
       exiting={fade(0)}
-      style={[styles.scrim, BLEED]}
+      style={[styles.scrim, BLEED, { bottom: BLEED.bottom - bottom }]}
     >
       <Pressable
         accessibilityRole="button"
