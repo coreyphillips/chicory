@@ -4,7 +4,7 @@ import { IconButton } from '../../components/ui';
 import { RecoveryPhrase } from '../../components/RecoveryPhrase';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
-import { SettingsSurface } from '../../scenes/settings/ui';
+import { SettingsNetwork, SettingsSurface } from '../../scenes/settings/ui';
 import { space } from '../../theme';
 import { STATUS_ROW } from '../layout';
 import { SceneSlot } from '../panes/SceneSlot';
@@ -25,9 +25,15 @@ import type { Backup } from '../Canvas';
  */
 export function BackupPanel({
   backup,
+  network,
   onClose,
 }: {
   backup: Backup;
+  /**
+   * The wallet's network: on a test network the phrase draws slate where it
+   * would draw bloom, as it does in Settings.
+   */
+  network: string;
   onClose: () => void;
 }) {
   usePhaseBack(() => {
@@ -45,11 +51,13 @@ export function BackupPanel({
         />
       </View>
       <SceneSlot label={copy.scene.backup}>
-        <RecoveryPhrase
-          loadPhrase={backup.loadPhrase}
-          onSaved={backup.onSaved}
-          focus
-        />
+        <SettingsNetwork network={network}>
+          <RecoveryPhrase
+            loadPhrase={backup.loadPhrase}
+            onSaved={backup.onSaved}
+            focus
+          />
+        </SettingsNetwork>
       </SceneSlot>
     </SettingsSurface>
   );

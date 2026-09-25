@@ -10,12 +10,16 @@ import { palette } from '../../../design/palette';
 import { defaultProfile } from '../../../services/networks';
 import type { WalletAdapter } from '../../../services/wallet';
 import type { Backup, CanvasSession, CanvasView } from '../../../stage/Canvas';
+import { BackupPanel } from '../../../stage/layers/BackupPanel';
 import { CreateSheet } from '../../../stage/layers/CreateSheet';
+import { OfflineWallet } from '../../phases/Offline';
+import { SetupPanel } from '../../phases/parts';
+import { Picker } from '../../phases/Picker';
 import { StageProvider, useStageStore } from '../../../stage/StageContext';
 import { snapshotOf, walletOf } from '../../../../test-support/fixtures';
 import { mount } from '../../../../test-support/guard';
 import { SettingsLayer } from '../SettingsLayer';
-import { SettingsNetwork, Toggle, accentFor, noteLook } from '../ui';
+import { Action, SettingsNetwork, Toggle, accentFor, noteLook } from '../ui';
 
 /**
  * Test against mainnet is a safety state (REDESIGN.md rule 4), so on a test
@@ -195,6 +199,94 @@ describe('a test network', () => {
       );
       const create = host(tree, copy.settings.create.create(network));
       expect(flat(create).backgroundColor).toBe(accent);
+      await unmount(tree);
+    }
+  });
+
+  test("draws a wallet's phrase over a phase in its network's tone", async () => {
+    for (const [network, accent] of [
+      ['regtest', palette.slate],
+      ['mainnet', palette.bloom],
+    ] as const) {
+      const tree = await mount(
+        <OnStage>
+          <BackupPanel backup={pending} network={network} onClose={jest.fn()} />
+        </OnStage>,
+      );
+      expect(flat(host(tree, 'Reveal recovery phrase')).backgroundColor).toBe(
+        accent,
+      );
+      await unmount(tree);
+    }
+  });
+
+  test("draws a phase's setup panel in its network's tone", async () => {
+    for (const [network, accent] of [
+      ['regtest', palette.slate],
+      ['mainnet', palette.bloom],
+    ] as const) {
+      const tree = await mount(
+        <OnStage>
+          <SetupPanel network={network}>
+            <Action label="Apply" onPress={jest.fn()} />
+          </SetupPanel>
+        </OnStage>,
+      );
+      expect(flat(host(tree, 'Apply')).backgroundColor).toBe(accent);
+      await unmount(tree);
+    }
+    // Offline's panel, the network editor and the recovery phrase, takes
+    // the wallet's network.
+    const tree = await mount(
+      <OnStage>
+        <OfflineWallet
+          name="Everyday"
+          network="regtest"
+          error="Electrum is offline."
+          busy={false}
+          networkEditor
+          onRetryConnection={jest.fn()}
+          onRetrySetup={jest.fn()}
+          onToggleNetwork={jest.fn()}
+          onApplyNetwork={jest.fn(async () => {})}
+          onChooseWallet={jest.fn()}
+          onDisconnect={jest.fn()}
+          loadPhrase={jest.fn(async () => PHRASE)}
+        />
+      </OnStage>,
+    );
+    const [tone] = tree.root.findAllByType(SettingsNetwork);
+    expect(tone.props.network).toBe('regtest');
+    expect(
+      tone.findAll(
+        node => node.props.accessibilityLabel === 'Reveal recovery phrase',
+      ),
+    ).not.toEqual([]);
+    await unmount(tree);
+  });
+
+  test("hands the picker's network editor the active profile's network", async () => {
+    for (const network of ['regtest', 'mainnet'] as const) {
+      const tree = await mount(
+        <OnStage>
+          <Picker
+            wallets={[]}
+            activeProfile={defaultProfile(network)}
+            error=""
+            switchError=""
+            networkEditor
+            selecting={false}
+            switchNetwork={jest.fn(async () => {})}
+            setNetworkEditor={jest.fn()}
+            selectWallet={jest.fn(async () => {})}
+            createDefaultWallet={jest.fn(async () => {})}
+            disconnect={jest.fn(async () => {})}
+            onCreateWallet={jest.fn()}
+          />
+        </OnStage>,
+      );
+      const [tone] = tree.root.findAllByType(SettingsNetwork);
+      expect(tone.props.network).toBe(network);
       await unmount(tree);
     }
   });

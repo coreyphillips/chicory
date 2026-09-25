@@ -113,7 +113,7 @@ export function Saved({
         />
       </View>
       {networkEditor ? (
-        <SetupPanel>
+        <SetupPanel network={network}>
           <NetworkSettings initialNetwork={network} onApply={switchNetwork} />
           <LinkButton
             label={copy.phase.deviceSettings}

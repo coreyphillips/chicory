@@ -12,7 +12,7 @@ import Reanimated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-import { colors, HIT_SLOP, radius, space, type } from '../theme';
+import { colors, HIT_SLOP, MIN_TARGET, radius, space, type } from '../theme';
 import { Glyph } from '../design/glyphs';
 import type { GlyphName } from '../design/glyphs';
 import { springs } from '../motion/tokens';
@@ -273,6 +273,20 @@ export function LinkButton({
  * `maxFontSizeMultiplier` sets one, as an amount's presets do (REDESIGN.md
  * 3.3); Settings' chips leave it uncapped.
  */
+/** A chip's least height as drawn, which its hitSlop brings to MIN_TARGET. */
+export const CHIP_HEIGHT = 38;
+const CHIP_REACH = (MIN_TARGET - CHIP_HEIGHT) / 2;
+/**
+ * A chip reaches up and down to MIN_TARGET. It needs nothing across, where
+ * it is at least MIN_TARGET wide, and where its neighbours sit a gap away.
+ */
+export const CHIP_SLOP = {
+  top: CHIP_REACH,
+  bottom: CHIP_REACH,
+  left: 0,
+  right: 0,
+};
+
 export function Chip({
   label,
   selected,
@@ -292,6 +306,7 @@ export function Chip({
       accessibilityLabel={label}
       accessibilityState={{ selected, disabled: !!disabled }}
       disabled={disabled}
+      hitSlop={CHIP_SLOP}
       onPress={
         onPress &&
         (() => {
@@ -345,8 +360,8 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.45 },
 
   iconButton: {
-    width: 40,
-    height: 40,
+    width: MIN_TARGET,
+    height: MIN_TARGET,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
@@ -365,7 +380,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     paddingHorizontal: space.md,
     paddingVertical: space.xs + 2,
-    minHeight: 38,
+    minHeight: CHIP_HEIGHT,
+    minWidth: MIN_TARGET,
     justifyContent: 'center',
   },
   chipSelected: { backgroundColor: colors.cream, borderColor: colors.cream },

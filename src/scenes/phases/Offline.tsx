@@ -173,7 +173,7 @@ export function OfflineWallet({
         />
       </View>
       {panel ? (
-        <SetupPanel>
+        <SetupPanel network={network}>
           <LinkButton
             label={
               networkEditor ? copy.phase.hideNetwork : copy.phase.changeNetwork

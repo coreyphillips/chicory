@@ -181,6 +181,7 @@ export function Stage({
           setError={session.setError}
           setDeviceVisible={session.setDeviceVisible}
           onCreateWallet={actions.openCreate}
+          network={activeProfile.network}
         />
       );
       break;
@@ -302,7 +303,11 @@ export function Stage({
                     exiting={slideOut()}
                     style={styles.flex}
                   >
-                    <BackupPanel backup={backup} onClose={closeBackup} />
+                    <BackupPanel
+                      backup={backup}
+                      network={savedWallet?.network || activeProfile.network}
+                      onClose={closeBackup}
+                    />
                   </Reanimated.View>
                 </SafeAreaView>
               ) : phase.kind === 'wallet' || phase.kind === 'loading' ? (

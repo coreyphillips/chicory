@@ -161,7 +161,7 @@ export function Picker({
           />
         </View>
         {networkEditor && !covered ? (
-          <SetupPanel>
+          <SetupPanel network={network}>
             <NetworkSettings initialNetwork={network} onApply={switchNetwork} />
           </SetupPanel>
         ) : null}

@@ -184,6 +184,12 @@ export const type = {
 export const HIT_SLOP = { top: 10, bottom: 10, left: 10, right: 10 };
 
 /**
+ * The least any control may be touched by (REDESIGN.md 3.4), its frame and
+ * its hitSlop together.
+ */
+export const MIN_TARGET = 48;
+
+/**
  * Display formatting for satoshi amounts.
  *
  * `formatSats` validates through `parseSats` before formatting, so a value that

@@ -47,6 +47,7 @@ export function Welcome({
   setError,
   setDeviceVisible,
   onCreateWallet,
+  network,
 }: Pick<
   Session,
   | 'error'
@@ -62,6 +63,8 @@ export function Welcome({
 > & {
   /** Opens the new wallet sheet, in restore mode when `restoring` is set. */
   onCreateWallet: (restoring: boolean) => void;
+  /** The active profile's network, whose tone the device setup draws in. */
+  network?: string;
 }) {
   const opening = connecting || initializing;
   const closeDevice = () => {
@@ -105,7 +108,7 @@ export function Welcome({
   if (deviceVisible) {
     return (
       <PhaseRoot key="device" style={styles.device}>
-        <SetupPanel>
+        <SetupPanel network={network}>
           <DeviceSetup
             busy={connecting}
             error={error}

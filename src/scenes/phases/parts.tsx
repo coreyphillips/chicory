@@ -24,7 +24,7 @@ import { curves, durations, overlap, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { motionReduced } from '../../services/motion';
 import { errorMessage } from '../../services/useWalletSession';
-import { SETTINGS_SURFACE } from '../settings/ui';
+import { SETTINGS_SURFACE, SettingsNetwork } from '../settings/ui';
 import { HIT_SLOP, radius, space } from '../../theme';
 
 /**
@@ -331,7 +331,17 @@ export function StatusPip({
  * other way (REDESIGN.md 10.1). The stage draws a new wallet's recovery
  * phrase (BackupPanel) in place of the phase, never beside a panel.
  */
-export function SetupPanel({ children }: PropsWithChildren) {
+export function SetupPanel({
+  network,
+  children,
+}: PropsWithChildren<{
+  /**
+   * The network the setup is for, the active profile's or the wallet's: on
+   * a test network the panel draws slate where it would draw bloom, as
+   * Settings does (`SettingsNetwork`). Without one it keeps bloom.
+   */
+  network?: string;
+}>) {
   return (
     <Reanimated.View
       testID={SETTINGS_SURFACE}
@@ -339,7 +349,11 @@ export function SetupPanel({ children }: PropsWithChildren) {
       exiting={sceneOut()}
       style={styles.panel}
     >
-      {children}
+      {network ? (
+        <SettingsNetwork network={network}>{children}</SettingsNetwork>
+      ) : (
+        children
+      )}
     </Reanimated.View>
   );
 }
