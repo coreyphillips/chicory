@@ -741,7 +741,8 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
   - `stops(H, insets)`: `full` = `insets.top`, `compact` = `insets.top + 72`, `home` = `max(insets.top + 380, 0.5H)`, `gone` = `H + 24`. The canvas draws edge to edge, under the status bar, so it passes the real safe-area insets and measures `H` from its root `onLayout`.
   - `SCENE_LAYOUT`: each scene's `{ seam, hero, bar }`. Home is `home`/1/1; activity and detail are `compact`/0/0; send and receive are `gone`/0/0. Settings has none.
   - `canvasScene(state)` and `canvasLayout(state)`: under Settings the canvas keeps the pose of the scene it covers, plus `covered`.
-  - `STATUS_ROW` (56), `HERO_MINI` (.34), `COVERED` (scale .94, opacity .5) and `PANE_SETTLE_MS` (340).
+  - `STATUS_ROW` (56), `HERO_MINI` (.34), `MINI_STRIP` (44), `COVERED` (scale .94, opacity .5) and `PANE_SETTLE_MS` (340).
+  - `MINI_STRIP` is the band under the status row that Send and Receive leave clear: the balance rests there as the mini strip while either is open. Under Activity and a payment's detail the sheet's compact stop leaves no band, so the strip rests in the middle of the status row instead, and the hero's landing springs between the two (`miniLanding` in `scenes/home/motion.ts`).
 - **`src/stage/panes/Pane.tsx`**.
   - `Pane({ active, style })`: a layer of the canvas. When it is not active it gets `pointerEvents` `none`, `accessibilityElementsHidden` and `importantForAccessibility` `no-hide-descendants`. Panes nest.
   - `usePaneActive()`: whether the pane a component is drawn in is in use. It is true outside any pane.

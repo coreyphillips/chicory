@@ -26,10 +26,12 @@ import { Backdrop, glowBleed } from '../../src/scenes/home/Backdrop';
 import { HomePane } from '../../src/scenes/home/HomePane';
 import {
   LAUNCH_DROP,
+  MINI_IN_ROW,
   PULL_TRIGGER,
   REFUSED,
   heroPose,
   launchPose,
+  miniLanding,
   pullOffset,
   pullProgress,
   tintTiming,
@@ -53,6 +55,7 @@ import { useCanvasView } from '../../src/stage/Canvas';
 import type { Backup, CanvasSession } from '../../src/stage/Canvas';
 import {
   HERO_MINI,
+  MINI_STRIP,
   STATUS_ROW,
   canvasScene,
   stops,
@@ -565,14 +568,20 @@ describe('the motion', () => {
     expect(REFUSED.in + REFUSED.out).toBe(400);
   });
 
-  test('the hero shrinks into the middle of the status row', () => {
+  test('the hero shrinks into the middle of the status row, or of the band Send and Receive leave', () => {
     const frame = { y: 40, height: 80 };
     expect(heroPose(1, frame)).toEqual({ scale: 1, translateY: 0 });
-    const mini = heroPose(0, frame);
-    expect(mini.scale).toBeCloseTo(HERO_MINI);
-    // Scaled from its top edge, the strip's centre lands on the row's.
-    const centre = frame.y + mini.translateY + (mini.scale * frame.height) / 2;
-    expect(centre).toBeCloseTo(-STATUS_ROW / 2);
+    // Scaled from its top edge, where the strip's centre lands.
+    const centre = (mini: { scale: number; translateY: number }) =>
+      frame.y + mini.translateY + (mini.scale * frame.height) / 2;
+    const inRow = heroPose(0, frame);
+    expect(inRow.scale).toBeCloseTo(HERO_MINI);
+    expect(centre(inRow)).toBeCloseTo(-STATUS_ROW / 2);
+    const inBand = heroPose(0, frame, miniLanding('send'));
+    expect(inBand.scale).toBeCloseTo(HERO_MINI);
+    expect(centre(inBand)).toBeCloseTo(MINI_STRIP / 2);
+    expect(miniLanding('receive')).toBe(miniLanding('send'));
+    expect(miniLanding('none')).toBe(MINI_IN_ROW);
   });
 
   test('the vessel is gone before the hero has shrunk far', () => {
@@ -687,6 +696,12 @@ describe('on the way to Send', () => {
         node => typeof node.type === 'string' && node.props.testID === testID,
       );
     expect(scaleOf(part('home-hero'))).toBeCloseTo(HERO_MINI);
+    // Laid out with no height here, the strip's top is its centre: in the
+    // band Send leaves under the status row.
+    const lift = flat(part('home-hero')).transform?.find(
+      step => 'translateY' in step,
+    )?.translateY;
+    expect(lift).toBeCloseTo(MINI_STRIP / 2);
     expect(flat(part('home-bar')).opacity).toBe(0);
     const [send, scan, receive] = circles(tree);
     expect(scaleOf(send)! * 56).toBeCloseTo(88);

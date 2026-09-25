@@ -1,7 +1,7 @@
 import { ReduceMotion } from 'react-native-reanimated';
 import type { WithTimingConfig } from 'react-native-reanimated';
 import { curves } from '../../motion/tokens';
-import { HERO_MINI, STATUS_ROW } from '../../stage/layout';
+import { HERO_MINI, MINI_STRIP, STATUS_ROW } from '../../stage/layout';
 
 /**
  * Home's motion as plain arithmetic, so each pose is a table test and the
@@ -64,18 +64,35 @@ export interface HeroFrame {
 }
 
 /**
+ * Where the mini strip's middle lands, in points below the top of the home
+ * pane, which starts under the status row: in the band Send and Receive
+ * leave clear there (MINI_STRIP), or, where the sheet's compact stop leaves
+ * no band, as under Activity and a payment's detail, in the middle of the
+ * status row itself, between the mark and the corner control.
+ */
+export const MINI_IN_BAND = MINI_STRIP / 2;
+export const MINI_IN_ROW = -STATUS_ROW / 2;
+
+/** Where the mini strip lands on the way to `launch`. */
+export function miniLanding(launch: Launch): number {
+  'worklet';
+  return launch === 'none' ? MINI_IN_ROW : MINI_IN_BAND;
+}
+
+/**
  * The hero at `hero`, from the full balance (1) to the mini strip (0).
  *
  * It scales from its top edge, and rises as it shrinks, so the mini strip
- * lands centred in the status row above the pane, between the mark and the
- * corner control, where no scene's content reaches.
+ * lands centred on `landing` (see MINI_IN_BAND), where no scene's content
+ * reaches.
  */
 export function heroPose(
   hero: number,
   frame: HeroFrame,
+  landing = MINI_IN_ROW,
 ): { scale: number; translateY: number } {
   'worklet';
-  const lift = STATUS_ROW / 2 + frame.y + (HERO_MINI * frame.height) / 2;
+  const lift = frame.y + (HERO_MINI * frame.height) / 2 - landing;
   return {
     scale: HERO_MINI + (1 - HERO_MINI) * hero,
     translateY: lift * (hero - 1),

@@ -21,6 +21,14 @@ export const STATUS_ROW = 56;
 /** The hero's scale as the mini strip, the smallest it gets. */
 export const HERO_MINI = 0.34;
 
+/**
+ * The band under the status row that Send and Receive leave clear, where the
+ * balance rests as the mini strip while either is open (REDESIGN.md 7, T1).
+ * Activity and a payment's detail leave no band, since the sheet's compact
+ * stop sits just under the row, so there the strip rests in the row itself.
+ */
+export const MINI_STRIP = 44;
+
 /** What Settings does to the canvas it slides over. */
 export const COVERED = { scale: 0.94, opacity: 0.5 };
 

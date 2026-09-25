@@ -24,6 +24,7 @@ import {
   PULL_TRIGGER,
   heroPose,
   launchPose,
+  miniLanding,
   pullOffset,
   vesselOpacity,
 } from '../../scenes/home/motion';
@@ -54,10 +55,12 @@ const GATED = 0.94;
  * actions, which say so and refresh when tapped rather than act.
  *
  * On the canvas `progress` carries the panes: `hero` shrinks the balance into
- * a mini strip in the status row, fading the vessel first, and `bar` fades
- * the action row, whose tapped circle grows toward the scene it opens while
- * the others shrink away. Drawn on its own it rests at home. The activity it
- * once previewed is the sheet's now; `onActivity` and `onDetail` stay for the
+ * a mini strip, fading the vessel first, which rests in the band under the
+ * status row that Send and Receive leave clear (MINI_STRIP), or in the row
+ * itself under Activity and a payment's detail. `bar` fades the action row,
+ * whose tapped circle grows toward the scene it opens while the others
+ * shrink away. Drawn on its own it rests at home. The activity it once
+ * previewed is the sheet's now; `onActivity` and `onDetail` stay for the
  * callers that still pass them.
  */
 export function HomeScreen({
@@ -110,6 +113,10 @@ export function HomeScreen({
   const hero = progress?.hero ?? resting;
   const bar = progress?.bar ?? resting;
   const frame = useSharedValue<HeroFrame>({ y: 0, height: 0 });
+  // Where the mini strip lands: in the band Send and Receive leave clear, or
+  // in the status row. It moves on the pane spring when the target changes,
+  // so the strip never jumps between the two.
+  const landing = useSharedValue(miniLanding(launching));
   // The pane follows the finger and springs back on its own; the canvas's
   // pull is only ever the finger, and 0 once it lets go.
   const drag = useSharedValue(0);
@@ -131,6 +138,11 @@ export function HomeScreen({
     const to = stale ? GATED : 1;
     gate.set(reduced ? to : withSpring(to, springs.snap));
   }, [stale, reduced, gate]);
+
+  useEffect(() => {
+    const to = miniLanding(launching);
+    landing.set(reduced ? to : withSpring(to, springs.pane));
+  }, [launching, reduced, landing]);
 
   // Money arriving lifts the balance as it rolls to the new figure.
   useEffect(() => {
@@ -180,7 +192,7 @@ export function HomeScreen({
     transform: [{ translateY: pullOffset(drag.get()) }],
   }));
   const heroMotion = useAnimatedStyle(() => {
-    const pose = heroPose(hero.get(), frame.get());
+    const pose = heroPose(hero.get(), frame.get(), landing.get());
     return {
       transform: [{ translateY: pose.translateY }, { scale: pose.scale }],
     };

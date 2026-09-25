@@ -6,7 +6,7 @@ import { copy } from '../../design/copy';
 import { SendScreen } from '../../screens/Send';
 import type { SendHandle } from '../../screens/Send';
 import type { RegionProps } from '../../stage/Canvas';
-import { STATUS_ROW } from '../../stage/layout';
+import { MINI_STRIP, STATUS_ROW } from '../../stage/layout';
 import { Arriving } from '../../stage/panes/Arriving';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { SceneSlot } from '../../stage/panes/SceneSlot';
@@ -17,12 +17,6 @@ import {
 } from '../../stage/StageContext';
 import { useScanReceiver } from '../../stage/useScanReceiver';
 import type { Origin } from './RequestEntry';
-
-/**
- * The band under the status row where the balance sits as the mini strip
- * while Send is open (REDESIGN.md 7, T1). Send draws nothing in it.
- */
-const MINI_STRIP = 44;
 
 /**
  * Send, in the top slot under the status row and the mini strip. `prefill`
@@ -89,6 +83,8 @@ export function SendScene({
 
   return (
     <Arriving>
+      {/* The balance rests here as the mini strip, so Send leaves it
+          clear. */}
       <View style={styles.mini} />
       <View style={styles.fill}>
         <SceneSlot label={copy.scene.send} offset={STATUS_ROW + MINI_STRIP}>
