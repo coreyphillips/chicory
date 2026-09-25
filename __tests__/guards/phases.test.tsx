@@ -691,6 +691,40 @@ describe('phase behaviour', () => {
     );
   });
 
+  test("welcome's wilt lifts with the failure, and the next one wilts it again", async () => {
+    const props = {
+      connecting: false,
+      initializing: false,
+      deviceVisible: false,
+      deviceHint: false,
+      rememberedSession: null,
+      openDevice: jest.fn(async () => {}),
+      openWallet: jest.fn(async () => {}),
+      setError: jest.fn(),
+      setDeviceVisible: jest.fn(),
+      onCreateWallet: jest.fn(),
+    };
+    const drawn = (error: string, connecting = false) => (
+      <Staged>
+        <Welcome {...props} error={error} connecting={connecting} />
+      </Staged>
+    );
+    const bloom = (tree: ReactTestRenderer) =>
+      tree.root.findByType(Bloom).props;
+    const tree = await mount(drawn('Electrum is offline.'));
+    expect(bloom(tree).event).toEqual({ kind: 'wilt', key: 1 });
+    // Try again clears the error as it starts to open: the chase is whole.
+    await act(async () => tree.update(drawn('', true)));
+    expect(bloom(tree)).toMatchObject({ mode: 'chase', event: undefined });
+    await act(async () => tree.update(drawn('')));
+    expect(bloom(tree)).toMatchObject({ mode: 'breathe', event: undefined });
+    // A new failure is a new wilt, so it plays rather than being taken for
+    // the last one.
+    await act(async () => tree.update(drawn('Refused.')));
+    expect(bloom(tree).event).toEqual({ kind: 'wilt', key: 2 });
+    await act(async () => tree.unmount());
+  });
+
   test('choosing a wallet chases its mark and dims the rest', async () => {
     const selectWallet = jest.fn(() => new Promise<void>(() => {}));
     const tree = await picker({ selectWallet });

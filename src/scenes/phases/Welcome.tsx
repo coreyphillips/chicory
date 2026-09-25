@@ -87,11 +87,19 @@ export function Welcome({
   // Closed on the first frame, so the bloom unfolds as the screen arrives.
   const [unfolded, setUnfolded] = useState(false);
   useEffect(() => setUnfolded(true), []);
-  // Each new failure wilts it again.
-  const [wilt, setWilt] = useState<BloomEvent | undefined>();
+  // Each new failure wilts it again, and the wilt lifts with the failure: a
+  // bloom holds a wilt for as long as it is given one, so the chase after
+  // Try again, and the bloom once the error clears, stand whole. The count
+  // carries on across a lift, so the next failure is a new wilt that plays.
+  const [wilt, setWilt] = useState<{ key: number; event?: BloomEvent }>({
+    key: 0,
+  });
   useEffect(() => {
-    if (!look.wilted) return;
-    setWilt(last => ({ kind: 'wilt', key: (last?.key ?? 0) + 1 }));
+    setWilt(last => {
+      if (!look.wilted) return last.event ? { key: last.key } : last;
+      const key = last.key + 1;
+      return { key, event: { kind: 'wilt', key } };
+    });
   }, [look.wilted, error]);
 
   if (deviceVisible) {
@@ -145,7 +153,7 @@ export function Welcome({
               size={SIZES.welcome}
               open={unfolded ? look.open : 0}
               mode={look.mode}
-              event={wilt}
+              event={wilt.event}
             />
           </View>
         </Whisper>
