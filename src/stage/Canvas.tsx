@@ -247,6 +247,7 @@ export function Canvas({
             <CornerControl home={home} />
           </View>
           <View
+            testID="slot-top"
             style={[styles.topSlot, { top: belowStatus }]}
             pointerEvents={blocking ? 'none' : 'box-none'}
           >
@@ -264,6 +265,7 @@ export function Canvas({
             </View>
           </Pane>
           <View
+            testID="slot-detail"
             style={[styles.detailSlot, { top: panes.stops.compact }]}
             pointerEvents={blocking ? 'none' : 'box-none'}
           >
@@ -278,6 +280,7 @@ export function Canvas({
           </View>
         </Pane>
         <View
+          testID="slot-settings"
           style={styles.fill}
           pointerEvents={blocking ? 'none' : 'box-none'}
         >

@@ -160,11 +160,18 @@ function homeParts(tree: ReactTestRenderer) {
 const at = (height = Dimensions.get('window').height) =>
   stops(height, { top: 0 });
 
-/** The slot regions and anything else that lets touches through itself. */
+/**
+ * The canvas's own slots, found by their test ids, that let touches through
+ * to what they hold. Anything a scene draws inside them is not counted, such
+ * as the view a gesture detector adds.
+ */
+const SLOTS = ['slot-top', 'slot-detail', 'slot-settings'];
 const passThrough = (tree: ReactTestRenderer) =>
   tree.root.findAll(
     node =>
-      typeof node.type === 'string' && node.props.pointerEvents === 'box-none',
+      typeof node.type === 'string' &&
+      SLOTS.includes(node.props.testID) &&
+      node.props.pointerEvents === 'box-none',
   ).length;
 
 afterEach(() => jest.restoreAllMocks());
@@ -255,16 +262,15 @@ describe('the canvas', () => {
 
   test('taps wait while a pane moves, and the slots take no touches', async () => {
     const tree = await render(<OnCanvas />);
-    const resting = passThrough(tree);
-    expect(resting).toBeGreaterThanOrEqual(3);
+    expect(passThrough(tree)).toBe(SLOTS.length);
     act(() => {
       stage.actions.openSend();
       stage.actions.back();
     });
     expect(stage.state.scene.name).toBe('send');
-    expect(passThrough(tree)).toBe(resting - 3);
+    expect(passThrough(tree)).toBe(0);
     await settle();
-    expect(passThrough(tree)).toBe(resting);
+    expect(passThrough(tree)).toBe(SLOTS.length);
     await act(async () => stage.actions.back());
     expect(stage.state.scene.name).toBe('home');
     await act(async () => tree.unmount());
@@ -474,13 +480,12 @@ describe('the canvas', () => {
       .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
       .mockResolvedValue(true);
     const tree = await render(<OnCanvas />);
-    const resting = passThrough(tree);
     act(() => {
       stage.actions.openActivity();
       stage.actions.openDetail(payment);
     });
     expect(stage.state.scene.name).toBe('detail');
-    expect(passThrough(tree)).toBe(resting);
+    expect(passThrough(tree)).toBe(SLOTS.length);
     expect(transformOf(panes(tree).sheet, 'translateY')).toBe(at().compact);
     await act(async () => stage.actions.home());
     await act(async () => stage.actions.openSettings());
