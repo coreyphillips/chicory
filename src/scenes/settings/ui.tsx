@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { ComponentRef, PropsWithChildren, ReactNode } from 'react';
 import {
   AppState,
+  Platform,
   Pressable,
   StyleSheet,
   Switch,
@@ -442,7 +443,51 @@ export function Line({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** An on or off setting, its switch at the right. */
+/** Cream a step of blue away: the same thumb to the eye, a new value to iOS. */
+const CREAM_TWIN = '#F3ECE0';
+
+/**
+ * The thumb colour for a switch's `epoch`th showing on iOS. On iOS 26 a
+ * switch's own thumb colour falls back to white: the device pass saw white
+ * thumbs from the first, and it is known to happen each time the app comes
+ * back to the front (react-native#53856). React Native sends the colour only
+ * when it changes, so each showing alternates between cream and its twin,
+ * and the switch is told again once it is on screen and after each return.
+ */
+export const thumbTint = (epoch: number): string =>
+  epoch % 2 === 1 ? palette.cream : CREAM_TWIN;
+
+/**
+ * Counts the showings of a switch on iOS: one once it is on screen, and one
+ * more each time the app comes back to the front. Android keeps its thumb
+ * colour, so there it stays at its first.
+ */
+function useShowing(): number {
+  const [epoch, setEpoch] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    setEpoch(1);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') setEpoch(at => at + 1);
+    });
+    return () => subscription.remove();
+  }, []);
+  return epoch;
+}
+
+/**
+ * An on or off setting, its switch at the right, level with its label.
+ *
+ * React Native gives an iOS switch `alignSelf: 'flex-start'` under any style
+ * of its own, which set it against the top of its 52pt row, 12pt above its
+ * label's middle. The switch sits in a box of its own that the row centres,
+ * and takes `alignSelf: 'center'` itself.
+ *
+ * The colours are set for each platform: on both the track is bloom when on
+ * and husk when off, with a cream thumb; iOS fills the off track with its own
+ * grey unless given a background, so it takes husk as one, and its thumb is
+ * told its colour again on each showing (`thumbTint`).
+ */
 export function Toggle({
   label,
   accessibilityLabel,
@@ -457,26 +502,31 @@ export function Toggle({
   onValueChange: (next: boolean) => void | Promise<void>;
 }) {
   const live = usePaneActive();
+  const epoch = useShowing();
+  const ios = Platform.OS === 'ios';
   return (
     <View style={styles.toggle}>
       <Text style={styles.toggleLabel}>{label}</Text>
-      <Switch
-        accessibilityRole="switch"
-        accessibilityLabel={accessibilityLabel}
-        value={value}
-        disabled={disabled || !live}
-        trackColor={{ true: palette.bloom, false: palette.husk }}
-        thumbColor={palette.cream}
-        ios_backgroundColor={palette.husk}
-        onValueChange={
-          live
-            ? next => {
-                haptics.tick();
-                return onValueChange(next);
-              }
-            : undefined
-        }
-      />
+      <View style={styles.switchBox}>
+        <Switch
+          accessibilityRole="switch"
+          accessibilityLabel={accessibilityLabel}
+          value={value}
+          disabled={disabled || !live}
+          trackColor={{ true: palette.bloom, false: palette.husk }}
+          thumbColor={ios ? thumbTint(epoch) : palette.cream}
+          ios_backgroundColor={ios ? palette.husk : undefined}
+          style={styles.switch}
+          onValueChange={
+            live
+              ? next => {
+                  haptics.tick();
+                  return onValueChange(next);
+                }
+              : undefined
+          }
+        />
+      </View>
     </View>
   );
 }
@@ -960,6 +1010,9 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   toggleLabel: { ...type.body, color: palette.cream, flex: 1 },
+  switchBox: { minHeight: TOUCH, justifyContent: 'center' },
+  // Over React Native's own `flex-start` for an iOS switch.
+  switch: { alignSelf: 'center' },
 
   field: { gap: space.xs },
   fieldLabel: { ...type.label, color: palette.steam },
