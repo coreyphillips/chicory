@@ -38,6 +38,13 @@ const CONFIRMING = new Set(['splicing', 'channel-pending', 'unconfirmed']);
 const MOVING = new Set(['splice-in', 'open', 'open-v2']);
 
 /**
+ * The least the wallet moves into its channel, in sats: wallet-core's
+ * CHANNELIZE_FLOOR_SATS, which it does not export. Less than this on chain
+ * stays put until more arrives.
+ */
+export const CHANNEL_FLOOR_SATS = 25_000;
+
+/**
  * The vessel for a balance and the wallet's lightning-first record.
  *
  * The channelize decision rides on the record long after its money has
@@ -45,6 +52,14 @@ const MOVING = new Set(['splice-in', 'open', 'open-v2']);
  * splice conflict or revert is kept on the record only while it is worth
  * telling, so it shows whenever it is there. Failures come first, then what
  * needs attention, then plain explanations.
+ *
+ * Below the floor is the one decision that does not say where the money in
+ * flight is. The engine weighs only what is on chain, so once a channel open
+ * or a splice has taken the deposit, it records below the floor while that
+ * money confirms into the channel. Seeds are for a deposit too small to move
+ * and nothing more: with the floor's worth or more in flight, or a payer's
+ * transfer growing the channel, the money is committed, and it waits for its
+ * confirmation.
  */
 export function vesselVisual(balance: Balance, lfbw: Lfbw): VesselVisual {
   const available = Math.max(0, balance.availableSats);
@@ -61,7 +76,11 @@ export function vesselVisual(balance: Balance, lfbw: Lfbw): VesselVisual {
   };
   const last = inFlight ? lfbw?.lastChannelize : undefined;
   const splice = lfbw?.lastSplice;
-  const wait = last?.action === 'wait' ? last.reason ?? '' : null;
+  const decided = last?.action === 'wait' ? last.reason ?? '' : null;
+  const committed =
+    pending >= CHANNEL_FLOOR_SATS || (inFlight && !!lfbw?.unpairedFunding);
+  const wait =
+    decided === 'below-floor' && committed ? 'channel-pending' : decided;
 
   if (last?.action === 'failed') {
     return {
