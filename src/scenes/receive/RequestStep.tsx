@@ -7,7 +7,6 @@ import Reanimated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import Svg, { Rect } from 'react-native-svg';
 import type { ReceiveRequest, ReceiveStatus } from '@beignet/wallet-core';
 import { ReceiveReceipt } from '../../components/ReceiveReceipt';
 import { copy } from '../../design/copy';
@@ -24,7 +23,7 @@ import { ErrorPip, GlyphButton, WarningPips } from './controls';
 import type { Focus } from './focus';
 import { Rock } from './loops';
 import type { RequestFace } from './model';
-import { remainderSats, requestRails, shownSats } from './model';
+import { lateAt, remainderSats, requestRails, shownSats } from './model';
 
 /** The expiry ring runs this far outside the card. */
 export const RING_GAP = 8;
@@ -97,9 +96,6 @@ export function RequestStep({
       <View style={styles.stage}>
         <View style={receipt ? styles.behind : undefined}>
           <View style={[styles.frame, { width: side, height: side }]}>
-            {face.qr === 'shown' ? (
-              <FrameTrack side={side} late={face.late} />
-            ) : null}
             {/* Kept through expiry, so the ring can collapse as it ends. */}
             {face.qr === 'shown' || face.qr === 'expired' ? (
               <View pointerEvents="none" style={styles.fill}>
@@ -111,6 +107,7 @@ export function RequestStep({
                   radius={radius.qr + RING_GAP}
                   expiresAt={request.expiresAt}
                   createdAt={createdAt}
+                  lateAt={lateAt(createdAt, request.expiresAt)}
                 />
               </View>
             ) : null}
@@ -206,32 +203,6 @@ export function RequestStep({
         </GlyphButton>
       </Reanimated.View>
       {error ? <ErrorPip message={error} /> : null}
-    </View>
-  );
-}
-
-/**
- * The frame's track under the ring: a husk hairline, which turns honey once
- * the request is running out, so the frame warns well before the ring's own
- * last seconds.
- */
-function FrameTrack({ side, late }: { side: number; late: boolean }) {
-  const stroke = 2.5;
-  return (
-    <View pointerEvents="none" style={styles.fill}>
-      <Svg width={side} height={side}>
-        <Rect
-          x={stroke / 2}
-          y={stroke / 2}
-          width={side - stroke}
-          height={side - stroke}
-          rx={radius.qr + RING_GAP}
-          fill="none"
-          stroke={late ? palette.honey : palette.husk}
-          strokeOpacity={late ? 0.6 : 1}
-          strokeWidth={stroke}
-        />
-      </Svg>
     </View>
   );
 }

@@ -9,7 +9,7 @@ import {
   State,
 } from 'react-native-gesture-handler';
 import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
-import { G, Path, Rect } from 'react-native-svg';
+import { Circle, G, Path, Rect } from 'react-native-svg';
 import type { Activity } from '@beignet/wallet-core';
 import { Scanner } from '../src/components/Scanner';
 import { Bloom } from '../src/glyphs/Bloom';
@@ -433,6 +433,35 @@ describe('ExpiryRing', () => {
     await act(async () => jest.advanceTimersByTime(2_000));
     expect(onExpired).toHaveBeenCalledTimes(2);
     await act(async () => tree.unmount());
+  });
+
+  test('turns honey from lateAt, and never later than its last 10 seconds', async () => {
+    jest.useFakeTimers();
+    const now = Date.now();
+    const stroke = (tree: ReactTestRenderer) =>
+      tree.root.findByType(Circle).props.stroke;
+    const early = await render(
+      <ExpiryRing size={96} expiresAt={now + 90_000} lateAt={now + 30_000} />,
+    );
+    const plain = await render(
+      <ExpiryRing size={96} expiresAt={now + 90_000} />,
+    );
+    expect(stroke(early)).toBe(palette.bloom);
+    await act(async () => jest.advanceTimersByTime(31_000));
+    expect(stroke(early)).toBe(palette.honey);
+    expect(stroke(plain)).toBe(palette.bloom);
+    // A lateAt inside the last 10 seconds still warns at 10.
+    const late = await render(
+      <ExpiryRing
+        size={96}
+        expiresAt={Date.now() + 8_000}
+        lateAt={Date.now() + 6_000}
+      />,
+    );
+    expect(stroke(late)).toBe(palette.honey);
+    await act(async () => {
+      for (const tree of [early, plain, late]) tree.unmount();
+    });
   });
 
   test('runs round a frame as well as a circle, in honey near the end', async () => {

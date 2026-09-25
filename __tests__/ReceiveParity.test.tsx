@@ -3,6 +3,7 @@ import { EmbeddedWalletClient } from '@beignet/wallet-core';
 import { AccessibilityInfo, AppState, Platform, Text } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
+import { Path, Rect } from 'react-native-svg';
 import type {
   Activity,
   ReceiveRequest,
@@ -10,8 +11,11 @@ import type {
 } from '@beignet/wallet-core';
 import { ToastProvider, useToast } from '../src/components/Toast';
 import { copy } from '../src/design/copy';
+import { GLYPHS } from '../src/design/glyphs';
 import { haptics } from '../src/design/haptics';
+import { palette } from '../src/design/palette';
 import { CopiedGlyph, CopyChip } from '../src/glyphs/CopyChip';
+import { ExpiryRing } from '../src/glyphs/ExpiryRing';
 import {
   BANDS,
   FINDERS,
@@ -1050,6 +1054,27 @@ describe('the safety states on a request', () => {
     await act(async () => tree.unmount());
   });
 
+  test("the frame's own ring turns honey in the request's last tenth or minute", async () => {
+    const minutes = 10;
+    const { tree } = await made(
+      fresh({ createdAt: Date.now(), expiresAt: Date.now() + minutes * 60000 }),
+    );
+    const ring = () =>
+      tree.root
+        .findAllByType(ExpiryRing)
+        .find(node => node.props.shape === 'rect')!;
+    const stroke = () => ring().findByType(Rect).props.stroke;
+    expect(ring().props.lateAt).toBe(ring().props.expiresAt - 60000);
+    expect(stroke()).toBe(palette.bloom);
+    expect(meaning(tree)).not.toContain(copy.receive.nearExpiry);
+    await act(async () => {
+      jest.advanceTimersByTime((minutes - 1) * 60000 + 1000);
+    });
+    expect(stroke()).toBe(palette.honey);
+    expect(meaning(tree)).toContain(copy.receive.nearExpiry);
+    await act(async () => tree.unmount());
+  });
+
   test('an expired request dissolves, leaves nothing to share, copy or lift, and says so at once', async () => {
     const said = spoken();
     const warned = jest.spyOn(haptics, 'warning');
@@ -1156,6 +1181,11 @@ describe('the safety states on a request', () => {
       jest.advanceTimersByTime(2000);
     });
     expect(find(tree, 'Create request')).toBeUndefined();
+    // The ring retracts without a refresh of its own, so one refresh shows.
+    const refreshes = tree.root
+      .findAllByType(Path)
+      .filter(node => node.props.d === GLYPHS.refresh[0].d);
+    expect(refreshes).toHaveLength(1);
     await act(async () => press(tree, 'Refresh quote').props.onPress());
     expect(quoteReceive).toHaveBeenCalledTimes(2);
     expect(receive).not.toHaveBeenCalled();

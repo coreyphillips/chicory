@@ -25,6 +25,14 @@ import { curves, durations } from '../motion/tokens';
  * full when it mounts. `shape` 'rect' runs it around a `width` by `height`
  * frame with corner `radius`, such as a request's QR.
  *
+ * `lateAt` turns it honey sooner than its last 10 seconds, from that moment:
+ * a request's frame warns in its last tenth or its last minute. It never
+ * turns later than the 10 seconds.
+ *
+ * At zero the ring only retracts. It draws no refresh of its own: whoever
+ * owns the deadline turns its control into refresh, so an expired quote
+ * shows one.
+ *
  * Under Reduce Motion the ring still runs down and still turns honey; only
  * the pulse and the retreat are left out.
  */
@@ -36,6 +44,8 @@ export interface ExpiryRingProps {
   width?: number;
   height?: number;
   radius?: number;
+  /** When it turns honey, if sooner than its last 10 seconds. */
+  lateAt?: number;
   onExpired?: () => void;
 }
 
@@ -46,10 +56,11 @@ const STROKE = 2.5;
 
 type Stage = 'calm' | 'late' | 'urgent' | 'expired';
 
-function stageAt(left: number): Stage {
+/** The stage with `left` ms to go, for a ring that warns `late` ms out. */
+function stageAt(left: number, late: number): Stage {
   if (left <= 0) return 'expired';
   if (left <= URGENT_MS) return 'urgent';
-  return left <= LATE_MS ? 'late' : 'calm';
+  return left <= late ? 'late' : 'calm';
 }
 
 const AnimatedCircle = Reanimated.createAnimatedComponent(Circle);
@@ -63,8 +74,10 @@ export function ExpiryRing({
   width = size,
   height = size,
   radius = 0,
+  lateAt,
   onExpired,
 }: ExpiryRingProps) {
+  const late = Math.max(LATE_MS, expiresAt - (lateAt ?? expiresAt));
   // Without a start, the ring is full when it first appears.
   const [mounted] = useState(Date.now);
   const start = createdAt ?? mounted;
@@ -72,21 +85,22 @@ export function ExpiryRing({
   // is never read with the last one's stage.
   const [reached, setReached] = useState(() => ({
     deadline: expiresAt,
-    stage: stageAt(expiresAt - Date.now()),
+    late,
+    stage: stageAt(expiresAt - Date.now(), late),
   }));
   const stage =
-    reached.deadline === expiresAt
+    reached.deadline === expiresAt && reached.late === late
       ? reached.stage
-      : stageAt(expiresAt - Date.now());
+      : stageAt(expiresAt - Date.now(), late);
 
   // The stages turn on timers of their own, so nothing renders between them.
   useEffect(() => {
     const left = Math.max(0, expiresAt - Date.now());
     const reach = (next: Stage) =>
-      setReached({ deadline: expiresAt, stage: next });
-    reach(stageAt(left));
+      setReached({ deadline: expiresAt, late, stage: next });
+    reach(stageAt(left, late));
     const due: [number, Stage][] = [
-      [left - LATE_MS, 'late'],
+      [left - late, 'late'],
       [left - URGENT_MS, 'urgent'],
       [left, 'expired'],
     ];
@@ -94,7 +108,7 @@ export function ExpiryRing({
       .filter(([ms]) => ms > 0)
       .map(([ms, next]) => setTimeout(() => reach(next), ms));
     return () => timers.forEach(clearTimeout);
-  }, [expiresAt]);
+  }, [expiresAt, late]);
 
   const share = useSharedValue(1);
   useEffect(() => {
