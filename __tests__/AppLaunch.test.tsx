@@ -142,25 +142,35 @@ test('an enabled lock holds the wallet back until it is unlocked', async () => {
 
 test('haptics turned off in Settings stay off from launch', async () => {
   records.set(HAPTICS, 'off');
-  let tree!: ReactTestRenderer;
+  let tree: ReactTestRenderer | undefined;
   try {
     await act(async () => {
       tree = create(<App />);
     });
     haptics.tick();
     expect(HapticFeedback.trigger).not.toHaveBeenCalled();
+    await act(async () => tree!.unmount());
+    tree = undefined;
+
+    // Nothing saved means on. They are still off from the launch before, so
+    // only a launch that reads the store and applies what it finds there can
+    // turn them back on.
+    records.delete(HAPTICS);
+    haptics.tick();
+    expect(HapticFeedback.trigger).not.toHaveBeenCalled();
+    await act(async () => {
+      tree = create(<App />);
+    });
+    expect(Keychain.getGenericPassword).toHaveBeenCalledWith(
+      expect.objectContaining({ service: HAPTICS }),
+    );
+    haptics.tick();
+    expect(HapticFeedback.trigger).toHaveBeenCalledTimes(1);
   } finally {
-    await act(async () => tree?.unmount());
+    if (tree) await act(async () => tree!.unmount());
     setHapticsEnabled(true);
     jest.restoreAllMocks();
   }
-  records.delete(HAPTICS);
-  await act(async () => {
-    tree = create(<App />);
-  });
-  haptics.tick();
-  expect(HapticFeedback.trigger).toHaveBeenCalledTimes(1);
-  await act(async () => tree.unmount());
 });
 
 test('a refused unlock keeps the wallet closed and says so', async () => {
