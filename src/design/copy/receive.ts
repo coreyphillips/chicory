@@ -111,5 +111,6 @@ export const receive = {
 
   // A value as a copy chip holds it (REDESIGN.md 5, CopyChip).
   copyValue: (label: string) => `Copy ${label.toLowerCase()}`,
-  valueCopied: (label: string) => `${label} copied`,
+  valueCopied: (label: string) =>
+    `${label.charAt(0).toUpperCase()}${label.slice(1)} copied`,
 };

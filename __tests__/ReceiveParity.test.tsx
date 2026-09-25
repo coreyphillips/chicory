@@ -8,8 +8,10 @@ import type {
   ReceiveRequest,
   ReceiveStatus,
 } from '@beignet/wallet-core';
+import { ToastProvider, useToast } from '../src/components/Toast';
 import { copy } from '../src/design/copy';
 import { haptics } from '../src/design/haptics';
+import { CopyChip } from '../src/glyphs/CopyChip';
 import {
   BANDS,
   FINDERS,
@@ -39,7 +41,7 @@ import { recentDiagnostics } from '../src/services/diagnosticLog';
 import { useReceiveStatus } from '../src/services/useReceiveStatus';
 import type { WalletAdapter } from '../src/services/wallet';
 import { amountValue, enterAmount } from '../test-support/keypad';
-import { alerts, find, meaning } from '../test-support/query';
+import { alerts, find, meaning, visibleText } from '../test-support/query';
 
 const request: ReceiveRequest = {
   id: 'r1',
@@ -1263,6 +1265,117 @@ describe('the safety states on a request', () => {
       copy.receive.receivedSats(copy.amount.hidden),
     );
     expect(meaning(tree)).not.toContain('1,000 sats');
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('copying, and what a copy says', () => {
+  afterEach(() => jest.restoreAllMocks());
+  const HASH = 'cd'.repeat(32);
+  const spoken = () => {
+    const said = jest.spyOn(
+      AccessibilityInfo,
+      Platform.OS === 'ios'
+        ? 'announceForAccessibilityWithOptions'
+        : 'announceForAccessibility',
+    );
+    said.mockClear();
+    return said;
+  };
+
+  test('a chip names what it copied the way a sentence starts, whatever its label', async () => {
+    // Each case speaks at an hour of its own, past the announcer's repeat window.
+    jest.setSystemTime(Date.now() + 3_600_000);
+    const said = spoken();
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<CopyChip label="payment hash" value={HASH} />);
+    });
+    await act(async () => press(tree, 'Copy payment hash').props.onPress());
+    expect(Clipboard.setString).toHaveBeenLastCalledWith(HASH);
+    expect(said.mock.calls.map(call => call[0])).toContain(
+      'Payment hash copied',
+    );
+    await act(async () => tree.unmount());
+  });
+
+  test('a toast is a glyph on screen and its message for a screen reader, at once when it failed', async () => {
+    jest.setSystemTime(Date.now() + 2 * 3_600_000);
+    const said = spoken();
+    let show!: ReturnType<typeof useToast>;
+    function Probe() {
+      show = useToast();
+      return null;
+    }
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(
+        <ToastProvider>
+          <Probe />
+        </ToastProvider>,
+      );
+    });
+    await act(async () => show(copy.receive.copied, 'success', 'copy'));
+    expect(visibleText(tree)).toEqual([]);
+    expect(said.mock.calls.map(call => call[0])).toContain(copy.receive.copied);
+    await act(async () => show('Could not share this request.', 'error'));
+    expect(visibleText(tree)).toEqual([]);
+    const failed = said.mock.calls.find(
+      ([spokenText]) => spokenText === 'Could not share this request.',
+    );
+    expect(failed).toBeDefined();
+    if (Platform.OS === 'ios') expect(failed![1]).toEqual({ queue: false });
+    // It goes by itself.
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(tree.toJSON()).toBeNull();
+    await act(async () => tree.unmount());
+  });
+
+  test('a link the engine refuses is a bang with its words, an error haptic and a line in the log', async () => {
+    jest.setSystemTime(Date.now() + 3 * 3_600_000);
+    const said = spoken();
+    const failed = jest.spyOn(haptics, 'error');
+    const why = 'The original request belongs to another invoice.';
+    const legacy: Activity = {
+      ...activity,
+      status: 'expired',
+      receiveRequest: {
+        ...request,
+        uri: request.bolt11,
+        address: undefined,
+        legacy: true,
+      },
+    };
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(
+        <DetailScreen
+          item={legacy}
+          client={adapter({
+            importReceiveRequest: jest
+              .fn()
+              .mockRejectedValue(
+                Object.assign(new Error(why), { code: 'REQUEST_MISMATCH' }),
+              ),
+          })}
+        />,
+      );
+    });
+    await act(async () => press(tree, 'Link original request').props.onPress());
+    await act(async () =>
+      field(tree, 'Original payment request').props.onChangeText(request.uri),
+    );
+    await act(async () => press(tree, 'Link request').props.onPress());
+    expect(alerts(tree)).toContain(why);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(said.mock.calls.map(call => call[0])).toContain(why);
+    expect(recentDiagnostics()).toContainEqual(
+      expect.objectContaining({ message: why, code: 'REQUEST_MISMATCH' }),
+    );
+    // Still linking, so the paste can be fixed and tried again.
+    expect(find(tree, 'Link request')).toBeDefined();
     await act(async () => tree.unmount());
   });
 });

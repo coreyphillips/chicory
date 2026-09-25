@@ -10,14 +10,17 @@ import {
 import Clipboard from '@react-native-clipboard/clipboard';
 import Reanimated from 'react-native-reanimated';
 import type { Activity, ReceiveRequest } from '@beignet/wallet-core';
+import { announce } from '../design/announce';
 import { copy } from '../design/copy';
 import { Glyph } from '../design/glyphs';
+import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
 import { QrBloom } from '../glyphs/QrBloom';
 import { riseIn, sceneOut } from '../motion/presets';
 import { ErrorPip, GlyphButton } from '../scenes/receive/controls';
 import { detailFace, requestRails } from '../scenes/receive/model';
 import { useNow } from '../services/clock';
+import { recordDiagnostic } from '../services/diagnosticLog';
 import { usePaneActive } from '../stage/panes/Pane';
 import { radius, space, type as typography } from '../theme';
 import type { WalletAdapter } from '../services/wallet';
@@ -85,6 +88,17 @@ export function ReceiveRequestDetails({
     ? copy.receive.unified
     : copy.receive.lightningOnly;
 
+  /**
+   * A link or a share that failed: the bang beside the controls, an error
+   * haptic, the whole message at once for a screen reader, and the log.
+   */
+  function fail(said: string, code?: string) {
+    haptics.error();
+    setError(said);
+    announce(said, { assertive: true });
+    recordDiagnostic({ phase: 'ui', message: said, code });
+  }
+
   async function link() {
     if (!client || !item.paymentHash || working.current || !original.trim())
       return;
@@ -104,7 +118,10 @@ export function ReceiveRequestDetails({
       onRefresh?.();
     } catch (e) {
       if (current.active)
-        setError(e instanceof Error ? e.message : copy.receive.linkFailed);
+        fail(
+          e instanceof Error ? e.message : copy.receive.linkFailed,
+          (e as { code?: string })?.code,
+        );
     } finally {
       working.current = false;
       if (current.active) setBusy(false);
@@ -163,7 +180,7 @@ export function ReceiveRequestDetails({
               onPress={() => {
                 if (!working.current)
                   Share.share({ message: request.uri }).catch(() =>
-                    setError(copy.receive.shareFailed),
+                    fail(copy.receive.shareFailed),
                   );
               }}
             />
@@ -222,7 +239,7 @@ export function ReceiveRequestDetails({
             <GlyphButton
               glyph="clipboard"
               label={copy.receive.paste}
-              size={44}
+              size={48}
               disabled={busy}
               onPress={() => {
                 paste().catch(() => {});

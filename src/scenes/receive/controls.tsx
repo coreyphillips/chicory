@@ -286,8 +286,9 @@ function Orbit({ size }: { size: number }) {
 
 /**
  * Something went wrong with what was just asked: a radish bang beside the
- * control that asked it. It says nothing on screen; a screen reader reads
- * the whole message, at once.
+ * control that asked it. It says nothing on screen; the whole message is its
+ * label. Whoever sets it also announces it, so it is not a live region too,
+ * which would have Android read it twice.
  */
 export function ErrorPip({ message }: { message: string }) {
   return (
@@ -295,7 +296,6 @@ export function ErrorPip({ message }: { message: string }) {
       entering={riseIn(8)}
       accessible
       accessibilityRole="alert"
-      accessibilityLiveRegion="assertive"
       accessibilityLabel={message}
       style={styles.errorPip}
     >

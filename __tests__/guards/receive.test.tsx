@@ -274,11 +274,11 @@ function detail(
   };
 }
 
-function Copied() {
+function Copied({ tone = 'success' }: { tone?: 'success' | 'error' }) {
   const toast = useToast();
   useEffect(() => {
-    toast(copy.receive.copied, 'success', 'copy');
-  }, [toast]);
+    toast(copy.receive.copied, tone, 'copy');
+  }, [toast, tone]);
   return null;
 }
 
@@ -557,10 +557,30 @@ const GUARDED: GuardedState[] = [
     await press(tree, copy.receive.copyValue(copy.receive.transaction));
     return tree;
   }),
+  state('a copy chip, opened in full', async () => {
+    const tree = await mount(
+      <CopyChip label={copy.receive.transaction} value={TXID} />,
+    );
+    const chip = tree.root.findAll(
+      node =>
+        node.props.accessibilityLabel ===
+          copy.receive.copyValue(copy.receive.transaction) &&
+        typeof node.props.onLongPress === 'function',
+    )[0];
+    await act(async () => chip.props.onLongPress());
+    return tree;
+  }),
   state('a toast', () =>
     mount(
       <ToastProvider>
         <Copied />
+      </ToastProvider>,
+    ),
+  ),
+  state('a toast, failed', () =>
+    mount(
+      <ToastProvider>
+        <Copied tone="error" />
       </ToastProvider>,
     ),
   ),
