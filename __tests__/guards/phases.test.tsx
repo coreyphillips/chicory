@@ -1,6 +1,6 @@
 import React from 'react';
 import type { PropsWithChildren, ReactElement } from 'react';
-import { AccessibilityInfo, View } from 'react-native';
+import { AccessibilityInfo, StyleSheet, View } from 'react-native';
 import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -678,6 +678,24 @@ describe('phase behaviour', () => {
       .findAllByType(Bloom)
       .filter(node => node.props.mode === 'breathe');
     expect(bud.props.event).toEqual({ kind: 'shake', key: 1 });
+    await act(async () => tree.unmount());
+  });
+
+  test('under Reduce Motion a refusal tints the bud radish instead of shaking it', async () => {
+    const tree = await reduced(() => lock({ error: copy.phase.lockRefused }));
+    // The bud takes the refusal as it would a shake, and plays it as its
+    // own 400ms radish tint.
+    const [bud] = tree.root
+      .findAllByType(Bloom)
+      .filter(node => node.props.mode === 'breathe');
+    expect(bud.props.event).toEqual({ kind: 'shake', key: 1 });
+    const tints = bud.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        StyleSheet.flatten(node.props.style)?.backgroundColor ===
+          palette.radishSoft,
+    );
+    expect(tints).toHaveLength(1);
     await act(async () => tree.unmount());
   });
 

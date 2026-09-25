@@ -83,8 +83,8 @@ export function LockScreen({
     };
   }, []);
 
-  // Each refusal plays once: the bud shakes, or under Reduce Motion a radish
-  // tint stands in for the shake.
+  // Each refusal plays once: the bud shakes, or under Reduce Motion the
+  // bloom's own 400ms radish tint stands in for the shake.
   const [refusal, setRefusal] = useState<BloomEvent | undefined>();
   useEffect(() => {
     if (!error) return;
@@ -92,17 +92,6 @@ export function LockScreen({
     announce(error, { assertive: true });
     setRefusal(last => ({ kind: 'shake', key: (last?.key ?? 0) + 1 }));
   }, [error]);
-  const tint = useSharedValue(0);
-  useEffect(() => {
-    if (!error || !reduced) return;
-    tint.set(
-      withSequence(
-        withTiming(1, { duration: durations.tick }),
-        withTiming(0, { duration: TINT_MS - durations.tick }),
-      ),
-    );
-  }, [error, reduced, tint]);
-  const tintStyle = useAnimatedStyle(() => ({ opacity: tint.get() * 0.14 }));
 
   // The screen leaves only when the lock opens, so leaving straight after a
   // prompt is an unlock and says so in the hand.
@@ -140,7 +129,6 @@ export function LockScreen({
           style={styles.screen}
         >
           <View style={styles.bud}>
-            <Reanimated.View style={[styles.tint, tintStyle]} />
             <Reanimated.View
               exiting={unfoldOut(mark, reduced)}
               style={styles.flower}
@@ -152,7 +140,7 @@ export function LockScreen({
                 size={SIZES.bud}
                 open={BUD_OPEN}
                 mode="breathe"
-                event={reduced ? undefined : refusal}
+                event={refusal}
               />
             </Reanimated.View>
           </View>
@@ -179,9 +167,6 @@ export function LockScreen({
 }
 
 const EDGES = ['top', 'bottom', 'left', 'right'] as const;
-
-/** How long the Reduce Motion tint that stands in for a shake lasts. */
-const TINT_MS = 400;
 
 const GLYPH_SIZE = 32;
 
@@ -390,11 +375,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   flower: { ...StyleSheet.absoluteFill, opacity: 0 },
-  tint: {
-    ...StyleSheet.absoluteFill,
-    borderRadius: SIZES.bud / 2,
-    backgroundColor: palette.radish,
-  },
   glyph: { padding: space.xs },
   glyphFrame: { width: GLYPH_SIZE, height: GLYPH_SIZE },
   window: { width: GLYPH_SIZE, height: GLYPH_SIZE, overflow: 'hidden' },
