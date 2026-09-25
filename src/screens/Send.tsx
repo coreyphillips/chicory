@@ -53,6 +53,7 @@ import type { Origin } from '../scenes/send/RequestEntry';
 import { ResultMark } from '../scenes/send/ResultMark';
 import { ReviewLines } from '../scenes/send/ReviewLines';
 import { useLanding } from '../scenes/send/useLanding';
+import { useScreenReader } from '../scenes/send/useScreenReader';
 import type { Landing } from '../scenes/send/useLanding';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { errorMessage } from '../services/useWalletSession';
@@ -173,8 +174,11 @@ export function SendScreen({
   const [failure, setFailure] = useState<Failure | null>(null);
   // Each refusal of the amount shakes it, the same one again included.
   const [amountShakes, setAmountShakes] = useState(0);
-  // A completed payment goes home on its own unless the screen is touched.
+  // A completed payment goes home on its own unless the screen is touched or
+  // focused, and never while a screen reader is running: its user reaches
+  // the result a swipe at a time, and no timer should take it away.
   const [stayed, setStayed] = useState(false);
+  const reader = useScreenReader();
   // A request that names its amount sets it and locks it, so the amount
   // cannot be changed by accident. What was typed stays for a request that
   // names none.
@@ -300,10 +304,12 @@ export function SendScreen({
   }, [result, flash, land, say]);
 
   useEffect(() => {
-    if (result?.status !== 'completed' || !onDone || stayed) return;
+    if (result?.status !== 'completed' || !onDone || stayed || reader) return;
     const timer = setTimeout(onDone, HOME_AFTER_MS);
     return () => clearTimeout(timer);
-  }, [result, onDone, stayed]);
+  }, [result, onDone, stayed, reader]);
+
+  const stay = () => setStayed(true);
 
   const sending = useRef(false);
 
@@ -819,7 +825,8 @@ export function SendScreen({
         key={step}
         entering={sceneIn()}
         exiting={sceneOut()}
-        onTouchStart={result ? () => setStayed(true) : undefined}
+        onTouchStart={result ? stay : undefined}
+        onFocus={result ? stay : undefined}
         style={styles.step}
       >
         {content}

@@ -501,6 +501,68 @@ describe('a screen reader', () => {
   });
 });
 
+describe('a completed payment', () => {
+  /** A payment that completes, under fake timers, with `onDone` to watch. */
+  async function completed(props: Props = {}) {
+    jest.useFakeTimers();
+    const onDone = jest.fn();
+    const tree = await draw(
+      {
+        prepareSend: jest.fn().mockResolvedValue(quote()),
+        send: jest.fn().mockResolvedValue(outcome('completed')),
+      },
+      { initialRequest: 'lnbc-home', onDone, ...props },
+    );
+    await press(tree, copy.send.review);
+    await activate(tree, HOLD);
+    expect(meaning(tree)).toContain(copy.send.sent);
+    return { tree, onDone };
+  }
+  const later = () => act(async () => jest.advanceTimersByTime(10_000));
+
+  test('stays while a screen reader is running, which reaches it a swipe at a time', async () => {
+    jest
+      .mocked(AccessibilityInfo.isScreenReaderEnabled)
+      .mockResolvedValueOnce(true);
+    const { tree, onDone } = await completed();
+    await later();
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('stays once a screen reader is turned on while it waits', async () => {
+    const { tree, onDone } = await completed();
+    const [turned] = jest
+      .mocked(AccessibilityInfo.addEventListener)
+      .mock.calls.filter(([event]) => event === 'screenReaderChanged')
+      .map(([, listener]) => listener as (on: boolean) => void)
+      .slice(-1);
+    await act(async () => turned(true));
+    await later();
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('stays once anything in it takes focus', async () => {
+    const { tree, onDone } = await completed();
+    await act(async () => {
+      tree.root
+        .findAll(node => typeof node.props.onFocus === 'function')[0]
+        .props.onFocus();
+    });
+    await later();
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('otherwise goes home on its own', async () => {
+    const { tree, onDone } = await completed();
+    await later();
+    expect(onDone).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+});
+
 test('a failed payment touched and paid again still goes home once it completes', async () => {
   jest.useFakeTimers();
   const onDone = jest.fn();
