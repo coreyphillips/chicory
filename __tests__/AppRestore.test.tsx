@@ -9,6 +9,7 @@ import { defaultPreferences } from '../src/services/networks';
 import { NetworkSettings } from '../src/screens/NetworkSettings';
 import { SettingsScreen } from '../src/screens/Settings';
 import { eraseDeviceStorage } from '../src/embedded/storage';
+import { activeScene } from '../test-support/scene';
 jest.mock('../src/embedded/storage', () => ({
   eraseDeviceStorage: jest.fn().mockResolvedValue(undefined),
 }));
@@ -429,10 +430,14 @@ test('an empty prepared setup can resume after lock and relaunch without claimin
   });
   // Nothing is tapped: with nothing saved and no vault, the launch opens the
   // wallet itself.
-  expect(opened).toHaveBeenLastCalledWith(prefs.profiles.regtest, expect.any(Function), {
-    existingOnly: false,
-    allowEmpty: true,
-  });
+  expect(opened).toHaveBeenLastCalledWith(
+    prefs.profiles.regtest,
+    expect.any(Function),
+    {
+      existingOnly: false,
+      allowEmpty: true,
+    },
+  );
   expect(label(tree, 'Create a wallet')).toBeDefined();
   expect(text(tree)).toContain('Add a primary node for regtest.');
   expect(JSON.parse(records.get(SESSION)!).prepared).toBe(true);
@@ -451,10 +456,14 @@ test('an empty prepared setup can resume after lock and relaunch without claimin
   await act(async () => {
     label(tree, 'Try again').props.onPress();
   });
-  expect(opened).toHaveBeenLastCalledWith(prefs.profiles.regtest, expect.any(Function), {
-    existingOnly: true,
-    allowEmpty: true,
-  });
+  expect(opened).toHaveBeenLastCalledWith(
+    prefs.profiles.regtest,
+    expect.any(Function),
+    {
+      existingOnly: true,
+      allowEmpty: true,
+    },
+  );
   expect(label(tree, 'Create a wallet')).toBeDefined();
   await act(async () => {
     tree.unmount();
@@ -531,7 +540,11 @@ test('a returning wallet opens on the wallet page with its last figures while th
   );
   records.set(
     SNAPSHOT,
-    JSON.stringify({ version: 1, walletId: 'saved-regtest', snapshot: savedSnapshot }),
+    JSON.stringify({
+      version: 1,
+      walletId: 'saved-regtest',
+      snapshot: savedSnapshot,
+    }),
   );
   const client = device();
   let finish!: () => void;
@@ -560,7 +573,10 @@ test('a returning wallet opens on the wallet page with its last figures while th
   // A cached figure is old by definition, so it cannot be spent against. The
   // gate says so by being closed; the page does not also ask to be refreshed.
   expect(before).not.toContain('Pull to refresh');
-  expect(label(tree, 'Send').props.accessibilityState?.disabled ?? label(tree, 'Send').props.disabled).toBe(true);
+  expect(
+    label(tree, 'Send').props.accessibilityState?.disabled ??
+      label(tree, 'Send').props.disabled,
+  ).toBe(true);
   await act(async () => {
     finish();
   });
@@ -702,7 +718,12 @@ test('a pending backup reminder sits above Activity rather than replacing it', a
       network: 'regtest',
       status: 'running',
     },
-    balance: { totalSats: 0, availableSats: 0, pendingSats: 0, receivableSats: 0 },
+    balance: {
+      totalSats: 0,
+      availableSats: 0,
+      pendingSats: 0,
+      receivableSats: 0,
+    },
     activity: [],
     primary: { uri: 'node', connected: true, setup: 'ready' },
     notes: [],
@@ -807,7 +828,7 @@ test('saving the device server waits for close and returns to Settings with the 
     await applying;
   });
   expect(opened).toHaveBeenCalledTimes(2);
-  expect(label(tree, 'Settings').props.accessibilityState.selected).toBe(true);
+  expect(activeScene(tree)).toBe('settings');
   expect(text(tree)).toContain('My saved wallet');
   expect(next.connection.walletId).toBe('saved-regtest');
   expect(next.createWallet).not.toHaveBeenCalled();
@@ -829,7 +850,12 @@ test('a first run takes no taps: the defaults create the wallet and the page ope
   client.startWallet = jest.fn().mockResolvedValue(undefined);
   client.snapshot = jest.fn().mockResolvedValue({
     ...(await new DemoWalletClient().snapshot()),
-    wallet: { id: 'new-mainnet', name: 'My wallet', network: 'mainnet', status: 'running' },
+    wallet: {
+      id: 'new-mainnet',
+      name: 'My wallet',
+      network: 'mainnet',
+      status: 'running',
+    },
     demo: false,
   });
   const opened = jest
@@ -841,10 +867,14 @@ test('a first run takes no taps: the defaults create the wallet and the page ope
   });
   // No tap and no form in between: the saved defaults open the vault and fill it.
   expect(opened).toHaveBeenCalledTimes(1);
-  expect(opened).toHaveBeenLastCalledWith(prefs.profiles.mainnet, expect.any(Function), {
-    existingOnly: false,
-    allowEmpty: true,
-  });
+  expect(opened).toHaveBeenLastCalledWith(
+    prefs.profiles.mainnet,
+    expect.any(Function),
+    {
+      existingOnly: false,
+      allowEmpty: true,
+    },
+  );
   expect(client.createWallet).toHaveBeenCalledWith({
     name: 'My wallet',
     network: 'mainnet',
@@ -1049,9 +1079,9 @@ test('figures that have aged out are recovered by the app, not by asking the use
     await Promise.resolve();
   });
   expect(refreshWallet).toHaveBeenCalled();
-  expect(
-    jest.mocked(client.startWallet).mock.calls.length,
-  ).toBeGreaterThan(startedOnOpen);
+  expect(jest.mocked(client.startWallet).mock.calls.length).toBeGreaterThan(
+    startedOnOpen,
+  );
   await act(async () => tree.unmount());
   jest.useRealTimers();
 });

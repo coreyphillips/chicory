@@ -6,7 +6,7 @@ import { AmountField } from '../src/components/AmountField';
 import { copy } from '../src/design/copy';
 import type { Phase } from '../src/stage/phase';
 import { initialStage, stageReducer } from '../src/stage/scene';
-import type { StageState } from '../src/stage/scene';
+import type { Scene } from '../src/stage/scene';
 import { amountValue, enterAmount } from '../test-support/keypad';
 import {
   a11yText,
@@ -184,7 +184,7 @@ describe('scene', () => {
     return null;
   }
   Shell.displayName = 'Stage';
-  const Pane = React.memo(function Canvas(_: { stage: StageState }) {
+  const Pane = React.memo(function Canvas(_: { scene: Scene }) {
     return null;
   });
 
@@ -203,7 +203,7 @@ describe('scene', () => {
     const tree = await render(
       <View>
         <Shell phase={{ kind: 'wallet', error: '' }} />
-        <Pane stage={stage} />
+        <Pane scene={stage.scene} />
       </View>,
     );
     expect(activePhase(tree)).toBe('wallet');

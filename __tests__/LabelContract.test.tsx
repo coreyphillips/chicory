@@ -88,7 +88,10 @@ const TEMPLATES: Record<string, string> = {
 const PRESETS = ['10,000', '50,000'];
 
 /** Labels removed on purpose, each with the reason. */
-const RETIRED: Record<string, string> = {};
+const RETIRED: Record<string, string> = {
+  Wallet:
+    'The tab bar is gone. Close returns home from every scene, so no control is called Wallet.',
+};
 
 /** Phrases a suite proves are gone, which no label or text may bring back. */
 const MUST_BE_ABSENT = ['Explore a preview', 'Connect a host'];

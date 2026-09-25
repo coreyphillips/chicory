@@ -281,15 +281,14 @@ test('a paid or abandoned request never greets the next Send, and home scan open
   expect(
     tree.root
       .findAllByProps({ accessibilityLabel: 'Payment request or address' })
-      .find(item => typeof item.props.onChangeText === 'function')!.props
-      .value,
+      .find(item => typeof item.props.onChangeText === 'function')!.props.value,
   ).toBe('lnbc-scanned');
   // Leaving through "View activity" clears the request like closing does.
   await act(async () => {
     tree.root.findByType(SendScreen).props.onActivity();
   });
   await act(async () => {
-    label(tree, 'Wallet').props.onPress();
+    label(tree, 'Close').props.onPress();
   });
   await act(async () => {
     label(tree, 'Send').props.onPress();

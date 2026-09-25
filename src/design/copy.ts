@@ -41,6 +41,14 @@ export const copy = {
     refresh: 'Refresh wallet',
   },
 
+  /** What a screen reader calls a scene, where a title bar used to say it. */
+  scene: {
+    send: 'Send',
+    receive: 'Receive',
+    detail: 'Payment details',
+    create: 'New wallet',
+  },
+
   health: {
     fresh: 'Connected.',
     reconnecting: 'Reconnecting to your wallet.',
