@@ -652,8 +652,13 @@ describe('Vessel', () => {
   });
 
   test.each([
-    ['confirming', decided('wait', 'channel-pending'), 'hands', 'face'],
-    ['the fee wait', decided('wait', 'fee-too-high'), 'needle', 'dial'],
+    [
+      'confirming',
+      decided('wait', 'channel-pending'),
+      'minute',
+      ['hour', 'face'],
+    ],
+    ['the fee wait', decided('wait', 'fee-too-high'), 'needle', ['dial']],
   ] as const)(
     'while %s only the moving part of its glyph turns',
     async (_, lfbw, moving, still) => {
@@ -681,7 +686,7 @@ describe('Vessel', () => {
         );
       };
       expect(turns(moving)).toBe(true);
-      expect(turns(still)).toBe(false);
+      for (const id of still) expect(turns(id)).toBe(false);
     },
   );
 

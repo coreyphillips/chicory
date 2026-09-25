@@ -16,7 +16,7 @@ import { durations } from '../../motion/tokens';
  * still.
  */
 
-/** The clock's hands go round once in this long while it waits. */
+/** The clock's minute hand goes round once in this long while it waits. */
 const TURN_MS = 6000;
 /** How far, on the 24 grid, each half of the unplug drifts from the other. */
 const DRIFT = 1.5;
@@ -73,12 +73,12 @@ function Layer({
   );
 }
 
-const [FACE, HANDS] = GLYPHS.clock;
+const [FACE, MINUTE, HOUR] = GLYPHS.clock;
 
 /**
  * The clock of something that waits, such as money still arriving or a
- * funding not yet confirmed: the face holds still while the hands go round
- * once every 6s.
+ * funding not yet confirmed: the face and the hour hand hold still while the
+ * minute hand goes round once every 6s.
  */
 export const WaitingClock = memo(function WaitingClockView({
   size,
@@ -92,9 +92,10 @@ export const WaitingClock = memo(function WaitingClockView({
     <Frame size={size}>
       <Svg {...svgProps(size, color)}>
         <Path d={FACE.d} />
+        <Path d={HOUR.d} />
       </Svg>
       <Layer
-        d={HANDS.d}
+        d={MINUTE.d}
         size={size}
         color={color}
         loop={turn}

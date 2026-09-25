@@ -181,12 +181,12 @@ const GLYPH_SIZE = 16;
 
 /**
  * The glyphs over the pill that move (REDESIGN.md 4): the part that moves,
- * and the point of the 24 grid it moves about. The clock's hands turn about
- * its centre and the gauge's needle about its hub; a refresh or a rewind
- * turns whole, and a sprout grows from its root.
+ * and the point of the 24 grid it moves about. The clock's minute hand turns
+ * about its centre and the gauge's needle about its hub; a refresh or a
+ * rewind turns whole, and a sprout grows from its root.
  */
 const MOVES: Partial<Record<GlyphName, { part?: string; origin: string }>> = {
-  clock: { part: 'hands', origin: '50% 50%' },
+  clock: { part: 'minute', origin: '50% 50%' },
   gauge: { part: 'needle', origin: `50% ${(13 / 24) * 100}%` },
   refresh: { origin: '50% 50%' },
   rewind: { origin: '50% 50%' },
@@ -195,7 +195,7 @@ const MOVES: Partial<Record<GlyphName, { part?: string; origin: string }>> = {
 
 /**
  * Where the moving part of `name` is at `t`: for the clock, a clock that
- * counts turns of its hands; for the rest, how far their one move has run,
+ * counts turns of its minute hand; for the rest, how far their one move has run,
  * from 0 to 1. The gauge's needle sweeps up from -30 degrees, a refresh
  * turns forward once, a rewind back, and a sprout grows to full size.
  */

@@ -104,7 +104,7 @@ test('glyphs that animate in pieces keep those pieces apart', () => {
   expect(ids('bang')).toEqual(['line', 'dot']);
   expect(ids('unplug')).toEqual(['left', 'right', 'spark']);
   expect(ids('chain')).toEqual(['upper', 'lower']);
-  expect(ids('clock')).toEqual(['face', 'hands']);
+  expect(ids('clock')).toEqual(['face', 'minute', 'hour']);
   expect(ids('unlock')).toEqual(['body', 'shackle']);
   expect(ids('linkPlus')).toEqual([...ids('chain'), 'plus']);
   expect(ids('boltRetry')).toEqual(['refresh', 'bolt']);

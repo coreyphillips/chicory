@@ -445,7 +445,7 @@ describe('Vessel', () => {
   });
 
   test('the glyphs over the pill move as REDESIGN.md 4 has them', () => {
-    // The clock's hands turn once a cycle and rest upright on each whole one.
+    // The minute hand turns once a cycle and rests upright on each whole one.
     expect(glyphPose('clock', 3)).toEqual({ rotate: 0, scale: 1 });
     expect(glyphPose('clock', 2.25).rotate).toBeCloseTo(90);
     // The gauge's needle sweeps up from -30 degrees.

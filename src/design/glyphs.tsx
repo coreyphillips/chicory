@@ -10,9 +10,9 @@ export { GLYPH_LENGTHS } from './glyphLengths';
  * message, so each shape means one thing.
  *
  * A glyph is a list of parts, so an animated glyph can draw, turn or slide one
- * part on its own: the cross's second stroke, the clock's hands, the chain's
- * halves. A glyph that never moves in pieces is a single part named after
- * itself. A dot is a stroke .01 long whose round caps make the dot.
+ * part on its own: the cross's second stroke, the clock's minute hand, the
+ * chain's halves. A glyph that never moves in pieces is a single part named
+ * after itself. A dot is a stroke .01 long whose round caps make the dot.
  *
  * scripts/glyph-lengths.mjs reads this table to generate GLYPH_LENGTHS, so it
  * stays plain literals, the constants just above it, and spreads of them.
@@ -70,7 +70,9 @@ export const GLYPHS = {
   bolt: [{ id: 'bolt', d: 'M13 3 5 14h6l-1 7 8-11h-6z' }],
   clock: [
     { id: 'face', d: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z' },
-    { id: 'hands', d: 'M12 7v5l3 2' },
+    // Apart, so a clock that waits can turn its minute hand alone.
+    { id: 'minute', d: 'M12 7v5' },
+    { id: 'hour', d: 'M12 12l3 2' },
   ],
   share: [
     {

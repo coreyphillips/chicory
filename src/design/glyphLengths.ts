@@ -19,7 +19,7 @@ export const GLYPH_LENGTHS: Record<GlyphName, number[]> = {
   eyeOff: [68.73],
   refresh: [53.63],
   bolt: [53.35],
-  clock: [56.55, 8.61],
+  clock: [56.55, 5, 3.61],
   share: [51.6],
   plus: [32],
   send: [40.98],

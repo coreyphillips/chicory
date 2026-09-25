@@ -182,13 +182,14 @@ describe('a glyph that moves in parts', () => {
     await act(async () => tree.unmount());
   });
 
-  test('the waiting clock turns its hands on a layer apart from its face', async () => {
+  test('the waiting clock turns only its minute hand, on a layer of its own', async () => {
     const tree = await mount(<WaitingClock size={16} color={palette.honey} />);
-    const [face, hands] = GLYPHS.clock;
-    expect(layers(tree, moves('rotate'))).toEqual([[hands.d]]);
+    const [face, minute, hour] = GLYPHS.clock;
+    expect(layers(tree, moves('rotate'))).toEqual([[minute.d]]);
     expect(tree.root.findAllByType(Path).map(path => path.props.d)).toEqual([
       face.d,
-      hands.d,
+      hour.d,
+      minute.d,
     ]);
     await act(async () => tree.unmount());
   });
