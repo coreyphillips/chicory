@@ -231,6 +231,22 @@ const vessels: Shot[] = [
   glyph('vessel, hidden', () => vessel(decided('failed'), { masked: true })),
   glyph('vessel, stale', () => vessel({}, { stale: true })),
   glyph('vessel, on a test network', () => vessel({}, { test: true })),
+  glyph('vessel, a channel confirming on a test network', () =>
+    vessel(decided('wait', 'channel-pending'), { test: true }),
+  ),
+  glyph('vessel, out of reach while a channel is away', () =>
+    vessel({}, { availableSats: 0, pendingSats: 0, totalSats: 84_488 }),
+  ),
+  glyph('vessel, part out of reach and part arriving', () =>
+    vessel(decided('wait', 'channel-pending'), {
+      availableSats: 28_929,
+      pendingSats: 30_000,
+      totalSats: 153_963,
+    }),
+  ),
+  glyph('vessel, a channel reserve, which is not out of reach', () =>
+    vessel({}, { availableSats: 87_504, pendingSats: 0, totalSats: 88_488 }),
+  ),
   touched('vessel, opened by a tap', () => {
     const label = copy.home.split(availableSats, pendingSats);
     return {

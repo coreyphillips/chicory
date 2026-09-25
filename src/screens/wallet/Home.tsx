@@ -419,6 +419,7 @@ export function HomeScreen({
                 <Vessel
                   availableSats={balance.availableSats}
                   pendingSats={balance.pendingSats}
+                  totalSats={balance.totalSats}
                   lfbw={snapshot.wallet.lfbw}
                   unit={unit}
                   masked={hidden}

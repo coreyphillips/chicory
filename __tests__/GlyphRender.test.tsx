@@ -19,6 +19,7 @@ import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
 import Svg, {
   Circle,
   G,
+  Line,
   LinearGradient,
   Path,
   Pattern,
@@ -31,7 +32,14 @@ import type { OdometerVariant } from '../src/glyphs/Odometer';
 import { PulseDot } from '../src/glyphs/PulseDot';
 import { StatusRing, glyphRedraws, ringColor } from '../src/glyphs/StatusRing';
 import type { RingVisual } from '../src/glyphs/StatusRing';
-import { CHANNELIZE_MS, Vessel, WAIT_WORDS } from '../src/glyphs/Vessel';
+import {
+  CHANNELIZE_MS,
+  SHEEN_PEAK,
+  SLATE_GLASS,
+  Vessel,
+  WAIT_WORDS,
+  segmentPlaces,
+} from '../src/glyphs/Vessel';
 import { Whisper, WhisperProvider } from '../src/glyphs/Whisper';
 import { copy } from '../src/design/copy';
 import { GLYPHS } from '../src/design/glyphs';
@@ -929,7 +937,11 @@ describe('Vessel', () => {
     expect(strokes(real)).toEqual(new Set([palette.bloom]));
     const play = await vessel(confirming, true);
     expect(part(play, 'left center').backgroundColor).toBe(palette.slate);
-    expect(part(play, 'right center').backgroundColor).toBe(palette.slateGlass);
+    // Slate at bloom glass's 35% read as an empty grey track on the device,
+    // so the glass is stronger there, and its sheen brighter everywhere.
+    expect(part(play, 'right center').backgroundColor).toBe(SLATE_GLASS);
+    expect(SLATE_GLASS).toBe('rgba(154,160,174,0.55)');
+    expect(SHEEN_PEAK).toBeGreaterThanOrEqual(0.5);
     expect(strokes(play)).toEqual(new Set([palette.slate]));
     // A failure stays radish, whatever the network.
     const failed = await vessel(decided('failed'), true);
@@ -937,6 +949,127 @@ describe('Vessel', () => {
       'rgba(255,131,115,0.35)',
     );
     expect(strokes(failed)).toEqual(new Set([palette.radish]));
+  });
+
+  test('the glyph that names a wait sits on the right end of the pill, on its middle line', async () => {
+    const tree = await render(
+      <Vessel
+        availableSats={250_000}
+        pendingSats={11_500}
+        lfbw={decided('wait', 'channel-pending')}
+        unit="sats"
+      />,
+    );
+    const [cap] = hosts(tree, node => flat(node).left === '100%');
+    // Attached to the end, not floating above it.
+    expect(flat(cap)).toMatchObject({
+      top: 0,
+      bottom: 0,
+      justifyContent: 'center',
+    });
+    expect(flat(cap).bottom).not.toBe('100%');
+    expect(cap.findAllByType(Path).map(path => path.props.d)).toEqual(
+      expect.arrayContaining(GLYPHS.clock.map(part => part.d)),
+    );
+  });
+
+  describe('money out of reach', () => {
+    // The device pass (P10): the old channel's peer was away, and Home drew
+    // the hairline of everything spendable over 84,488 that could not be
+    // sent.
+    const away = (over: object = {}) =>
+      render(
+        <Vessel
+          availableSats={0}
+          pendingSats={0}
+          totalSats={84_488}
+          unit="sats"
+          {...over}
+        />,
+      );
+
+    test('is said in the label and the value, and the unplug whispers why', async () => {
+      const tree = await away();
+      const root = tree.root.findByProps({ accessible: true });
+      expect(root.props.accessibilityLabel).toBe(
+        '0 sats ready to send, 84,488 sats out of reach',
+      );
+      expect(root.props.accessibilityValue).toEqual({
+        text: copy.home.outOfReach,
+      });
+      expect(whispers(tree)).toEqual([
+        { label: copy.home.outOfReach, on: true },
+      ]);
+      expect(prose(tree)).toEqual([]);
+    });
+
+    test('swells the pill and hangs the honey unplug on its left end', async () => {
+      const tree = await away();
+      const [cap] = hosts(tree, node => flat(node).right === '100%');
+      expect(cap).toBeDefined();
+      const strokes = cap
+        .findAllByType(Svg)
+        .map(svg => svg.props.stroke as string);
+      expect(new Set(strokes)).toEqual(new Set([palette.honey]));
+      expect(cap.findAllByType(Path).map(path => path.props.d)).toEqual(
+        expect.arrayContaining(GLYPHS.unplug.map(part => part.d)),
+      );
+      // The hairline of everything spendable gives way.
+      const hairline = hosts(
+        tree,
+        node => flat(node).backgroundColor === 'rgba(243,236,223,0.25)',
+      );
+      expect(flat(hairline[0]).opacity).toBe(0);
+    });
+
+    test('its share is a honey hatch from the left end, once the pill has a width', async () => {
+      const tree = await away({
+        availableSats: 30_000,
+        pendingSats: 10_000,
+        totalSats: 100_000,
+      });
+      await act(async () =>
+        tree.root.findByProps({ accessible: true }).props.onLayout({
+          nativeEvent: { layout: { width: 300, height: 8 } },
+        }),
+      );
+      const hatches = tree.root.findAllByType(Pattern);
+      expect(hatches).toHaveLength(1);
+      expect(hatches[0].findByType(Line).props.stroke).toBe(palette.honey);
+      // Sixty of the hundred thousand sit at the left, then thirty
+      // spendable, then ten arriving.
+      expect(segmentPlaces(0.6, 0.3, 300)).toEqual({
+        awayShift: expect.closeTo(-120),
+        solidAt: 180,
+        seam: expect.closeTo(270),
+        glass: expect.closeTo(0.1),
+      });
+      const solid = flat(
+        hosts(tree, node => flat(node).transformOrigin === 'left center')[0],
+      );
+      expect(solid.transform).toEqual([
+        { translateX: 180 },
+        { scaleX: expect.closeTo(0.3) },
+      ]);
+    });
+
+    test('a channel reserve alone draws nothing out of reach', async () => {
+      const tree = await away({
+        availableSats: 87_504,
+        totalSats: 88_488,
+      });
+      const root = tree.root.findByProps({ accessible: true });
+      expect(root.props.accessibilityLabel).toBe('87,504 sats ready to send');
+      expect(root.props.accessibilityValue).toBeUndefined();
+      expect(hosts(tree, node => flat(node).right === '100%')).toEqual([]);
+    });
+
+    test('a hidden balance hides it with the split', async () => {
+      const tree = await away({ masked: true });
+      expect(hosts(tree, node => flat(node).right === '100%')).toEqual([]);
+      expect(whispers(tree)).toEqual([]);
+      expect(a11yText(tree)).toEqual(['Balance hidden']);
+    });
   });
 
   test('a failure wears a radish retry ring', async () => {

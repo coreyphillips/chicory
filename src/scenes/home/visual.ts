@@ -10,10 +10,20 @@ import type { HeldTint } from '../../stage/StageContext';
  * channelize decision and splice, so the vessel explains without a sentence.
  */
 export interface VesselVisual {
-  /** A 2pt hairline when everything is spendable, 8pt with money in flight. */
+  /**
+   * A 2pt hairline when everything is spendable, 8pt with money in flight or
+   * out of reach.
+   */
   weight: 'hairline' | 'swollen';
   /** The spendable share of the pill, drawn solid bloom, from 0 to 1. */
   solid: number;
+  /**
+   * The share that cannot be sent now and is not on its way either: money
+   * in a channel whose peer is away (`unreachableSats`). Drawn honey and
+   * hatched at the pill's left end, under an unplug. 0 when the gap is no
+   * more than a channel reserve.
+   */
+  unreachable: number;
   /**
    * The arriving share: bloom glass, dust seeds below the channel floor,
    * honey or radish glass when it is held up, or a sage wash once a splice
@@ -29,8 +39,52 @@ export interface VesselVisual {
   retry: boolean;
 }
 
-type Balance = Pick<WalletSnapshot['balance'], 'availableSats' | 'pendingSats'>;
+type Balance = Pick<
+  WalletSnapshot['balance'],
+  'availableSats' | 'pendingSats'
+> &
+  Partial<Pick<WalletSnapshot['balance'], 'totalSats'>>;
 type Lfbw = WalletRecord['lfbw'];
+
+/**
+ * How much of the balance a channel reserve can explain, as a share of the
+ * total and a floor in sats. Past both, the gap is money out of reach.
+ *
+ * The total counts all of the wallet's Lightning money, while what can be
+ * sent is what its node can send now, so the two always differ by the
+ * reserve each channel keeps: 1% of the channel by default in CLN and LND,
+ * and never less than the dust limit, 546 sats. A wallet-funded channel
+ * holds about all of its capacity, so its reserve is about 1% of what it
+ * holds. The device pass measured 984 of 88,488 (1.1%) on one channel and
+ * 546 of 29,475 (1.85%, the dust floor) on another. Twice the reserve's
+ * share covers a channel the wallet holds half of, and the floor covers the
+ * dust minimum on a small channel and the commitment fee a funder keeps
+ * back, with room to spare. A peer that is away takes its whole channel out
+ * of reach, which the pass saw as 95,034 of 123,963 and 84,488 of 84,488,
+ * far past either.
+ */
+export const RESERVE_SHARE = 0.02;
+export const RESERVE_FLOOR_SATS = 1_000;
+
+/**
+ * The Lightning money that cannot be sent now and is not on its way either,
+ * in sats: what the total holds past what can be sent and what is arriving
+ * (wallet-core counts the total as Lightning plus everything pending, and
+ * what can be sent as what the node can send). A channel reserve alone is
+ * never counted: only a gap more than RESERVE_SHARE of the total plus
+ * RESERVE_FLOOR_SATS, which a reserve cannot explain, as when the peer of
+ * a channel holding the money is away. 0 without a total.
+ */
+export function unreachableSats(balance: Balance): number {
+  const { totalSats } = balance;
+  if (totalSats === undefined) return 0;
+  const gap =
+    totalSats -
+    Math.max(0, balance.availableSats) -
+    Math.max(0, balance.pendingSats);
+  const reserve = RESERVE_SHARE * totalSats + RESERVE_FLOOR_SATS;
+  return gap > reserve ? gap : 0;
+}
 
 /** Waits that clear by themselves once a transaction confirms. */
 const CONFIRMING = new Set(['splicing', 'channel-pending', 'unconfirmed']);
@@ -60,14 +114,21 @@ export const CHANNEL_FLOOR_SATS = 25_000;
  * and nothing more: with the floor's worth or more in flight, or a payer's
  * transfer growing the channel, the money is committed, and it waits for its
  * confirmation.
+ *
+ * Money out of reach (`unreachableSats`) swells the pill too, and takes its
+ * share of it beside the spendable part and the glass. What the glass looks
+ * like still answers only for the money in flight.
  */
 export function vesselVisual(balance: Balance, lfbw: Lfbw): VesselVisual {
   const available = Math.max(0, balance.availableSats);
   const pending = Math.max(0, balance.pendingSats);
+  const away = unreachableSats(balance);
   const inFlight = pending > 0;
+  const whole = available + away + pending;
   const plain: VesselVisual = {
-    weight: inFlight ? 'swollen' : 'hairline',
-    solid: available + pending > 0 ? available / (available + pending) : 1,
+    weight: inFlight || away > 0 ? 'swollen' : 'hairline',
+    solid: whole > 0 ? available / whole : 1,
+    unreachable: whole > 0 ? away / whole : 0,
     fill: 'glass',
     sheen: inFlight ? 'sweep' : 'none',
     glyph: null,
