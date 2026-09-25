@@ -39,7 +39,9 @@ export function HomePane({
   const panes = usePanes();
   const live = usePaneActive();
   const { hidden, unit, setUnit } = view;
-  const scanInSend = useCallback(() => actions.openSend('', true), [actions]);
+  // The scan overlay grows from the scan button; until Home measures it,
+  // from nowhere in particular.
+  const openScan = useCallback(() => actions.openScan(), [actions]);
   const toggleUnit = useCallback(
     () => setUnit(value => (value === 'sats' ? 'btc' : 'sats')),
     [setUnit],
@@ -72,7 +74,7 @@ export function HomePane({
           stale={stale}
           onSend={actions.openSend}
           onReceive={actions.openReceive}
-          onScan={scanInSend}
+          onScan={openScan}
           onActivity={actions.openActivity}
           onDetail={actions.openDetail}
           onToggleUnit={toggleUnit}

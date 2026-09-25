@@ -92,6 +92,9 @@ This branch (`redesign`) is an experimental redesign of the Chicory app. It is n
 - **Tap lock.** A transition lock blocks taps while a pane moves (about 340ms).
 - **Settings** slides in from the right over the canvas. The canvas scales to .94 and dims to .5.
 - **Scan** is an overlay. It is a disc that scales up from the scan button, with its content counter-scaled so it stays still. On Android the camera is a SurfaceView, which ignores clipping, alpha and transforms. So the camera mounts only after the reveal finishes, full-bleed, under a cover that then fades out.
+  - The canvas draws it above everything while `overlay.name` is `scan`. The panes stay drawn beneath it, out of use.
+  - A code read from home dispatches `scanned`, and the reducer opens Send prefilled with it. A scan started inside Send has the target `send`: the code goes to the receiver the open Send registered with `useScanReceiver(receiver, active)`, the one that became active last, and the overlay closes over that same Send.
+  - Cancelling dispatches `back`, which closes the overlay.
 - **No `LayoutAnimation`.** Use Reanimated `LinearTransition` on the specific containers that resize.
 
 ### 2.4 Contracts that tests depend on

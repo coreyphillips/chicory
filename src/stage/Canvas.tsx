@@ -17,11 +17,12 @@ import type { useWalletSession } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
 import { colors, radius } from '../theme';
 import type { Unit } from '../theme';
+import { ScanReveal } from './layers/ScanReveal';
 import { COVERED, STATUS_ROW, canvasLayout, canvasScene } from './layout';
 import { Pane, PanesProvider } from './panes/Pane';
 import { usePaneMotion } from './panes/usePaneMotion';
 import type { Overlay, Scene } from './scene';
-import { useStage } from './StageContext';
+import { newestFirst, useStage } from './StageContext';
 
 type Session = ReturnType<typeof useWalletSession>;
 
@@ -88,6 +89,9 @@ export type CanvasView = ReturnType<typeof useCanvasView>;
  *
  * The canvas owns where each region sits, which panes are in use and how
  * they move. What each region draws lives with its scene, under src/scenes.
+ *
+ * Scan opens over all of it. The panes stay drawn beneath, out of use, and a
+ * code it reads goes to the Send already open, or opens a new one.
  */
 export function Canvas({
   scene,
@@ -108,7 +112,7 @@ export function Canvas({
   backup: Backup | null;
   view: CanvasView;
 }) {
-  const { state } = useStage();
+  const { state, dispatch, responders } = useStage();
   const { reduced } = useMotionPrefs();
   const { hidden, setHidden } = view;
 
@@ -151,6 +155,22 @@ export function Canvas({
   const sheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: panes.seam.get() }],
   }));
+
+  // A Send that is open takes the code through its receiver. Either way the
+  // reducer closes the overlay, and from home it opens Send with the code.
+  const scanning = overlay?.name === 'scan' ? overlay : null;
+  const onScanned = useCallback(
+    (value: string) => {
+      const [receiver] = newestFirst(responders.scan);
+      if (scanning?.target === 'send' && receiver) receiver(value);
+      dispatch({ type: 'scanned', value });
+    },
+    [scanning, responders, dispatch],
+  );
+  const onScanCancelled = useCallback(
+    () => dispatch({ type: 'back' }),
+    [dispatch],
+  );
 
   let top: ReactNode = null;
   if (scene.name === 'send') {
@@ -262,6 +282,15 @@ export function Canvas({
             </Reanimated.View>
           ) : null}
         </View>
+        {scanning ? (
+          <ScanReveal
+            key={scanning.key}
+            origin={scanning.origin}
+            target={scanning.target}
+            onDetected={onScanned}
+            onCancel={onScanCancelled}
+          />
+        ) : null}
       </View>
     </PanesProvider>
   );

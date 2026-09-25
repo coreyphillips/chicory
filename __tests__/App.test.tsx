@@ -225,7 +225,7 @@ test('network switching waits for local engine closure before opening a differen
   }
 });
 
-test('a paid or abandoned request never greets the next Send, and home scan opens the camera inside Send', async () => {
+test('a paid or abandoned request never greets the next Send, and a code scanned from home opens Send with it', async () => {
   const wallet = {
     id: 'scan-wallet',
     name: 'Scan wallet',
@@ -259,6 +259,7 @@ test('a paid or abandoned request never greets the next Send, and home scan open
     wallet,
     demo: false,
   });
+  device.send = jest.fn();
   const loaded = jest
     .spyOn(DeviceWallet, 'loadDevicePreferences')
     .mockResolvedValue(preferences);
@@ -269,7 +270,8 @@ test('a paid or abandoned request never greets the next Send, and home scan open
   await act(async () => {
     tree = create(<App />);
   });
-  // A scanned code or a tapped link only prefills Send.
+  // A scanned code or a tapped link only prefills Send. The camera opens
+  // over home, and what it reads opens Send.
   await act(async () => {
     label(tree, 'Scan a payment request').props.onPress();
   });
@@ -295,6 +297,7 @@ test('a paid or abandoned request never greets the next Send, and home scan open
   });
   expect(tree.root.findByType(SendScreen).props.initialRequest).toBe('');
   expect(tree.root.findAllByType(Scanner)).toHaveLength(0);
+  expect(device.send).not.toHaveBeenCalled();
   await act(async () => {
     tree.unmount();
   });
