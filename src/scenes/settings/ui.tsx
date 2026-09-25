@@ -54,15 +54,17 @@ import { drawPlan } from './motion';
  */
 
 /**
- * The copy guard's marker. Everything under it is a settings-class surface
- * whose words may stay on screen; the guard reads the rest of the tree.
+ * The copy guard's marker (REDESIGN.md rule 2). Everything under it is a
+ * settings-class surface whose words may stay on screen; the guard reads the
+ * rest of the tree, and throws on a tree with two.
  */
-const SETTINGS_SURFACE = 'scene-settings';
+export const SETTINGS_SURFACE = 'scene-settings';
 
 /**
  * The root of a settings-class surface: Settings itself and the new wallet
- * sheet. First-run network setup is drawn in a phase's setup panel, which
- * carries the marker for it. Only one is ever drawn at a time.
+ * sheet. The setup a phase opens, first-run network and device setup or the
+ * recovery phrase, is drawn in the phase's setup panel, which carries the
+ * marker for it. Only one is ever drawn at a time.
  */
 export function SettingsSurface({
   style,

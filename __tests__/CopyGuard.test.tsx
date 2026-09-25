@@ -2,6 +2,8 @@ import React from 'react';
 import { Text, TextInput, View } from 'react-native';
 import { act } from 'react-test-renderer';
 import { SETTINGS_MARKER, copyViolations } from '../test-support/copyGuard';
+import { SetupPanel } from '../src/scenes/phases/parts';
+import { SETTINGS_SURFACE, SettingsSurface } from '../src/scenes/settings/ui';
 import { mount } from '../test-support/guard';
 
 /**
@@ -74,6 +76,28 @@ describe('negative controls', () => {
       </FakeScene>,
     );
     expect(found.map(item => item.text)).toEqual(['Paste a payment request']);
+  });
+
+  test('each settings-class root carries the one marker the guard reads', async () => {
+    expect(SETTINGS_SURFACE).toBe(SETTINGS_MARKER);
+    for (const element of [
+      <SettingsSurface>
+        <Text>Recovery phrase</Text>
+      </SettingsSurface>,
+      <SetupPanel>
+        <Text>Network</Text>
+      </SetupPanel>,
+    ]) {
+      const tree = await mount(element);
+      const markers = tree.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.testID === SETTINGS_MARKER,
+      );
+      expect(markers).toHaveLength(1);
+      expect(copyViolations(tree, { data: [] })).toEqual([]);
+      await act(async () => tree.unmount());
+    }
   });
 
   test('a second settings marker throws rather than hiding a scene', async () => {

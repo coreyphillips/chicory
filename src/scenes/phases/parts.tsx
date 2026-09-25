@@ -31,6 +31,7 @@ import { curves, durations, overlap, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { motionReduced } from '../../services/motion';
 import { errorMessage } from '../../services/useWalletSession';
+import { SETTINGS_SURFACE } from '../settings/ui';
 import { HIT_SLOP, radius, space } from '../../theme';
 
 /**
@@ -350,13 +351,14 @@ export function StatusPip({
  * A setup surface opened from a phase: the network editor, the device's
  * connection, the recovery phrase. These are Settings-class (REDESIGN.md rule
  * 2), drawn in the Settings language and allowed their words, so the panel
- * carries the copy guard's Settings marker. A phase opens at most one, and
- * never while the Settings scene is drawn, so the marker stays single.
+ * carries the copy guard's marker for settings-class surfaces. A phase opens
+ * at most one, and never while the Settings scene is drawn, so the marker
+ * stays single.
  */
 export function SetupPanel({ children }: PropsWithChildren) {
   return (
     <Reanimated.View
-      testID="scene-settings"
+      testID={SETTINGS_SURFACE}
       entering={riseIn()}
       exiting={sceneOut()}
       style={styles.panel}
