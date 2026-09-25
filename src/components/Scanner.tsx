@@ -116,7 +116,7 @@ const BREATH_SCALE = 0.97;
 /** A code that can be paid pulls the corners in to this. */
 export const CAUGHT_SCALE = 0.85;
 /** How long the caught corners hold before they go with the disc. */
-const CAUGHT_HOLD = 160;
+export const CAUGHT_HOLD = 160;
 /** How long the cover over a camera just mounted takes to fade away. */
 const COVER_MS = 300;
 /**

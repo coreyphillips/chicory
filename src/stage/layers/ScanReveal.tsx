@@ -15,7 +15,12 @@ import type {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
-import { ScanGround, Scanner, firstAccess } from '../../components/Scanner';
+import {
+  CAUGHT_HOLD,
+  ScanGround,
+  Scanner,
+  firstAccess,
+} from '../../components/Scanner';
 import type { CameraAccess } from '../../components/Scanner';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -37,8 +42,12 @@ const REVEAL_MS = 380;
  * from home collapses into as Send opens around it.
  */
 const WELL_DROP = 64;
+/** How long the disc takes to close, and the curve it closes on. */
+const COLLAPSE_MS = durations.move;
+const COLLAPSE_CURVE = curves.standard;
 /** How far into a collapse the disc starts to fade. */
 const COLLAPSE_FADE_AT = 180;
+const NOWHERE: Point = { x: 0, y: 0 };
 
 const FADE = {
   duration: durations.crossfade,
@@ -120,54 +129,173 @@ export function landing(
   return { x: width / 2, y: top + STATUS_ROW + WELL_DROP };
 }
 
+/** One transform, in the order the disc and its ground apply theirs. */
+export interface Pose {
+  translateX: number;
+  translateY: number;
+  scale: number;
+}
+
 /**
- * The disc leaving: it shrinks on the pane spring back into its button, or
- * with a code read into Send's well, and fades as it gets there. Under
- * Reduce Motion it only fades.
+ * The disc and its ground `p` of the way through closing from scale `start`
+ * to `end`, its centre moving by `shift`. The disc closes like an iris: its
+ * ground is held where it is on screen, so the circle closes over a still
+ * picture instead of shrinking it. Holding it still takes the counter-scale,
+ * less the disc's own shift at the ground's scale.
  */
-export function collapse({
-  scale,
-  fade,
-  caught,
-  from,
-  toWell,
-  reduced,
-}: {
-  scale: Pick<SharedValue<number>, 'get'>;
-  fade: Pick<SharedValue<number>, 'get'>;
-  caught: Pick<SharedValue<number>, 'get'>;
-  from: number;
+export function irisPose(
+  p: number,
+  start: number,
+  end: number,
+  shift: Point,
+  disc: Disc,
+  width: number,
+  height: number,
+): { disc: Pose; ground: Pose } {
+  'worklet';
+  const scale = start + (end - start) * p;
+  const x = shift.x * p;
+  const y = shift.y * p;
+  const still = counterScale(scale, disc, width, height);
+  return {
+    disc: { translateX: x, translateY: y, scale },
+    ground: {
+      translateX: still.translateX - x / scale,
+      translateY: still.translateY - y / scale,
+      scale: still.scale,
+    },
+  };
+}
+
+/**
+ * A timing's target and easing that carry `value(p)` along `curve`. A timing
+ * eases from where it starts to its target, so an easing of how far along
+ * that line `value(curve(u))` lies puts the view exactly on it every frame.
+ * This keeps the ground's counter-scale, which is no straight line of the
+ * disc's scale, in step with the disc on the same clock.
+ */
+export function eased(
+  value: (p: number) => number,
+  curve: (u: number) => number,
+): { to: number; easing: (u: number) => number } {
+  'worklet';
+  const from = value(0);
+  const to = value(1);
+  const easing = (u: number) => {
+    'worklet';
+    return to === from ? 1 : (value(curve(u)) - from) / (to - from);
+  };
+  return { to, easing };
+}
+
+type Reading = Pick<SharedValue<number>, 'get'>;
+
+/** What a closing disc reads as it starts, and where it is drawn. */
+export interface Closing {
+  scale: Reading;
+  fade: Reading;
+  /** 1 once a code was read, which sends the disc into the well. */
+  caught: Reading;
+  disc: Disc;
+  width: number;
+  height: number;
   /** The shift from the origin to the well. */
   toWell: Point;
-  reduced: boolean;
-}): EntryExitAnimationFunction {
+}
+
+/**
+ * Where a closing disc is headed. A code read closes it into the well once
+ * the corners have held a beat, sage; anything else closes it at once back
+ * into its button.
+ */
+function closing({ scale, caught, disc, toWell }: Closing) {
+  'worklet';
+  const read = caught.get() === 1;
+  return {
+    start: Math.max(scale.get(), disc.from),
+    shift: read ? toWell : NOWHERE,
+    delay: read ? CAUGHT_HOLD : 0,
+  };
+}
+
+/**
+ * The disc leaving (REDESIGN.md 7, T3): it closes back into its button, or
+ * with a code read into Send's well, fading as it gets there. Under Reduce
+ * Motion it only fades.
+ */
+export function collapse(
+  closes: Closing,
+  reduced: boolean,
+): EntryExitAnimationFunction {
   return () => {
     'worklet';
     if (reduced) {
       return {
-        initialValues: { opacity: fade.get() },
+        initialValues: { opacity: closes.fade.get() },
         animations: { opacity: withTiming(0, FADE) },
       };
     }
-    const to = caught.get() === 1 ? toWell : { x: 0, y: 0 };
+    const { start, shift, delay } = closing(closes);
+    const to = (value: number) =>
+      withDelay(
+        delay,
+        withTiming(value, { duration: COLLAPSE_MS, easing: COLLAPSE_CURVE }),
+      );
     return {
       initialValues: {
-        opacity: fade.get(),
-        transform: [
-          { translateX: 0 },
-          { translateY: 0 },
-          { scale: scale.get() },
-        ],
+        opacity: closes.fade.get(),
+        transform: [{ translateX: 0 }, { translateY: 0 }, { scale: start }],
       },
       animations: {
         opacity: withDelay(
-          COLLAPSE_FADE_AT,
+          delay + COLLAPSE_FADE_AT,
           withTiming(0, { duration: durations.exit, easing: curves.exit }),
         ),
         transform: [
-          { translateX: withSpring(to.x, springs.pane) },
-          { translateY: withSpring(to.y, springs.pane) },
-          { scale: withSpring(from, springs.pane) },
+          { translateX: to(shift.x) },
+          { translateY: to(shift.y) },
+          { scale: to(closes.disc.from) },
+        ],
+      },
+    };
+  };
+}
+
+/**
+ * The disc's ground while the disc closes: held still on screen, on the
+ * disc's own clock and curve, so the iris closes over it. The two start in
+ * the same frame, since Reanimated starts a batch of layout animations on
+ * one timestamp.
+ */
+export function groundCollapse(closes: Closing): EntryExitAnimationFunction {
+  return () => {
+    'worklet';
+    const { start, shift, delay } = closing(closes);
+    const { disc, width, height } = closes;
+    const curve = COLLAPSE_CURVE.factory();
+    const at = (p: number) =>
+      irisPose(p, start, disc.from, shift, disc, width, height).ground;
+    const along = (key: keyof Pose) => {
+      const { to, easing } = eased(p => at(p)[key], curve);
+      return withDelay(
+        delay,
+        withTiming(to, { duration: COLLAPSE_MS, easing }),
+      );
+    };
+    const first = at(0);
+    return {
+      initialValues: {
+        transform: [
+          { translateX: first.translateX },
+          { translateY: first.translateY },
+          { scale: first.scale },
+        ],
+      },
+      animations: {
+        transform: [
+          { translateX: along('translateX') },
+          { translateY: along('translateY') },
+          { scale: along('scale') },
         ],
       },
     };
@@ -189,9 +317,10 @@ export function collapse({
  * Android's camera preview is a SurfaceView, which ignores clipping, alpha
  * and transforms, so the camera never rides the disc. It mounts full bleed,
  * beside the disc rather than in it, once the disc has opened, under a cover
- * of the same ground that fades away. Leaving, the disc and the corners
- * animate out, while the camera, which has no exit of its own, is removed at
- * once. iOS clips a camera fine, and takes the same path.
+ * of the same ground that fades away. Leaving, the camera, which has no exit
+ * of its own, is removed at once, and the disc closes like an iris over its
+ * still ground while the corners fade. iOS clips a camera fine, and takes the
+ * same path.
  */
 export interface ScanRevealProps {
   origin: Point | null;
@@ -302,24 +431,42 @@ export function ScanReveal({
     };
   }, [disc, width, height]);
 
-  const exiting = useMemo(() => {
+  const exits = useMemo(() => {
     const well = landing(disc, target, !!origin, width, insets.top);
-    return collapse({
+    const closes: Closing = {
       scale,
       fade,
       caught,
-      from: disc.from,
+      disc,
+      width,
+      height,
       toWell: { x: well.x - disc.x, y: well.y - disc.y },
-      reduced,
-    });
-  }, [disc, target, origin, width, insets.top, scale, fade, caught, reduced]);
+    };
+    // Under Reduce Motion the disc only fades, so its ground stays put
+    // without an exit of its own.
+    return {
+      disc: collapse(closes, reduced),
+      ground: reduced ? undefined : groundCollapse(closes),
+    };
+  }, [
+    disc,
+    target,
+    origin,
+    width,
+    height,
+    insets.top,
+    scale,
+    fade,
+    caught,
+    reduced,
+  ]);
 
   return (
     <View style={styles.layer} onLayout={onLayout} accessibilityViewIsModal>
       <Reanimated.View
         testID="scan-disc"
         pointerEvents="none"
-        exiting={exiting}
+        exiting={exits.disc}
         style={[
           styles.disc,
           {
@@ -333,6 +480,7 @@ export function ScanReveal({
         ]}
       >
         <Reanimated.View
+          exiting={exits.ground}
           style={[
             styles.ground,
             {

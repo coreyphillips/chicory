@@ -11,6 +11,7 @@ import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {
+  CAUGHT_HOLD,
   CAUGHT_SCALE,
   REFUSAL_QUIET_MS,
   Scanner,
@@ -26,6 +27,7 @@ import {
 import * as Announce from '../../src/design/announce';
 import { copy } from '../../src/design/copy';
 import { haptics } from '../../src/design/haptics';
+import { durations } from '../../src/motion/tokens';
 import { STATUS_ROW } from '../../src/stage/layout';
 import {
   BUTTON,
@@ -34,10 +36,17 @@ import {
   collapse,
   counterScale,
   discFor,
+  eased,
+  groundCollapse,
+  irisPose,
   landing,
   opening,
 } from '../../src/stage/layers/ScanReveal';
-import type { ScanRevealProps } from '../../src/stage/layers/ScanReveal';
+import type {
+  Closing,
+  Pose,
+  ScanRevealProps,
+} from '../../src/stage/layers/ScanReveal';
 import { guardData, requestOf, snapshotOf } from '../../test-support/fixtures';
 import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
@@ -69,8 +78,13 @@ jest.mock('react-native-camera-kit', () => ({
 
 // Reanimated's mock lands every timing at once. A test that needs to stand
 // in the middle of the reveal sets mockHoldTimings, which holds back each
-// timing's end in mockHeld to be run later.
-const mockHeld: Array<(finished?: boolean) => void> = [];
+// timing's end, and how long it runs, in mockHeld to be run later. Delays
+// are noted in mockDelays, since the mock drops them.
+const mockHeld: Array<{
+  done: (finished?: boolean) => void;
+  duration?: number;
+}> = [];
+const mockDelays: number[] = [];
 let mockHoldTimings = false;
 jest.mock('react-native-reanimated', () => {
   const mock = require('react-native-reanimated/mock');
@@ -78,14 +92,18 @@ jest.mock('react-native-reanimated', () => {
     ...mock,
     withTiming: (
       value: unknown,
-      config?: unknown,
+      config?: { duration?: number },
       callback?: (finished?: boolean) => void,
     ) => {
       if (mockHoldTimings && callback) {
-        mockHeld.push(callback);
+        mockHeld.push({ done: callback, duration: config?.duration });
         return value;
       }
       return mock.withTiming(value, config, callback);
+    },
+    withDelay: (delay: number, animation: unknown) => {
+      mockDelays.push(delay);
+      return animation;
     },
   };
 });
@@ -95,6 +113,7 @@ afterEach(() => {
   mockCamera = true;
   mockHoldTimings = false;
   mockHeld.length = 0;
+  mockDelays.length = 0;
 });
 
 /** A BIP 173 example address, as a payment link: a code that can be paid. */
@@ -389,32 +408,122 @@ describe('the disc', () => {
     expect(landing(disc, 'send', false, 390, 47)).toEqual(well);
   });
 
-  const values = (caught: number) => ({
-    scale: { get: () => 1 },
+  const [width, height] = [390, 844];
+  const origin = { x: 120, y: 700 };
+  const disc = discFor(origin, width, height);
+  const toWell = { x: 75, y: -533 };
+  const closing = (caught: number, scale = 1): Closing => ({
+    scale: { get: () => scale },
     fade: { get: () => 1 },
     caught: { get: () => caught },
-    from: 0.05,
-    toWell: { x: 8, y: -420 },
+    disc,
+    width,
+    height,
+    toWell,
   });
 
-  test('shrinks back into its button on a close, and into the well on a code', () => {
-    const closed = collapse({ ...values(0), reduced: false })({} as never);
+  /** Where a point of the ground is drawn, through its pose and the disc's. */
+  function drawn(
+    point: { x: number; y: number },
+    pose: { disc: Pose; ground: Pose },
+  ) {
+    const centre = { x: width / 2, y: height / 2 };
+    const { ground, disc: outer } = pose;
+    const inDisc = {
+      x: centre.x + ground.translateX + ground.scale * (point.x - centre.x),
+      y: centre.y + ground.translateY + ground.scale * (point.y - centre.y),
+    };
+    return {
+      x: disc.x + outer.translateX + outer.scale * (inDisc.x - disc.x),
+      y: disc.y + outer.translateY + outer.scale * (inDisc.y - disc.y),
+    };
+  }
+
+  test('closes like an iris, over a ground that holds still as it shrinks and moves', () => {
+    for (const shift of [{ x: 0, y: 0 }, toWell]) {
+      for (const p of [0, 0.25, 0.5, 0.75, 1]) {
+        const pose = irisPose(p, 0.8, disc.from, shift, disc, width, height);
+        expect(pose.disc.scale).toBeCloseTo(0.8 + (disc.from - 0.8) * p);
+        expect(pose.disc.translateX).toBeCloseTo(shift.x * p);
+        expect(pose.disc.translateY).toBeCloseTo(shift.y * p);
+        for (const point of [
+          { x: 0, y: 0 },
+          { x: 390, y: 844 },
+          { x: 200, y: 100 },
+        ]) {
+          const seen = drawn(point, pose);
+          expect(seen.x).toBeCloseTo(point.x);
+          expect(seen.y).toBeCloseTo(point.y);
+        }
+      }
+    }
+    // It starts from the pose the opening left its ground in.
+    const first = irisPose(0, 0.8, disc.from, toWell, disc, width, height);
+    const opened = counterScale(0.8, disc, width, height);
+    expect(first.ground.scale).toBe(opened.scale);
+    expect(first.ground.translateX).toBeCloseTo(opened.translateX);
+    expect(first.ground.translateY).toBeCloseTo(opened.translateY);
+  });
+
+  test("a timing eased along a curve lands on the value's own path every frame", () => {
+    const value = (p: number) => 1 / (1 - 0.9 * p);
+    const curve = (u: number) => u * u;
+    const { to, easing } = eased(value, curve);
+    expect(to).toBeCloseTo(10);
+    for (const u of [0, 0.3, 0.6, 1]) {
+      const from = value(0);
+      expect(from + (to - from) * easing(u)).toBeCloseTo(value(curve(u)));
+    }
+    // A value that goes nowhere is already there.
+    expect(eased(() => 4, curve).easing(0.5)).toBe(1);
+  });
+
+  test('closes back into its button on a close, and into the well on a code', () => {
+    const closed = collapse(closing(0), false)({} as never);
     expect(closed.animations.transform).toEqual([
       { translateX: 0 },
       { translateY: 0 },
-      { scale: 0.05 },
+      { scale: disc.from },
     ]);
-    const caught = collapse({ ...values(1), reduced: false })({} as never);
+    const caught = collapse(closing(1), false)({} as never);
     expect(caught.animations.transform).toEqual([
-      { translateX: 8 },
-      { translateY: -420 },
-      { scale: 0.05 },
+      { translateX: toWell.x },
+      { translateY: toWell.y },
+      { scale: disc.from },
     ]);
     expect(caught.animations.opacity).toBe(0);
   });
 
+  test('a code read holds the caught beat before the disc closes', () => {
+    collapse(closing(0), false)({} as never);
+    groundCollapse(closing(0))({} as never);
+    expect(mockDelays).not.toContain(CAUGHT_HOLD);
+    mockDelays.length = 0;
+    collapse(closing(1), false)({} as never);
+    groundCollapse(closing(1))({} as never);
+    expect(mockDelays.filter(delay => delay === CAUGHT_HOLD)).toHaveLength(6);
+  });
+
+  test('its ground goes from the pose it stands in to the one that keeps it still', () => {
+    for (const [caught, shift] of [
+      [0, { x: 0, y: 0 }],
+      [1, toWell],
+    ] as const) {
+      const out = groundCollapse(closing(caught, 0.8))({} as never);
+      const at = (p: number) =>
+        irisPose(p, 0.8, disc.from, shift, disc, width, height).ground;
+      const pose = (ground: Pose) => [
+        { translateX: ground.translateX },
+        { translateY: ground.translateY },
+        { scale: ground.scale },
+      ];
+      expect(out.initialValues.transform).toEqual(pose(at(0)));
+      expect(out.animations.transform).toEqual(pose(at(1)));
+    }
+  });
+
   test('only fades under Reduce Motion', () => {
-    const out = collapse({ ...values(1), reduced: true })({} as never);
+    const out = collapse(closing(1), true)({} as never);
     expect(out.animations).toEqual({ opacity: 0 });
   });
 });
@@ -730,7 +839,21 @@ describe('the overlay', () => {
     expect(tree.root.findByType(Scanner).props.live).toBe(false);
     expect(cameras(tree)).toHaveLength(0);
     expect(reticle(tree)).toBeDefined();
-    await act(async () => mockHeld.splice(0).forEach(done => done(true)));
+    await act(async () => mockHeld.splice(0).forEach(({ done }) => done(true)));
+    expect(tree.root.findByType(Scanner).props.live).toBe(true);
+    expect(cameras(tree)).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('under Reduce Motion, keeps the camera back until the disc has faded in', async () => {
+    reducedMotion();
+    // The setting is read once and kept, so the overlay opens knowing it.
+    await act(async () => (await mount(reveal())).unmount());
+    mockHoldTimings = true;
+    const tree = await mount(reveal());
+    expect(tree.root.findByType(Scanner).props.live).toBe(false);
+    expect(mockHeld.map(held => held.duration)).toEqual([durations.crossfade]);
+    await act(async () => mockHeld.splice(0).forEach(({ done }) => done(true)));
     expect(tree.root.findByType(Scanner).props.live).toBe(true);
     expect(cameras(tree)).toHaveLength(1);
     await act(async () => tree.unmount());
@@ -790,7 +913,7 @@ describe('the overlay', () => {
     expect(labelled(tree, copy.scan.denied)).toHaveLength(0);
     expect(live()).toBe(false);
     expect(cameras(tree)).toHaveLength(0);
-    await act(async () => mockHeld.splice(0).forEach(done => done(true)));
+    await act(async () => mockHeld.splice(0).forEach(({ done }) => done(true)));
     expect(live()).toBe(true);
     expect(cameras(tree)).toHaveLength(1);
     await act(async () => tree.unmount());
