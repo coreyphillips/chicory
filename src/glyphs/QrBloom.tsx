@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import type { Ref } from 'react';
 import { PixelRatio, Pressable, StyleSheet, View } from 'react-native';
 import type { HostInstance } from 'react-native';
@@ -136,27 +136,33 @@ export function qrGrid(
 }
 
 /**
- * Modules on a row drawn as runs, so a path holds a run as one rectangle.
- * `x` and `y` say where module edge k falls across and down.
+ * Modules on a row drawn as runs, one path for each of `count` layers, so a
+ * path holds a run as one rectangle. `layer` says which layer the module at
+ * a row and column is drawn in, or -1 for none; `x` and `y` say where module
+ * edge k falls across and down. One pass over the grid draws every layer.
  */
 function runs(
   size: number,
-  dark: (row: number, column: number) => boolean,
+  count: number,
+  layer: (row: number, column: number) => number,
   x: (k: number) => number,
   y: (k: number) => number,
-): string {
-  let d = '';
+): string[] {
+  const d: string[] = Array.from({ length: count }, () => '');
   for (let row = 0; row < size; row++) {
+    const top = y(row);
+    const height = y(row + 1) - top;
     let start = -1;
+    let open = -1;
     for (let column = 0; column <= size; column++) {
-      const on = column < size && dark(row, column);
-      if (on && start < 0) start = column;
-      if (!on && start >= 0) {
+      const here = column < size ? layer(row, column) : -1;
+      if (here === open) continue;
+      if (open >= 0) {
         const width = x(column) - x(start);
-        const height = y(row + 1) - y(row);
-        d += `M${x(start)} ${y(row)}h${width}v${height}h-${width}z`;
-        start = -1;
+        d[open] += `M${x(start)} ${top}h${width}v${height}h-${width}z`;
       }
+      open = here;
+      start = column;
     }
   }
   return d;
@@ -168,6 +174,10 @@ function runs(
  * of its own 7 by 7 box. Paths are in module units, or with `edges` from
  * `qrGrid` in pixels from where the layer's box starts: the whole code for
  * a band, and its own square for a finder.
+ *
+ * Each module's band is worked out once, and every band drawn in one pass,
+ * since a dense request has sixteen thousand modules and this runs as the
+ * request comes up.
  */
 export function qrLayers(
   { size, data }: QrModules,
@@ -191,31 +201,35 @@ export function qrLayers(
     );
   const middle = (size - 1) / 2;
   const farthest = Math.SQRT2 * middle || 1;
-  const band = (row: number, column: number) =>
-    Math.min(
-      BANDS - 1,
-      Math.floor(
-        (BANDS * Math.hypot(row - middle, column - middle)) / farthest,
-      ),
-    );
-  const bands = Array.from({ length: BANDS }, (_, k) =>
-    runs(
-      size,
-      (row, column) =>
-        dark(row, column) && !inFinder(row, column) && band(row, column) === k,
-      from(0),
-      from(0),
-    ),
+  const band = new Int8Array(size * size).fill(-1);
+  for (let row = 0; row < size; row++) {
+    for (let column = 0; column < size; column++) {
+      if (!dark(row, column) || inFinder(row, column)) continue;
+      band[row * size + column] = Math.min(
+        BANDS - 1,
+        Math.floor(
+          (BANDS * Math.hypot(row - middle, column - middle)) / farthest,
+        ),
+      );
+    }
+  }
+  const bands = runs(
+    size,
+    BANDS,
+    (row, column) => band[row * size + column],
+    from(0),
+    from(0),
   );
   const finders = corners.map(({ x, y }) => ({
     x,
     y,
     d: runs(
       FINDER,
-      (row, column) => dark(y + row, x + column),
+      1,
+      (row, column) => (dark(y + row, x + column) ? 0 : -1),
       from(x),
       from(y),
-    ),
+    )[0],
   }));
   return { bands, finders };
 }
@@ -229,6 +243,14 @@ export const QR_TIMING = {
   implode: 420,
   scatter: 320,
 };
+
+/**
+ * When the cream card has gone once a code can no longer be paid, in ms: it
+ * fades after the bands have set off, so a paid code implodes on cream.
+ * Whatever takes the code's place waits for this before it draws a dark
+ * stroke across where the card was.
+ */
+export const QR_CARD_GONE = QR_TIMING.step * BANDS + QR_TIMING.dissolve;
 
 /**
  * How layer `layer` (a band from the centre out, or FINDERS) moves into
@@ -303,6 +325,24 @@ export function leaveMs(state: Exclude<QrState, 'shown'>): number {
   );
 }
 
+/**
+ * How layer `layer` moves into `state` on a card that waited `late` ms for
+ * its modules: a code blooming in spends its lead in first, never its
+ * stagger, and anything else moves as `layerMotion` says.
+ */
+export function bloomMotion(
+  layer: number,
+  state: QrState,
+  late: number,
+): LayerMotion {
+  const motion = layerMotion(layer, state);
+  if (state !== 'shown') return motion;
+  return {
+    ...motion,
+    delay: motion.delay - Math.min(Math.max(0, late), QR_TIMING.start),
+  };
+}
+
 /** How far a scattered layer flies, and which way: each its own heading. */
 const SCATTER = 28;
 export function scatterOffset(layer: number): { x: number; y: number } {
@@ -311,11 +351,55 @@ export function scatterOffset(layer: number): { x: number; y: number } {
   return { x: Math.cos(heading) * SCATTER, y: Math.sin(heading) * SCATTER };
 }
 
+/** A code worked out for a card: where its modules sit, and its layers. */
+export interface QrDrawing {
+  grid: QrGrid;
+  layers: { size: number; bands: string[]; finders: Finder[] };
+  /** How long the card waited for it, in ms. */
+  late: number;
+}
+
+/**
+ * The code `value` worked out for a card `size` points across on a screen
+ * of `ratio`, or null until it has been. It is worked out once the card is
+ * drawn rather than while it is: a dense request holds the JS thread for a
+ * frame or more, and worked out in the render that brought the request up,
+ * it held back the whole change of step, so the quote never left and the
+ * request came in at once (P7, 48-c3-request-reveal). The card arrives
+ * first and the modules bloom in on it as soon as they are ready.
+ */
+export function useQrDrawing(
+  value: string,
+  size: number,
+  ratio: number,
+): QrDrawing | null {
+  const [born] = useState(() => Date.now());
+  const [drawn, setDrawn] = useState<{
+    key: string;
+    drawing: QrDrawing;
+  } | null>(null);
+  const key = `${size} ${ratio} ${value}`;
+  useEffect(() => {
+    const modules = qrModules(value);
+    const grid = qrGrid(size, modules.size, ratio);
+    setDrawn({
+      key: `${size} ${ratio} ${value}`,
+      drawing: {
+        grid,
+        layers: { size: modules.size, ...qrLayers(modules, grid.edges) },
+        late: Date.now() - born,
+      },
+    });
+  }, [value, size, ratio, born]);
+  return drawn?.key === key ? drawn.drawing : null;
+}
+
 /** One layer of modules, which moves as its state says and nothing else. */
 const Layer = memo(function QrLayer({
   layer,
   state,
   reduced,
+  lead,
   frame,
   viewBox,
   d,
@@ -323,6 +407,11 @@ const Layer = memo(function QrLayer({
   layer: number;
   state: QrState;
   reduced: boolean;
+  /**
+   * How much of the bloom's lead in was spent waiting for the modules, taken
+   * off each layer's start as it blooms in, so the bands keep their stagger.
+   */
+  lead: number;
   frame: { left: number; top: number; width: number; height: number };
   viewBox: string;
   d: string;
@@ -331,7 +420,7 @@ const Layer = memo(function QrLayer({
   const scale = useSharedValue(reduced ? 1 : layer === FINDERS ? 0.6 : 0.9);
   const spread = useSharedValue(0);
   useEffect(() => {
-    const motion = layerMotion(layer, state);
+    const motion = bloomMotion(layer, state, lead);
     if (reduced) {
       // Nothing travels: every layer crossfades at once (REDESIGN.md 8).
       scale.set(1);
@@ -359,7 +448,7 @@ const Layer = memo(function QrLayer({
       cancelAnimation(scale);
       cancelAnimation(spread);
     };
-  }, [layer, state, reduced, opacity, scale, spread]);
+  }, [layer, state, reduced, lead, opacity, scale, spread]);
   const away = scatterOffset(layer);
   const style = useAnimatedStyle(() => ({
     opacity: opacity.get(),
@@ -393,14 +482,7 @@ export const QrBloom = memo(function QrCode({
   const shown = state === 'shown';
   const pressable = shown && (!!onPress || !!onLongPress);
   const ratio = PixelRatio.get();
-  const { grid, layers } = useMemo(() => {
-    const modules = qrModules(value);
-    const at = qrGrid(size, modules.size, ratio);
-    return {
-      grid: at,
-      layers: { size: modules.size, ...qrLayers(modules, at.edges) },
-    };
-  }, [value, size, ratio]);
+  const drawing = useQrDrawing(value, size, ratio);
 
   // The layers stay drawn while they leave, then go, so a code that can no
   // longer be paid is not left on screen at any opacity.
@@ -448,7 +530,7 @@ export const QrBloom = memo(function QrCode({
 
   // A layer's box, from module edge x, y to the edge `modules` on, in points
   // that land on whole pixels, and its drawing's own pixels as the viewBox.
-  const { edges } = grid;
+  const edges = drawing?.grid.edges ?? [];
   const box = (x: number, y: number, modules: number) => {
     const width = edges[x + modules] - edges[x];
     const height = edges[y + modules] - edges[y];
@@ -500,26 +582,28 @@ export const QrBloom = memo(function QrCode({
           ]}
         />
         <Reanimated.View style={[styles.fill, styles.cream, creamStyle]} />
-        {shown || leaving ? (
+        {drawing && (shown || leaving) ? (
           <>
-            {layers.bands.map((d, band) =>
+            {drawing.layers.bands.map((d, band) =>
               d ? (
                 <Layer
                   key={band}
                   layer={band}
                   state={state}
                   reduced={reduced}
-                  {...box(0, 0, layers.size)}
+                  lead={drawing.late}
+                  {...box(0, 0, drawing.layers.size)}
                   d={d}
                 />
               ) : null,
             )}
-            {layers.finders.map(finder => (
+            {drawing.layers.finders.map(finder => (
               <Layer
                 key={`${finder.x}-${finder.y}`}
                 layer={FINDERS}
                 state={state}
                 reduced={reduced}
+                lead={drawing.late}
                 {...box(finder.x, finder.y, FINDER)}
                 d={finder.d}
               />

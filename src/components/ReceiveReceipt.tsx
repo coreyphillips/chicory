@@ -209,7 +209,24 @@ function Ring({
   const arc = useSharedValue(play ? 0 : share);
   const check = useSharedValue(!play && completed ? 1 : 0);
   const burst = useSharedValue(0);
+  // The husk track stays out of sight while the code implodes under it.
+  const track = useSharedValue(play ? 0 : 1);
   const first = useRef(true);
+  useEffect(() => {
+    if (!play) {
+      track.set(1);
+      return;
+    }
+    const { track: beat } = CELEBRATION;
+    track.set(
+      withDelay(
+        beat.delay,
+        withTiming(1, { duration: beat.duration, easing: curves.enter }),
+      ),
+    );
+    return () => cancelAnimation(track);
+  }, [play, track]);
+  const trackStyle = useAnimatedStyle(() => ({ opacity: track.get() }));
   useEffect(() => {
     const delay = first.current ? CELEBRATION.ring.delay : 0;
     first.current = false;
@@ -266,15 +283,22 @@ function Ring({
   );
   return (
     <View style={box}>
+      <Reanimated.View
+        testID="receipt-track"
+        style={[StyleSheet.absoluteFill, trackStyle]}
+      >
+        <Svg width={size} height={size}>
+          <Circle
+            cx={c}
+            cy={c}
+            r={r}
+            fill="none"
+            stroke={palette.husk}
+            strokeWidth={stroke}
+          />
+        </Svg>
+      </Reanimated.View>
       <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
-        <Circle
-          cx={c}
-          cy={c}
-          r={r}
-          fill="none"
-          stroke={palette.husk}
-          strokeWidth={stroke}
-        />
         {kind === 'split' ? (
           <Circle
             cx={c}
@@ -429,8 +453,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    alignSelf: 'stretch',
+    maxWidth: '100%',
   },
   txRing: { width: 16, height: 16 },
-  chip: { flex: 1 },
+  chip: { flexShrink: 1 },
 });

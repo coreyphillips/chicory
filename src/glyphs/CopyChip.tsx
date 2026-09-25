@@ -21,7 +21,7 @@ import { curves } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { DrawnGlyph } from '../scenes/receive/draw';
 import { usePaneActive } from '../stage/panes/Pane';
-import { radius, space, type as typography } from '../theme';
+import { space, type as typography } from '../theme';
 
 /**
  * A reference, request or address as a chip that copies it (REDESIGN.md 5,
@@ -209,7 +209,7 @@ export function CopyChip({
   }));
 
   return (
-    <Reanimated.View layout={smooth()}>
+    <Reanimated.View layout={smooth()} style={styles.hug}>
       <Pressable
         accessibilityRole={copyable ? 'button' : 'text'}
         accessibilityLabel={copyable ? copy.receive.copyValue(label) : label}
@@ -249,14 +249,19 @@ export function CopyChip({
   );
 }
 
+/** A chip is at least a finger tall, and a pill at that height. */
+const CHIP = 48;
+
 const styles = StyleSheet.create({
+  // A pill round its value and glyph, however wide its row.
+  hug: { alignSelf: 'center', maxWidth: '100%' },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.xs,
-    minHeight: 48,
+    minHeight: CHIP,
     paddingHorizontal: space.md,
-    borderRadius: radius.md,
+    borderRadius: CHIP / 2,
     backgroundColor: palette.mocha,
     overflow: 'hidden',
   },

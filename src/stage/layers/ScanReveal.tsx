@@ -325,6 +325,11 @@ export interface ScanRevealProps {
   target: 'home' | 'send';
   onDetected: (value: string) => void;
   onCancel: () => void;
+  /**
+   * A wallet on a test network: slate's night in place of bloom's on the
+   * ground, and the flask kept in view (REDESIGN.md rule 4 and 3.1).
+   */
+  test?: boolean;
 }
 
 export function ScanReveal({
@@ -332,6 +337,7 @@ export function ScanReveal({
   target,
   onDetected,
   onCancel,
+  test = false,
 }: ScanRevealProps) {
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
@@ -490,7 +496,7 @@ export function ScanReveal({
             groundStyle,
           ]}
         >
-          <ScanGround width={width} height={height} />
+          <ScanGround width={width} height={height} test={test} />
         </Reanimated.View>
       </Reanimated.View>
       <View style={styles.layer} pointerEvents="box-none">
@@ -499,6 +505,7 @@ export function ScanReveal({
           onDetected={detected}
           onCancel={onCancel}
           onAccess={setAccess}
+          test={test}
         />
       </View>
     </View>

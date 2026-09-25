@@ -5,6 +5,7 @@ import type {
   ReceiveStatus,
 } from '@beignet/wallet-core';
 import type { GlyphName } from '../../design/glyphs';
+import { QR_CARD_GONE } from '../../glyphs/QrBloom';
 import type { QrState } from '../../glyphs/QrBloom';
 import { amountIn } from '../../theme';
 
@@ -277,10 +278,13 @@ export function receiptTransactions(
 /**
  * The received celebration (REDESIGN.md 5), in ms from the moment money is
  * seen: the code implodes at once, the sage ring draws, the amount counts
- * up, and a completed payment draws its check and bursts its petals.
+ * up, and a completed payment draws its check and bursts its petals. The
+ * ring's husk track waits for the code's cream card to go, so no dark ring
+ * cuts across the code while it implodes; the sage arc draws over the cream.
  */
 export const CELEBRATION = {
   ring: { delay: 120, duration: 480 },
+  track: { delay: QR_CARD_GONE, duration: 220 },
   count: { delay: 200, duration: 700 },
   check: { delay: 600, duration: 420 },
   burst: { delay: 700, duration: 800 },

@@ -113,37 +113,49 @@ export function QuoteStep({
           <Glyph name="infinity" size={56} color={palette.cream} />
         )}
       </Pressable>
-      <Whisper label={feeWords}>
-        <Reanimated.View
-          entering={stagger(1)}
-          accessible
-          accessibilityLabel={feeWords}
-          style={styles.line}
-        >
-          <Glyph name={glyph} size={20} color={bloom} />
-          <Text style={styles.sign} maxFontSizeMultiplier={1.4}>
-            −
-          </Text>
-          <Text style={styles.value} maxFontSizeMultiplier={1.4}>
-            {shownSats(quote.feeSats)}
-          </Text>
-        </Reanimated.View>
-      </Whisper>
-      {net !== null ? (
-        <Reanimated.View
-          entering={stagger(2)}
-          accessible
-          accessibilityLabel={copy.receive.net(net)}
-          style={styles.line}
-        >
-          <Text style={styles.sign} maxFontSizeMultiplier={1.4}>
-            =
-          </Text>
-          <Text style={[styles.value, styles.net]} maxFontSizeMultiplier={1.4}>
-            {shownSats(net)}
-          </Text>
-        </Reanimated.View>
-      ) : null}
+      {/* The lines share a glyph column, a sign column and a value
+          column, as Send's review does. */}
+      <View style={styles.lines}>
+        <Whisper label={feeWords}>
+          <Reanimated.View
+            entering={stagger(1)}
+            accessible
+            accessibilityRole="text"
+            accessibilityLabel={feeWords}
+            style={styles.line}
+          >
+            <View style={styles.rail}>
+              <Glyph name={glyph} size={20} color={bloom} />
+            </View>
+            <Text style={styles.sign} maxFontSizeMultiplier={1.4}>
+              −
+            </Text>
+            <Text style={styles.value} maxFontSizeMultiplier={1.4}>
+              {shownSats(quote.feeSats)}
+            </Text>
+          </Reanimated.View>
+        </Whisper>
+        {net !== null ? (
+          <Reanimated.View
+            entering={stagger(2)}
+            accessible
+            accessibilityRole="text"
+            accessibilityLabel={copy.receive.net(net)}
+            style={styles.line}
+          >
+            <View style={styles.rail} />
+            <Text style={styles.sign} maxFontSizeMultiplier={1.4}>
+              =
+            </Text>
+            <Text
+              style={[styles.value, styles.net]}
+              maxFontSizeMultiplier={1.4}
+            >
+              {shownSats(net)}
+            </Text>
+          </Reanimated.View>
+        ) : null}
+      </View>
       <WarningPips warnings={quote.warnings} />
       <Reanimated.View entering={stagger(3)} style={styles.create}>
         <View pointerEvents="none" style={styles.ring}>
@@ -201,8 +213,15 @@ const styles = StyleSheet.create({
   },
   figure: { ...typography.amount, color: palette.cream },
   unit: { ...typography.heroUnit, color: palette.steam },
-  line: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  sign: { ...typography.line, color: palette.steam },
+  lines: { alignItems: 'flex-start', gap: space.xs },
+  line: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  rail: { width: 24, alignItems: 'center' },
+  sign: {
+    ...typography.line,
+    minWidth: 16,
+    textAlign: 'center',
+    color: palette.steam,
+  },
   value: { ...typography.line, color: palette.steam },
   net: { color: palette.cream },
   create: {

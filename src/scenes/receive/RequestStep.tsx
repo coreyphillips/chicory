@@ -11,6 +11,7 @@ import type { ReceiveRequest, ReceiveStatus } from '@beignet/wallet-core';
 import { ReceiveReceipt } from '../../components/ReceiveReceipt';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
+import type { GlyphName } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
 import { QrBloom } from '../../glyphs/QrBloom';
@@ -26,6 +27,13 @@ import { Rock } from './loops';
 import type { Refused, RequestFace } from './model';
 import { useBloom, useTestNetwork } from './tone';
 import { lateAt, remainderSats, requestRails, shownSats } from './model';
+
+/**
+ * The glyph of the way to the payment list from a receipt: search, which
+ * says nothing about the money. The orbit is money in flight (REDESIGN.md
+ * 6), so under a done mark it would read as still on its way.
+ */
+export const ACTIVITY: GlyphName = 'search';
 
 /** The expiry ring runs this far outside the card. */
 export const RING_GAP = 8;
@@ -175,7 +183,7 @@ export function RequestStep({
       <Reanimated.View entering={stagger(2)} style={styles.controls}>
         {receipt ? (
           <GlyphButton
-            glyph="orbit"
+            glyph={ACTIVITY}
             label={copy.receive.viewActivity}
             onPress={onActivity}
           />
