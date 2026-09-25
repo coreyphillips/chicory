@@ -159,6 +159,11 @@ export interface HealthInput {
 export interface MarkVisual {
   /** Ratchets while a refresh runs, and breathes while setup is under way. */
   mode: 'still' | 'breathe' | 'ratchet';
+  /**
+   * What a breath moves: the centre alone while setup is under way, with the
+   * petals held still at .6, and otherwise the whole flower.
+   */
+  breath: 'whole' | 'center';
   /** How far the petals are open: .6 during setup, all the way once ready. */
   open: number;
   /** Dormant while the balance is old, slate on a test network. */
@@ -192,6 +197,7 @@ export function markVisual(input: HealthInput): MarkVisual {
         : setup === 'pending'
         ? 'breathe'
         : 'still',
+    breath: setup === 'pending' ? 'center' : 'whole',
     open: setup === 'pending' ? 0.6 : setup === 'failed' ? 0.8 : 1,
     tone: stale ? 'dormant' : test ? 'test' : 'live',
     halo: input.backupPending,

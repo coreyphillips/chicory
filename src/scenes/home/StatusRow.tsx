@@ -105,6 +105,7 @@ export function StatusRow({
               size={MARK}
               detail="mark"
               mode={mark.mode}
+              breath={mark.breath}
               open={mark.open}
               tone={mark.tone}
               halo={mark.halo}

@@ -337,6 +337,7 @@ describe('the mark', () => {
   test('a ready wallet is a full, still, live bloom with a live dot', () => {
     expect(markVisual(input())).toEqual({
       mode: 'still',
+      breath: 'whole',
       open: 1,
       tone: 'live',
       halo: false,
@@ -352,14 +353,14 @@ describe('the mark', () => {
     ['a refresh ratchets it', { refreshing: true }, { mode: 'ratchet' }],
     ['a cached launch ratchets it', { connecting: true }, { mode: 'ratchet' }],
     [
-      'setup under way opens it to .6, breathing',
+      'setup under way opens it to .6, its centre alone breathing',
       {
         snapshot: snapshotOf({
           wallet: MAINNET,
           primary: { setup: 'pending' },
         }),
       },
-      { mode: 'breathe', open: 0.6 },
+      { mode: 'breathe', breath: 'center', open: 0.6 },
     ],
     [
       'setup that failed droops it',
@@ -402,6 +403,24 @@ describe('the mark', () => {
     ],
   ])('%s', (_name, over, look) => {
     expect(markVisual(input(over))).toMatchObject(look);
+  });
+
+  test('the mark breathes its centre alone while setup is under way', async () => {
+    const breaths = async (setup: 'pending' | 'ready') => {
+      const tree = await mount(
+        <HomeRegions
+          snapshot={snapshotOf({ wallet: MAINNET, primary: { setup } })}
+        />,
+      );
+      const found = tree.root
+        .findAllByType(Bloom)
+        .filter(bloom => bloom.props.detail === 'mark')
+        .map(bloom => [bloom.props.mode, bloom.props.breath]);
+      await act(async () => tree.unmount());
+      return found;
+    };
+    expect(await breaths('pending')).toEqual([['breathe', 'center']]);
+    expect(await breaths('ready')).toEqual([['still', 'whole']]);
   });
 
   test('a wallet without lightning-first funding has no setup to wait for', () => {
