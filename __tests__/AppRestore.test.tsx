@@ -6,6 +6,7 @@ import { DemoWalletClient, EmbeddedWalletClient } from '@beignet/wallet-core';
 import App from '../App';
 import * as DeviceWallet from '../src/embedded/client';
 import { defaultPreferences } from '../src/services/networks';
+import { Transit } from '../src/scenes/phases/Transit';
 import { NetworkSettings } from '../src/screens/NetworkSettings';
 import { SettingsScreen } from '../src/screens/Settings';
 import { eraseDeviceStorage } from '../src/embedded/storage';
@@ -329,6 +330,8 @@ test('locking serializes secure-store writes and closure against captured wallet
   expect(close).not.toHaveBeenCalled();
   expect(activePhase(tree)).toBe('transit');
   expect(meaning(tree)).toContain('Closing your wallet');
+  // The bloom starts in the tone of the network being left.
+  expect(tree.root.findByType(Transit).props.network).toBe('regtest');
   expect(label(tree, 'Choose another wallet')).toBeUndefined();
   await act(async () => {
     finishSave();

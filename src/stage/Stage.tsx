@@ -1,16 +1,9 @@
 import React, { useMemo } from 'react';
 import type { ReactNode } from 'react';
-import {
-  Animated,
-  RefreshControl,
-  StatusBar,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { RefreshControl, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WhisperProvider } from '../glyphs/Whisper';
 import { useStaleAfter } from '../services/clock';
-import { useEnter } from '../services/motion';
 import { STALE_AFTER_MS } from '../services/useWalletSession';
 import type { useWalletSession } from '../services/useWalletSession';
 import { LockScreen } from '../scenes/phases/Locked';
@@ -36,8 +29,8 @@ type Session = ReturnType<typeof useWalletSession>;
 
 /**
  * The whole app below the providers: the view for the shell phase, or the
- * wallet canvas once there is a wallet to show, and the new wallet sheet
- * above either.
+ * wallet canvas once there is a wallet to show, the new wallet sheet above
+ * either, and the lock above everything.
  */
 export function Stage({
   phase,
@@ -74,22 +67,7 @@ export function Stage({
     () => wallets.filter(wallet => wallet.network === activeProfile.network),
     [wallets, activeProfile.network],
   );
-  const enter = useEnter(phase.kind);
-
-  // The whisper pill is drawn above every phase and the canvas alike, the
-  // lock included, from the window's own origin, so it lands where the
-  // finger is.
-  if (phase.kind === 'locked') {
-    return (
-      <WhisperProvider>
-        <LockScreen
-          prompting={phase.prompting}
-          error={phase.error}
-          onUnlock={onUnlock}
-        />
-      </WhisperProvider>
-    );
-  }
+  const locked = phase.kind === 'locked';
 
   // A pending backup sits above whatever is showing, the Activity list
   // included, rather than replacing it. Each surface draws it its own way.
@@ -109,6 +87,7 @@ export function Stage({
           erasing={session.erasing}
           closing={closing}
           switchTarget={session.switchTarget}
+          network={activeProfile.network}
         />
       );
       break;
@@ -221,7 +200,7 @@ export function Stage({
   // main: nothing of a wallet stays drawn under the lock.
   const overlay = state.overlay;
   const creating =
-    overlay?.name === 'create' && client ? (
+    !locked && overlay?.name === 'create' && client ? (
       <CreateSheet
         key={overlay.key}
         client={client}
@@ -230,11 +209,16 @@ export function Stage({
         onCreated={wallet => session.selectWallet(wallet, true)}
       />
     ) : null;
+  // The whisper pill is drawn above every phase and the canvas alike, the
+  // lock included, from the window's own origin, so it lands where the
+  // finger is. The lock is the last child, over whatever arrives as it
+  // opens, so its bud can unfold and fly to the mark over the wallet
+  // (REDESIGN.md 7, R-1). Nothing of a wallet is drawn under it.
   return (
     <WhisperProvider>
       <StatusBar barStyle="light-content" />
       <View style={styles.root}>
-        {phase.kind === 'wallet' ? (
+        {locked ? null : phase.kind === 'wallet' ? (
           // The canvas draws edge to edge, under the system bars, and keeps
           // its own content clear of them.
           content
@@ -261,10 +245,11 @@ export function Stage({
                   ) : undefined
                 }
               >
-                <Animated.View style={[enter, styles.stack]}>
+                {/* Each phase enters and leaves through its own PhaseRoot. */}
+                <View style={styles.stack}>
                   <BackupBanner backup={backup} />
                   {content}
-                </Animated.View>
+                </View>
               </SceneSlot>
             </View>
           </SafeAreaView>
@@ -273,6 +258,13 @@ export function Stage({
           <SafeAreaView style={styles.layer} edges={EDGES}>
             <View style={styles.flex}>{creating}</View>
           </SafeAreaView>
+        ) : null}
+        {locked ? (
+          <LockScreen
+            prompting={phase.prompting}
+            error={phase.error}
+            onUnlock={onUnlock}
+          />
         ) : null}
       </View>
     </WhisperProvider>
@@ -302,5 +294,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   layer: { ...StyleSheet.absoluteFill, backgroundColor: colors.background },
   flex: { flex: 1 },
-  stack: { gap: space.lg },
+  // Grows to the slot, so a phase root that grows can centre itself in it.
+  stack: { gap: space.lg, flexGrow: 1 },
 });

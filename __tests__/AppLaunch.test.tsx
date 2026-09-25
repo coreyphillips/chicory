@@ -8,6 +8,8 @@ import { DemoWalletClient, EmbeddedWalletClient } from '@beignet/wallet-core';
 import { defaultPreferences } from '../src/services/networks';
 import { WhisperProvider } from '../src/glyphs/Whisper';
 import { LockScreen } from '../src/scenes/phases/Locked';
+import { Canvas } from '../src/stage/Canvas';
+import { SceneSlot } from '../src/stage/panes/SceneSlot';
 import { meaning } from '../test-support/query';
 import { activePhase } from '../test-support/scene';
 
@@ -108,6 +110,13 @@ test('an enabled lock holds the wallet back until it is unlocked', async () => {
     expect(
       tree.root.findByType(WhisperProvider).findAllByType(LockScreen),
     ).toHaveLength(1);
+    // The lock is drawn last, over whatever arrives as it opens, and no
+    // phase and no canvas is drawn under it.
+    const lock = tree.root.findByType(LockScreen);
+    const drawn = lock.parent!.children;
+    expect(drawn[drawn.length - 1]).toBe(lock);
+    expect(tree.root.findAllByType(SceneSlot)).toHaveLength(0);
+    expect(tree.root.findAllByType(Canvas)).toHaveLength(0);
     // Crucially the vault is never opened, so no engine runs for someone who
     // has not authenticated.
     expect(opened).not.toHaveBeenCalled();
@@ -120,6 +129,7 @@ test('an enabled lock holds the wallet back until it is unlocked', async () => {
     expect(opened).toHaveBeenCalledTimes(1);
     expect(activePhase(tree)).not.toBe('locked');
     expect(meaning(tree)).not.toContain('Chicory is locked.');
+    expect(tree.root.findAllByType(LockScreen)).toHaveLength(0);
   } finally {
     await act(async () => tree?.unmount());
     jest.restoreAllMocks();
