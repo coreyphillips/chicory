@@ -1,6 +1,9 @@
 import React, { memo, useEffect, useMemo, useState } from 'react';
+import type { Ref } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import type { HostInstance } from 'react-native';
 import Reanimated, {
+  ReduceMotion,
   cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
@@ -44,6 +47,8 @@ export interface QrBloomProps {
   onPress?: () => void;
   onLongPress?: () => void;
   accessibilityLabel: string;
+  /** The code itself, for a screen reader to be sent back to. */
+  ref?: Ref<HostInstance>;
 }
 
 /** The quiet zone around the modules, which scanners need to find the code. */
@@ -212,8 +217,16 @@ export function layerMotion(layer: number, state: QrState): LayerMotion {
   }
 }
 
-/** Under Reduce Motion a code only fades, in or out, and never travels. */
-const CROSSFADE = { duration: durations.crossfade, easing: curves.standard };
+/**
+ * Under Reduce Motion a code only fades, in or out, and never travels. A fade
+ * moves nothing, so it opts out of the system setting, which would otherwise
+ * skip it and cut the code in or out at once.
+ */
+const CROSSFADE = {
+  duration: durations.crossfade,
+  easing: curves.standard,
+  reduceMotion: ReduceMotion.Never,
+};
 
 /** How long every layer takes to leave `state`'s way, all told. */
 export function leaveMs(state: Exclude<QrState, 'shown'>): number {
@@ -308,6 +321,7 @@ export const QrBloom = memo(function QrCode({
   onPress,
   onLongPress,
   accessibilityLabel,
+  ref,
 }: QrBloomProps) {
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
@@ -377,6 +391,7 @@ export const QrBloom = memo(function QrCode({
   });
   return (
     <Pressable
+      ref={ref}
       accessible={shown}
       accessibilityRole={pressable ? 'button' : 'image'}
       accessibilityLabel={shown ? accessibilityLabel : undefined}

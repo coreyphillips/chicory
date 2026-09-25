@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import type { PropsWithChildren } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Reanimated, {
@@ -17,17 +17,25 @@ import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { CopiedGlyph } from '../../glyphs/CopyChip';
 import { Whisper } from '../../glyphs/Whisper';
+import { useShake } from '../../motion/effects';
 import { riseIn } from '../../motion/presets';
-import { curves, durations, shake, springs } from '../../motion/tokens';
+import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { motionReduced } from '../../services/motion';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { space, type as typography } from '../../theme';
+import { Unplugged } from '../send/LoopingGlyphs';
 import type { Focus } from './focus';
 import { Pulse, Spin } from './loops';
+import { refusalLook } from './model';
+import { useBloom } from './tone';
 
-/** How long a refusal tints a control instead of shaking it (REDESIGN.md 8). */
-const TINT_MS = 400;
+/**
+ * The circle of the way on, on the form and on the quote: the size Home's
+ * receive circle grows to as Receive opens (REDESIGN.md 7, T2), as Send's
+ * control is for T1, so the circle lands on the control it becomes.
+ */
+export const CONTROL = 88;
 
 /** How long refresh takes to turn once as it arrives (REDESIGN.md 4). */
 const TURN_MS = 500;
@@ -43,42 +51,6 @@ export function useOnce(key: number | undefined, play: () => void) {
     seen.current = key;
     play();
   });
-}
-
-/**
- * A refusal, each time `play` is called: a shake, or under Reduce Motion a
- * radish tint that fades over 400ms, since a shake moves through space
- * (REDESIGN.md 8). `shaken` goes on the view that moves, or `x` into a
- * transform of its own, and `tinted` on a radish layer over the control.
- */
-export function useRefusal() {
-  const { reduced } = useMotionPrefs();
-  const x = useSharedValue(0);
-  const tint = useSharedValue(0);
-  const play = useCallback(() => {
-    if (reduced) {
-      tint.set(
-        withSequence(
-          withTiming(1, { duration: 0 }),
-          withTiming(0, { duration: TINT_MS, easing: curves.standard }),
-        ),
-      );
-    } else {
-      x.set(shake());
-    }
-  }, [reduced, x, tint]);
-  useEffect(
-    () => () => {
-      cancelAnimation(x);
-      cancelAnimation(tint);
-    },
-    [x, tint],
-  );
-  const shaken = useAnimatedStyle(() => ({
-    transform: [{ translateX: x.get() }],
-  }));
-  const tinted = useAnimatedStyle(() => ({ opacity: tint.get() }));
-  return { play, x, shaken, tinted };
 }
 
 /**
@@ -120,9 +92,11 @@ export function turnIn(): EntryExitAnimationFunction {
  * say it is the way on; `halo` rings it in bloom for as long as it is the
  * only way on; a new `confirm` turns its glyph to a sage check and back, as
  * a copy chip's does when it copies. `busy` turns an orbit round it.
- * Children sit beside the glyph
- * as data, such as the amount a request is for. `focusRef` is where a
- * screen reader's focus is sent when this is the way on.
+ * Children sit beside the glyph as data, such as what a request still
+ * needs, and `value` says them for a screen reader, which hears the label in
+ * their place. `focusRef` is where a screen reader's focus is sent when this
+ * is the way on. The orbit and the halo are drawing, which a screen reader
+ * passes over.
  */
 export function GlyphButton({
   glyph,
@@ -140,6 +114,7 @@ export function GlyphButton({
   confirm,
   halo = false,
   expanded,
+  value,
   focusRef,
   children,
 }: PropsWithChildren<{
@@ -159,14 +134,18 @@ export function GlyphButton({
   halo?: boolean;
   /** For a control that opens something: whether it is open. */
   expanded?: boolean;
+  /** What the children show, as a screen reader hears it after the label. */
+  value?: string;
   focusRef?: Focus;
 }>) {
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
+  const { bloom } = useBloom();
   const press = useSharedValue(1);
   const swell = useSharedValue(1);
-  const { play: refuse, x, tinted } = useRefusal();
-  useOnce(shakeKey, refuse);
+  // A refusal shakes it, or tints it radish under Reduce Motion.
+  const refusal = useShake();
+  useOnce(shakeKey, refusal.play);
   useOnce(pulseKey, () => {
     if (reduced) return;
     swell.set(
@@ -183,8 +162,8 @@ export function GlyphButton({
     },
     [swell, press],
   );
-  const moved = useAnimatedStyle(() => ({
-    transform: [{ translateX: x.get() }, { scale: swell.get() * press.get() }],
+  const scaled = useAnimatedStyle(() => ({
+    transform: [{ scale: swell.get() * press.get() }],
   }));
 
   const quiet = disabled || blocked;
@@ -197,69 +176,78 @@ export function GlyphButton({
   // Held back, a long press whispers why (REDESIGN.md rule 3).
   return (
     <Whisper label={hint ?? label} enabled={quiet}>
-      <Reanimated.View style={moved}>
-        {halo ? (
-          <Pulse style={[styles.around, around(size)]}>
-            <View style={[styles.haloRing, ring(size)]} />
-          </Pulse>
-        ) : null}
-        <Pressable
-          ref={focusRef}
-          accessibilityRole="button"
-          accessibilityLabel={label}
-          accessibilityHint={hint}
-          accessibilityState={{ disabled: quiet, busy, expanded }}
-          disabled={disabled || busy}
-          onPressIn={live ? () => to(0.94) : undefined}
-          onPressOut={live ? () => to(1) : undefined}
-          onPress={
-            live
-              ? () => {
-                  if (blocked) {
-                    onBlocked?.();
-                    return;
-                  }
-                  if (primary) haptics.tap();
-                  else haptics.tick();
-                  onPress();
-                }
-              : undefined
-          }
-          style={[
-            styles.control,
-            children ? [styles.pill, pill] : round,
-            primary ? styles.primary : styles.raised,
-            quiet && styles.quiet,
-          ]}
-        >
-          {confirm === undefined ? (
-            <Glyph name={glyph} size={Math.round(size * 0.42)} color={ink} />
-          ) : (
-            <CopiedGlyph
-              name={glyph}
-              size={Math.round(size * 0.42)}
-              color={ink}
-              copies={confirm}
-            />
-          )}
-          {children ? (
-            <Text
-              style={[styles.data, { color: ink }]}
-              maxFontSizeMultiplier={1.4}
-            >
-              {children}
-            </Text>
+      <Reanimated.View style={refusal.style}>
+        <Reanimated.View style={scaled}>
+          {halo ? (
+            <Decor size={size}>
+              <Pulse>
+                <View
+                  style={[styles.haloRing, ring(size), { borderColor: bloom }]}
+                />
+              </Pulse>
+            </Decor>
           ) : null}
-          <Reanimated.View
-            pointerEvents="none"
-            style={[styles.tint, children ? pill : round, tinted]}
-          />
-        </Pressable>
-        {busy ? (
-          <Spin style={[styles.around, around(size)]}>
-            <Orbit size={size + ORBIT_GAP * 2} />
-          </Spin>
-        ) : null}
+          <Pressable
+            ref={focusRef}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            accessibilityHint={hint}
+            accessibilityState={{ disabled: quiet, busy, expanded }}
+            accessibilityValue={value ? { text: value } : undefined}
+            disabled={disabled || busy}
+            onPressIn={live ? () => to(0.94) : undefined}
+            onPressOut={live ? () => to(1) : undefined}
+            onPress={
+              live
+                ? () => {
+                    if (blocked) {
+                      onBlocked?.();
+                      return;
+                    }
+                    if (primary) haptics.tap();
+                    else haptics.tick();
+                    onPress();
+                  }
+                : undefined
+            }
+            style={[
+              styles.control,
+              children ? [styles.pill, pill] : round,
+              primary ? { backgroundColor: bloom } : styles.raised,
+              quiet && styles.quiet,
+            ]}
+          >
+            {confirm === undefined ? (
+              <Glyph name={glyph} size={Math.round(size * 0.42)} color={ink} />
+            ) : (
+              <CopiedGlyph
+                name={glyph}
+                size={Math.round(size * 0.42)}
+                color={ink}
+                copies={confirm}
+              />
+            )}
+            {children ? (
+              <Text
+                style={[styles.data, { color: ink }]}
+                maxFontSizeMultiplier={1.4}
+              >
+                {children}
+              </Text>
+            ) : null}
+            <Reanimated.View
+              pointerEvents="none"
+              style={[styles.tint, children ? pill : round, refusal.tint]}
+            />
+          </Pressable>
+          {busy ? (
+            <Decor size={size}>
+              <Spin>
+                <Orbit size={size + ORBIT_GAP * 2} color={bloom} />
+              </Spin>
+            </Decor>
+          ) : null}
+        </Reanimated.View>
       </Reanimated.View>
     </Whisper>
   );
@@ -281,8 +269,25 @@ const around = (size: number) => ({
   ...ring(size),
 });
 
+/**
+ * Drawing just outside a control `size` across, such as its orbit or its
+ * halo: it takes no touches, and a screen reader passes over it.
+ */
+function Decor({ size, children }: PropsWithChildren<{ size: number }>) {
+  return (
+    <View
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[styles.around, around(size)]}
+    >
+      {children}
+    </View>
+  );
+}
+
 /** A quarter arc in bloom, which turns while something is being prepared. */
-function Orbit({ size }: { size: number }) {
+function Orbit({ size, color }: { size: number; color: string }) {
   const stroke = 2.5;
   const r = size / 2 - stroke;
   const circumference = 2 * Math.PI * r;
@@ -293,7 +298,7 @@ function Orbit({ size }: { size: number }) {
         cy={size / 2}
         r={r}
         fill="none"
-        stroke={palette.bloom}
+        stroke={color}
         strokeWidth={stroke}
         strokeLinecap="round"
         strokeDasharray={[circumference / 4, circumference]}
@@ -303,12 +308,22 @@ function Orbit({ size }: { size: number }) {
 }
 
 /**
- * Something went wrong with what was just asked: a radish bang beside the
- * control that asked it. It says nothing on screen; the whole message is its
- * label. Whoever sets it also announces it, so it is not a live region too,
- * which would have Android read it twice.
+ * Something went wrong with what was just asked, beside the control that
+ * asked it (REDESIGN.md 6, Engine errors): a radish bang, or while the
+ * primary node is away a honey unplug whose halves drift apart and back
+ * (`refusalLook`, by the engine's `code`). It says nothing on screen; the
+ * whole message is its label. Whoever sets it also announces it, so it is
+ * not a live region too, which would have Android read it twice.
  */
-export function ErrorPip({ message }: { message: string }) {
+export function ErrorPip({
+  message,
+  code,
+}: {
+  message: string;
+  code?: string;
+}) {
+  const look = refusalLook(code);
+  const honey = look.tone === 'honey';
   return (
     <Whisper label={message}>
       <Reanimated.View
@@ -316,9 +331,13 @@ export function ErrorPip({ message }: { message: string }) {
         accessible
         accessibilityRole="alert"
         accessibilityLabel={message}
-        style={styles.errorPip}
+        style={[styles.errorPip, honey && styles.waitPip]}
       >
-        <Glyph name="bang" size={18} color={palette.radish} />
+        {look.glyph === 'unplug' ? (
+          <Unplugged size={18} color={palette.honey} />
+        ) : (
+          <Glyph name="bang" size={18} color={palette.radish} />
+        )}
       </Reanimated.View>
     </Whisper>
   );
@@ -351,7 +370,6 @@ const styles = StyleSheet.create({
     gap: space.xs,
     paddingHorizontal: space.lg,
   },
-  primary: { backgroundColor: palette.bloom },
   raised: { backgroundColor: palette.mocha },
   quiet: { backgroundColor: palette.espresso, transform: [{ scale: 0.94 }] },
   data: { ...typography.line },
@@ -364,7 +382,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.radishSoft,
   },
   around: { position: 'absolute' },
-  haloRing: { borderWidth: 2, borderColor: palette.bloom },
+  haloRing: { borderWidth: 2 },
   errorPip: {
     width: 32,
     height: 32,
@@ -373,6 +391,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: palette.radishSoft,
   },
+  waitPip: { backgroundColor: palette.honeySoft },
   pips: { flexDirection: 'row', justifyContent: 'center' },
   pipArea: {
     width: 28,

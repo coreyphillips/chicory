@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Reanimated, {
+  ReduceMotion,
   cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
@@ -69,7 +70,8 @@ const SETTLE = COPIED.washIn + COPIED.hold;
  * A glyph that turns into a sage check each time `copies` counts up, and
  * back once the copy has been seen (REDESIGN.md 4, copy to check): it
  * shrinks to .6 and fades as the check draws in. Under Reduce Motion the two
- * only crossfade. The chip draws it, and so does a control that copies.
+ * only crossfade, the check whole and the glyph at its size (REDESIGN.md 8).
+ * The chip draws it, and so does a control that copies.
  */
 export function CopiedGlyph({
   name,
@@ -86,6 +88,8 @@ export function CopiedGlyph({
   // 0 is the glyph at rest; 1 is the check that replaced it.
   const swap = useSharedValue(0);
   const check = useSharedValue(0);
+  // Under Reduce Motion the check is drawn whole and only fades.
+  const whole = useSharedValue(1);
   // Only a new copy plays. A control that mounts with copies behind it, as
   // on a fresh request, starts at rest, and so does one whose motion setting
   // changed mid-way.
@@ -102,11 +106,16 @@ export function CopiedGlyph({
       cancelAnimation(check);
     };
     if (reduced) {
-      const fade = { duration: COPIED.glyphOut };
+      // A crossfade moves nothing, so it opts out of the system setting,
+      // which would otherwise skip it and leave no sign of the copy.
+      const fade = {
+        duration: COPIED.glyphOut,
+        reduceMotion: ReduceMotion.Never,
+      };
       const flip = () =>
         withSequence(
           withTiming(1, fade),
-          withDelay(SETTLE, withTiming(0, fade)),
+          withDelay(SETTLE, withTiming(0, fade), ReduceMotion.Never),
         );
       swap.set(flip());
       check.set(flip());
@@ -132,7 +141,10 @@ export function CopiedGlyph({
   }, [copies, reduced, swap, check]);
   const glyphStyle = useAnimatedStyle(() => ({
     opacity: 1 - swap.get(),
-    transform: [{ scale: 1 - 0.4 * swap.get() }],
+    transform: [{ scale: reduced ? 1 : 1 - 0.4 * swap.get() }],
+  }));
+  const checkStyle = useAnimatedStyle(() => ({
+    opacity: reduced ? check.get() : 1,
   }));
   const box = { width: size, height: size };
   return (
@@ -140,14 +152,14 @@ export function CopiedGlyph({
       <Reanimated.View style={glyphStyle}>
         <Glyph name={name} size={size} color={color} />
       </Reanimated.View>
-      <View style={styles.check}>
+      <Reanimated.View style={[styles.check, checkStyle]}>
         <DrawnGlyph
           name="check"
           size={size}
           color={palette.sage}
-          progress={check}
+          progress={reduced ? whole : check}
         />
-      </View>
+      </Reanimated.View>
     </View>
   );
 }

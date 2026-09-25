@@ -8,11 +8,12 @@ import { riseIn, sceneOut, stagger } from '../../motion/presets';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { radius, space, type as typography } from '../../theme';
 import { AmountCue, AmountFace } from './AmountCue';
-import { ErrorPip, GlyphButton } from './controls';
+import { CONTROL, ErrorPip, GlyphButton } from './controls';
 import type { Focus } from './focus';
-import type { AmountCue as Cue } from './model';
+import type { AmountCue as Cue, Refused } from './model';
 import { PRESETS } from './model';
 import { OfflineSwitch } from './OfflineSwitch';
+import { useBloom } from './tone';
 
 /** The longest note a request carries. */
 const NOTE_MAX = 180;
@@ -71,13 +72,14 @@ export function FormStep({
   stale: boolean;
   /** The amount is one that can be quoted. */
   ready: boolean;
-  error: string;
+  error: Refused | null;
   shake: number;
   onContinue: () => void;
   onBlocked: () => void;
   focus: Focus;
 }) {
   const live = usePaneActive();
+  const { bloom } = useBloom();
   const showNote = noteOpen || note !== '';
   // Each time an amount turns out to be needed, the amount shakes once.
   const needed = cue.kind === 'required';
@@ -126,10 +128,11 @@ export function FormStep({
             onChangeText={live ? onNote : undefined}
             editable={!busy}
             maxLength={NOTE_MAX}
+            maxFontSizeMultiplier={1.4}
             autoFocus={noteOpen && note === ''}
             autoCorrect={false}
             returnKeyType="done"
-            selectionColor={palette.bloom}
+            selectionColor={bloom}
             style={styles.note}
           />
         </Reanimated.View>
@@ -139,7 +142,7 @@ export function FormStep({
           glyph="receive"
           label={copy.receive.continue}
           hint={stale ? copy.receive.stale : undefined}
-          size={72}
+          size={CONTROL}
           tone="primary"
           disabled={!stale && !ready}
           blocked={stale}
@@ -149,7 +152,7 @@ export function FormStep({
           onBlocked={onBlocked}
           focusRef={focus}
         />
-        {error ? <ErrorPip message={error} /> : null}
+        {error ? <ErrorPip message={error.message} code={error.code} /> : null}
       </Reanimated.View>
     </View>
   );

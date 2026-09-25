@@ -23,7 +23,8 @@ import type { Unit } from '../../theme';
 import { ErrorPip, GlyphButton, WarningPips } from './controls';
 import type { Focus } from './focus';
 import { Rock } from './loops';
-import type { RequestFace } from './model';
+import type { Refused, RequestFace } from './model';
+import { useBloom } from './tone';
 import { lateAt, remainderSats, requestRails, shownSats } from './model';
 
 /** The expiry ring runs this far outside the card. */
@@ -60,6 +61,7 @@ export function RequestStep({
   onAgain,
   onActivity,
   focus,
+  qrFocus,
 }: {
   request: ReceiveRequest;
   createdAt: number;
@@ -72,7 +74,7 @@ export function RequestStep({
   unit: Unit;
   /** How wide the code is drawn. */
   qr: number;
-  error: string;
+  error: Refused | null;
   onLift: () => void;
   onCopy: () => void;
   /** How many times the request has been copied, for the copy control's check. */
@@ -82,6 +84,8 @@ export function RequestStep({
   onActivity: () => void;
   /** Takes what the request now says: the receipt, a safety state, or itself. */
   focus: Focus;
+  /** The code, where a screen reader goes back to as a lifted code is set down. */
+  qrFocus?: Focus;
 }) {
   const side = frameSide(qr);
   const remainder = remainderSats(request.amountSats, receipt);
@@ -113,6 +117,7 @@ export function RequestStep({
               </View>
             ) : null}
             <QrBloom
+              ref={qrFocus}
               value={request.uri}
               size={qr}
               state={face.qr}
@@ -197,13 +202,20 @@ export function RequestStep({
           tone={face.shareable && !receipt ? 'raised' : 'primary'}
           halo={scattered}
           pulse={face.qr === 'expired' ? 1 : undefined}
+          value={
+            remainder === null
+              ? undefined
+              : hidden
+              ? copy.amount.hidden
+              : copy.amount.spoken(remainder)
+          }
           onPress={onAgain}
         >
           {/* What is owed gives away what arrived, so it hides with it. */}
           {remainder === null ? null : hidden ? MASK : shownSats(remainder)}
         </GlyphButton>
       </Reanimated.View>
-      {error ? <ErrorPip message={error} /> : null}
+      {error ? <ErrorPip message={error.message} code={error.code} /> : null}
     </View>
   );
 }
@@ -267,6 +279,7 @@ function About({
   minutesLeft: number;
   focus?: Focus;
 }) {
+  const { bloom } = useBloom();
   const rails = requestRails(request);
   const how = [
     rails.length > 1 ? copy.receive.unified : copy.receive.lightningOnly,
@@ -318,7 +331,7 @@ function About({
           ))}
           {request.offlineReceive && !face.expired ? (
             <Rock>
-              <Glyph name="moon" size={18} color={palette.bloom} />
+              <Glyph name="moon" size={18} color={bloom} />
             </Rock>
           ) : null}
         </View>

@@ -19,6 +19,7 @@ import { QrBloom } from '../glyphs/QrBloom';
 import { riseIn, sceneOut } from '../motion/presets';
 import { ErrorPip, GlyphButton } from '../scenes/receive/controls';
 import { detailFace, requestRails } from '../scenes/receive/model';
+import { TestNetwork, bloomFor } from '../scenes/receive/tone';
 import { useNow } from '../services/clock';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { usePaneActive } from '../stage/panes/Pane';
@@ -41,11 +42,14 @@ export function ReceiveRequestDetails({
   client,
   onRefresh,
   onBusy,
+  test = false,
 }: {
   item: Activity;
   client?: WalletAdapter;
   onRefresh?: () => void;
   onBusy?: (busy: boolean) => void;
+  /** A wallet on a test network, where slate stands in for bloom. */
+  test?: boolean;
 }) {
   const live = usePaneActive();
   const [original, setOriginal] = useState('');
@@ -135,144 +139,150 @@ export function ReceiveRequestDetails({
   }
 
   return (
-    <View style={styles.card}>
-      {face.qr ? (
-        <View style={styles.qr}>
-          <QrBloom
-            value={request.uri}
-            size={Math.min(220, Math.max(150, width - 160))}
-            state={face.qr}
-            accessibilityLabel={
-              legacy ? copy.receive.legacyQr : copy.receive.originalQr
-            }
-          />
+    <TestNetwork.Provider value={test}>
+      <View style={styles.card}>
+        {face.qr ? (
+          <View style={styles.qr}>
+            <QrBloom
+              value={request.uri}
+              size={Math.min(220, Math.max(150, width - 160))}
+              state={face.qr}
+              accessibilityLabel={
+                legacy ? copy.receive.legacyQr : copy.receive.originalQr
+              }
+            />
+          </View>
+        ) : null}
+        <View accessible accessibilityLabel={how} style={styles.rails}>
+          {requestRails({ ...request, legacy }).map(rail => (
+            <Glyph key={rail} name={rail} size={16} color={palette.steam} />
+          ))}
+          {reused ? (
+            <Glyph name="twin" size={16} color={palette.honey} />
+          ) : null}
         </View>
-      ) : null}
-      <View accessible accessibilityLabel={how} style={styles.rails}>
-        {requestRails({ ...request, legacy }).map(rail => (
-          <Glyph key={rail} name={rail} size={16} color={palette.steam} />
-        ))}
-        {reused ? <Glyph name="twin" size={16} color={palette.honey} /> : null}
-      </View>
-      <View
-        accessible
-        accessibilityLabel={
-          legacy ? copy.receive.legacyInvoice : copy.receive.original
-        }
-        accessibilityValue={{ text: request.uri }}
-      >
-        <Text
-          selectable={shareable}
-          style={[styles.request, !shareable && styles.kept]}
+        <View
+          accessible
+          accessibilityLabel={
+            legacy ? copy.receive.legacyInvoice : copy.receive.original
+          }
+          accessibilityValue={{ text: request.uri }}
         >
-          {request.uri}
-        </Text>
-      </View>
-      {error ? <ErrorPip message={error} /> : null}
-      <View style={styles.controls}>
-        {shareable ? (
-          <>
+          <Text
+            selectable={shareable}
+            maxFontSizeMultiplier={1.4}
+            style={[styles.request, !shareable && styles.kept]}
+          >
+            {request.uri}
+          </Text>
+        </View>
+        {error ? <ErrorPip message={error} /> : null}
+        <View style={styles.controls}>
+          {shareable ? (
+            <>
+              <GlyphButton
+                glyph="share"
+                label={copy.receive.shareOriginal}
+                size={48}
+                disabled={busy}
+                onPress={() => {
+                  if (!working.current)
+                    Share.share({ message: request.uri }).catch(() =>
+                      fail(copy.receive.shareFailed),
+                    );
+                }}
+              />
+              <GlyphButton
+                glyph="copy"
+                label={copy.receive.copyOriginal}
+                size={48}
+                disabled={busy}
+                confirm={copies}
+                onPress={() => {
+                  if (working.current) return;
+                  Clipboard.setString(request.uri);
+                  announce(copy.receive.originalCopied);
+                  setCopies(count => count + 1);
+                }}
+              />
+            </>
+          ) : null}
+          {legacy && client && item.paymentHash && !linking ? (
             <GlyphButton
-              glyph="share"
-              label={copy.receive.shareOriginal}
+              glyph="linkPlus"
+              label={copy.receive.linkOriginal}
               size={48}
-              disabled={busy}
-              onPress={() => {
-                if (!working.current)
-                  Share.share({ message: request.uri }).catch(() =>
-                    fail(copy.receive.shareFailed),
-                  );
-              }}
+              onPress={() => setLinking(true)}
             />
-            <GlyphButton
-              glyph="copy"
-              label={copy.receive.copyOriginal}
-              size={48}
-              disabled={busy}
-              confirm={copies}
-              onPress={() => {
-                if (working.current) return;
-                Clipboard.setString(request.uri);
-                announce(copy.receive.originalCopied);
-                setCopies(count => count + 1);
-              }}
-            />
-          </>
-        ) : null}
-        {legacy && client && item.paymentHash && !linking ? (
-          <GlyphButton
-            glyph="linkPlus"
-            label={copy.receive.linkOriginal}
-            size={48}
-            onPress={() => setLinking(true)}
-          />
-        ) : null}
-        {linked ? (
+          ) : null}
+          {linked ? (
+            <Reanimated.View
+              entering={riseIn(8)}
+              accessible
+              accessibilityLabel={copy.receive.linked}
+              style={styles.linked}
+            >
+              <Glyph name="check" size={20} color={palette.sage} />
+            </Reanimated.View>
+          ) : null}
+        </View>
+        {legacy && client && item.paymentHash && linking ? (
           <Reanimated.View
             entering={riseIn(8)}
-            accessible
-            accessibilityLabel={copy.receive.linked}
-            style={styles.linked}
+            exiting={sceneOut()}
+            style={styles.linking}
           >
-            <Glyph name="check" size={20} color={palette.sage} />
+            <View style={styles.well}>
+              <TextInput
+                accessibilityLabel={copy.receive.original}
+                accessibilityHint={copy.receive.originalHint}
+                value={original}
+                onChangeText={live ? setOriginal : undefined}
+                multiline
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                editable={!busy}
+                maxFontSizeMultiplier={1.4}
+                selectionColor={bloomFor(test).bloom}
+                style={styles.field}
+              />
+              <GlyphButton
+                glyph="clipboard"
+                label={copy.receive.paste}
+                size={48}
+                disabled={busy}
+                onPress={() => {
+                  paste().catch(() => {});
+                }}
+              />
+            </View>
+            <View style={styles.controls}>
+              <GlyphButton
+                glyph="close"
+                label={copy.receive.cancelLink}
+                size={48}
+                disabled={busy}
+                onPress={() => {
+                  setLinking(false);
+                  setOriginal('');
+                  setError('');
+                }}
+              />
+              <GlyphButton
+                glyph="linkPlus"
+                label={copy.receive.link}
+                size={56}
+                tone="primary"
+                busy={busy}
+                disabled={!original.trim()}
+                onPress={link}
+              />
+            </View>
           </Reanimated.View>
         ) : null}
       </View>
-      {legacy && client && item.paymentHash && linking ? (
-        <Reanimated.View
-          entering={riseIn(8)}
-          exiting={sceneOut()}
-          style={styles.linking}
-        >
-          <View style={styles.well}>
-            <TextInput
-              accessibilityLabel={copy.receive.original}
-              accessibilityHint={copy.receive.originalHint}
-              value={original}
-              onChangeText={live ? setOriginal : undefined}
-              multiline
-              autoCapitalize="none"
-              autoCorrect={false}
-              spellCheck={false}
-              editable={!busy}
-              selectionColor={palette.bloom}
-              style={styles.field}
-            />
-            <GlyphButton
-              glyph="clipboard"
-              label={copy.receive.paste}
-              size={48}
-              disabled={busy}
-              onPress={() => {
-                paste().catch(() => {});
-              }}
-            />
-          </View>
-          <View style={styles.controls}>
-            <GlyphButton
-              glyph="close"
-              label={copy.receive.cancelLink}
-              size={48}
-              disabled={busy}
-              onPress={() => {
-                setLinking(false);
-                setOriginal('');
-                setError('');
-              }}
-            />
-            <GlyphButton
-              glyph="linkPlus"
-              label={copy.receive.link}
-              size={56}
-              tone="primary"
-              busy={busy}
-              disabled={!original.trim()}
-              onPress={link}
-            />
-          </View>
-        </Reanimated.View>
-      ) : null}
-    </View>
+    </TestNetwork.Provider>
   );
 }
 
@@ -286,12 +296,7 @@ const styles = StyleSheet.create({
   },
   qr: { alignItems: 'center' },
   rails: { flexDirection: 'row', gap: space.sm, alignItems: 'center' },
-  request: {
-    ...typography.mono,
-    fontSize: 11,
-    lineHeight: 18,
-    color: palette.cream,
-  },
+  request: { ...typography.mono, color: palette.cream },
   kept: { color: palette.steam },
   controls: {
     flexDirection: 'row',

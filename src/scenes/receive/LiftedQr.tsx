@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
 import { QR_QUIET, QrBloom } from '../../glyphs/QrBloom';
+import { useFocus } from '../../motion/focus';
 import { curves, durations, springs } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
 import { usePaneActive } from '../../stage/panes/Pane';
@@ -65,7 +66,11 @@ function grow(from: number, out: boolean): EntryExitAnimationFunction {
 /**
  * A request's code lifted to the full width of the screen over the scrim,
  * so it scans from across a table (REDESIGN.md 5, QrBloom: enlarge). A tap
- * anywhere, or Android back, sets it down again.
+ * anywhere, Android back or the escape gesture sets it down again.
+ *
+ * It holds a screen reader while it is up, as the modal it replaced did
+ * (REDESIGN.md 9): iOS takes it as a modal view, the screen hides the step
+ * it covers, and focus lands on the way to set it down.
  */
 export function LiftedQr({
   value,
@@ -82,13 +87,17 @@ export function LiftedQr({
   const { bottom } = useSafeAreaInsets();
   const side = width - space.xs * 2;
   const ratio = Math.min(1, from / side);
+  const close = useFocus();
   return (
     <Reanimated.View
       entering={fade(1)}
       exiting={fade(0)}
+      accessibilityViewIsModal
+      onAccessibilityEscape={live ? onClose : undefined}
       style={[styles.scrim, BLEED, { bottom: BLEED.bottom - bottom }]}
     >
       <Pressable
+        ref={close}
         accessibilityRole="button"
         accessibilityLabel={copy.receive.closeQr}
         onPress={live ? onClose : undefined}

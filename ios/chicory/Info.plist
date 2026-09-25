@@ -48,7 +48,7 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Beignet uses the camera only to read a payment request code. Nothing is recorded, stored or sent.</string>
+	<string>Chicory uses the camera only to read a payment request code. Nothing is recorded, stored or sent.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Beignet can ask for Face ID before opening your wallet or revealing your recovery phrase.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

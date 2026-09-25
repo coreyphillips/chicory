@@ -11,10 +11,12 @@ import { copy } from '../../design/copy';
 import { GLYPHS, strokeFor } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
+import { useShake } from '../../motion/effects';
 import { springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { usePaneActive } from '../../stage/panes/Pane';
-import { useOnce, useRefusal } from './controls';
+import { useOnce } from './controls';
+import { useBloom } from './tone';
 
 const TRACK = { width: 60, height: 36 };
 const KNOB = 28;
@@ -46,8 +48,9 @@ export function OfflineSwitch({
 }) {
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
-  const { play: refuse, shaken, tinted } = useRefusal();
-  useOnce(shake, refuse);
+  const tones = useBloom();
+  const refusal = useShake();
+  useOnce(shake, refusal.play);
   const slide = useSharedValue(on ? 1 : 0);
   useEffect(() => {
     slide.set(reduced ? (on ? 1 : 0) : withSpring(on ? 1 : 0, springs.snap));
@@ -57,7 +60,7 @@ export function OfflineSwitch({
     transform: [{ translateX: TRAVEL * slide.get() }],
   }));
   return (
-    <Reanimated.View style={shaken}>
+    <Reanimated.View style={refusal.style}>
       <Pressable
         accessibilityRole="switch"
         accessibilityLabel={copy.receive.offline}
@@ -75,10 +78,19 @@ export function OfflineSwitch({
               }
             : undefined
         }
-        style={[styles.track, on && styles.on, disabled && styles.disabled]}
+        style={[
+          styles.track,
+          on && { backgroundColor: tones.night },
+          disabled && styles.disabled,
+        ]}
       >
-        <Reanimated.View pointerEvents="none" style={[styles.tint, tinted]} />
-        <Reanimated.View style={[styles.knob, on && styles.knobOn, knob]}>
+        <Reanimated.View
+          pointerEvents="none"
+          style={[styles.tint, refusal.tint]}
+        />
+        <Reanimated.View
+          style={[styles.knob, on && { backgroundColor: tones.bloom }, knob]}
+        >
           <Svg
             width={MOON}
             height={MOON}
@@ -102,7 +114,6 @@ const styles = StyleSheet.create({
     backgroundColor: palette.husk,
     padding: INSET,
   },
-  on: { backgroundColor: palette.bloomNight },
   disabled: { opacity: 0.5 },
   tint: {
     ...StyleSheet.absoluteFill,
@@ -117,5 +128,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: palette.mocha,
   },
-  knobOn: { backgroundColor: palette.bloom },
 });

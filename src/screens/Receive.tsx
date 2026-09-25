@@ -12,15 +12,24 @@ import { announce } from '../design/announce';
 import { copy } from '../design/copy';
 import { haptics } from '../design/haptics';
 import { qrSide } from '../glyphs/QrBloom';
+import { focusOn } from '../motion/focus';
+import { afterTransition } from '../motion/idle';
 import { sceneIn, sceneOut } from '../motion/presets';
 import { useFocusOn } from '../scenes/receive/focus';
 import type { Focus } from '../scenes/receive/focus';
 import { FormStep } from '../scenes/receive/FormStep';
 import { useReceiveHost } from '../scenes/receive/host';
 import { LiftedQr } from '../scenes/receive/LiftedQr';
-import { amountCue, remainderSats, requestFace } from '../scenes/receive/model';
+import {
+  amountCue,
+  refusalLook,
+  remainderSats,
+  requestFace,
+} from '../scenes/receive/model';
+import type { Refused } from '../scenes/receive/model';
 import { QuoteStep } from '../scenes/receive/QuoteStep';
 import { RequestStep } from '../scenes/receive/RequestStep';
+import { TestNetwork } from '../scenes/receive/tone';
 import { useNow } from '../services/clock';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { useReceiveStatus } from '../services/useReceiveStatus';
@@ -48,6 +57,8 @@ export function ReceiveScreen({
   onActivity,
   onRefresh,
   onBusy,
+  completionsFelt = false,
+  test = false,
 }: {
   client: WalletAdapter;
   receivableSats?: number;
@@ -65,6 +76,16 @@ export function ReceiveScreen({
   onActivity: () => void;
   onRefresh?: () => void;
   onBusy: (busy: boolean) => void;
+  /**
+   * Set where each payment that completes is felt elsewhere, as the canvas
+   * feels it once for every region when the wallet reads it (`useIncoming`,
+   * REDESIGN.md 10.1). Receive then leaves a completed payment to that, and
+   * feels only what the wallet's history does not show as arrived: money
+   * seen on its way, or part of what was asked.
+   */
+  completionsFelt?: boolean;
+  /** A wallet on a test network, where slate stands in for bloom. */
+  test?: boolean;
 }) {
   const { useBack } = useReceiveHost();
   const live = usePaneActive();
@@ -122,7 +143,7 @@ export function ReceiveScreen({
   const [request, setRequest] = useState<ReceiveRequest | null>(null);
   const [createdAt, setCreatedAt] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<Refused | null>(null);
   // Each refusal of a control shakes it once.
   const [refusals, setRefusals] = useState(0);
   const [offlineRefusals, setOfflineRefusals] = useState(0);
@@ -136,7 +157,7 @@ export function ReceiveScreen({
       const previousAmountError = amountError.current;
       if (previousAmountError)
         setError(previous =>
-          previous === previousAmountError ? '' : previous,
+          previous?.message === previousAmountError ? null : previous,
         );
       amountError.current = '';
     }
@@ -177,7 +198,7 @@ export function ReceiveScreen({
   const night = request ? !!request.offlineReceive && !face?.expired : offline;
   useHoldTint(night ? 'night' : null);
 
-  useArrival(receipt, request);
+  useArrival(receipt, request, completionsFelt);
   useWarning(!!face?.expired && !receipt && !tracking?.ambiguous, () => {
     announce(copy.receive.expired, { assertive: true });
     recordDiagnostic({ phase: 'ui', message: copy.receive.expired });
@@ -211,23 +232,29 @@ export function ReceiveScreen({
   }, [heldBack]);
 
   /**
-   * Something asked for failed: the control that asked shakes, unless the
-   * amount cue answers for it, and a screen reader hears why at once.
+   * Something asked for failed, and a screen reader hears why at once. How
+   * it looks and feels follows what it was (`refusalLook`): the primary node
+   * away is a honey unplug and a warning, and anything else a radish bang
+   * and an error, which shakes the control that asked unless the amount cue
+   * answers for it.
    */
   function refuse(e: unknown, shake = true) {
     const said = message(e);
-    haptics.error();
-    setError(said);
-    if (shake) setRefusals(count => count + 1);
+    const code = codeOf(e);
+    const look = refusalLook(code);
+    if (look.haptic === 'warning') haptics.warning();
+    else haptics.error();
+    setError({ message: said, code });
+    if (shake && look.shake) setRefusals(count => count + 1);
     announce(said, { assertive: true });
-    recordDiagnostic({ phase: 'ui', message: said, code: codeOf(e) });
+    recordDiagnostic({ phase: 'ui', message: said, code });
   }
 
   async function price() {
     if (working.current || disabled || !ready) return;
     working.current = true;
     setBusy(true);
-    setError('');
+    setError(null);
     try {
       const next = await client.quoteReceive({
         amountSats: amount.trim() ? parseSats(amount) : undefined,
@@ -261,7 +288,7 @@ export function ReceiveScreen({
     }
     working.current = true;
     setBusy(true);
-    setError('');
+    setError(null);
     try {
       setRequest(await client.receive(quote));
       setCreatedAt(Date.now());
@@ -314,7 +341,7 @@ export function ReceiveScreen({
     setRequest(null);
     setLifted(false);
     setCapacityChanged(false);
-    setError('');
+    setError(null);
     setAmount(remainder !== null ? String(remainder) : '');
     if (receipt?.phase !== 'partial') {
       setDescription('');
@@ -332,114 +359,142 @@ export function ReceiveScreen({
     }
     if (step === 'quote' && !busy) {
       setQuote(null);
-      setError('');
+      setError(null);
       return true;
     }
     return false;
   }, live && (showLift || step === 'quote'));
 
-  // A screen reader follows each step to what it is about.
+  // A screen reader follows each step to what it is about, and a quote
+  // running out to the refresh that replaced create.
   const focus: Focus = useRef(null);
-  useFocusOn(focus, `${step} ${face?.qr ?? ''} ${receipt?.phase ?? ''}`);
+  useFocusOn(
+    focus,
+    `${step} ${quoteExpired} ${face?.qr ?? ''} ${receipt?.phase ?? ''}`,
+  );
+  // A lifted code set down hands a screen reader back to the code it was
+  // lifted from, while that code can still be paid; one that went for good
+  // has the step's own focus to follow instead.
+  const qrFocus: Focus = useRef(null);
+  const wasLifted = useRef(false);
+  useEffect(() => {
+    const back = wasLifted.current && !showLift && shareable;
+    wasLifted.current = showLift;
+    if (back) return afterTransition(() => focusOn(qrFocus.current));
+  }, [showLift, shareable]);
 
   const qr = Math.min(240, Math.max(150, width - 120));
-  const amountMessage = error && error === amountError.current ? error : '';
+  const amountMessage =
+    error && error.message === amountError.current ? error.message : '';
   return (
-    <View style={styles.root}>
-      <Reanimated.View key={step} entering={sceneIn()} exiting={sceneOut()}>
-        {request && face ? (
-          <RequestStep
-            request={request}
-            createdAt={request.createdAt ?? createdAt}
-            face={face}
-            minutesLeft={Math.ceil(
-              Math.max(0, request.expiresAt - now) / 60000,
-            )}
-            receipt={receipt}
-            trackingError={tracking?.error}
-            hidden={hidden}
-            unit={unit}
-            qr={qr}
-            error={error}
-            onLift={lift}
-            onCopy={copyRequest}
-            copies={copies}
-            onShare={share}
-            onAgain={again}
-            onActivity={onActivity}
-            focus={focus}
+    <TestNetwork.Provider value={test}>
+      <View style={styles.root}>
+        {/* Under a lifted code, the step it covers is out of a screen
+            reader's reach, as it is out of a finger's. */}
+        <Reanimated.View
+          key={step}
+          entering={sceneIn()}
+          exiting={sceneOut()}
+          accessibilityElementsHidden={showLift}
+          importantForAccessibility={showLift ? 'no-hide-descendants' : 'auto'}
+        >
+          {request && face ? (
+            <RequestStep
+              request={request}
+              createdAt={request.createdAt ?? createdAt}
+              face={face}
+              minutesLeft={Math.ceil(
+                Math.max(0, request.expiresAt - now) / 60000,
+              )}
+              receipt={receipt}
+              trackingError={tracking?.error}
+              hidden={hidden}
+              unit={unit}
+              qr={qr}
+              error={error}
+              onLift={lift}
+              onCopy={copyRequest}
+              copies={copies}
+              onShare={share}
+              onAgain={again}
+              onActivity={onActivity}
+              focus={focus}
+              qrFocus={qrFocus}
+            />
+          ) : quote ? (
+            <QuoteStep
+              quote={quote}
+              quotedAt={quotedAt}
+              offline={offline}
+              receivableSats={receivableSats}
+              expired={quoteExpired}
+              busy={busy}
+              stale={disabled}
+              error={error}
+              shake={refusals}
+              onCreate={create}
+              onRequote={() => {
+                setQuote(null);
+                price();
+              }}
+              onEdit={() => {
+                setQuote(null);
+                setError(null);
+              }}
+              onBlocked={blocked}
+              focus={focus}
+            />
+          ) : (
+            <FormStep
+              amount={amount}
+              onAmount={setAmount}
+              cue={cue}
+              cap={offlineReceivableSats}
+              amountMessage={amountMessage}
+              note={description}
+              onNote={setDescription}
+              noteOpen={noteOpen}
+              onNoteOpen={setNoteOpen}
+              offlineOffered={offlineOffered}
+              offline={offline}
+              offlineRefused={offlineRefusals}
+              onOffline={next => {
+                setOffline(next);
+                setError(null);
+              }}
+              busy={busy}
+              stale={disabled}
+              ready={ready}
+              error={amountMessage ? null : error}
+              shake={refusals}
+              onContinue={price}
+              onBlocked={blocked}
+              focus={focus}
+            />
+          )}
+        </Reanimated.View>
+        {showLift && request ? (
+          <LiftedQr
+            value={request.uri}
+            from={qrSide(qr)}
+            onClose={() => setLifted(false)}
           />
-        ) : quote ? (
-          <QuoteStep
-            quote={quote}
-            quotedAt={quotedAt}
-            offline={offline}
-            receivableSats={receivableSats}
-            expired={quoteExpired}
-            busy={busy}
-            stale={disabled}
-            error={error}
-            shake={refusals}
-            onCreate={create}
-            onRequote={() => {
-              setQuote(null);
-              price();
-            }}
-            onEdit={() => {
-              setQuote(null);
-              setError('');
-            }}
-            onBlocked={blocked}
-            focus={focus}
-          />
-        ) : (
-          <FormStep
-            amount={amount}
-            onAmount={setAmount}
-            cue={cue}
-            cap={offlineReceivableSats}
-            amountMessage={amountMessage}
-            note={description}
-            onNote={setDescription}
-            noteOpen={noteOpen}
-            onNoteOpen={setNoteOpen}
-            offlineOffered={offlineOffered}
-            offline={offline}
-            offlineRefused={offlineRefusals}
-            onOffline={next => {
-              setOffline(next);
-              setError('');
-            }}
-            busy={busy}
-            stale={disabled}
-            ready={ready}
-            error={amountMessage ? '' : error}
-            shake={refusals}
-            onContinue={price}
-            onBlocked={blocked}
-            focus={focus}
-          />
-        )}
-      </Reanimated.View>
-      {showLift && request ? (
-        <LiftedQr
-          value={request.uri}
-          from={qrSide(qr)}
-          onClose={() => setLifted(false)}
-        />
-      ) : null}
-    </View>
+        ) : null}
+      </View>
+    </TestNetwork.Provider>
   );
 }
 
 /**
  * Money arriving (REDESIGN.md 3.6 and 5): the incoming haptic the first time
  * a request sees any, a success when it completes after that, and each new
- * phase said to a screen reader.
+ * phase said to a screen reader. Where completions are felt elsewhere, a
+ * payment completing is left to that, so one arrival is felt once.
  */
 function useArrival(
   receipt: ReceiveStatus | null,
   request: ReceiveRequest | null,
+  completionsFelt: boolean,
 ) {
   const heard = useRef<{
     request: ReceiveRequest | null;
@@ -451,8 +506,11 @@ function useArrival(
     const first = last.request !== request;
     if (!first && last.phase === receipt.phase) return;
     heard.current = { request, phase: receipt.phase };
-    if (first) haptics.incoming();
-    else if (receipt.phase === 'completed') haptics.success();
+    const completed = receipt.phase === 'completed';
+    if (!(completed && completionsFelt)) {
+      if (first) haptics.incoming();
+      else if (completed) haptics.success();
+    }
     announce(
       receipt.phase === 'completed'
         ? copy.receive.received
@@ -460,7 +518,7 @@ function useArrival(
         ? copy.receive.partial
         : copy.receive.detected,
     );
-  }, [receipt, request]);
+  }, [receipt, request, completionsFelt]);
 }
 
 /**
