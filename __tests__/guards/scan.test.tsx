@@ -5,6 +5,7 @@ import {
   Linking,
   PermissionsAndroid,
   Platform,
+  StyleSheet,
 } from 'react-native';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -25,6 +26,18 @@ import {
 import * as Announce from '../../src/design/announce';
 import { copy } from '../../src/design/copy';
 import { haptics } from '../../src/design/haptics';
+import { STATUS_ROW } from '../../src/stage/layout';
+import {
+  BUTTON,
+  PARTIAL,
+  ScanReveal,
+  collapse,
+  counterScale,
+  discFor,
+  landing,
+  opening,
+} from '../../src/stage/layers/ScanReveal';
+import type { ScanRevealProps } from '../../src/stage/layers/ScanReveal';
 import { guardData, requestOf, snapshotOf } from '../../test-support/fixtures';
 import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
@@ -40,7 +53,8 @@ import {
  * (section 9): the reveal, a code read or refused, and a camera that is
  * denied or missing. Then what each state does, since nothing on screen says
  * it: a code goes to Send only once it can be paid, a refusal is felt and
- * heard without stopping the camera.
+ * heard without stopping the camera, and on Android the camera never rides
+ * the disc.
  */
 
 // The camera module is optional. A test stands in for a build without it
@@ -53,9 +67,34 @@ jest.mock('react-native-camera-kit', () => ({
   CameraType: { Back: 'back', Front: 'front' },
 }));
 
+// Reanimated's mock lands every timing at once. A test that needs to stand
+// in the middle of the reveal sets mockHoldTimings, which holds back each
+// timing's end in mockHeld to be run later.
+const mockHeld: Array<(finished?: boolean) => void> = [];
+let mockHoldTimings = false;
+jest.mock('react-native-reanimated', () => {
+  const mock = require('react-native-reanimated/mock');
+  return {
+    ...mock,
+    withTiming: (
+      value: unknown,
+      config?: unknown,
+      callback?: (finished?: boolean) => void,
+    ) => {
+      if (mockHoldTimings && callback) {
+        mockHeld.push(callback);
+        return value;
+      }
+      return mock.withTiming(value, config, callback);
+    },
+  };
+});
+
 afterEach(() => {
   jest.restoreAllMocks();
   mockCamera = true;
+  mockHoldTimings = false;
+  mockHeld.length = 0;
 });
 
 /** A BIP 173 example address, as a payment link: a code that can be paid. */
@@ -77,6 +116,18 @@ const data = guardData(snapshotOf());
 
 function scanner(props: Partial<React.ComponentProps<typeof Scanner>> = {}) {
   return <Scanner onDetected={jest.fn()} onCancel={jest.fn()} {...props} />;
+}
+
+function reveal(props: Partial<ScanRevealProps> = {}) {
+  return (
+    <ScanReveal
+      origin={{ x: 187, y: 520 }}
+      target="home"
+      onDetected={jest.fn()}
+      onCancel={jest.fn()}
+      {...props}
+    />
+  );
 }
 
 /** Android, with the camera permission answered by `result`. */
@@ -232,9 +283,141 @@ const GUARDED: GuardedState[] = [
     },
     data,
   },
+  {
+    name: 'the overlay opening from home',
+    render: () => mount(reveal()),
+    data,
+  },
+  {
+    name: 'the overlay opening inside Send',
+    render: () => mount(reveal({ origin: { x: 300, y: 180 }, target: 'send' })),
+    data,
+  },
+  {
+    name: 'the overlay with no button to grow from',
+    render: () => mount(reveal({ origin: null })),
+    data,
+  },
+  {
+    name: 'the overlay before its disc has opened',
+    render: () => {
+      mockHoldTimings = true;
+      return mount(reveal());
+    },
+    data,
+  },
+  {
+    name: 'the overlay with the camera switched off',
+    render: () => {
+      denied();
+      return mount(reveal());
+    },
+    data,
+  },
+  {
+    name: 'the overlay in a build without a camera',
+    render: () => {
+      mockCamera = false;
+      return mount(reveal());
+    },
+    data,
+  },
+  {
+    name: 'the overlay under Reduce Motion',
+    render: () => {
+      reducedMotion();
+      return mount(reveal());
+    },
+    data,
+  },
 ];
 
 guard('scan', GUARDED);
+
+describe('the disc', () => {
+  test('is centred on the scan button and reaches the farthest corner', () => {
+    const disc = discFor({ x: 100, y: 600 }, 390, 844);
+    expect(disc).toMatchObject({ x: 100, y: 600 });
+    expect(disc.radius).toBeCloseTo(Math.hypot(290, 600));
+    expect(disc.from * 2 * disc.radius).toBeCloseTo(BUTTON);
+  });
+
+  test('grows from the bottom centre when there is no button to grow from', () => {
+    const disc = discFor(null, 390, 844);
+    expect(disc).toMatchObject({ x: 195, y: 844 });
+    expect(disc.radius).toBeCloseTo(Math.hypot(195, 844));
+  });
+
+  test('keeps its ground still at every scale', () => {
+    const [width, height] = [390, 844];
+    const disc = discFor({ x: 120, y: 700 }, width, height);
+    const centre = { x: width / 2, y: height / 2 };
+    for (const scale of [disc.from, 0.3, PARTIAL, 1]) {
+      const still = counterScale(scale, disc, width, height);
+      for (const point of [
+        { x: 0, y: 0 },
+        { x: 390, y: 844 },
+        { x: 200, y: 100 },
+      ]) {
+        // The ground scales about its own centre, the disc about the origin.
+        const inGround = {
+          x: centre.x + still.translateX + still.scale * (point.x - centre.x),
+          y: centre.y + still.translateY + still.scale * (point.y - centre.y),
+        };
+        const onScreen = {
+          x: disc.x + scale * (inGround.x - disc.x),
+          y: disc.y + scale * (inGround.y - disc.y),
+        };
+        expect(onScreen.x).toBeCloseTo(point.x);
+        expect(onScreen.y).toBeCloseTo(point.y);
+      }
+    }
+  });
+
+  test('opens all the way onto a camera, and only partway without one', () => {
+    expect(opening('checking')).toBe(1);
+    expect(opening('granted')).toBe(1);
+    expect(opening('denied')).toBe(PARTIAL);
+    expect(opening('missing')).toBe(PARTIAL);
+  });
+
+  test("lands in Send's well: where it grew inside Send, the new Send's from home", () => {
+    const disc = discFor({ x: 300, y: 180 }, 390, 844);
+    expect(landing(disc, 'send', true, 390, 47)).toEqual({ x: 300, y: 180 });
+    const well = { x: 195, y: 47 + STATUS_ROW + 64 };
+    expect(landing(disc, 'home', true, 390, 47)).toEqual(well);
+    expect(landing(disc, 'send', false, 390, 47)).toEqual(well);
+  });
+
+  const values = (caught: number) => ({
+    scale: { get: () => 1 },
+    fade: { get: () => 1 },
+    caught: { get: () => caught },
+    from: 0.05,
+    toWell: { x: 8, y: -420 },
+  });
+
+  test('shrinks back into its button on a close, and into the well on a code', () => {
+    const closed = collapse({ ...values(0), reduced: false })({} as never);
+    expect(closed.animations.transform).toEqual([
+      { translateX: 0 },
+      { translateY: 0 },
+      { scale: 0.05 },
+    ]);
+    const caught = collapse({ ...values(1), reduced: false })({} as never);
+    expect(caught.animations.transform).toEqual([
+      { translateX: 8 },
+      { translateY: -420 },
+      { scale: 0.05 },
+    ]);
+    expect(caught.animations.opacity).toBe(0);
+  });
+
+  test('only fades under Reduce Motion', () => {
+    const out = collapse({ ...values(1), reduced: true })({} as never);
+    expect(out.animations).toEqual({ opacity: 0 });
+  });
+});
 
 describe('the reticle', () => {
   test('turns while asking, breathes while reading, and holds still otherwise', () => {
@@ -536,6 +719,80 @@ describe('the camera', () => {
       new Set([copy.scan.paste, copy.scan.close]),
     );
     expect(onAccess).toHaveBeenLastCalledWith('missing');
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('the overlay', () => {
+  test('keeps the camera back until the disc has opened', async () => {
+    mockHoldTimings = true;
+    const tree = await mount(reveal());
+    expect(tree.root.findByType(Scanner).props.live).toBe(false);
+    expect(cameras(tree)).toHaveLength(0);
+    expect(reticle(tree)).toBeDefined();
+    await act(async () => mockHeld.splice(0).forEach(done => done(true)));
+    expect(tree.root.findByType(Scanner).props.live).toBe(true);
+    expect(cameras(tree)).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('draws its disc around the button, in the canvas', async () => {
+    const tree = await mount(reveal({ origin: { x: 187, y: 520 } }));
+    const [disc] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'scan-disc',
+    );
+    const expected = discFor({ x: 187, y: 520 }, 750, 1334);
+    expect(StyleSheet.flatten(disc.props.style)).toMatchObject({
+      left: 187 - expected.radius,
+      top: 520 - expected.radius,
+      width: 2 * expected.radius,
+      borderRadius: expected.radius,
+      overflow: 'hidden',
+    });
+    await act(async () => tree.unmount());
+  });
+
+  test('a code read through it reaches onDetected in the same call', async () => {
+    const onDetected = jest.fn();
+    const tree = await mount(reveal({ onDetected }));
+    const [camera] = cameras(tree);
+    act(() => {
+      camera.props.onReadCode({ nativeEvent: { codeStringValue: PAYABLE } });
+      expect(onDetected).toHaveBeenCalledWith(PAYABLE);
+    });
+    await act(async () => tree.unmount());
+  });
+
+  test('Close asks for it to close', async () => {
+    const onCancel = jest.fn();
+    const tree = await mount(reveal({ onCancel }));
+    await press(tree, copy.scan.close);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('a camera switched off leaves it partway open around the paste', async () => {
+    denied();
+    const tree = await mount(reveal());
+    expect(cameras(tree)).toHaveLength(0);
+    expect(labelled(tree, copy.scan.denied)).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('a camera switched on from the settings waits for the disc to open the rest of the way', async () => {
+    denied();
+    const tree = await mount(reveal());
+    const live = () => tree.root.findByType(Scanner).props.live;
+    expect(live()).toBe(false);
+    mockHoldTimings = true;
+    await backWithCamera();
+    expect(labelled(tree, copy.scan.denied)).toHaveLength(0);
+    expect(live()).toBe(false);
+    expect(cameras(tree)).toHaveLength(0);
+    await act(async () => mockHeld.splice(0).forEach(done => done(true)));
+    expect(live()).toBe(true);
+    expect(cameras(tree)).toHaveLength(1);
     await act(async () => tree.unmount());
   });
 });
