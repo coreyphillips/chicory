@@ -85,7 +85,7 @@ export function RequestEntry({
       <AnimatedPressable
         entering={popIn()}
         exiting={dissolve()}
-        accessibilityRole="button"
+        accessibilityRole={onExpand ? 'button' : undefined}
         accessibilityLabel={accessibilityLabel}
         accessibilityValue={{ text: shown }}
         accessibilityHint={onExpand ? copy.send.requestHint : undefined}
@@ -111,6 +111,7 @@ export function RequestEntry({
   return (
     <Well
       entering={settled.current ? popIn(0.96) : undefined}
+      focus={settled.current}
       accessibilityLabel={accessibilityLabel}
       value={value}
       onChangeText={live ? onChangeText : undefined}
@@ -128,6 +129,7 @@ const AnimatedPressable = Reanimated.createAnimatedComponent(Pressable);
 
 function Well({
   entering,
+  focus,
   accessibilityLabel,
   value,
   onChangeText,
@@ -148,6 +150,8 @@ function Well({
   | 'onScan'
 > & {
   entering?: EntryExitAnimationFunction;
+  /** Opened from the chip or by a refusal: the keyboard comes up with it. */
+  focus: boolean;
   busy: boolean;
   live: boolean;
 }) {
@@ -189,6 +193,7 @@ function Well({
         autoCorrect={false}
         spellCheck={false}
         multiline
+        autoFocus={focus}
         editable={live}
         selectionColor={palette.bloom}
         style={styles.input}
