@@ -23,6 +23,7 @@ import { haptics } from '../../src/design/haptics';
 import { gradients } from '../../src/design/palette';
 import { Bloom, PETALS, pulledPetal } from '../../src/glyphs/Bloom';
 import { Odometer } from '../../src/glyphs/Odometer';
+import { Vessel } from '../../src/glyphs/Vessel';
 import { ActionCircle } from '../../src/scenes/home/ActionCircle';
 import { Backdrop, glowBleed } from '../../src/scenes/home/Backdrop';
 import { HomePane, LIVE_OVERDUE_MS } from '../../src/scenes/home/HomePane';
@@ -548,9 +549,7 @@ describe('the backdrop', () => {
   test('a test network draws the palette slate glow in place of the bloom glow', async () => {
     const glows = (tree: ReactTestRenderer) =>
       tree.root
-        .findAll(
-          node => typeof node.type !== 'string' && 'stops' in node.props,
-        )
+        .findAll(node => typeof node.type !== 'string' && 'stops' in node.props)
         .map(node => node.props.stops);
     // The test network is also announced once the screen settles.
     jest.useFakeTimers();
@@ -564,6 +563,22 @@ describe('the backdrop', () => {
     expect(glows(main)).toContain(gradients.G1.stops);
     expect(glows(main)).not.toContain(gradients.G1.test);
     await act(async () => main.unmount());
+    await act(async () => jest.runOnlyPendingTimers());
+    jest.useRealTimers();
+  });
+
+  test('a test network draws the vessel in slate, and mainnet in bloom', async () => {
+    const tested = async (snapshot: WalletSnapshot) => {
+      const tree = await mount(<HomeRegions snapshot={snapshot} />);
+      const said = tree.root
+        .findAllByType(Vessel)
+        .map(drawn => drawn.props.test);
+      await act(async () => tree.unmount());
+      return said;
+    };
+    jest.useFakeTimers();
+    expect(await tested(snapshotOf())).toEqual([true]);
+    expect(await tested(snapshotOf({ wallet: MAINNET }))).toEqual([false]);
     await act(async () => jest.runOnlyPendingTimers());
     jest.useRealTimers();
   });

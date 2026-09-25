@@ -361,6 +361,7 @@ export function HomeScreen({
                   unit={unit}
                   masked={hidden}
                   stale={stale}
+                  test={test}
                 />
               </Reanimated.View>
             </Reanimated.View>
