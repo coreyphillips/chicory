@@ -17,9 +17,6 @@ module.exports = {
         // Settings-class surfaces keep their words (REDESIGN.md rule 2), so
         // this one stays.
         'src/scenes/settings/**',
-        // Until the phases track redraws the phase views and reports them
-        // clean.
-        'src/scenes/phases/**',
       ],
       rules: {
         'no-restricted-syntax': [

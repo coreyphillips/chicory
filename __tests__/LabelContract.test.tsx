@@ -94,6 +94,43 @@ const RETIRED: Record<string, string> = {
 };
 
 /**
+ * Labels and field names the redesign tracks removed that the contract never
+ * recorded, since no suite found a control by them. They are kept here with
+ * their reason, apart from RETIRED, so the record of what went and why is
+ * whole. Entries are never deleted.
+ */
+const DROPPED: Record<string, string> = {
+  'View all activity':
+    "Home's own activity preview is gone; the sheet's grip, 'Activity', opens the one activity list.",
+  'Show balance':
+    "The eye button in the status row is gone. The words name the hero's mask accessibility action, and a long press on the hero does the same.",
+  'Hide balance':
+    "The eye button in the status row is gone. The words name the hero's mask accessibility action, and a long press on the hero does the same.",
+  'Connected.':
+    'The status dot no longer speaks on its own. The mark button carries the connection in its accessibilityValue, so it is said once.',
+  'Reconnecting to your wallet.':
+    'The status dot no longer speaks on its own. The mark button carries the connection in its accessibilityValue, so it is said once.',
+  All: 'The all payments chip is gone (REDESIGN.md 6). Tapping the chosen glyph chip again clears back to all.',
+  'Back to Send':
+    "The scanner's cancel link is a close glyph labelled 'Close', which is right whether the scan opened from Home or from Send.",
+  'Read a payment request':
+    "The Android camera permission rationale dialog is gone. Its message moved word for word into the reticle's accessibilityHint.",
+  Allow:
+    "The Android camera permission rationale dialog is gone. Its message moved word for word into the reticle's accessibilityHint.",
+  'Not now':
+    "The Android camera permission rationale dialog is gone. Its message moved word for word into the reticle's accessibilityHint.",
+  Date: "A payment detail's field names are gone from the screen. Each line leads with a glyph and says its name in its accessibility props.",
+  Amount:
+    "A payment detail's field names are gone from the screen. Each line leads with a glyph and says its name in its accessibility props.",
+  Fee: "A payment detail's field names are gone from the screen. Each line leads with a glyph and says its name in its accessibility props.",
+  'Estimated fee':
+    "A payment detail's field names are gone from the screen. Each line leads with a glyph and says its name in its accessibility props.",
+  Status:
+    "A payment detail's field names are gone from the screen. The ring says the status sentence in its label and the status in its value.",
+  Note: "A payment detail's field names are gone from the screen. Each line leads with a glyph and says its name in its accessibility props.",
+};
+
+/**
  * Phrases a suite proves are gone, which no label, text or spoken string
  * may bring back (REDESIGN.md 9).
  */
@@ -193,6 +230,13 @@ test('preset chip labels are still what the amount formatter writes', () => {
 test('only labels the contract recorded can be retired, and each says why', () => {
   for (const [label, reason] of Object.entries(RETIRED)) {
     expect(CONTRACT).toContain(label);
+    expect(reason.trim()).not.toBe('');
+  }
+});
+
+test('labels dropped outside the contract stay out of it, and each says why', () => {
+  for (const [label, reason] of Object.entries(DROPPED)) {
+    expect(CONTRACT).not.toContain(label);
     expect(reason.trim()).not.toBe('');
   }
 });
