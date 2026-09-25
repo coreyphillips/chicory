@@ -22,6 +22,10 @@ import { Note, SettingsSurface } from './ui';
  * the setup surfaces do (the new wallet sheet, and the setup panel a phase
  * opens for network setup or the recovery phrase), and none of them is ever
  * drawn beside Settings.
+ *
+ * Its bar grows with the text size, which Settings does not cap: the title
+ * keeps to its one word and gives way before the close control does, so the
+ * close stays on screen at every size.
  */
 export function SettingsLayer({
   snapshot,
@@ -43,6 +47,9 @@ export function SettingsLayer({
         <Text
           accessibilityElementsHidden
           importantForAccessibility="no"
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.5}
           style={styles.title}
         >
           {copy.settings.title}
@@ -84,13 +91,15 @@ export function SettingsLayer({
 
 const styles = StyleSheet.create({
   layer: { flex: 1 },
+  // At least the status row's height, and taller when the title is.
   bar: {
-    height: STATUS_ROW,
+    minHeight: STATUS_ROW,
     paddingHorizontal: space.xl,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: space.sm,
   },
-  title: { ...type.title, color: palette.cream },
+  title: { ...type.title, color: palette.cream, flexShrink: 1 },
   stack: { gap: space.md },
 });

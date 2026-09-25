@@ -132,7 +132,7 @@ export function Diagnostics({
             </View>
           ) : null}
           <View style={styles.actions}>
-            <View style={styles.flex}>
+            <View style={styles.slot}>
               <Action
                 label={words.refresh}
                 glyph="refresh"
@@ -141,7 +141,7 @@ export function Diagnostics({
                 onPress={load}
               />
             </View>
-            <View style={styles.flex}>
+            <View style={styles.slot}>
               <Action
                 label={words.copy}
                 glyph="copy"
@@ -161,7 +161,6 @@ export function Diagnostics({
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   stack: { gap: space.md },
   errors: { gap: space.xs },
   subheading: { ...type.label, color: palette.steam },
@@ -179,5 +178,8 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: palette.steam,
   },
-  actions: { flexDirection: 'row', gap: space.xs },
+  // Side by side and equal while their words fit, one above the other once
+  // the text size needs the width.
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  slot: { flexGrow: 1, flexShrink: 1, flexBasis: 'auto', minWidth: '45%' },
 });

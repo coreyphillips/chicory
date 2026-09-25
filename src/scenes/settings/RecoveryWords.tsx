@@ -104,7 +104,10 @@ const styles = StyleSheet.create({
   },
   watchersText: { fontSize: 14, lineHeight: 20, color: palette.cream, flex: 1 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
-  cell: { width: '48.5%' },
+  // Two to a line while a word fits in half of it; a word that needs more,
+  // at a large text size, takes a line of its own, and the order still
+  // reads left to right, top to bottom.
+  cell: { flexGrow: 1, flexBasis: 'auto', minWidth: '48.5%' },
   word: {
     minHeight: 44,
     paddingHorizontal: space.sm,
@@ -121,5 +124,5 @@ const styles = StyleSheet.create({
     minWidth: 18,
     fontVariant: ['tabular-nums'],
   },
-  text: { ...type.word, color: palette.cream },
+  text: { ...type.word, color: palette.cream, flexShrink: 1 },
 });

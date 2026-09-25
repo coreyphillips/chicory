@@ -46,6 +46,12 @@ import { drawPlan } from './motion';
  *
  * Every control here follows the canvas rule: it takes touches only while the
  * pane it is drawn in is in use.
+ *
+ * Settings has no ceiling on text size (REDESIGN.md 3.3), so nothing here is
+ * laid out for one size: a heading gives its accessory a line of its own
+ * rather than a sliver of width, words wrap rather than run past their
+ * control, and a row of pills breaks onto more lines rather than breaking a
+ * word.
  */
 
 /**
@@ -306,6 +312,16 @@ const CASCADE = 2;
  * smoothly when what it holds changes. `tone` honey is for a section that
  * needs doing: a honey outline, and a halo that breathes around its glyph at
  * the halo's pace. `focus` lands a screen reader on its heading.
+ *
+ * The card clips what it holds. It grows on a linear transition while what
+ * arrives in it is laid out at once where it will end up, so a line rising
+ * into a card that has not grown to it yet, such as the first recovery word,
+ * would otherwise be drawn over the card below for a frame.
+ *
+ * The heading's accessory, such as the primary node's connection, sits at
+ * the heading's right while both fit, and drops to a line of its own below
+ * the heading once they do not, so a large text size never squeezes the
+ * heading into a column a few letters wide.
  */
 export function Section({
   glyph,
@@ -349,14 +365,18 @@ export function Section({
               </View>
             </View>
           ) : null}
-          <Text
-            ref={heading}
-            accessibilityRole="header"
-            style={[styles.sectionTitle, honey && styles.sectionTitleHoney]}
-          >
-            {title}
-          </Text>
-          {accessory ? <View style={styles.accessory}>{accessory}</View> : null}
+          <View style={styles.sectionWords}>
+            <Text
+              ref={heading}
+              accessibilityRole="header"
+              style={[styles.sectionTitle, honey && styles.sectionTitleHoney]}
+            >
+              {title}
+            </Text>
+            {accessory ? (
+              <View style={styles.accessory}>{accessory}</View>
+            ) : null}
+          </View>
         </View>
       ) : null}
       {children}
@@ -720,6 +740,10 @@ export const testNetwork = (network: string) => network !== 'mainnet';
  * colour, bloom for mainnet and slate for a test network, which also carries
  * a flask so the difference is a shape as well as a colour, and says what a
  * test network is to a screen reader.
+ *
+ * The pills share a line equally while their words fit,
+ * and past that each takes the width its word needs, so a large text size
+ * breaks the row onto more lines, or stacks it, and never breaks a word.
  */
 export function NetworkChoice<T extends string>({
   options,
@@ -939,6 +963,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: space.lg,
     gap: space.sm + 2,
+    overflow: 'hidden',
   },
   sectionHoney: {
     backgroundColor: palette.honeyWash,
@@ -973,7 +998,24 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: palette.honey,
   },
-  sectionTitle: { ...type.label, color: palette.steam, flex: 1 },
+  // The heading and its accessory share a line while both fit; the heading
+  // takes what the accessory leaves, and the accessory wraps below it once
+  // the heading needs the width.
+  sectionWords: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    columnGap: space.sm,
+    rowGap: space.xs,
+  },
+  sectionTitle: {
+    ...type.label,
+    color: palette.steam,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 'auto',
+  },
   sectionTitleHoney: { color: palette.honey },
   accessory: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
 
@@ -986,18 +1028,21 @@ const styles = StyleSheet.create({
   rowGlyph: { width: 32, alignItems: 'center' },
   rowLabel: { ...type.body, color: palette.cream, flex: 1 },
 
+  // A value that does not fit beside its label takes the line below.
   line: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    gap: space.md,
+    columnGap: space.md,
     minHeight: 32,
   },
-  lineLabel: { ...type.body, color: palette.steam },
+  lineLabel: { ...type.body, color: palette.steam, flexShrink: 1 },
   lineValue: {
     ...type.body,
     color: palette.cream,
     textAlign: 'right',
+    flexGrow: 1,
     flexShrink: 1,
     fontVariant: ['tabular-nums'],
   },
@@ -1035,6 +1080,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.round,
     backgroundColor: palette.bloom,
     paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1046,7 +1092,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.radish,
   },
-  actionLabel: { ...type.label, fontSize: 15, lineHeight: 20 },
+  actionLabel: {
+    ...type.label,
+    fontSize: 15,
+    lineHeight: 20,
+    flexShrink: 1,
+    textAlign: 'center',
+  },
 
   link: {
     flexDirection: 'row',
@@ -1055,12 +1107,18 @@ const styles = StyleSheet.create({
     gap: space.xs,
     minHeight: TOUCH,
   },
-  linkLabel: { ...type.label },
+  linkLabel: { ...type.label, flexShrink: 1, textAlign: 'center' },
 
-  choice: { flexDirection: 'row', gap: space.xs },
+  choice: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  // At least a third of the line, less the gaps, so three share it equally
+  // until a word needs more.
   chip: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 'auto',
+    minWidth: '30%',
     minHeight: TOUCH,
+    paddingHorizontal: space.xs,
     borderRadius: radius.round,
     borderWidth: 1,
     borderColor: palette.husk,
@@ -1071,7 +1129,7 @@ const styles = StyleSheet.create({
   },
   chipLive: { backgroundColor: palette.bloom, borderColor: palette.bloom },
   chipTest: { backgroundColor: palette.slate, borderColor: palette.slate },
-  chipLabel: { ...type.label },
+  chipLabel: { ...type.label, flexShrink: 1, textAlign: 'center' },
 
   note: {
     flexDirection: 'row',
