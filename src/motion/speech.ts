@@ -39,6 +39,21 @@ export const SAFETY_ORDER = {
 
 export type SafetyKind = keyof typeof SAFETY_ORDER;
 
+/**
+ * The code each safety state is logged under (REDESIGN.md rule 4), which
+ * Settings > Diagnostics colours it by. A held payment is HELD, or
+ * UNCERTAIN where Send knows its outcome is unknown, and an expired quote
+ * keeps the engine's QUOTE_EXPIRED; a request that expired is EXPIRED.
+ */
+export const SAFETY_CODE: Record<SafetyKind, string> = {
+  held: 'HELD',
+  stale: 'STALE',
+  expired: 'EXPIRED',
+  reused: 'AMBIGUOUS_RECEIVE_ADDRESS',
+  backup: 'BACKUP_PENDING',
+  testNetwork: 'TEST_NETWORK',
+};
+
 const waiting = new Map<string, number>();
 let queued: (() => void) | null = null;
 

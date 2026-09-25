@@ -13,7 +13,7 @@ import { copy } from '../design/copy';
 import { haptics } from '../design/haptics';
 import { focusAfterTransition } from '../motion/focus';
 import { sceneIn, sceneOut } from '../motion/presets';
-import { announceSafety } from '../motion/speech';
+import { SAFETY_CODE, announceSafety } from '../motion/speech';
 import { useFocusOn } from '../scenes/receive/focus';
 import type { Focus } from '../scenes/receive/focus';
 import { FormStep } from '../scenes/receive/FormStep';
@@ -199,7 +199,11 @@ export function ReceiveScreen({
 
   useArrival(receipt, request, completionsFelt);
   useWarning(!!face?.expired && !receipt && !tracking?.ambiguous, () => {
-    recordDiagnostic({ phase: 'ui', message: copy.receive.expired });
+    recordDiagnostic({
+      phase: 'ui',
+      message: copy.receive.expired,
+      code: SAFETY_CODE.expired,
+    });
     return announceSafety(copy.receive.expired, 'expired');
   });
   useWarning(!!tracking?.ambiguous, () => {

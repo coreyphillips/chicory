@@ -7,12 +7,12 @@ import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
 import { dropOut, riseIn } from '../../motion/presets';
+import { SAFETY_CODE } from '../../motion/speech';
 import { recentDiagnostics } from '../../services/diagnosticLog';
 import type { DiagnosticEntry } from '../../services/diagnosticLog';
-import { NETWORKS } from '../../services/networks';
 import type { WalletAdapter } from '../../services/wallet';
 import { fonts, radius, space, type } from '../../theme';
-import { Action, Note, Row, Section, Working, testNetwork } from './ui';
+import { Action, Note, Row, Section, Working } from './ui';
 
 const words = copy.settings.diagnostics;
 
@@ -35,34 +35,26 @@ const clock = (at: string) => TIME.format(Date.parse(at));
  */
 export type EntryTone = 'test' | 'attention' | 'failed';
 
-/** The safety states the app logs with a code. */
+/**
+ * The codes of the safety states that need attention rather than mark a
+ * failure: those the safety signals log (`SAFETY_CODE`), and Send's
+ * UNCERTAIN for a payment whose outcome is unknown and QUOTE_EXPIRED for a
+ * quote that ran out, as Send and Receive log them.
+ */
 const ATTENTION_CODES = new Set([
-  'STALE',
-  'HELD',
+  SAFETY_CODE.held,
+  SAFETY_CODE.stale,
+  SAFETY_CODE.expired,
+  SAFETY_CODE.reused,
+  SAFETY_CODE.backup,
   'UNCERTAIN',
   'QUOTE_EXPIRED',
-  'AMBIGUOUS_RECEIVE_ADDRESS',
 ]);
 
-/** And the ones the canvas and Receive log by their words alone. */
-const ATTENTION_LINES = new Set<string>([
-  copy.health.stale,
-  copy.health.backupPending,
-  copy.receive.expired,
-]);
-
-/** The line the canvas logs for each test network. */
-const TEST_LINES = new Set(
-  NETWORKS.filter(testNetwork).map(network => copy.health.testNetwork(network)),
-);
-
+/** An entry's tone by its code, never by its words, which may change. */
 export function entryTone(entry: DiagnosticEntry): EntryTone {
-  if (TEST_LINES.has(entry.message)) return 'test';
-  if (
-    (entry.code && ATTENTION_CODES.has(entry.code)) ||
-    ATTENTION_LINES.has(entry.message)
-  )
-    return 'attention';
+  if (entry.code === SAFETY_CODE.testNetwork) return 'test';
+  if (entry.code && ATTENTION_CODES.has(entry.code)) return 'attention';
   return 'failed';
 }
 

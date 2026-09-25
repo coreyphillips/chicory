@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { announceSafety } from '../../motion/speech';
+import { SAFETY_CODE, announceSafety } from '../../motion/speech';
 import type { SafetyKind } from '../../motion/speech';
 import { recordDiagnostic } from '../../services/diagnosticLog';
 
 /**
  * A safety state beginning (REDESIGN.md rule 4): felt with `feel` and
- * written to the diagnostic log at once, and spoken assertively once the
+ * written to the diagnostic log at once, under its kind's code, and spoken assertively once the
  * screen has settled, together with any other state that began with it, in
  * order of `kind` (`motion/speech`). It plays once each time the state
  * starts, including when the wallet opens in it, and a state that ends
@@ -21,7 +21,7 @@ export function useSafetySignal(
   useEffect(() => {
     if (!on) return;
     feel();
-    recordDiagnostic({ phase: 'ui', message });
+    recordDiagnostic({ phase: 'ui', message, code: SAFETY_CODE[kind] });
     return announceSafety(message, kind);
   }, [on, message, feel, kind]);
 }

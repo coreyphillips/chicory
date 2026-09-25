@@ -27,11 +27,16 @@ const at = (message: string, code?: string) => ({
 });
 
 test('a test network is slate, a safety state honey, anything else radish', () => {
-  expect(entryTone(at(copy.health.testNetwork('regtest')))).toBe('test');
-  expect(entryTone(at(copy.health.testNetwork('testnet')))).toBe('test');
-  expect(entryTone(at(copy.health.backupPending))).toBe('attention');
-  expect(entryTone(at(copy.health.stale))).toBe('attention');
-  expect(entryTone(at(copy.receive.expired))).toBe('attention');
+  // As the safety signals, Send and Receive log them.
+  expect(
+    entryTone(at(copy.health.testNetwork('regtest'), 'TEST_NETWORK')),
+  ).toBe('test');
+  expect(entryTone(at(copy.health.backupPending, 'BACKUP_PENDING'))).toBe(
+    'attention',
+  );
+  expect(entryTone(at(copy.health.stale, 'STALE'))).toBe('attention');
+  expect(entryTone(at(copy.receive.expired, 'EXPIRED'))).toBe('attention');
+  expect(entryTone(at('Expired.', 'QUOTE_EXPIRED'))).toBe('attention');
   expect(entryTone(at('Held.', 'HELD'))).toBe('attention');
   expect(entryTone(at('Not known yet.', 'UNCERTAIN'))).toBe('attention');
   expect(entryTone(at('Reused.', 'AMBIGUOUS_RECEIVE_ADDRESS'))).toBe(
@@ -39,8 +44,17 @@ test('a test network is slate, a safety state honey, anything else radish', () =
   );
   expect(entryTone(at('No route was found.', 'NO_ROUTE'))).toBe('failed');
   expect(entryTone(at('The primary did not answer.'))).toBe('failed');
-  // Mainnet is not a test network, whatever a line says about it.
-  expect(entryTone(at(copy.health.testNetwork('mainnet')))).toBe('failed');
+});
+
+test('an entry is coloured by its code, never by matching its words', () => {
+  // Words alone, as nothing logs a safety state any more, are a failure.
+  expect(entryTone(at(copy.health.testNetwork('regtest')))).toBe('failed');
+  expect(entryTone(at(copy.health.stale))).toBe('failed');
+  // And the code holds whatever the words become.
+  expect(entryTone(at('Any words at all.', 'TEST_NETWORK'))).toBe('test');
+  expect(entryTone(at('Any words at all.', 'BACKUP_PENDING'))).toBe(
+    'attention',
+  );
 });
 
 test('each entry is drawn on the wash of its kind', async () => {
@@ -50,7 +64,10 @@ test('each entry is drawn on the wash of its kind', async () => {
     copy.health.backupPending,
     'No route was found.',
   ];
-  for (const message of lines) recordDiagnostic({ phase: 'ui', message });
+  const codes = ['TEST_NETWORK', 'BACKUP_PENDING', 'NO_ROUTE'];
+  lines.forEach((message, index) =>
+    recordDiagnostic({ phase: 'ui', message, code: codes[index] }),
+  );
   const client = {
     diagnostics: jest.fn().mockResolvedValue({ setup: 'ready' }),
   } as unknown as WalletAdapter;

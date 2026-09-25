@@ -1202,6 +1202,13 @@ describe('the safety states on a request', () => {
     expect(said.mock.calls.map(call => call[0])).toContain(
       copy.receive.expired,
     );
+    // Logged under its code, which Settings > Diagnostics colours it by.
+    expect(recentDiagnostics()).toContainEqual(
+      expect.objectContaining({
+        message: copy.receive.expired,
+        code: 'EXPIRED',
+      }),
+    );
     await act(async () => tree.unmount());
   });
 

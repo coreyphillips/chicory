@@ -1275,6 +1275,14 @@ describe('safety states', () => {
     expect(recentDiagnostics().map(entry => entry.message)).toEqual(
       expect.arrayContaining(said),
     );
+    // Each under its code, which Settings > Diagnostics colours it by.
+    expect(recentDiagnostics()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: said[0], code: 'STALE' }),
+        expect.objectContaining({ message: said[1], code: 'BACKUP_PENDING' }),
+        expect.objectContaining({ message: said[2], code: 'TEST_NETWORK' }),
+      ]),
+    );
     expect(warned).toHaveBeenCalledTimes(2);
     // Said once the screen has settled, as one message, so neither cuts
     // the other short: the old balance first, the test network last.
