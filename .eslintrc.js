@@ -11,7 +11,8 @@ module.exports = {
       // placeholder.
       files: ['src/stage/**', 'src/glyphs/**', 'src/scenes/**'],
       excludedFiles: [
-        // Settings-class surfaces keep their words (REDESIGN.md rule 2).
+        // Settings-class surfaces keep their words (REDESIGN.md rule 2), so
+        // no track lifts this one.
         'src/scenes/settings/**',
         // Until the phases track redraws the phase views.
         'src/scenes/phases/**',
