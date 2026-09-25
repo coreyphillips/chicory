@@ -6,6 +6,7 @@ import {
   Text,
   TextInput,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -24,6 +25,7 @@ import { copy } from '../../../design/copy';
 import { Glyph } from '../../../design/glyphs';
 import { haptics } from '../../../design/haptics';
 import { palette } from '../../../design/palette';
+import { CopyChip, chipText } from '../../../glyphs/CopyChip';
 import { ExpiryRing } from '../../../glyphs/ExpiryRing';
 import { Odometer } from '../../../glyphs/Odometer';
 import * as tokens from '../../../motion/tokens';
@@ -39,6 +41,7 @@ import {
   componentPath,
   find,
   meaning,
+  visibleText,
 } from '../../../../test-support/query';
 import { CONTROL as SEND_CONTROL } from '../../send/Controls';
 import { BANG, DrawnGlyph } from '../../send/DrawnGlyph';
@@ -605,28 +608,120 @@ describe('type', () => {
 
   test("a payment's detail sets its request string in mono, 12 on 18", async () => {
     const request = requestOf();
-    const item: Activity = {
-      id: `payment:${request.paymentHash}`,
-      kind: 'request',
-      title: 'Payment request',
-      description: '',
-      amountSats: 1000,
-      feeSats: 0,
-      status: 'pending',
-      timestamp: Date.now(),
-      reference: request.bolt11,
-      paymentHash: request.paymentHash,
-      receiveRequest: request,
-    };
-    const tree = await mount(<ReceiveRequestDetails item={item} />);
+    const tree = await mount(
+      <ReceiveRequestDetails item={detailOf(request)} />,
+    );
     const shown = texts(tree).find(
-      node => node.props.children === request.uri,
+      node => node.props.children === chipText(request.uri),
     )!;
     expect(StyleSheet.flatten(shown.props.style)).toMatchObject({
       fontSize: 12,
       lineHeight: 18,
     });
     expect(shown.props.maxFontSizeMultiplier).toBe(1.4);
+    await act(async () => tree.unmount());
+  });
+});
+
+/** A request as a payment's detail keeps it. */
+function detailOf(
+  request: ReceiveRequest,
+  over: Partial<Activity> = {},
+): Activity {
+  return {
+    id: `payment:${request.paymentHash}`,
+    kind: 'request',
+    title: 'Payment request',
+    description: '',
+    amountSats: 1000,
+    feeSats: 0,
+    status: 'pending',
+    timestamp: Date.now(),
+    reference: request.bolt11,
+    paymentHash: request.paymentHash,
+    receiveRequest: request,
+    ...over,
+  };
+}
+
+describe("the request a payment's detail keeps", () => {
+  /** A unified request, as long as the ones a Pixel drew as a wall of text. */
+  const LONG = requestOf({
+    uri: `bitcoin:bcrt1qpg0xyjz3p06mkjy8mju437lezq57ad90yq0hq3?amount=0.0006&lightning=lnbcrt600u1p4td83kpp5${'vhpaguzscqxf6mds'.repeat(
+      20,
+    )}`,
+  });
+  const chipOf = (tree: ReactTestRenderer) => tree.root.findByType(CopyChip);
+
+  test('is a chip, shortened in the middle, that copies the whole request', async () => {
+    const tree = await mount(<ReceiveRequestDetails item={detailOf(LONG)} />);
+    expect(chipOf(tree).props).toMatchObject({
+      label: copy.receive.original,
+      value: LONG.uri,
+      glyph: 'qr',
+      copyable: true,
+    });
+    // Never the whole string at once: the chip's two ends, in fours.
+    const drawn = visibleText(tree);
+    expect(drawn).not.toContain(LONG.uri);
+    expect(drawn).toContain(chipText(LONG.uri));
+    expect(chipText(LONG.uri).length).toBeLessThan(30);
+    // A tap copies all of it, and there is no second control that does.
+    const label = copy.receive.copyValue(copy.receive.original);
+    const copiers = tree.root.findAll(
+      node =>
+        typeof node.props.onPress === 'function' &&
+        /^Copy/.test(node.props.accessibilityLabel ?? ''),
+    );
+    expect(copiers.map(node => node.props.accessibilityLabel)).toEqual([label]);
+    await act(async () => find(tree, label)!.props.onPress());
+    expect(Clipboard.setString).toHaveBeenCalledWith(LONG.uri);
+    // A long press shows it whole.
+    await act(async () => find(tree, label)!.props.onLongPress());
+    expect(visibleText(tree)).toContain(chipText(LONG.uri, true));
+    await act(async () => tree.unmount());
+  });
+
+  test('keeps the request that can no longer be paid as a record, which does not copy', async () => {
+    jest.mocked(Clipboard.setString).mockClear();
+    const expired = requestOf({ ...LONG, expiresAt: Date.now() - MINUTE });
+    const tree = await mount(
+      <ReceiveRequestDetails item={detailOf(expired, { status: 'expired' })} />,
+    );
+    expect(chipOf(tree).props.copyable).toBe(false);
+    // Named for a screen reader as before, with the whole request as its
+    // value, and nothing to press.
+    const record = tree.root.findAll(
+      node =>
+        node.props.accessibilityLabel === copy.receive.original &&
+        typeof node.props.onLongPress === 'function',
+    );
+    expect(record).toHaveLength(1);
+    expect(record[0].props.accessibilityValue).toEqual({ text: expired.uri });
+    expect(record[0].props.accessibilityRole).toBe('text');
+    expect(record[0].props.onPress).toBeUndefined();
+    expect(
+      find(tree, copy.receive.copyValue(copy.receive.original)),
+    ).toBeUndefined();
+    const [shown] = tree.root.findAll(
+      node =>
+        node.type === Text && node.props.children === chipText(expired.uri),
+    );
+    expect(StyleSheet.flatten(shown.props.style).color).toBe(palette.steam);
+    expect(Clipboard.setString).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('names an old Lightning invoice as one, with the bolt', async () => {
+    const tree = await mount(
+      <ReceiveRequestDetails
+        item={detailOf({ ...LONG, legacy: true } as ReceiveRequest)}
+      />,
+    );
+    expect(chipOf(tree).props).toMatchObject({
+      label: copy.receive.legacyInvoice,
+      glyph: 'bolt',
+    });
     await act(async () => tree.unmount());
   });
 });

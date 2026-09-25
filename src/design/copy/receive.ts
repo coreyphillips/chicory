@@ -96,8 +96,6 @@ export const receive = {
   reusedAddress:
     'This address was reused. Bitcoin payments cannot be matched to this request.',
   shareOriginal: 'Share original request',
-  copyOriginal: 'Copy original request',
-  originalCopied: 'Original request copied',
   shareFailed: 'Could not share this request.',
   linkOriginal: 'Link original request',
   original: 'Original payment request',

@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Share,
   StyleSheet,
-  Text,
   TextInput,
   View,
   useWindowDimensions,
@@ -15,6 +14,7 @@ import { copy } from '../design/copy';
 import { Glyph } from '../design/glyphs';
 import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
+import { CopyChip } from '../glyphs/CopyChip';
 import { QrBloom } from '../glyphs/QrBloom';
 import { riseIn, sceneOut } from '../motion/presets';
 import { ErrorPip, GlyphButton } from '../scenes/receive/controls';
@@ -28,10 +28,11 @@ import type { WalletAdapter } from '../services/wallet';
 
 /**
  * The request a payment was asked for with, as its detail keeps it
- * (REDESIGN.md 6, Detail). While it can still be paid its code blooms and it
- * can be shared or copied; once it is paid, expired or its address reused,
- * the code goes and so do share and copy, and the request string stays as
- * the record. How it can be paid is a row of glyphs whose label says it.
+ * (REDESIGN.md 6, Detail). While it can still be paid its code blooms, it
+ * can be shared, and its string is a chip that copies it; once it is paid,
+ * expired or its address reused, the code and share go, and the chip only
+ * keeps the string as the record. How it can be paid is a row of glyphs
+ * whose label says it.
  *
  * An older request saved only its Lightning invoice. Its original request
  * can be linked back with the chain and plus, which opens a well to paste
@@ -57,8 +58,6 @@ export function ReceiveRequestDetails({
   const [linked, setLinked] = useState<ReceiveRequest | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  // Each copy of the request turns the copy control to a check and back.
-  const [copies, setCopies] = useState(0);
   const working = useRef(false);
   const generation = useRef({ active: true });
   const { width } = useWindowDimensions();
@@ -161,20 +160,13 @@ export function ReceiveRequestDetails({
             <Glyph name="twin" size={16} color={palette.honey} />
           ) : null}
         </View>
-        <View
-          accessible
-          accessibilityLabel={
-            legacy ? copy.receive.legacyInvoice : copy.receive.original
-          }
-          accessibilityValue={{ text: request.uri }}
-        >
-          <Text
-            selectable={shareable}
-            maxFontSizeMultiplier={1.4}
-            style={[styles.request, !shareable && styles.kept]}
-          >
-            {request.uri}
-          </Text>
+        <View style={styles.request}>
+          <CopyChip
+            label={legacy ? copy.receive.legacyInvoice : copy.receive.original}
+            value={request.uri}
+            glyph={legacy ? 'bolt' : 'qr'}
+            copyable={shareable && !busy}
+          />
         </View>
         {error ? <ErrorPip message={error} /> : null}
         <View style={styles.controls}>
@@ -190,19 +182,6 @@ export function ReceiveRequestDetails({
                     Share.share({ message: request.uri }).catch(() =>
                       fail(copy.receive.shareFailed),
                     );
-                }}
-              />
-              <GlyphButton
-                glyph="copy"
-                label={copy.receive.copyOriginal}
-                size={48}
-                disabled={busy}
-                confirm={copies}
-                onPress={() => {
-                  if (working.current) return;
-                  Clipboard.setString(request.uri);
-                  announce(copy.receive.originalCopied);
-                  setCopies(count => count + 1);
                 }}
               />
             </>
@@ -296,8 +275,7 @@ const styles = StyleSheet.create({
   },
   qr: { alignItems: 'center' },
   rails: { flexDirection: 'row', gap: space.sm, alignItems: 'center' },
-  request: { ...typography.mono, color: palette.cream },
-  kept: { color: palette.steam },
+  request: { alignSelf: 'stretch' },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
