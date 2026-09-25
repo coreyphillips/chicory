@@ -117,8 +117,10 @@ const smoothstep = (t: number) => {
  * Where the column for place `k` has rolled to when the amount is `v` sats,
  * in digits: 3 shows a 3, 3.5 is halfway to 4, and 10 is the trailing 0 that
  * wraps back to the top. The ones column follows `v` directly. Every higher
- * column holds still until the places below it are in their last tenth, then
- * eases over in step with them, the way a mechanical counter carries.
+ * column holds still until every place below it shows a 9, then turns while
+ * the ones roll from that 9 to 0, in step with the columns between, the way
+ * a mechanical counter carries. So a figure mid-roll only ever reads the
+ * amount it has reached, or the next one up: 59,877 is 59,877, never 69,877.
  */
 export function digitPosition(v: number, k: number): number {
   'worklet';
@@ -126,7 +128,8 @@ export function digitPosition(v: number, k: number): number {
   const whole = Math.floor(v / u);
   const rem = v - whole * u;
   if (k === 0) return (whole % 10) + rem;
-  const carry = Math.min(1, Math.max(0, (rem - 0.9 * u) / (0.1 * u)));
+  // The last sat before this place turns over, as the ones go from 9 to 0.
+  const carry = Math.min(1, Math.max(0, rem - (u - 1)));
   return (whole % 10) + smoothstep(carry);
 }
 
@@ -175,11 +178,12 @@ export interface Roll {
 }
 
 /**
- * Where column `k` is drawn at `v` during `roll`. digitPosition starts a
- * column's carry while the places below it are in their last tenth, so on
- * its own an amount such as 1,295 would sit with its hundreds halfway to 3.
- * That difference is blended out across the roll: every column sets out
- * from the digit that was showing and lands on the amount's own digit.
+ * Where column `k` is drawn at `v` during `roll`. A roll that takes over from
+ * one still under way sets out from where that one had drawn each column,
+ * which need not be where digitPosition puts the amount it set out from, as
+ * a carry caught halfway. That difference is blended out across the roll:
+ * every column sets out from what was showing and lands on the amount's own
+ * digit.
  */
 export function rollPosition(v: number, k: number, roll: Roll): number {
   'worklet';
