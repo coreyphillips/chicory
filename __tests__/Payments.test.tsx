@@ -383,6 +383,8 @@ test('a request that names its amount fills the amount field and locks it', asyn
     tree.root.findByType(Scanner).props.onDetected(INVOICE_24425);
   });
   expect(amountValue(tree)).toBe('24425');
+  // Grouped for the reader, as the field showed it.
+  expect(amountShown(tree).props.accessibilityValue.text).toBe('24,425 sats');
   // Locked: the keypad goes, and the amount says why.
   expect(keypads(tree)).toHaveLength(0);
   expect(amountShown(tree).props.accessibilityState.disabled).toBe(true);

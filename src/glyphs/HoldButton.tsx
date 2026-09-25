@@ -1,7 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import type { ComponentRef, ReactNode, Ref } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
-import type { AccessibilityActionEvent, View } from 'react-native';
+import type {
+  AccessibilityActionEvent,
+  AccessibilityValue,
+  View,
+} from 'react-native';
 import Reanimated, {
   Easing,
   ReduceMotion,
@@ -39,6 +43,8 @@ import { usePaneActive } from '../stage/panes/Pane';
  */
 export interface HoldButtonProps {
   accessibilityLabel: string;
+  /** What a screen reader hears after the label, such as the time left. */
+  accessibilityValue?: AccessibilityValue;
   onCommit: () => void;
   warning?: boolean;
   disabled?: boolean;
@@ -96,6 +102,7 @@ const SPARK_INDEXES = Array.from({ length: SPARKS }, (_, index) => index);
 
 export function HoldButton({
   accessibilityLabel,
+  accessibilityValue,
   onCommit,
   warning = false,
   disabled = false,
@@ -225,6 +232,7 @@ export function HoldButton({
         ref={ref}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
+        accessibilityValue={accessibilityValue}
         accessibilityHint={copy.send.holdHint}
         accessibilityState={{ disabled, busy }}
         accessibilityActions={ACTIONS}

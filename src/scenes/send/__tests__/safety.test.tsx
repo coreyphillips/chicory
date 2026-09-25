@@ -1,5 +1,5 @@
 import React from 'react';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, TextInput } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -232,7 +232,11 @@ describe('a quote', () => {
       { initialRequest: 'lnbc-clock' },
     );
     await press(tree, copy.send.review);
+    // The ring says nothing; the hold carries the time left.
+    const left = () => hold(tree)[0].props.accessibilityValue.text;
+    expect(left()).toBe(copy.send.quoteExpires(15));
     await act(async () => jest.advanceTimersByTime(5_000));
+    expect(left()).toBe(copy.send.quoteExpires(10));
     expect(said).toHaveBeenLastCalledWith(copy.send.quoteExpires(10));
     expect(find(tree, copy.send.refreshQuote)).toBeUndefined();
     await act(async () => jest.advanceTimersByTime(10_000));
@@ -312,6 +316,16 @@ test('a balance going stale closes the gate, felt, said and logged, and a tap re
 });
 
 describe('a screen reader', () => {
+  test('hears what the empty well takes, which it once showed', async () => {
+    const tree = await draw({});
+    const well = () => tree.root.findByType(TextInput);
+    expect(well().props.accessibilityHint).toBe(copy.send.requestEmpty);
+    expect(well().props.placeholder).toBeUndefined();
+    await type(tree, 'lnbc-typing');
+    expect(well().props.accessibilityHint).toBeUndefined();
+    await act(async () => tree.unmount());
+  });
+
   test('moves to the hold as the review arrives', async () => {
     const tree = await draw(
       { prepareSend: jest.fn().mockResolvedValue(quote()) },

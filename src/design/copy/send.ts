@@ -7,6 +7,8 @@ import { sats } from './shared';
  */
 export const send = {
   request: 'Payment request or address',
+  // The empty well's words, which it used to show as its placeholder.
+  requestEmpty: 'Paste a request here',
   requestHint: 'Opens the request to change it.',
   paste: 'Paste from clipboard',
   pasted: 'Request pasted',

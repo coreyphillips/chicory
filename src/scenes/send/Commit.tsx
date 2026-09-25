@@ -5,6 +5,7 @@ import { copy } from '../../design/copy';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
 import { HoldButton } from '../../glyphs/HoldButton';
 import type { HoldButtonProps } from '../../glyphs/HoldButton';
+import { useNow } from '../../services/clock';
 import { CONTROL, CircleControl, QuoteRefresh } from './Controls';
 import { useFocusOnMount } from './useFocusOnMount';
 
@@ -25,8 +26,10 @@ function FocusedHold(props: Omit<HoldButtonProps, 'ref'>) {
  * is too old to spend against, the hold gives way to a dust control whose
  * tap shakes and refreshes the balance instead.
  *
- * Handlers are given only while a tap does something, as the controls on
- * the canvas take them.
+ * The ring says nothing to a screen reader, so the hold carries the time
+ * the quote has left, as the countdown under the old button did. Handlers
+ * are given only while a tap does something, as the controls on the canvas
+ * take them.
  */
 export function Commit({
   accessibilityLabel,
@@ -51,6 +54,9 @@ export function Commit({
   onRefreshQuote?: () => void;
   onRefresh?: () => void;
 }) {
+  // Only the words need the second: the ring runs down on its own timing.
+  const now = useNow(1000, !expired && !stale);
+  const left = Math.max(0, Math.ceil((expiresAt - now) / 1000));
   return (
     <View style={styles.commit}>
       <ExpiryRing size={RING} expiresAt={expiresAt} createdAt={createdAt} />
@@ -67,6 +73,7 @@ export function Commit({
         ) : (
           <FocusedHold
             accessibilityLabel={accessibilityLabel}
+            accessibilityValue={{ text: copy.send.quoteExpires(left) }}
             onCommit={onCommit}
             warning={warning}
             busy={busy}

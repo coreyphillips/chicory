@@ -184,6 +184,7 @@ function Well({
       />
       <TextInput
         accessibilityLabel={accessibilityLabel}
+        accessibilityHint={value ? undefined : copy.send.requestEmpty}
         value={value}
         onChangeText={onChangeText}
         onBlur={onCollapse}
