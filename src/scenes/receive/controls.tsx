@@ -24,6 +24,7 @@ import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { motionReduced } from '../../services/motion';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { space, type as typography } from '../../theme';
+import { BANG, DrawnGlyph } from '../send/DrawnGlyph';
 import { Unplugged } from '../send/LoopingGlyphs';
 import type { Focus } from './focus';
 import { Pulse, Spin } from './loops';
@@ -311,7 +312,8 @@ function Orbit({ size, color }: { size: number; color: string }) {
  * Something went wrong with what was just asked, beside the control that
  * asked it (REDESIGN.md 6, Engine errors): a radish bang, or while the
  * primary node is away a honey unplug whose halves drift apart and back
- * (`refusalLook`, by the engine's `code`). It says nothing on screen; the
+ * (`refusalLook`, by the engine's `code`). The bang draws in, its line and
+ * then its dot, as Send's does (REDESIGN.md 4). It says nothing on screen; the
  * whole message is its label. Whoever sets it also announces it, so it is
  * not a live region too, which would have Android read it twice.
  */
@@ -336,7 +338,12 @@ export function ErrorPip({
         {look.glyph === 'unplug' ? (
           <Unplugged size={18} color={palette.honey} />
         ) : (
-          <Glyph name="bang" size={18} color={palette.radish} />
+          <DrawnGlyph
+            name="bang"
+            size={18}
+            color={palette.radish}
+            strokes={BANG}
+          />
         )}
       </Reanimated.View>
     </Whisper>

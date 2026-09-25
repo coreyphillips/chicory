@@ -39,6 +39,7 @@ import {
   meaning,
 } from '../../../../test-support/query';
 import { CONTROL as SEND_CONTROL } from '../../send/Controls';
+import { BANG, DrawnGlyph } from '../../send/DrawnGlyph';
 import { Unplugged } from '../../send/LoopingGlyphs';
 import { Spin } from '../loops';
 
@@ -285,10 +286,14 @@ describe('the primary node away', () => {
       node => node.type === (drawing as { type: unknown }).type,
     );
 
-  /** The bangs drawn, and the unplugs with their colours. */
+  /**
+   * The bangs drawn, still or drawing themselves in, and the unplugs with
+   * their colours.
+   */
   const marks = (tree: ReactTestRenderer) => ({
-    bangs: drawn(tree, Glyph).filter(glyph => glyph.props.name === 'bang')
-      .length,
+    bangs: [...drawn(tree, Glyph), ...drawn(tree, DrawnGlyph)].filter(
+      glyph => glyph.props.name === 'bang',
+    ).length,
     unplugs: drawn(tree, Unplugged).map(unplug => unplug.props.color),
   });
 
@@ -329,6 +334,13 @@ describe('the primary node away', () => {
     expect(warning).not.toHaveBeenCalled();
     expect(shakes).toHaveBeenCalledTimes(1);
     expect(marks(tree)).toEqual({ bangs: 1, unplugs: [] });
+    // The bang draws in as Send's does, its line and then its dot.
+    const bangs = drawn(tree, DrawnGlyph).filter(
+      glyph => glyph.props.name === 'bang',
+    );
+    expect(bangs.map(bang => [bang.props.color, bang.props.strokes])).toEqual([
+      [palette.radish, BANG],
+    ]);
     await act(async () => tree.unmount());
   });
 });
