@@ -1,23 +1,66 @@
-import React from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
+import type { PropsWithChildren } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import Reanimated from 'react-native-reanimated';
 import type { Activity } from '@beignet/wallet-core';
-import { Card, Icon, Notice, Row, Title } from '../../components/ui';
+import { ReceiveReceipt } from '../../components/ReceiveReceipt';
+import { ReceiveRequestDetails } from '../../components/ReceiveRequestDetails';
+import { announce } from '../../design/announce';
+import { copy } from '../../design/copy';
+import { Glyph } from '../../design/glyphs';
+import type { GlyphName } from '../../design/glyphs';
+import { haptics } from '../../design/haptics';
+import { palette } from '../../design/palette';
+import { CopyChip } from '../../glyphs/CopyChip';
+import { Odometer } from '../../glyphs/Odometer';
+import { StatusRing } from '../../glyphs/StatusRing';
+import {
+  RAIL_GLYPH,
+  amountVisual,
+  railOf,
+  ringVisual,
+} from '../../scenes/activity/visual';
+import type { AmountVisual, RingVisual } from '../../scenes/activity/visual';
+import { ringWords } from '../../scenes/detail/model';
+import {
+  DetailFlight,
+  HEADER_OPEN,
+  HEADER_RING,
+  headerIn,
+  lineIn,
+} from '../../scenes/detail/motion';
+import type { WalletAdapter } from '../../services/wallet';
 import {
   MASK,
   amountIn,
-  colors,
   dateLabel,
-  radius,
   space,
   type as typography,
 } from '../../theme';
 import type { Unit } from '../../theme';
-import { ReceiveReceipt } from '../../components/ReceiveReceipt';
-import { ReceiveRequestDetails } from '../../components/ReceiveRequestDetails';
-import { CopyValue } from '../../components/CopyValue';
-import type { WalletAdapter } from '../../services/wallet';
-import { activityStatus } from '../../scenes/activity/model';
 
+const TONES: Record<AmountVisual['tone'], string> = {
+  sage: palette.sage,
+  cream: palette.cream,
+  steam: palette.steam,
+  dust: palette.dust,
+};
+
+/**
+ * A payment's detail (REDESIGN.md 6, Detail): its ring at 96pt with the kind
+ * glyph, the amount at 40pt, then a line for each thing known about it, each
+ * led by a glyph (when, the rail and its fee, the note), and a chip for each
+ * reference it can copy. A request's receipt and the request itself follow,
+ * as Receive draws them. Opened from a row on the canvas, the ring and the
+ * amount fly out of that row into place (T4).
+ *
+ * The outcome is the ring's to say: its sentence is what a screen reader
+ * hears. An unknown outcome is held honey, announced at once, and never
+ * shown as done; so is a reused address.
+ *
+ * A hidden balance stays hidden here too; tapping a row must not be the way
+ * around the mask. References keep showing, they are not amounts.
+ */
 export function DetailScreen({
   item,
   client,
@@ -33,142 +76,252 @@ export function DetailScreen({
   onRefresh?: () => void;
   onBusy?: (busy: boolean) => void;
 }) {
-  // A hidden balance stays hidden here too; tapping a row must not be the
-  // way around the mask. References keep showing, they are not amounts.
-  const amount = amountIn(item.amountSats, unit);
+  const words = ringWords(item);
+  const visual = ringVisual(item);
+  const look = amountVisual(item);
+  useSafetyNotice(visual, words.label);
+  const flight = useContext(DetailFlight);
+  const [entering] = useState(() => headerIn(flight, item));
+
+  const date = dateLabel(item.timestamp);
   const fee = amountIn(item.feeSats, unit);
+  const feeUnknown = item.feeKnown === false;
+  const feeLabel = feeUnknown
+    ? copy.detail.feeUnavailable
+    : hidden
+    ? copy.detail.feeHidden(!!item.feeEstimated)
+    : item.feeEstimated
+    ? copy.detail.estimatedFee(item.feeSats)
+    : copy.detail.fee(item.feeSats);
   const receipt =
     item.receiveStatus && item.receiveStatus.phase !== 'waiting'
       ? item.receiveStatus
       : null;
+
+  // Each reference once: the engine's reference is usually the txid or the
+  // payment hash, which have chips of their own.
+  const chips: { label: string; value: string; glyph: GlyphName }[] = [];
+  if (
+    item.reference &&
+    item.reference !== item.txid &&
+    item.reference !== item.paymentHash
+  ) {
+    chips.push({
+      label: copy.detail.reference,
+      value: item.reference,
+      glyph: 'hash',
+    });
+  }
+  if (item.txid) {
+    chips.push({
+      label: copy.detail.transaction,
+      value: item.txid,
+      glyph: 'chain',
+    });
+  }
+  if (item.paymentHash) {
+    chips.push({
+      label: copy.detail.paymentHash,
+      value: item.paymentHash,
+      glyph: 'bolt',
+    });
+  }
+  if (item.address) {
+    chips.push({
+      label: copy.detail.address,
+      value: item.address,
+      glyph: 'pin',
+    });
+  }
+
+  let line = 0;
   return (
     <View style={styles.stack}>
-      <View style={styles.detailIcon}>
-        <Icon
-          name={
-            item.kind === 'received'
-              ? 'arrowDown'
-              : item.kind === 'sent'
-              ? 'arrowUp'
-              : 'activity'
-          }
-          color={colors.primary}
-          size={28}
-        />
-      </View>
-      <Title>{item.title}</Title>
-      <Text style={styles.detailAmount}>
-        {hidden ? MASK : amount.value}{' '}
-        <Text style={styles.detailUnit}>{amount.suffix}</Text>
-      </Text>
-      {item.receiveStatusUnavailable &&
-      item.receiveRequest?.bitcoinTracking !== 'ambiguous' ? (
-        <Notice icon="info">
-          Payment status unavailable. Last known result shown.
-        </Notice>
-      ) : null}
-      {receipt ? (
-        <ReceiveReceipt
-          status={receipt}
-          amountSats={item.receiveRequest?.amountSats ?? item.amountSats}
-          hidden={hidden}
-          unit={unit}
-        />
-      ) : (
-        <Notice
-          icon={
-            item.status === 'completed'
-              ? 'check'
-              : item.status === 'failed'
-              ? 'alert'
-              : 'clock'
-          }
-          kind={
-            item.status === 'completed'
-              ? 'success'
-              : item.status === 'failed'
-              ? 'error'
-              : 'info'
-          }
-        >
-          {item.status === 'completed'
-            ? 'Completed'
-            : item.status === 'uncertain'
-            ? 'Status unknown. Do not pay again until this is resolved.'
-            : item.status === 'pending'
-            ? item.kind === 'request'
-              ? 'Awaiting payment.'
-              : item.kind === 'received'
-              ? 'Payment detected. Waiting for confirmation.'
-              : 'In progress.'
-            : item.status === 'expired'
-            ? item.receiveRequest?.legacy
-              ? 'Invoice expired. Bitcoin payments appear separately until the original request is linked.'
-              : 'Request expired.'
-            : 'Payment did not complete.'}
-        </Notice>
-      )}
-      <Card>
-        <Row label="Date" value={dateLabel(item.timestamp)} />
-        <Row
-          label="Amount"
-          value={hidden ? MASK : `${amount.value} ${amount.suffix}`}
-        />
-        <Row
-          label={item.feeEstimated ? 'Estimated fee' : 'Fee'}
-          value={
-            item.feeKnown === false
-              ? 'Unavailable'
-              : hidden
-              ? MASK
-              : `${fee.value} ${fee.suffix}`
-          }
-        />
-        <Row label="Status" value={activityStatus(item)} />
-        {item.description ? (
-          <Row label="Note" value={item.description} />
-        ) : null}
-      </Card>
-      <ReceiveRequestDetails
-        item={item}
-        client={client}
-        onRefresh={onRefresh}
-        onBusy={onBusy}
+      <View
+        accessible
+        accessibilityRole="header"
+        accessibilityLabel={item.title}
+        style={styles.title}
       />
-      {item.reference || item.txid || item.paymentHash || item.address ? (
-        <Card>
-          {item.reference ? (
-            <CopyValue label="Reference" value={item.reference} />
-          ) : null}
-          {item.txid ? (
-            <CopyValue label="Transaction" value={item.txid} />
-          ) : null}
-          {item.paymentHash ? (
-            <CopyValue label="Payment hash" value={item.paymentHash} />
-          ) : null}
-          {item.address ? (
-            <CopyValue label="Address" value={item.address} />
-          ) : null}
-        </Card>
+      <View style={styles.header}>
+        <Reanimated.View
+          entering={entering.ring}
+          accessible
+          accessibilityRole={words.safety ? 'alert' : undefined}
+          accessibilityLabel={words.label}
+          accessibilityValue={{ text: words.value }}
+          accessibilityLiveRegion={words.safety ? 'assertive' : 'polite'}
+        >
+          <StatusRing size={HEADER_RING} visual={visual} />
+        </Reanimated.View>
+        {look.open ? (
+          <Reanimated.View
+            entering={entering.amount}
+            accessible
+            accessibilityLabel={copy.amount.any}
+          >
+            <Glyph
+              name="infinity"
+              size={HEADER_OPEN}
+              color={TONES[look.tone]}
+            />
+          </Reanimated.View>
+        ) : (
+          <Reanimated.View entering={entering.amount}>
+            <Odometer
+              sats={item.amountSats}
+              unit={unit}
+              masked={hidden}
+              variant="amountDetail"
+              color={TONES[look.tone]}
+              // A masked amount is the mask alone, as it is in the rows.
+              sign={
+                hidden
+                  ? null
+                  : look.sign === '+'
+                  ? '+'
+                  : look.sign === '−'
+                  ? '-'
+                  : null
+              }
+              accessibilityLabel={
+                hidden
+                  ? copy.detail.amountHidden
+                  : copy.detail.amount(item.amountSats)
+              }
+            />
+          </Reanimated.View>
+        )}
+      </View>
+      <View style={styles.lines}>
+        <Line index={line++} glyph="clock" label={copy.detail.date(date)}>
+          <Text style={styles.value}>{date}</Text>
+        </Line>
+        <Line index={line++} glyph={RAIL_GLYPH[railOf(item)]} label={feeLabel}>
+          {feeUnknown ? (
+            <Glyph name="question" size={20} color={palette.steam} />
+          ) : (
+            <>
+              {item.feeEstimated ? <Text style={styles.value}>≈</Text> : null}
+              <Text style={styles.value}>
+                {hidden ? MASK : `${fee.value} ${fee.suffix}`}
+              </Text>
+            </>
+          )}
+        </Line>
+        {item.description ? (
+          <Line
+            index={line++}
+            glyph="pencil"
+            label={copy.detail.note(item.description)}
+          >
+            <Text style={[styles.value, styles.note]}>{item.description}</Text>
+          </Line>
+        ) : null}
+      </View>
+      {receipt ? (
+        <Reanimated.View entering={lineIn(line++)}>
+          <ReceiveReceipt
+            status={receipt}
+            amountSats={item.receiveRequest?.amountSats ?? item.amountSats}
+            hidden={hidden}
+            unit={unit}
+          />
+        </Reanimated.View>
+      ) : null}
+      {item.receiveRequest ? (
+        <Reanimated.View entering={lineIn(line++)}>
+          <ReceiveRequestDetails
+            item={item}
+            client={client}
+            onRefresh={onRefresh}
+            onBusy={onBusy}
+          />
+        </Reanimated.View>
+      ) : null}
+      {chips.length ? (
+        <Reanimated.View entering={lineIn(line++)} style={styles.chips}>
+          {chips.map(chip => (
+            <CopyChip
+              key={chip.label}
+              label={chip.label}
+              value={chip.value}
+              glyph={chip.glyph}
+            />
+          ))}
+        </Reanimated.View>
       ) : null}
     </View>
   );
 }
 
+/**
+ * The safety states a detail can show (REDESIGN.md rule 4): an unknown
+ * outcome, which must never be paid again, and a reused address, which cannot
+ * tell whose coins arrived. A screen reader hears the ring's words at once
+ * whenever the detail shows one, and one that begins while the detail is
+ * open is felt too: held for the outcome, a warning for the address.
+ */
+function useSafetyNotice(visual: RingVisual, label: string) {
+  const state =
+    visual.pattern === 'held'
+      ? 'held'
+      : visual.glyph === 'twin'
+      ? 'reused'
+      : null;
+  const was = useRef(state);
+  useEffect(() => {
+    if (!state) {
+      was.current = null;
+      return;
+    }
+    announce(label, { assertive: true });
+    if (state !== was.current) {
+      if (state === 'held') haptics.held();
+      else haptics.warning();
+    }
+    was.current = state;
+  }, [state, label]);
+}
+
+/**
+ * One thing known about the payment: a glyph for what it is, then its value.
+ * A screen reader hears the words the value used to sit beside.
+ */
+function Line({
+  index,
+  glyph,
+  label,
+  children,
+}: PropsWithChildren<{ index: number; glyph: GlyphName; label: string }>) {
+  const [entering] = useState(() => lineIn(index));
+  return (
+    <Reanimated.View
+      entering={entering}
+      accessible
+      accessibilityLabel={label}
+      style={styles.line}
+    >
+      <Glyph name={glyph} size={20} color={palette.dust} />
+      {children}
+    </Reanimated.View>
+  );
+}
+
 const styles = StyleSheet.create({
   stack: { gap: space.lg },
-  detailIcon: {
-    height: 64,
-    width: 64,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface,
+  // A point rather than nothing: a screen reader passes over an element with
+  // no size at all.
+  title: { position: 'absolute', top: 0, left: 0, width: 1, height: 1 },
+  header: { alignItems: 'center', gap: space.sm, paddingTop: space.xs },
+  lines: { gap: space.xs },
+  line: {
+    minHeight: 44,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: space.sm,
   },
-  detailAmount: {
-    ...typography.amount,
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
-  detailUnit: { ...typography.caption, fontSize: 15, color: colors.muted },
+  value: { ...typography.row, color: palette.cream },
+  note: { flex: 1, color: palette.steam },
+  chips: { gap: space.xs },
 });

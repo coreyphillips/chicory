@@ -288,12 +288,12 @@ describe('the canvas', () => {
   test('a scene leaves the panes it does not use drawn, but out of reach', async () => {
     const tree = await render(<OnCanvas />);
     const atHome = pressableLabels(tree);
-    for (const label of ['Send', 'Receive', 'Activity', ROW, 'All']) {
+    for (const label of ['Send', 'Receive', 'Activity', ROW]) {
       expect(atHome).toContain(label);
     }
     await act(async () => stage.actions.openSend());
     const inSend = pressableLabels(tree);
-    for (const label of ['Receive', 'Activity', ROW, 'All', 'Settings']) {
+    for (const label of ['Receive', 'Activity', ROW, 'Sent', 'Settings']) {
       expect(inSend).not.toContain(label);
     }
     expect(inSend).toContain('Close');

@@ -121,34 +121,35 @@ async function renderActivity(props: Record<string, unknown> = {}) {
   return tree;
 }
 
+// A row's title is the engine's words, so it reaches a screen reader only.
 test('search matches title, reference and amount', async () => {
   let tree = await renderActivity({ query: 'salary' });
-  expect(text(tree)).toContain('Salary');
-  expect(text(tree)).not.toContain('Coffee');
+  expect(meaning(tree)).toContain('Salary');
+  expect(meaning(tree)).not.toContain('Coffee');
   await act(async () => tree.unmount());
 
   tree = await renderActivity({ query: 'lnbc-reference' });
-  expect(text(tree)).toContain('Paid request');
-  expect(text(tree)).not.toContain('Coffee');
+  expect(meaning(tree)).toContain('Paid request');
+  expect(meaning(tree)).not.toContain('Coffee');
   await act(async () => tree.unmount());
 
   tree = await renderActivity({ query: '4200' });
-  expect(text(tree)).toContain('Coffee');
-  expect(text(tree)).not.toContain('Salary');
+  expect(meaning(tree)).toContain('Coffee');
+  expect(meaning(tree)).not.toContain('Salary');
   await act(async () => tree.unmount());
 
   tree = await renderActivity({ query: 'nothing here' });
-  expect(text(tree)).toContain('No payments match');
+  expect(meaning(tree)).toContain('No payments match “nothing here”.');
   await act(async () => tree.unmount());
 });
 
 test('the Requests filter keeps a request that has since been paid', async () => {
   const tree = await renderActivity({ filter: 'Requests' });
-  expect(text(tree)).toContain('Invoice for Dana');
+  expect(meaning(tree)).toContain('Invoice for Dana');
   // 'Paid request' is a received payment now, but it is still the code the
   // user sent someone, which is how they will look for it.
-  expect(text(tree)).toContain('Paid request');
-  expect(text(tree)).not.toContain('Coffee');
+  expect(meaning(tree)).toContain('Paid request');
+  expect(meaning(tree)).not.toContain('Coffee');
   await act(async () => tree.unmount());
 });
 
@@ -245,8 +246,9 @@ test('payment details keep a hidden balance hidden and follow the unit', async (
   let rendered = text(tree);
   expect(rendered).toContain('••••••');
   expect(rendered).not.toContain('4,200');
-  // A reference is not an amount; it stays readable.
-  expect(rendered).toContain('abc123txid');
+  expect(meaning(tree)).not.toContain('4,200');
+  // A reference is not an amount; it stays readable, and copies whole.
+  expect(meaning(tree)).toContain('abc123txid');
   await act(async () => tree.unmount());
   await act(async () => {
     tree = create(<DetailScreen item={item} unit="btc" />);

@@ -1,21 +1,58 @@
-import React from 'react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { Notice } from '../../components/ui';
+import type { FlatList } from 'react-native';
+import {
+  GestureDetector,
+  GestureHandlerRootView,
+} from 'react-native-gesture-handler';
+import {
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { copy } from '../../design/copy';
 import { haptics } from '../../design/haptics';
+import { palette } from '../../design/palette';
+import { curves, durations, overlap } from '../../motion/tokens';
+import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { ActivityScreen } from '../../screens/wallet/Activity';
+import type { SheetBinding } from '../../screens/wallet/Activity';
 import type { RegionProps } from '../../stage/Canvas';
 import type { CanvasSceneName } from '../../stage/layout';
-import { usePaneActive } from '../../stage/panes/Pane';
-import { useStage } from '../../stage/StageContext';
-import { HIT_SLOP, colors, radius, space } from '../../theme';
+import { usePaneActive, usePanes } from '../../stage/panes/Pane';
+import { useSceneBack, useStage } from '../../stage/StageContext';
+import { HIT_SLOP, radius } from '../../theme';
 import { BackupBanner } from '../shared/BackupBanner';
+import { ALL } from './model';
+import type { ActivitySection } from './model';
+import {
+  DETAIL_DROP,
+  GRIP_HEIGHT,
+  filterFor,
+  listShift,
+  sheetProgress,
+} from './sheet';
+import { useSheetDrag } from './useSheetDrag';
+
+const EXIT = { duration: durations.exit, easing: curves.exit };
+const ENTER = { duration: durations.enter, easing: curves.enter };
+const FADE = {
+  duration: durations.crossfade,
+  easing: curves.standard,
+  reduceMotion: ReduceMotion.Never,
+};
 
 /**
- * Everything on the sheet: the one Activity list, which keeps its instance,
- * scroll and search from Home to Activity. At home a grip above it opens
- * Activity; opened, a failed refresh and a backup still to save sit above
- * the list instead.
+ * Everything on the sheet: a grip, and the one Activity list, which keeps its
+ * instance, scroll and search from Home to Activity (REDESIGN.md 6, 7).
+ *
+ * At home the list is a still preview under the grip; opened, it scrolls, and
+ * the filter bar has faded in above it. A drag moves the sheet between the
+ * two, and the grip opens it with a tap. When a payment's detail grows out of
+ * a row, or Send or Receive takes the canvas, the rows step back.
  */
 export function SheetPane({
   shown,
@@ -29,72 +66,166 @@ export function SheetPane({
 }) {
   const { actions } = useStage();
   const live = usePaneActive();
+  const panes = usePanes();
+  const { reduced } = useMotionPrefs();
+  const { bottom } = useSafeAreaInsets();
   const opened = shown === 'activity';
+  const sheet = shown === 'home' || opened;
+  const drag = useSheetDrag(shown, live && sheet);
+  const list = useRef<FlatList<ActivitySection>>(null);
+
+  // An open search closes on Android back before the sheet does.
+  const [searching, setSearching] = useState(false);
+  const { query, setQuery } = view;
+  const closeSearch = useCallback(() => {
+    setQuery('');
+    setSearching(false);
+    return true;
+  }, [setQuery]);
+  useSceneBack(closeSearch, live && opened && (searching || !!query));
+
+  // T4 and T1: the rows and the bar fade, and the rows drop under a detail,
+  // as the canvas moves on, and come back once it has returned.
+  const shows = useSharedValue(sheet ? 1 : 0);
+  const drop = useSharedValue(0);
+  useLayoutEffect(() => {
+    if (reduced) {
+      shows.set(withTiming(sheet ? 1 : 0, FADE));
+      drop.set(0);
+      return;
+    }
+    if (sheet) {
+      shows.set(withDelay(overlap.enterDelay, withTiming(1, ENTER)));
+      drop.set(withDelay(overlap.enterDelay, withTiming(0, ENTER)));
+    } else {
+      shows.set(withTiming(0, EXIT));
+      drop.set(shown === 'detail' ? withTiming(DETAIL_DROP, EXIT) : 0);
+    }
+  }, [sheet, shown, reduced, shows, drop]);
+
+  // The bar arrives over the last part of the way up, and the list gives
+  // back the room it takes at home.
+  const { home, compact } = panes.stops;
+  const barStyle = useAnimatedStyle(() => {
+    const progress = sheetProgress(panes.seam.get(), { home, compact });
+    return { opacity: filterFor(progress) * shows.get() };
+  }, [home, compact]);
+  const listStyle = useAnimatedStyle(() => {
+    const progress = sheetProgress(panes.seam.get(), { home, compact });
+    return {
+      opacity: shows.get(),
+      transform: [{ translateY: listShift(progress) + drop.get() }],
+    };
+  }, [home, compact]);
+
+  // Back home, the preview shows the newest payments, wherever the list
+  // was scrolled to and whatever it was narrowed to: the bar that would say
+  // so is gone there, and a preview that quietly left out a payment would
+  // mislead.
+  const was = useRef(shown);
+  const { setFilter } = view;
+  useLayoutEffect(() => {
+    if (shown === 'home' && was.current !== 'home') {
+      list.current?.scrollToOffset({ offset: 0 });
+      setFilter(ALL);
+      setQuery('');
+      setSearching(false);
+    }
+    was.current = shown;
+  }, [shown, setFilter, setQuery]);
+
+  const binding: SheetBinding = {
+    opened,
+    barStyle,
+    listStyle,
+    gesture: drag.gesture,
+    onScroll: drag.onScroll,
+    listRef: list,
+    searching,
+    onSearching: setSearching,
+    bottomInset: bottom,
+  };
+
   return (
-    <>
-      {shown === 'home' ? (
-        <SheetHandle />
-      ) : opened && session.error ? (
-        <View style={styles.notice}>
-          <Notice kind="error" icon="alert">
-            {copy.notice.refreshFailed(session.error)}
-          </Notice>
+    <GestureHandlerRootView style={styles.fill}>
+      <GestureDetector gesture={drag.gesture}>
+        <View style={styles.fill} collapsable={false}>
+          <Grip home={shown === 'home'} onOpen={actions.openActivity} />
+          <ActivityScreen
+            snapshot={snapshot}
+            hidden={view.hidden}
+            unit={view.unit}
+            onDetail={actions.openDetail}
+            filter={view.filter}
+            onFilter={view.setFilter}
+            query={query}
+            onQuery={setQuery}
+            refreshError={opened ? session.error : ''}
+            onRetry={session.manualRefresh}
+            // The backup brings controls of its own, so it only sits in a
+            // pane in use. Under Settings it shows there instead.
+            banner={
+              opened && live && backup?.pending ? (
+                <BackupBanner backup={backup} />
+              ) : undefined
+            }
+            sheet={binding}
+          />
         </View>
-      ) : null}
-      <ActivityScreen
-        snapshot={snapshot}
-        hidden={view.hidden}
-        unit={view.unit}
-        onDetail={actions.openDetail}
-        filter={view.filter}
-        onFilter={view.setFilter}
-        query={view.query}
-        onQuery={view.setQuery}
-        refreshing={session.refreshing}
-        onRefresh={session.manualRefresh}
-        // The backup brings controls of its own, so it only sits in a pane
-        // in use. Under Settings it shows there instead.
-        banner={
-          opened && live && backup?.pending ? (
-            <BackupBanner backup={backup} />
-          ) : undefined
-        }
-      />
-    </>
+      </GestureDetector>
+    </GestureHandlerRootView>
   );
 }
 
-/** The grip at the top of the sheet at home, which opens Activity. */
-function SheetHandle() {
-  const { actions } = useStage();
+/**
+ * The grip at the top of the sheet. At home it opens Activity with a tap; on
+ * the open list it is only something to drag by.
+ */
+function Grip({ home, onOpen }: { home: boolean; onOpen: () => void }) {
   const live = usePaneActive();
+  const grabber = <View style={styles.grabber} />;
+  if (!home) {
+    return (
+      <View
+        style={styles.grip}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        {grabber}
+      </View>
+    );
+  }
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={copy.home.activity}
+      accessibilityLabel={copy.activity.sheet}
       hitSlop={HIT_SLOP}
       onPress={
         live
           ? () => {
               haptics.tick();
-              actions.openActivity();
+              onOpen();
             }
           : undefined
       }
-      style={styles.handle}
+      style={styles.grip}
     >
-      <View style={styles.grabber} />
+      {grabber}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  handle: { alignItems: 'center', paddingVertical: space.sm },
+  fill: { flex: 1 },
+  grip: {
+    height: GRIP_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   grabber: {
     width: 36,
     height: 4,
     borderRadius: radius.round,
-    backgroundColor: colors.line,
+    backgroundColor: palette.husk,
   },
-  notice: { paddingHorizontal: space.xl, paddingTop: space.md },
 });
