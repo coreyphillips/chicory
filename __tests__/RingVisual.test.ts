@@ -368,8 +368,19 @@ describe('how a row sets its amount', () => {
     for (const kind of KINDS) {
       const look = amountVisual(item({ kind, status: 'uncertain' }));
       expect(look.struck).toBe(false);
-      expect(look.tone === 'sage').toBe(kind === 'received');
+      // Not struck, since it may yet complete, and not sage, since it may not.
+      expect(look.tone).not.toBe('sage');
+      expect(look.weight).toBe('400');
     }
+    expect(
+      amountVisual(item({ kind: 'received', status: 'uncertain' })),
+    ).toEqual({
+      tone: 'cream',
+      weight: '400',
+      sign: '+',
+      open: false,
+      struck: false,
+    });
   });
 });
 

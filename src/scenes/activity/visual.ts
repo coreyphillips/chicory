@@ -138,6 +138,9 @@ export const RAIL_GLYPH: Record<Rail, GlyphName> = {
  * and heavier with a plus, money out cream with a minus, a request steam, and
  * an amount that never moved is dust and struck through. `open` is a request
  * whose payer chooses the amount, drawn as infinity instead of a number.
+ *
+ * An unknown outcome keeps its sign but never the sage of money that arrived
+ * (REDESIGN.md rule 4): the held ring beside it is what it says.
  */
 export interface AmountVisual {
   tone: 'sage' | 'cream' | 'steam' | 'dust';
@@ -155,6 +158,9 @@ export function amountVisual(item: Activity): AmountVisual {
     item.receiveRequest.amountSats === null;
   if (item.status === 'failed' || item.status === 'expired') {
     return { tone: 'dust', weight: '400', sign, open, struck: true };
+  }
+  if (item.status === 'uncertain') {
+    return { tone: 'cream', weight: '400', sign, open, struck: false };
   }
   if (item.kind === 'received') {
     return { tone: 'sage', weight: '600', sign, open, struck: false };
