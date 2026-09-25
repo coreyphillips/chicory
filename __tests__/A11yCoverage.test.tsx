@@ -7,11 +7,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Reanimated from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import { Button, Chip, IconButton } from '../src/components/ui';
 import { AmountField } from '../src/components/AmountField';
-import { a11yProblems } from '../test-support/a11y';
+import { a11yProblems, vanishingRoles } from '../test-support/a11y';
 import { mount } from '../test-support/guard';
+import { appSources } from '../test-support/worklets';
 
 /**
  * The accessibility check's harness: negative controls proving it catches a
@@ -134,5 +136,52 @@ describe('negative controls', () => {
   test('a control whose pane is inactive has no handler to check', async () => {
     const found = await problems(<Pressable accessibilityRole="button" />);
     expect(found).toEqual([]);
+  });
+
+  test('a pressable keeps its role while it takes no touch', async () => {
+    const AnimatedPressable = Reanimated.createAnimatedComponent(Pressable);
+    const found = await problems(
+      <View>
+        <Pressable accessibilityLabel="Sent." />
+        <AnimatedPressable accessibilityLabel="Payment request" />
+        <Pressable accessibilityRole="none" accessibilityLabel="Sent." />
+        <Pressable accessible={false} />
+      </View>,
+    );
+    expect(found).toEqual([
+      expect.objectContaining({ handlers: [], missing: 'accessibilityRole' }),
+      expect.objectContaining({ handlers: [], missing: 'accessibilityRole' }),
+    ]);
+  });
+});
+
+/**
+ * React Native's iOS props keep the role an element had when its role prop
+ * is taken away, so a role that comes and goes is written with 'none' for
+ * its absence (REDESIGN.md 9, Controls).
+ */
+describe('roles that come and go', () => {
+  test('no role in the app can be taken away while its element stays', () => {
+    const { files, read, name } = appSources();
+    const found = files.flatMap(file =>
+      vanishingRoles(read(file) ?? '').map(hit => `${name(file)}:${hit}`),
+    );
+    expect(found).toEqual([]);
+  });
+
+  test('the scan catches undefined, null and false, and passes none', () => {
+    const source = `const a = <View accessibilityRole={on ? 'image' : undefined} />;
+const b = <View role={on ? null : 'button'} />;
+const c = <View accessibilityRole={on && 'alert'} />;
+const d = { accessibilityRole: (on ? 'button' : undefined) as Role };
+const e = <View accessibilityRole={on ? 'image' : 'none'} />;
+const f = <View accessibilityRole={role ?? 'none'} accessibilityHint={undefined} />;
+const g = { role: undefined, accessibilityRole: 'text' };`;
+    expect(vanishingRoles(source).map(hit => hit.split(':')[0])).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+    ]);
   });
 });

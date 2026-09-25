@@ -95,7 +95,7 @@ export function RequestEntry({
       <AnimatedPressable
         entering={popIn()}
         exiting={dissolve()}
-        accessibilityRole={onExpand ? 'button' : undefined}
+        accessibilityRole={onExpand ? 'button' : 'none'}
         accessibilityLabel={accessibilityLabel}
         accessibilityValue={{ text: shown }}
         accessibilityHint={onExpand ? copy.send.requestHint : undefined}

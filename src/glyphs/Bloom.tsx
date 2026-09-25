@@ -924,7 +924,7 @@ export function Bloom({
   return (
     <View
       accessible={labelled}
-      accessibilityRole={labelled ? 'image' : undefined}
+      accessibilityRole={labelled ? 'image' : 'none'}
       accessibilityLabel={accessibilityLabel}
       accessibilityState={
         labelled && mode === 'chase' ? { busy: true } : undefined

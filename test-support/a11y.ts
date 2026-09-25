@@ -6,7 +6,9 @@
  * its label is silent to a screen reader and nothing on screen gives it away.
  */
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
-import { componentPath } from './query';
+import { componentName, componentPath } from './query';
+
+declare const require: (id: string) => any;
 
 /** Props that make a node something a person operates. */
 const HANDLERS = ['onPress', 'onLongPress', 'onValueChange', 'onChangeText'];
@@ -43,6 +45,20 @@ const filled = (value: unknown) =>
   typeof value === 'string' && value.trim() !== '';
 
 /**
+ * Whether `host` is the view a `Pressable` draws. Between the two sit only
+ * React Native's `View` wrapper and anonymous ones.
+ */
+function drawnByPressable(host: ReactTestInstance): boolean {
+  for (let at = host.parent; at; at = at.parent) {
+    if (typeof at.type === 'string') return false;
+    const name = componentName(at.type);
+    if (name === 'Pressable') return true;
+    if (name && name !== 'View') return false;
+  }
+  return false;
+}
+
+/**
  * Controls with no label, or with no role where one applies.
  *
  * A handler is usually passed down through wrappers: a `Button` hands
@@ -51,6 +67,10 @@ const filled = (value: unknown) =>
  * under the same name is a wrapper and is skipped, and the innermost node
  * still holding a handler is the control. Its first host node, where the
  * accessibility props land, is what gets checked.
+ *
+ * A `Pressable` a screen reader reaches needs its role even while it takes
+ * no touch, as in a pane out of use: a role that comes and goes with the
+ * handler is one iOS keeps after it goes (see `vanishingRoles`).
  */
 export function a11yProblems(tree: ReactTestRenderer): A11yProblem[] {
   const checked = new Set<ReactTestInstance>();
@@ -77,5 +97,103 @@ export function a11yProblems(tree: ReactTestRenderer): A11yProblem[] {
       out.push({ path, handlers, missing: 'accessibilityRole' });
     }
   }
+  const pressables = tree.root.findAll(
+    at =>
+      typeof at.type === 'string' &&
+      at.props.accessible !== false &&
+      !checked.has(at) &&
+      drawnByPressable(at),
+  );
+  for (const host of pressables) {
+    if (filled(host.props.accessibilityRole)) continue;
+    out.push({
+      path: componentPath(host),
+      handlers: handlersOf(host),
+      missing: 'accessibilityRole',
+    });
+  }
   return out;
+}
+
+/** The props a role reaches a native view by. */
+const ROLE_ATTRIBUTES = new Set(['accessibilityRole', 'role']);
+
+/**
+ * Whether a role expression can leave the role out: `undefined`, `null`, a
+ * `cond && role` that gives `false`, or a branch that does any of these.
+ */
+function mayVanish(expression: any): boolean {
+  switch (expression?.type) {
+    case 'Identifier':
+      return expression.name === 'undefined';
+    case 'NullLiteral':
+      return true;
+    case 'ConditionalExpression':
+      return (
+        mayVanish(expression.consequent) || mayVanish(expression.alternate)
+      );
+    case 'LogicalExpression':
+      return expression.operator === '&&' || mayVanish(expression.right);
+    case 'TSAsExpression':
+    case 'TSSatisfiesExpression':
+    case 'TSNonNullExpression':
+    case 'ParenthesizedExpression':
+      return mayVanish(expression.expression);
+    default:
+      return false;
+  }
+}
+
+/** Calls `visit` on `node` and every node under it. */
+function walk(node: any, visit: (node: any) => void) {
+  if (!node || typeof node.type !== 'string') return;
+  visit(node);
+  for (const key of Object.keys(node)) {
+    if (key === 'loc' || key === 'start' || key === 'end') continue;
+    const value = node[key];
+    if (Array.isArray(value)) value.forEach(item => walk(item, visit));
+    else if (value && typeof value === 'object') walk(value, visit);
+  }
+}
+
+/**
+ * The roles in one file that can be taken away while their element stays
+ * drawn, as `line: text`.
+ *
+ * React sends a removed prop as null so native code resets it, but React
+ * Native's iOS props (AccessibilityProps.cpp) read a null role as "keep the
+ * one before". So an element whose role goes from `button` to `undefined`
+ * stays a button to VoiceOver. A role that comes and goes is written with
+ * `'none'` for its absence instead.
+ */
+export function vanishingRoles(source: string): string[] {
+  const parser = require('@babel/parser');
+  const ast = parser.parse(source, {
+    sourceType: 'module',
+    plugins: ['typescript', 'jsx'],
+  });
+  const lines = source.split('\n');
+  const hits: string[] = [];
+  const hit = (node: any) =>
+    hits.push(
+      `${node.loc.start.line}: ${lines[node.loc.start.line - 1].trim()}`,
+    );
+  walk(ast.program, node => {
+    if (
+      node.type === 'JSXAttribute' &&
+      ROLE_ATTRIBUTES.has(node.name?.name) &&
+      node.value?.type === 'JSXExpressionContainer' &&
+      mayVanish(node.value.expression)
+    ) {
+      hit(node);
+    }
+    if (
+      node.type === 'ObjectProperty' &&
+      (node.key?.name ?? node.key?.value) === 'accessibilityRole' &&
+      mayVanish(node.value)
+    ) {
+      hit(node);
+    }
+  });
+  return hits;
 }
