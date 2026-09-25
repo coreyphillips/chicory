@@ -61,6 +61,18 @@ export function announceSafety(message: string, kind: SafetyKind): () => void {
   };
 }
 
+/**
+ * Drops every safety message still waiting, unsaid. For tests only: the
+ * waiting list outlives a test, and a test that ends before its messages
+ * are heard, or throws away the fake clock they wait on, would otherwise
+ * leave them to be said in the next.
+ */
+export function forgetSafety() {
+  queued?.();
+  queued = null;
+  waiting.clear();
+}
+
 function speak() {
   queued = null;
   const said = [...waiting]
