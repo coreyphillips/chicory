@@ -1,4 +1,6 @@
 import type { Activity } from '@beignet/wallet-core';
+import { copy } from '../../design/copy';
+import type { GlyphName } from '../../design/glyphs';
 import { dayLabel, statusLabel } from '../../theme';
 
 export function activityStatus(item: Activity) {
@@ -11,13 +13,18 @@ export function activityStatus(item: Activity) {
   return statusLabel(item.status);
 }
 
+/** The filter that shows everything, which tapping the chosen chip returns to. */
+export const ALL = 'All';
+
+/** The filter chips, each a glyph that names its payments. */
 export const FILTERS = [
-  'All',
-  'Sent',
-  'Received',
-  'Requests',
-  'Pending',
-] as const;
+  { value: 'Sent', glyph: 'send' },
+  { value: 'Received', glyph: 'receive' },
+  { value: 'Requests', glyph: 'qr' },
+  { value: 'Pending', glyph: 'orbit' },
+] as const satisfies readonly { value: string; glyph: GlyphName }[];
+
+export type Filter = (typeof FILTERS)[number]['value'];
 
 function matchesFilter(item: Activity, filter: string) {
   switch (filter) {
@@ -56,13 +63,36 @@ function matchesQuery(item: Activity, needle: string) {
   );
 }
 
+/**
+ * What a payment needs from its owner, if anything (REDESIGN.md 6, attention
+ * shelf): an unknown outcome, which must not be paid again, or a request
+ * paid only in part.
+ */
+export function attentionOf(item: Activity): 'uncertain' | 'partial' | null {
+  if (item.status === 'uncertain') return 'uncertain';
+  if (item.receiveStatus?.phase === 'partial') return 'partial';
+  return null;
+}
+
+/** Where a pinned row sits in the honey band, for its rounded corners. */
+export type Band = 'solo' | 'start' | 'middle' | 'end';
+
 export type ActivitySection =
   | { kind: 'header'; id: string; label: string }
-  | { kind: 'item'; id: string; item: Activity };
+  | { kind: 'item'; id: string; item: Activity; band?: Band };
+
+function bandAt(index: number, count: number): Band {
+  if (count === 1) return 'solo';
+  if (index === 0) return 'start';
+  return index === count - 1 ? 'end' : 'middle';
+}
 
 /**
- * The history as the list shows it: the payments that pass the filter and the
- * search, with a day header wherever the day changes.
+ * The history as the list shows it: the payments that pass the filter and
+ * the search, the ones that need attention pinned first in a band of their
+ * own (unknown outcomes, then partial payments), and the rest under a day
+ * header wherever the day changes. A pinned payment is not repeated below:
+ * it drops back into its day once it is resolved.
  */
 export function activitySections(
   activity: readonly Activity[],
@@ -72,15 +102,65 @@ export function activitySections(
   const matched = activity.filter(
     item => matchesFilter(item, filter) && matchesQuery(item, needle),
   );
-  const out: ActivitySection[] = [];
+  const pinned = [
+    ...matched.filter(item => attentionOf(item) === 'uncertain'),
+    ...matched.filter(item => attentionOf(item) === 'partial'),
+  ];
+  const out: ActivitySection[] = pinned.map((item, index) => ({
+    kind: 'item',
+    id: item.id,
+    item,
+    band: bandAt(index, pinned.length),
+  }));
   let day = '';
   for (const item of matched) {
+    if (attentionOf(item)) continue;
     const label = dayLabel(item.timestamp);
     if (label !== day) {
       day = label;
-      out.push({ kind: 'header', id: `day:${label}`, label });
+      // Keyed by the payment it heads, since a history out of order can
+      // come back to a day it has already headed.
+      out.push({ kind: 'header', id: `day:${item.id}`, label });
     }
     out.push({ kind: 'item', id: item.id, item });
   }
   return out;
 }
+
+/** A row's height, fixed so the list can place any row without measuring. */
+export const ROW_HEIGHT = 64;
+/** A day header's height. */
+export const DAY_HEIGHT = 36;
+
+/** Where each section sits in the list, for `getItemLayout`. */
+export function sectionLayout(
+  sections: readonly ActivitySection[],
+): { length: number; offset: number; index: number }[] {
+  let offset = 0;
+  return sections.map((section, index) => {
+    const length = section.kind === 'header' ? DAY_HEIGHT : ROW_HEIGHT;
+    const at = { length, offset, index };
+    offset += length;
+    return at;
+  });
+}
+
+/**
+ * What the empty list says to a screen reader: why nothing is here. The
+ * screen itself shows a sleeping bud and no words.
+ */
+export function emptyLabel(filter: string, query: string): string {
+  const search = query.trim();
+  if (search) return copy.activity.noMatches(search);
+  if (filter !== ALL) return copy.activity.noFiltered(filter);
+  return copy.activity.empty;
+}
+
+// Held rather than rebuilt: this runs for every visible row.
+const TIME = new Intl.DateTimeFormat('en-US', {
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+/** A row's time of day. Its date is the day header above it. */
+export const timeLabel = (timestamp: number) => TIME.format(timestamp);

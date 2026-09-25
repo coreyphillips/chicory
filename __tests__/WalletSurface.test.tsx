@@ -9,6 +9,7 @@ import {
   activityStatus,
 } from '../src/screens/Wallet';
 import { useNow } from '../src/services/clock';
+import { meaning } from '../test-support/query';
 
 const activity = (over: Partial<Activity> & { id: string }): Activity => ({
   kind: 'sent',
@@ -82,7 +83,10 @@ function strings(children: unknown, out: string[] = []): string[] {
   else if (Array.isArray(children))
     children.forEach(child => strings(child, out));
   else if (children && typeof children === 'object')
-    strings((children as { props?: { children?: unknown } }).props?.children, out);
+    strings(
+      (children as { props?: { children?: unknown } }).props?.children,
+      out,
+    );
   return out;
 }
 const text = (tree: ReactTestRenderer) =>
@@ -114,34 +118,35 @@ async function renderActivity(props: Record<string, unknown> = {}) {
   return tree;
 }
 
+// A row's title is the engine's words, so it reaches a screen reader only.
 test('search matches title, reference and amount', async () => {
   let tree = await renderActivity({ query: 'salary' });
-  expect(text(tree)).toContain('Salary');
-  expect(text(tree)).not.toContain('Coffee');
+  expect(meaning(tree)).toContain('Salary');
+  expect(meaning(tree)).not.toContain('Coffee');
   await act(async () => tree.unmount());
 
   tree = await renderActivity({ query: 'lnbc-reference' });
-  expect(text(tree)).toContain('Paid request');
-  expect(text(tree)).not.toContain('Coffee');
+  expect(meaning(tree)).toContain('Paid request');
+  expect(meaning(tree)).not.toContain('Coffee');
   await act(async () => tree.unmount());
 
   tree = await renderActivity({ query: '4200' });
-  expect(text(tree)).toContain('Coffee');
-  expect(text(tree)).not.toContain('Salary');
+  expect(meaning(tree)).toContain('Coffee');
+  expect(meaning(tree)).not.toContain('Salary');
   await act(async () => tree.unmount());
 
   tree = await renderActivity({ query: 'nothing here' });
-  expect(text(tree)).toContain('No payments match');
+  expect(meaning(tree)).toContain('No payments match “nothing here”.');
   await act(async () => tree.unmount());
 });
 
 test('the Requests filter keeps a request that has since been paid', async () => {
   const tree = await renderActivity({ filter: 'Requests' });
-  expect(text(tree)).toContain('Invoice for Dana');
+  expect(meaning(tree)).toContain('Invoice for Dana');
   // 'Paid request' is a received payment now, but it is still the code the
   // user sent someone, which is how they will look for it.
-  expect(text(tree)).toContain('Paid request');
-  expect(text(tree)).not.toContain('Coffee');
+  expect(meaning(tree)).toContain('Paid request');
+  expect(meaning(tree)).not.toContain('Coffee');
   await act(async () => tree.unmount());
 });
 
@@ -305,7 +310,10 @@ test('a wallet with nothing in flight shows no arriving line at all', async () =
   await act(async () => {
     tree = create(
       <HomeScreen
-        snapshot={{ ...snapshot, balance: { ...snapshot.balance, pendingSats: 0 } }}
+        snapshot={{
+          ...snapshot,
+          balance: { ...snapshot.balance, pendingSats: 0 },
+        }}
         onSend={jest.fn()}
         onReceive={jest.fn()}
         onActivity={jest.fn()}

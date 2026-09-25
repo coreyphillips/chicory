@@ -5,8 +5,14 @@ import type {
   ReceiveStatus,
 } from '@beignet/wallet-core';
 import { GLYPHS } from '../src/design/glyphs';
-import { ringVisual } from '../src/scenes/activity/visual';
-import type { RingVisual } from '../src/scenes/activity/visual';
+import {
+  RAIL_GLYPH,
+  amountVisual,
+  railOf,
+  ringFlags,
+  ringVisual,
+} from '../src/scenes/activity/visual';
+import type { AmountVisual, RingVisual } from '../src/scenes/activity/visual';
 
 /**
  * The activity ring table (REDESIGN.md 6). A payment's ring is often all it
@@ -267,4 +273,129 @@ test('a completed payment is not held up by a flag that no longer matters', () =
       }),
     ),
   ).toEqual({ tone: 'sage', pattern: 'full', glyph: 'receive' });
+});
+
+describe('the rail a payment took', () => {
+  test.each<[string, Partial<Activity>, string]>([
+    ['a Lightning payment', { id: 'payment:ab' }, 'bolt'],
+    ['a transaction', { id: 'transaction:cd' }, 'chain'],
+    [
+      'a submitted Lightning send',
+      { id: 'submission:1', paymentHash: 'h' },
+      'bolt',
+    ],
+    [
+      'a submitted direct funding',
+      { id: 'submission:2', txid: 't', title: 'Direct funding sent' },
+      'fund',
+    ],
+    ['a submitted on-chain send', { id: 'submission:3', txid: 't' }, 'chain'],
+    [
+      'a request paid on chain',
+      {
+        id: 'payment:ef',
+        kind: 'request',
+        receiveStatus: receipt({ phase: 'pending', method: 'bitcoin' }),
+      },
+      'chain',
+    ],
+    [
+      'a request paid over Lightning',
+      {
+        id: 'request-1',
+        kind: 'received',
+        receiveStatus: receipt({ phase: 'completed', method: 'lightning' }),
+      },
+      'bolt',
+    ],
+  ])('%s', (_name, over, rail) => {
+    expect(railOf(item(over))).toBe(rail);
+  });
+
+  test('every rail has a glyph', () => {
+    for (const glyph of Object.values(RAIL_GLYPH)) {
+      expect(Object.keys(GLYPHS)).toContain(glyph);
+    }
+  });
+});
+
+describe('how a row sets its amount', () => {
+  test.each<[string, Partial<Activity>, AmountVisual]>([
+    [
+      'money in',
+      { kind: 'received' },
+      { tone: 'sage', weight: '600', sign: '+', open: false, struck: false },
+    ],
+    [
+      'money out',
+      { kind: 'sent' },
+      { tone: 'cream', weight: '400', sign: '−', open: false, struck: false },
+    ],
+    [
+      'a transfer',
+      { kind: 'transfer' },
+      { tone: 'cream', weight: '400', sign: '', open: false, struck: false },
+    ],
+    [
+      'a request',
+      { kind: 'request', status: 'pending', receiveRequest: request() },
+      { tone: 'steam', weight: '400', sign: '', open: false, struck: false },
+    ],
+    [
+      'a request for any amount',
+      {
+        kind: 'request',
+        status: 'pending',
+        receiveRequest: request({ amountSats: null }),
+      },
+      { tone: 'steam', weight: '400', sign: '', open: true, struck: false },
+    ],
+    [
+      'a failed send',
+      { kind: 'sent', status: 'failed' },
+      { tone: 'dust', weight: '400', sign: '−', open: false, struck: true },
+    ],
+    [
+      'an expired request',
+      { kind: 'request', status: 'expired', receiveRequest: request() },
+      { tone: 'dust', weight: '400', sign: '', open: false, struck: true },
+    ],
+  ])('%s', (_name, over, look) => {
+    expect(amountVisual(item(over))).toEqual(look);
+  });
+
+  test('an unknown outcome is never set as money that arrived', () => {
+    for (const kind of KINDS) {
+      const look = amountVisual(item({ kind, status: 'uncertain' }));
+      expect(look.struck).toBe(false);
+      expect(look.tone === 'sage').toBe(kind === 'received');
+    }
+  });
+});
+
+test('what a ring adds beyond the status word is said aloud', () => {
+  const flags = (over: Partial<Activity>) => ringFlags(ringVisual(item(over)));
+  expect(flags({})).toEqual([]);
+  expect(
+    flags({
+      kind: 'request',
+      status: 'pending',
+      receiveRequest: request({ bitcoinTracking: 'ambiguous' }),
+    }),
+  ).toEqual(['Address reused']);
+  expect(
+    flags({
+      kind: 'request',
+      status: 'pending',
+      receiveRequest: request(),
+      receiveStatusUnavailable: true,
+    }),
+  ).toEqual(['Status unavailable']);
+  expect(
+    flags({
+      kind: 'request',
+      status: 'expired',
+      receiveRequest: request({ legacy: true }),
+    }),
+  ).toEqual(['Older request']);
 });

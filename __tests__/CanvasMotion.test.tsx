@@ -290,7 +290,6 @@ describe('the canvas', () => {
       'View all activity',
       'Activity',
       ROW,
-      'All',
     ]) {
       expect(atHome).toContain(label);
     }
@@ -301,7 +300,7 @@ describe('the canvas', () => {
       'View all activity',
       'Activity',
       ROW,
-      'All',
+      'Sent',
       'Settings',
     ]) {
       expect(inSend).not.toContain(label);
