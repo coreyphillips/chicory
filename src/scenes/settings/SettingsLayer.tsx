@@ -42,16 +42,17 @@ export function SettingsLayer({
   >;
   backup: Backup | null;
 }) {
-  // Settings covers the whole canvas, under the system bars too, so its
-  // bar starts below the status bar and its content above the home
-  // indicator.
+  // Settings covers the whole canvas, under the system bars too, so it
+  // starts below the status bar and ends above the home indicator. Starting
+  // there, rather than padding down to it, keeps the slot's keyboard offset
+  // measured from the top of the safe area.
   const { top, bottom } = useSafeAreaInsets();
   return (
     <View
       testID="scene-settings"
-      style={[styles.layer, { paddingBottom: bottom }]}
+      style={[styles.layer, { marginTop: top, paddingBottom: bottom }]}
     >
-      <View style={[styles.bar, { paddingTop: top, height: top + STATUS_ROW }]}>
+      <View style={styles.bar}>
         <CornerControl home={false} />
       </View>
       <SceneSlot
@@ -93,6 +94,7 @@ export function SettingsLayer({
 const styles = StyleSheet.create({
   layer: { flex: 1 },
   bar: {
+    height: STATUS_ROW,
     paddingHorizontal: space.xl,
     flexDirection: 'row',
     justifyContent: 'flex-end',

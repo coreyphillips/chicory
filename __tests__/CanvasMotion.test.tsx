@@ -119,6 +119,7 @@ const flat = (node: ReactTestInstance) =>
     transform?: Transform;
     top?: number;
     height?: number;
+    marginTop?: number;
     paddingTop?: number;
     paddingBottom?: number;
   };
@@ -420,10 +421,10 @@ describe('the canvas', () => {
     await act(async () => stage.actions.home());
     await act(async () => stage.actions.openSettings());
     const settings = host(tree.root.findByType(SettingsLayer));
-    expect(flat(settings).paddingBottom).toBe(insets.bottom);
-    expect(flat(host(settings.children[0] as ReactTestInstance))).toMatchObject(
-      { paddingTop: insets.top },
-    );
+    expect(flat(settings)).toMatchObject({
+      marginTop: insets.top,
+      paddingBottom: insets.bottom,
+    });
     await act(async () => tree.unmount());
   });
 
