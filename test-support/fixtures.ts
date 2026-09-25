@@ -303,16 +303,29 @@ export function everyActivity(): Record<string, Activity> {
 const groups = (text: string) => text.match(/.{1,4}/g)?.join(' ') ?? '';
 
 /**
- * A reference as a copy chip shows it (REDESIGN.md 5, CopyChip): grouped in
- * fours, and shortened in the middle to eight characters at each end unless
- * `full`. Kept here rather than imported, so the fixtures depend on no
+ * A reference as a copy chip shows it (REDESIGN.md 5, CopyChip): a URI's
+ * scheme and the human-readable part of an address or invoice kept whole,
+ * the rest grouped in fours, and shortened in the middle unless `full`, to
+ * one group after a prefix, or eight characters without one, and eight at
+ * the end. Kept here rather than imported, so the fixtures depend on no
  * track's files; a state that draws a reference some other way passes what
  * it draws in `extra`.
  */
 function chipShown(value: string, full = false): string {
   const KEEP = 8;
-  if (full || value.length <= KEEP * 2 + 4) return groups(value);
-  return `${groups(value.slice(0, KEEP))} … ${groups(value.slice(-KEEP))}`;
+  const scheme = value.match(/^[a-z][a-z0-9+.-]*:/i)?.[0] ?? '';
+  const hrp =
+    value
+      .slice(scheme.length)
+      .match(
+        /^(?:bc|tb|bcrt|ln[a-z0-9]*)1(?=[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{6,}(?:$|[?&#]))/i,
+      )?.[0] ?? '';
+  const lead = [scheme, hrp].filter(Boolean);
+  const rest = value.slice(scheme.length + hrp.length);
+  const words = lead.map(word => `${word} `).join('');
+  if (full || rest.length <= KEEP * 2 + 4) return words + groups(rest);
+  const head = rest.slice(0, lead.length ? 4 : KEEP);
+  return `${words}${groups(head)} … ${groups(rest.slice(-KEEP))}`;
 }
 
 /** The references a payment can show, as written and as the app shortens them. */

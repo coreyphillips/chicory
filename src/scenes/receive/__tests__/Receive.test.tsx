@@ -818,6 +818,33 @@ describe('the quote', () => {
 });
 
 describe('a copy chip', () => {
+  test("keeps a URI's scheme and an address's or invoice's prefix whole, and groups what follows", () => {
+    // Grouped from the first character, a request read "bitc oin: …" and an
+    // invoice "lnbc rt30 …" (P10, 22-t4-detail and 23b).
+    const address = `bcrt1qy3${'q'.repeat(30)}kw5jn9u6`;
+    const invoice = `lnbcrt30u1p4td83kp${'x'.repeat(40)}qpw5f2ku`;
+    expect(
+      chipText(`bitcoin:${address}?amount=0.0005&lightning=${invoice}`),
+    ).toBe('bitcoin: bcrt1 qy3q … qpw5 f2ku');
+    expect(chipText(invoice)).toBe('lnbcrt30u1 p4td … qpw5 f2ku');
+    expect(chipText(`lightning:${invoice}`)).toBe(
+      'lightning: lnbcrt30u1 p4td … qpw5 f2ku',
+    );
+    expect(chipText(address)).toBe('bcrt1 qy3q … kw5j n9u6');
+    expect(chipText('lno1qcp4256ypq')).toBe('lno1 qcp4 256y pq');
+    // Whole, the prefix still stands apart and the rest is in fours.
+    expect(
+      chipText(invoice, true).startsWith('lnbcrt30u1 p4td 83kp xxxx'),
+    ).toBe(true);
+    // A hash, a legacy address, or hex that happens to hold a 1, has no
+    // prefix: it is grouped from its first character as before.
+    const hash = 'ab1c'.repeat(16);
+    expect(chipText(hash)).toBe('ab1c ab1c … ab1c ab1c');
+    expect(chipText('1BoatSLRHtKNngkdXEeobR76b53LETtpyT')).toBe(
+      '1Boa tSLR … 3LET tpyT',
+    );
+  });
+
   test('is a mocha pill round its value and glyph, not a bar across its row', async () => {
     // The detail's chip ran the width of the card, its value packed at the
     // left (P7, 59-detail).
@@ -946,7 +973,8 @@ describe("the request a payment's detail keeps", () => {
     const drawn = visibleText(tree);
     expect(drawn).not.toContain(LONG.uri);
     expect(drawn).toContain(chipText(LONG.uri));
-    expect(chipText(LONG.uri).length).toBeLessThan(30);
+    // The scheme and the address's prefix whole, a group, and two at the end.
+    expect(chipText(LONG.uri)).toBe('bitcoin: bcrt1 qpg0 … cqxf 6mds');
     // A tap copies all of it, and there is no second control that does.
     const label = copy.receive.copyValue(copy.receive.original);
     const copiers = tree.root.findAll(

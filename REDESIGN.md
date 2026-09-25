@@ -460,7 +460,7 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 
 ### CopyChip
 
-- **Look.** A mocha pill holding the value in mono, shortened in the middle and grouped in fours, with a `copy` glyph.
+- **Look.** A mocha pill holding the value in mono, shortened in the middle and grouped in fours, with a `copy` glyph. A URI's scheme and the human-readable part of an address or invoice up to its `1` (`bitcoin:`, `bcrt1`, `lnbcrt30u1`) stay whole, and what follows them is grouped (`chipLead`).
 - **Tap.** A tick, then `copy` morphs into a sage check while a cream wash sweeps across (180ms in, 700ms hold, 600ms out). Screen readers hear "{Label} copied".
 - **Long press.** Expands to show the full value.
 - **Record.** A chip that is not `copyable` shows its value in steam and copies nothing; a screen reader hears its label and the value. A payment's detail draws its request string as a chip (`qr`, or `bolt` for an old Lightning invoice), which copies while the request can be paid and is only the record once it cannot.
