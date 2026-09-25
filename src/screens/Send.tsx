@@ -1,6 +1,7 @@
 import React, {
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -8,6 +9,7 @@ import React, {
 } from 'react';
 import type { ReactNode, Ref } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import type { HostInstance } from 'react-native';
 import Reanimated from 'react-native-reanimated';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { parseSats } from '@beignet/wallet-core';
@@ -18,7 +20,6 @@ import type {
   WalletSnapshot,
 } from '@beignet/wallet-core';
 import { Scanner } from '../components/Scanner';
-import { announce } from '../design/announce';
 import { copy } from '../design/copy';
 import { Glyph } from '../design/glyphs';
 import type { GlyphName } from '../design/glyphs';
@@ -43,6 +44,7 @@ import {
   isUncertain,
   resultVisual,
   reviewRail,
+  reviewWords,
   sendFailure,
 } from '../scenes/send/model';
 import type { Failure } from '../scenes/send/model';
@@ -50,6 +52,8 @@ import { RequestEntry } from '../scenes/send/RequestEntry';
 import type { Origin } from '../scenes/send/RequestEntry';
 import { ResultMark } from '../scenes/send/ResultMark';
 import { ReviewLines } from '../scenes/send/ReviewLines';
+import { useLanding } from '../scenes/send/useLanding';
+import type { Landing } from '../scenes/send/useLanding';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { errorMessage } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
@@ -79,11 +83,12 @@ const TONE_WORDS: Record<AmountTone, string | null> = {
 /**
  * A quote that ran out on its clock. An expired quote is a safety state
  * (REDESIGN.md rule 4): the hold gives way to a refresh, and the change is
- * felt, said and logged as it happens.
+ * felt, said and logged as it happens. It is said through `say`, once a
+ * screen reader has landed on the refresh.
  */
-function quoteExpired() {
+function quoteExpired(say: (text: string, assertive?: boolean) => void) {
   haptics.warning();
-  announce(copy.send.quoteExpired, { assertive: true });
+  say(copy.send.quoteExpired, true);
   recordDiagnostic({
     phase: 'ui',
     code: 'QUOTE_EXPIRED',
@@ -103,6 +108,13 @@ function quoteExpired() {
  * The screen says nothing in words. Each state is a glyph, a ring, a colour
  * and a motion, and its words are what a screen reader hears and what a long
  * press shows.
+ *
+ * As each step settles a screen reader lands on its primary element
+ * (REDESIGN.md 9), and what the step says aloud waits until it has: a review
+ * lands on its amount, at the head of the sum, never on the hold; a quote
+ * running out or the balance going stale lands on the control that takes
+ * the hold's place, and a fresh quote back on the amount; a result or the
+ * held ring on its mark; and back in compose, on the amount.
  *
  * On the canvas, `onScan` opens the scan overlay and the Send scene hands the
  * code back through `receive`. Rendered on its own, with no `onScan`, the
@@ -176,6 +188,19 @@ export function SendScreen({
     review || result || !collapsed ? null : heldRequest(request, activity);
   const [, heldChanged] = useReducer((count: number) => count + 1, 0);
 
+  // Where a screen reader lands as a step settles: the review's amount, the
+  // control in the ring, the amount in compose, and a result's mark.
+  const { land, say } = useLanding();
+  const summary = useRef<HostInstance>(null);
+  const control = useRef<HostInstance>(null);
+  const readout = useRef<HostInstance>(null);
+  const mark = useRef<HostInstance>(null);
+  // Whether the hold is up, for the balance's gate to read as it turns.
+  const reviewing = useRef(false);
+  useLayoutEffect(() => {
+    reviewing.current = review !== null && !expired;
+  });
+
   useEffect(() => {
     if (!initialRequest) return;
     setRequest(initialRequest);
@@ -201,37 +226,46 @@ export function SendScreen({
     const timers = [
       setTimeout(() => {
         setExpired(true);
-        quoteExpired();
+        land(control);
+        quoteExpired(say);
       }, Math.max(0, left)),
     ];
     if (left > LATE_MS) {
       timers.push(
         setTimeout(
-          () => announce(copy.send.quoteExpires(LATE_MS / 1000)),
+          () => say(copy.send.quoteExpires(LATE_MS / 1000)),
           left - LATE_MS,
         ),
       );
     }
     return () => timers.forEach(clearTimeout);
-  }, [review, expired]);
+  }, [review, expired, land, say]);
 
   // The stale gate closing on the payment is a safety state (REDESIGN.md
-  // rule 4): felt, said and logged as it closes.
+  // rule 4): felt, said and logged as it closes. On a review it takes the
+  // hold's place, and a screen reader lands on it; as it opens again, back
+  // on the review's amount above the hold.
+  const gateWas = useRef(disabled);
   useEffect(() => {
+    const opened = gateWas.current && !disabled;
+    gateWas.current = disabled;
+    if (opened && reviewing.current) land(summary);
     if (!disabled) return;
     haptics.warning();
-    announce(copy.send.stale, { assertive: true });
+    if (reviewing.current) land(control);
+    say(copy.send.stale, true);
     recordDiagnostic({ phase: 'ui', code: 'STALE', message: copy.send.stale });
-  }, [disabled]);
+  }, [disabled, land, say]);
 
   // Landing on the held ring is felt, said and logged, once for each time.
   const heldFor = held ? request.trim() : '';
   useEffect(() => {
     if (!heldFor) return;
     haptics.held();
-    announce(copy.send.heldAnnouncement, { assertive: true });
+    land(mark);
+    say(copy.send.heldAnnouncement, true);
     recordDiagnostic({ phase: 'ui', code: 'HELD', message: copy.send.held });
-  }, [heldFor]);
+  }, [heldFor, land, say]);
 
   // The ground behind the canvas holds honey while an outcome is unknown,
   // here before the wallet's own read of it says so, and flashes radish as a
@@ -239,29 +273,31 @@ export function SendScreen({
   useHoldTint(result?.status === 'uncertain' || held ? 'honey' : null);
   const flash = useFlashTint();
 
-  // A result is felt and said once its mark is on screen and has taken a
-  // screen reader's focus, so the move never cuts an assertive message short.
+  // A result is felt as it lands, and said once its mark has taken a screen
+  // reader's focus, so the move never cuts an assertive message short.
   useEffect(() => {
-    switch (result?.status) {
+    if (!result) return;
+    land(mark);
+    switch (result.status) {
       case 'completed':
         haptics.success();
-        announce(copy.send.sent);
+        say(copy.send.sent);
         break;
       case 'pending':
         haptics.soft();
-        announce(copy.send.onItsWay);
+        say(copy.send.onItsWay);
         break;
       case 'uncertain':
         haptics.held();
-        announce(copy.send.heldAnnouncement, { assertive: true });
+        say(copy.send.heldAnnouncement, true);
         break;
       case 'failed':
         haptics.error();
         flash('radish');
-        announce(`${copy.send.failed} ${result.message}`, { assertive: true });
+        say(`${copy.send.failed} ${result.message}`, true);
         break;
     }
-  }, [result, flash]);
+  }, [result, flash, land, say]);
 
   useEffect(() => {
     if (result?.status !== 'completed' || !onDone || stayed) return;
@@ -300,7 +336,14 @@ export function SendScreen({
     setScanning(false);
   }
 
-  function fail(error: unknown): Failure {
+  /**
+   * An engine refusal: felt and logged as it comes, and said once a screen
+   * reader has landed where `landing` says, when the refusal moves it on.
+   */
+  function fail(
+    error: unknown,
+    landing?: (next: Failure) => Landing | null,
+  ): Failure {
     const message = errorMessage(error);
     const next = sendFailure(error, {
       message,
@@ -308,13 +351,23 @@ export function SendScreen({
       balance,
     });
     haptics[next.haptic]();
-    announce(message, { assertive: true });
+    const target = landing?.(next);
+    if (target) land(target);
+    say(message, true);
     recordDiagnostic({ phase: 'ui', code: next.code || undefined, message });
     if (next.target === 'request') setCollapsed(false);
     if (next.target === 'amount' && next.shake) setAmountShakes(n => n + 1);
     setFailure(next);
     return next;
   }
+
+  /**
+   * Where a screen reader lands as a refusal takes a review back to compose:
+   * the amount, unless the request was refused, whose well takes focus as it
+   * opens.
+   */
+  const backToCompose = (next: Failure) =>
+    next.target === 'request' ? null : readout;
 
   /** Lands a held request on its ring, whatever step it was on. */
   function toHeld() {
@@ -347,6 +400,8 @@ export function SendScreen({
       toHeld();
       return;
     }
+    // A refresh is asked for from a review whose quote ran out.
+    const fromReview = review !== null;
     goingOut();
     setFailure(null);
     try {
@@ -360,7 +415,8 @@ export function SendScreen({
       setCollapsed(true);
       const late = next.expiresAt <= Date.now();
       setExpired(late);
-      if (late) quoteExpired();
+      land(late ? control : summary);
+      if (late) quoteExpired(say);
     } catch (e) {
       if (alreadySubmitted(e)) {
         // The engine has a payment for this request out already.
@@ -371,9 +427,13 @@ export function SendScreen({
           message: errorMessage(e),
         });
         toHeld();
-      } else if (fail(e).target !== 'control') {
+      } else if (
         // A refresh refused beside its control keeps the spent quote on
         // screen, to try again; anything else is fixed back in compose.
+        fail(e, next =>
+          fromReview && next.target !== 'control' ? backToCompose(next) : null,
+        ).target !== 'control'
+      ) {
         setReview(null);
         setExpired(false);
       }
@@ -388,7 +448,8 @@ export function SendScreen({
     // in, and a request held since the review never pays twice.
     if (review.expiresAt <= Date.now()) {
       setExpired(true);
-      quoteExpired();
+      land(control);
+      quoteExpired(say);
       return;
     }
     if (heldRequest(request, activity)) {
@@ -416,10 +477,10 @@ export function SendScreen({
         );
       } else if (errorCode(e) === 'QUOTE_EXPIRED') {
         setExpired(true);
-        fail(e);
+        fail(e, () => control);
       } else {
         setReview(null);
-        fail(e);
+        fail(e, backToCompose);
       }
     } finally {
       cameBack();
@@ -431,6 +492,7 @@ export function SendScreen({
     setReview(null);
     setExpired(false);
     setFailure(null);
+    land(readout);
   }
 
   /** A new quote for the same payment, which takes the spent one's place. */
@@ -443,6 +505,7 @@ export function SendScreen({
   function retry() {
     setResult(null);
     setFailure(null);
+    land(readout);
   }
 
   async function paste(): Promise<boolean> {
@@ -450,11 +513,11 @@ export function SendScreen({
       const pasted = (await Clipboard.getString())?.trim();
       if (!pasted) {
         haptics.error();
-        announce(copy.send.clipboardEmpty);
+        say(copy.send.clipboardEmpty);
         return false;
       }
       accept(pasted);
-      announce(copy.send.pasted);
+      say(copy.send.pasted);
       return true;
     } catch (e) {
       fail(e);
@@ -519,6 +582,7 @@ export function SendScreen({
       <>
         <View style={styles.body}>
           <ResultMark
+            ref={mark}
             visual={visual}
             accessibilityLabel={visual.title}
             accessibilityValue={statusLabel(result.status)}
@@ -589,6 +653,7 @@ export function SendScreen({
       <>
         <View style={styles.body}>
           <ResultMark
+            ref={mark}
             visual={resultVisual('uncertain')}
             accessibilityLabel={
               held.status === 'pending' ? copy.send.onItsWay : copy.send.unknown
@@ -619,7 +684,7 @@ export function SendScreen({
     content = (
       <>
         <View style={styles.body}>
-          <Amount sats={review.amountSats} />
+          <Amount ref={summary} sats={review.amountSats} />
           {review.description ? (
             <Text style={styles.note} numberOfLines={2}>
               {review.description}
@@ -637,7 +702,9 @@ export function SendScreen({
             />
           </View>
           <Commit
+            ref={control}
             accessibilityLabel={copy.send.sendSats(review.amountSats)}
+            summary={reviewWords(review)}
             expiresAt={review.expiresAt}
             createdAt={reviewedAt}
             warning={review.warnings.length > 0}
@@ -672,6 +739,7 @@ export function SendScreen({
     content = (
       <>
         <AmountReadout
+          ref={readout}
           accessibilityLabel={copy.amount.field}
           value={grouped(shownAmount)}
           onChangeText={

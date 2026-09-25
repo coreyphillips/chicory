@@ -7,6 +7,7 @@ import { SendScreen, ReceiveScreen } from '../src/screens/Payments';
 import { Scanner } from '../src/components/Scanner';
 import { copy } from '../src/design/copy';
 import * as tokens from '../src/motion/tokens';
+import { stepInMs } from '../src/scenes/send/useLanding';
 import type { WalletAdapter } from '../src/services/wallet';
 import { amountValue, enterAmount } from '../test-support/keypad';
 import {
@@ -518,7 +519,10 @@ test('a request whose payment is unknown cannot be paid again: it lands on the h
   });
   const client = adapter({ prepareSend, send });
   const paid = await payOnce(client, 'lnbc-held');
-  // Unknown is said at once, and loudly.
+  // Unknown is said loudly, as soon as a screen reader is on its mark.
+  await act(async () => {
+    await new Promise<void>(resolve => setTimeout(resolve, stepInMs() + 50));
+  });
   expect(said).toHaveBeenCalledWith(copy.send.heldAnnouncement, {
     queue: false,
   });

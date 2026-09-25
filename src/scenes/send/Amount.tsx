@@ -1,23 +1,33 @@
 import React from 'react';
+import type { ComponentRef, Ref } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
 import { number, type as typography } from '../../theme';
 
 const UNIT = 'sats';
 
 /**
- * An amount of a payment at 48pt, with its unit, in `color`. It reads as
- * itself, the digits and the unit, and needs no other words.
+ * An amount of a payment at 48pt, with its unit, in `color`. It is one
+ * element to a screen reader, read as the amount in sats, as the odometer
+ * is. `ref` is that element, where a screen reader lands on a review.
  */
 export function Amount({
   sats,
   color = palette.cream,
+  ref,
 }: {
   sats: number;
   color?: string;
+  ref?: Ref<ComponentRef<typeof View>>;
 }) {
   return (
-    <View style={styles.row}>
+    <View
+      ref={ref}
+      accessible
+      accessibilityLabel={copy.amount.spoken(sats)}
+      style={styles.row}
+    >
       <Text style={[styles.value, { color }]} maxFontSizeMultiplier={1.2}>
         {number(sats)}
       </Text>

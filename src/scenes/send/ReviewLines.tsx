@@ -1,39 +1,28 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { SendReview } from '@beignet/wallet-core';
-import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
 import { number, space, type as typography } from '../../theme';
-import { reviewRail } from './model';
+import { reviewFigures, reviewRail } from './model';
+import type { ReviewFigure } from './model';
 
 const UNIT = 'sats';
 
 /** One line of the sum: its signs and its amount, with its words spoken. */
-function Figure({
-  signs,
-  sats,
-  label,
-  value,
-  total = false,
-}: {
-  signs: string;
-  sats: number;
-  label: string;
-  value: string;
-  total?: boolean;
-}) {
+function Figure({ figure }: { figure: ReviewFigure }) {
+  const total = figure.key === 'total';
   return (
     <View
       accessible
-      accessibilityLabel={label}
-      accessibilityValue={{ text: value }}
+      accessibilityLabel={figure.label}
+      accessibilityValue={{ text: figure.value }}
       style={styles.figure}
     >
-      <Text style={styles.signs}>{signs}</Text>
+      <Text style={styles.signs}>{figure.signs}</Text>
       <Text style={[styles.amount, total && styles.total]}>
-        {`${number(sats)} ${UNIT}`}
+        {`${number(figure.sats)} ${UNIT}`}
       </Text>
     </View>
   );
@@ -59,48 +48,25 @@ function Pip({ warning }: { warning: string }) {
  */
 export function ReviewLines({ review }: { review: SendReview }) {
   const rail = reviewRail(review);
-  const estimate = review.estimatedFeeSats;
   return (
     <View style={styles.lines}>
-      <View style={styles.line}>
-        <View
-          accessible
-          accessibilityRole="image"
-          accessibilityLabel={rail.label}
-          style={styles.rail}
-        >
-          <Glyph name={rail.glyph} size={20} color={palette.bloom} />
+      {reviewFigures(review).map((figure, index) => (
+        <View key={figure.key} style={styles.line}>
+          {index === 0 ? (
+            <View
+              accessible
+              accessibilityRole="image"
+              accessibilityLabel={rail.label}
+              style={styles.rail}
+            >
+              <Glyph name={rail.glyph} size={20} color={palette.bloom} />
+            </View>
+          ) : (
+            <View style={styles.rail} />
+          )}
+          <Figure figure={figure} />
         </View>
-        <Figure
-          signs="+ ≤"
-          sats={review.feeSats}
-          label={review.feeLabel || copy.send.fee}
-          value={copy.amount.spoken(review.feeSats)}
-        />
-      </View>
-      {estimate != null ? (
-        <View style={styles.line}>
-          <View style={styles.rail} />
-          <Figure
-            signs="≈"
-            sats={estimate}
-            label={copy.send.expectedFee}
-            value={copy.send.about(estimate)}
-          />
-        </View>
-      ) : null}
-      <View style={styles.line}>
-        <View style={styles.rail} />
-        <Figure
-          signs="="
-          sats={review.totalSats}
-          label={
-            estimate != null ? copy.send.totalAtMost : copy.send.totalWithFee
-          }
-          value={copy.amount.spoken(review.totalSats)}
-          total
-        />
-      </View>
+      ))}
       {review.warnings.length ? (
         <View style={styles.pips}>
           {review.warnings.map(warning => (

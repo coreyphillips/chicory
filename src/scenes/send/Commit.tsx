@@ -1,23 +1,14 @@
-import React, { useRef } from 'react';
-import type { ComponentRef } from 'react';
+import React from 'react';
+import type { ComponentRef, Ref } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { copy } from '../../design/copy';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
 import { HoldButton } from '../../glyphs/HoldButton';
-import type { HoldButtonProps } from '../../glyphs/HoldButton';
 import { useNow } from '../../services/clock';
 import { CONTROL, CircleControl, QuoteRefresh } from './Controls';
-import { useFocusOnMount } from './useFocusOnMount';
 
 /** The ring round the hold, at r+8 from the control (REDESIGN.md 5). */
 const RING = CONTROL + 16;
-
-/** The hold, which a screen reader moves to as the review arrives. */
-function FocusedHold(props: Omit<HoldButtonProps, 'ref'>) {
-  const circle = useRef<ComponentRef<typeof View>>(null);
-  useFocusOnMount(circle);
-  return <HoldButton ref={circle} {...props} />;
-}
 
 /**
  * Where a review is committed (REDESIGN.md 5 and 6, Send): the hold inside
@@ -26,13 +17,16 @@ function FocusedHold(props: Omit<HoldButtonProps, 'ref'>) {
  * is too old to spend against, the hold gives way to a dust control whose
  * tap shakes and refreshes the balance instead.
  *
- * The ring says nothing to a screen reader, so the hold carries the time
- * the quote has left, as the countdown under the old button did. Handlers
- * are given only while a tap does something, as the controls on the canvas
- * take them.
+ * A screen reader commits the hold with one action, so the hold says the
+ * whole review with it: `summary`, the total, the fee and every engine
+ * warning, and then the time the quote has left, which the ring shows and
+ * does not say. Handlers are given only while a tap does something, as the
+ * controls on the canvas take them. `ref` is whichever control is shown, for
+ * the screen to move a screen reader to it.
  */
 export function Commit({
   accessibilityLabel,
+  summary,
   expiresAt,
   createdAt,
   warning,
@@ -42,8 +36,10 @@ export function Commit({
   onCommit,
   onRefreshQuote,
   onRefresh,
+  ref,
 }: {
   accessibilityLabel: string;
+  summary: string;
   expiresAt: number;
   createdAt: number;
   warning: boolean;
@@ -53,6 +49,7 @@ export function Commit({
   onCommit: () => void;
   onRefreshQuote?: () => void;
   onRefresh?: () => void;
+  ref?: Ref<ComponentRef<typeof View>>;
 }) {
   // Only the words need the second: the ring runs down on its own timing.
   const now = useNow(1000, !expired && !stale);
@@ -62,18 +59,22 @@ export function Commit({
       <ExpiryRing size={RING} expiresAt={expiresAt} createdAt={createdAt} />
       <View style={styles.control}>
         {expired ? (
-          <QuoteRefresh onPress={onRefreshQuote} busy={busy} />
+          <QuoteRefresh ref={ref} onPress={onRefreshQuote} busy={busy} />
         ) : stale ? (
           <CircleControl
+            ref={ref}
             accessibilityLabel={accessibilityLabel}
             accessibilityHint={copy.send.stale}
             onPress={onRefresh}
             stale
           />
         ) : (
-          <FocusedHold
+          <HoldButton
+            ref={ref}
             accessibilityLabel={accessibilityLabel}
-            accessibilityValue={{ text: copy.send.quoteExpires(left) }}
+            accessibilityValue={{
+              text: `${summary} ${copy.send.quoteExpires(left)}`,
+            }}
             onCommit={onCommit}
             warning={warning}
             busy={busy}

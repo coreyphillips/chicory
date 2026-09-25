@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import type { ReactNode } from 'react';
+import type { ComponentRef, ReactNode, Ref } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Reanimated, {
   useAnimatedStyle,
@@ -47,7 +47,8 @@ const FILLS: Record<Tone, string> = {
  * control's do.
  *
  * Like every control on the canvas, it is given `onPress` only while its
- * pane is in use, and only when a tap does something.
+ * pane is in use, and only when a tap does something. `ref` is the circle,
+ * for a screen that moves a screen reader to it.
  */
 export function CircleControl({
   accessibilityLabel,
@@ -57,6 +58,7 @@ export function CircleControl({
   stale = false,
   tone = 'bloom',
   children,
+  ref,
 }: {
   accessibilityLabel: string;
   accessibilityHint?: string;
@@ -65,6 +67,7 @@ export function CircleControl({
   stale?: boolean;
   tone?: Tone;
   children?: ReactNode;
+  ref?: Ref<ComponentRef<typeof View>>;
 }) {
   const live = usePaneActive() && !busy;
   const { reduced } = useMotionPrefs();
@@ -91,6 +94,7 @@ export function CircleControl({
   const control = (
     <Reanimated.View style={[refusal.style, pressStyle]}>
       <Pressable
+        ref={ref}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={accessibilityHint}
@@ -142,9 +146,11 @@ export function CircleControl({
 export function QuoteRefresh({
   onPress,
   busy,
+  ref,
 }: {
   onPress?: () => void;
   busy: boolean;
+  ref?: Ref<ComponentRef<typeof View>>;
 }) {
   const { reduced } = useMotionPrefs();
   const turned = useSharedValue(0);
@@ -165,6 +171,7 @@ export function QuoteRefresh({
   );
   return (
     <CircleControl
+      ref={ref}
       accessibilityLabel={copy.send.refreshQuote}
       accessibilityHint={copy.send.quoteExpired}
       onPress={onPress}

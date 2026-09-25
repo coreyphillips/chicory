@@ -39,7 +39,11 @@ import { usePaneActive } from '../stage/panes/Pane';
  * fill is honey. While `busy` an orbit runs round the ring.
  *
  * A screen reader has no hold to give, so it gets one `activate` action that
- * commits at once: the confirmation is the deliberate double tap.
+ * commits at once: the confirmation is the deliberate double tap. TalkBack
+ * sends that as the action, and VoiceOver as an accessibility tap, since on
+ * the new architecture iOS lists `activate` only among the custom actions;
+ * both commit. Its words are the caller's, and a caller gives the whole of
+ * what is committed in `accessibilityValue`, as Send gives the review.
  */
 export interface HoldButtonProps {
   accessibilityLabel: string;
@@ -243,6 +247,7 @@ export function HoldButton({
               }
             : undefined
         }
+        onAccessibilityTap={live ? commit : undefined}
         onPressIn={live ? begin : undefined}
         onPressOut={live ? release : undefined}
         onLongPress={live ? commit : undefined}
