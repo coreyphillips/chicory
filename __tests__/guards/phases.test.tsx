@@ -36,6 +36,7 @@ import { PANE_SETTLE_MS, STATUS_ROW } from '../../src/stage/layout';
 import {
   newestFirst,
   StageProvider,
+  useStage,
   useStageStore,
 } from '../../src/stage/StageContext';
 import type { StageStore } from '../../src/stage/StageContext';
@@ -808,12 +809,12 @@ describe('phase behaviour', () => {
     await act(async () => tree.unmount());
   });
 
-  test('the picker closes its network editor as the new wallet sheet opens over it', async () => {
+  test('the picker draws no network editor under the new wallet sheet', async () => {
     // The stage draws the sheet over the phase, rooted in a settings-class
     // surface of its own; this stands in for it.
     function WithSheet({ primaryUri }: { primaryUri: string }) {
       const [editor, setEditor] = useState(true);
-      const [sheet, setSheet] = useState(false);
+      const { state, actions } = useStage();
       return (
         <>
           <Picker
@@ -828,9 +829,9 @@ describe('phase behaviour', () => {
             selectWallet={jest.fn(async () => {})}
             createDefaultWallet={jest.fn(async () => {})}
             disconnect={jest.fn(async () => {})}
-            onCreateWallet={() => setSheet(true)}
+            onCreateWallet={actions.openCreate}
           />
-          {sheet ? <SettingsSurface /> : null}
+          {state.overlay?.name === 'create' ? <SettingsSurface /> : null}
         </>
       );
     }
@@ -840,15 +841,28 @@ describe('phase behaviour', () => {
           typeof node.type === 'string' &&
           node.props.testID === SETTINGS_MARKER,
       ).length;
-    // Restoring, and making a wallet on a network with no primary node,
-    // which asks for one in the sheet.
-    for (const [primaryUri, control] of [
-      [`02${'a'.repeat(64)}@127.0.0.1:19846`, copy.phase.restore],
-      ['', copy.phase.createWallet],
+    const NODE = `02${'a'.repeat(64)}@127.0.0.1:19846`;
+    // Restoring; making a wallet on a network with no primary node, which
+    // asks for one in the sheet; and a sheet the picker did not open, as
+    // restore from Welcome lands on the picker with it.
+    for (const open of [
+      {
+        primaryUri: NODE,
+        go: (tree: ReactTestRenderer) => press(tree, copy.phase.restore),
+      },
+      {
+        primaryUri: '',
+        go: (tree: ReactTestRenderer) => press(tree, copy.phase.createWallet),
+      },
+      {
+        primaryUri: NODE,
+        go: () => act(async () => stage.actions.openCreate(true)),
+      },
     ]) {
-      const tree = await staged(<WithSheet primaryUri={primaryUri} />);
+      const tree = await staged(<WithSheet primaryUri={open.primaryUri} />);
       expect(markers(tree)).toBe(1);
-      await press(tree, control);
+      await open.go(tree);
+      expect(stage.state.overlay?.name).toBe('create');
       expect(markers(tree)).toBe(1);
       expect(() => copyViolations(tree, { data: DATA })).not.toThrow();
       await act(async () => tree.unmount());

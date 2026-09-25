@@ -18,7 +18,7 @@ import { stagger } from '../../motion/presets';
 import { curves, durations } from '../../motion/tokens';
 import { NetworkSettings } from '../../screens/NetworkSettings';
 import type { useWalletSession } from '../../services/useWalletSession';
-import { usePhaseBack } from '../../stage/StageContext';
+import { usePhaseBack, useStage } from '../../stage/StageContext';
 import { radius, space } from '../../theme';
 import { handOff } from './handoff';
 import {
@@ -90,12 +90,14 @@ export function Picker({
     [selectWallet],
   );
   // The new wallet sheet is a settings-class surface of its own, drawn over
-  // the picker, so the network editor closes as it opens: a tree holds one
-  // settings-class surface at a time (REDESIGN.md 10.1).
+  // the picker, and a tree holds one at a time (REDESIGN.md 10.1): the
+  // network editor closes as the picker opens the sheet, and is not drawn
+  // under one opened any other way, as restore from Welcome lands here.
   const openSheet = (restoring: boolean) => {
     if (networkEditor) setNetworkEditor(false);
     onCreateWallet(restoring);
   };
+  const covered = useStage().state.overlay?.name === 'create';
   const create = () => {
     // A network with no primary node cannot have a wallet made from its
     // defaults: the shared client refuses one without a node. Open the form
@@ -149,7 +151,7 @@ export function Picker({
           <SproutRow busy={selecting} tone={tone} onPress={create} />
         ) : null}
       </View>
-      {networkEditor ? (
+      {networkEditor && !covered ? (
         <SetupPanel>
           <NetworkSettings initialNetwork={network} onApply={switchNetwork} />
         </SetupPanel>
