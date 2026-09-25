@@ -90,6 +90,11 @@ export function turnIn(): EntryExitAnimationFunction {
  * A round glyph control, the only kind Receive has (REDESIGN.md 6). Its
  * label, hint and state carry the words a button used to show.
  *
+ * `tone` is how much it stands out: `primary` is the way on, a bloom disc;
+ * `raised` a mocha disc; `bare` only its glyph in a place a finger can
+ * press, as the glyphs it sits among are drawn, turning bloom while what it
+ * opens is open (`expanded`).
+ *
  * `disabled` takes no taps. `blocked` looks and reads disabled but still
  * answers a tap with `onBlocked`, as a control held back by a stale balance
  * shakes and refreshes. A new `shake` refuses; a new `pulse` swells once to
@@ -128,7 +133,7 @@ export function GlyphButton({
   onPress: () => void;
   onBlocked?: () => void;
   size?: number;
-  tone?: 'primary' | 'raised';
+  tone?: 'primary' | 'raised' | 'bare';
   disabled?: boolean;
   blocked?: boolean;
   busy?: boolean;
@@ -172,7 +177,14 @@ export function GlyphButton({
 
   const quiet = disabled || blocked;
   const primary = tone === 'primary' && !quiet;
-  const ink = quiet ? palette.dust : primary ? palette.ink : palette.cream;
+  const bare = tone === 'bare';
+  const ink = quiet
+    ? palette.dust
+    : primary
+    ? palette.ink
+    : bare && expanded
+    ? bloom
+    : palette.cream;
   const to = (scale: number) =>
     press.set(reduced ? 1 : withSpring(scale, springs.snap));
   const round = { width: size, height: size, borderRadius: size / 2 };
@@ -180,7 +192,7 @@ export function GlyphButton({
   // Held back, it is drawn as Send's way on is, a mocha disc in a husk ring
   // with a dust glyph: a shape as well as a colour (REDESIGN.md 9). And a
   // long press whispers why (REDESIGN.md rule 3).
-  const held = quiet && { borderWidth: quietRing(size) };
+  const held = quiet && !bare && { borderWidth: quietRing(size) };
   return (
     <Whisper label={hint ?? label} enabled={quiet}>
       <Reanimated.View style={refusal.style}>
@@ -220,8 +232,12 @@ export function GlyphButton({
             style={[
               styles.control,
               children ? [styles.pill, pill] : round,
-              primary ? { backgroundColor: bloom } : styles.raised,
-              quiet && styles.quiet,
+              primary
+                ? { backgroundColor: bloom }
+                : bare
+                ? undefined
+                : styles.raised,
+              quiet && !bare && styles.quiet,
               held,
             ]}
           >

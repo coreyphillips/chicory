@@ -800,6 +800,41 @@ describe('the amount step', () => {
     await act(async () => tree.unmount());
   });
 
+  test('balances its top row: bare glyphs either side of the cue, in slots of one width', async () => {
+    // The pencil was a filled 48pt disc at one edge, the sprout a bare glyph
+    // in the middle, and nothing at the other (P10, 18-receive-amount-large).
+    const tree = await screen(clientOf(), { receivableSats: 0 });
+    const pencil = find(tree, copy.receive.addNote)!;
+    const drawn = StyleSheet.flatten(pencil.props.style);
+    expect(drawn).toMatchObject({ width: 48, height: 48 });
+    expect(drawn.backgroundColor).toBeUndefined();
+    expect(drawn.borderWidth).toBeUndefined();
+    const [cue] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === copy.amount.required,
+    );
+    const sizes = [pencil, cue].map(node => glyphsIn(node)[0].props.size);
+    expect(sizes).toEqual([20, 20]);
+    // The row is three columns: the sides share its width equally, so the
+    // cue is centred with or without the moon.
+    let row = pencil.parent!;
+    while (!row.findAll(node => node === cue).length) row = row.parent!;
+    const sides = (row.children as ReactTestInstance[])
+      .map(child => StyleSheet.flatten(child.props.style) ?? {})
+      .filter(style => style.flex !== undefined)
+      .map(style => style.flex);
+    expect(sides).toEqual([1, 1]);
+    // Open, the note's pencil turns bloom rather than growing a disc.
+    await tap(tree, copy.receive.addNote);
+    const open = find(tree, copy.receive.addNote)!;
+    expect(glyphsIn(open)[0].props.color).toBe(palette.bloom);
+    expect(
+      StyleSheet.flatten(open.props.style).backgroundColor,
+    ).toBeUndefined();
+    await act(async () => tree.unmount());
+  });
+
   test('its cue is a place a finger can hold', async () => {
     const tree = await screen(clientOf(), { receivableSats: 0 });
     const [cue] = tree.root.findAll(
