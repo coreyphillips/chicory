@@ -13,7 +13,7 @@ import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
-import { QrBloom, qrSide } from '../../glyphs/QrBloom';
+import { QrBloom } from '../../glyphs/QrBloom';
 import { Whisper } from '../../glyphs/Whisper';
 import { riseIn, stagger } from '../../motion/presets';
 import { curves } from '../../motion/tokens';
@@ -30,8 +30,8 @@ import { lateAt, remainderSats, requestRails, shownSats } from './model';
 /** The expiry ring runs this far outside the card. */
 export const RING_GAP = 8;
 
-/** A request's frame for a code `qr` points across. */
-export const frameSide = (qr: number) => qrSide(qr) + RING_GAP * 2;
+/** A request's frame for a code's card `qr` points across. */
+export const frameSide = (qr: number) => qr + RING_GAP * 2;
 
 /**
  * A request and what becomes of it (REDESIGN.md 6, Receive). The code
@@ -72,7 +72,7 @@ export function RequestStep({
   trackingError?: string;
   hidden: boolean;
   unit: Unit;
-  /** How wide the code is drawn. */
+  /** How wide the code's card is drawn, its quiet zone included. */
   qr: number;
   error: Refused | null;
   onLift: () => void;

@@ -1,6 +1,6 @@
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import type { Ref } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { PixelRatio, Pressable, StyleSheet, View } from 'react-native';
 import type { HostInstance } from 'react-native';
 import Reanimated, {
   ReduceMotion,
@@ -33,6 +33,10 @@ import { radius } from '../theme';
  * request dissolves from the outside in, a paid one implodes from the inside
  * out, and one whose address was reused scatters and leaves a honey twin.
  *
+ * The modules fill the card but for a quiet zone of four modules (`qrGrid`),
+ * and every module edge falls on a whole pixel, so no seam shows where one
+ * band's modules meet the next band's and a dense request still scans.
+ *
  * Only a request that can still be paid is drawn as a code, named for a
  * screen reader and pressable. Anything else is decoration for its caller to
  * put words to, so nothing on screen can be scanned into a payment that would
@@ -42,6 +46,7 @@ export type QrState = 'shown' | 'expired' | 'paid' | 'scattered';
 
 export interface QrBloomProps {
   value: string;
+  /** How wide the card is drawn, its quiet zone included. */
   size: number;
   state: QrState;
   onPress?: () => void;
@@ -51,11 +56,11 @@ export interface QrBloomProps {
   ref?: Ref<HostInstance>;
 }
 
-/** The quiet zone around the modules, which scanners need to find the code. */
-export const QR_QUIET = 12;
-
-/** How wide a code `size` across is drawn, its quiet zone included. */
-export const qrSide = (size: number) => size + QR_QUIET * 2;
+/**
+ * The quiet zone around the modules, in modules: the four ISO 18004 asks
+ * for, which scanners need to find the code.
+ */
+export const QR_QUIET = 4;
 
 /** Bands of modules, from the centre out. */
 export const BANDS = 5;
@@ -90,10 +95,55 @@ export interface Finder {
   d: string;
 }
 
-/** Modules on a row drawn as runs, so a path holds a run as one rectangle. */
+/** Where a code's modules sit on its card. */
+export interface QrGrid {
+  ratio: number;
+  /** A module's width in points, on average. */
+  unit: number;
+  /** The quiet zone, in points. */
+  inset: number;
+  /** Where each module edge falls, 0 to `modules`, in pixels from the card's edge. */
+  edges: number[];
+}
+
+/**
+ * Where a code of `modules` a side sits on a card `side` points across, on a
+ * screen of `ratio` pixels to the point (`PixelRatio.get()`).
+ *
+ * The modules fill the card but for the quiet zone: QR_QUIET modules, or a
+ * little more on the densest codes, so the card's rounded corner stays a
+ * module clear of each finder's outer corner. Each module edge is rounded to
+ * a whole pixel, so neighbouring modules in different layers meet without a
+ * seam, and a module is at most a pixel wider than another.
+ */
+export function qrGrid(
+  side: number,
+  modules: number,
+  ratio: number,
+  corner: number = radius.qr,
+): QrGrid {
+  const plain = side / (modules + 2 * QR_QUIET);
+  // A finder's outer corner at (d, d) lies r - (r - d)√2 inside a corner of
+  // radius r. This is the module at which that is one module, which is the
+  // smaller only on the densest codes.
+  const clear = (side - (2 - Math.SQRT2) * corner) / (modules + Math.SQRT2);
+  const unit = Math.min(plain, clear);
+  const inset = (side - modules * unit) / 2;
+  const edges = Array.from({ length: modules + 1 }, (_, k) =>
+    Math.round((inset + k * unit) * ratio),
+  );
+  return { ratio, unit, inset, edges };
+}
+
+/**
+ * Modules on a row drawn as runs, so a path holds a run as one rectangle.
+ * `x` and `y` say where module edge k falls across and down.
+ */
 function runs(
   size: number,
   dark: (row: number, column: number) => boolean,
+  x: (k: number) => number,
+  y: (k: number) => number,
 ): string {
   let d = '';
   for (let row = 0; row < size; row++) {
@@ -102,8 +152,9 @@ function runs(
       const on = column < size && dark(row, column);
       if (on && start < 0) start = column;
       if (!on && start >= 0) {
-        const length = column - start;
-        d += `M${start} ${row}h${length}v1h-${length}z`;
+        const width = x(column) - x(start);
+        const height = y(row + 1) - y(row);
+        d += `M${x(start)} ${y(row)}h${width}v${height}h-${width}z`;
         start = -1;
       }
     }
@@ -113,13 +164,20 @@ function runs(
 
 /**
  * The code split for its bloom: `bands` holds a path per band, centre
- * first, in module units, and `finders` the three finder squares, each in
- * units of its own 7 by 7 box.
+ * first, and `finders` the three finder squares, each drawn from the corner
+ * of its own 7 by 7 box. Paths are in module units, or with `edges` from
+ * `qrGrid` in pixels from where the layer's box starts: the whole code for
+ * a band, and its own square for a finder.
  */
-export function qrLayers({ size, data }: QrModules): {
+export function qrLayers(
+  { size, data }: QrModules,
+  edges?: ArrayLike<number>,
+): {
   bands: string[];
   finders: Finder[];
 } {
+  const at = (k: number) => (edges ? edges[k] : k);
+  const from = (origin: number) => (k: number) => at(origin + k) - at(origin);
   const dark = (row: number, column: number) => data[row * size + column] === 1;
   const corners = [
     { x: 0, y: 0 },
@@ -145,12 +203,19 @@ export function qrLayers({ size, data }: QrModules): {
       size,
       (row, column) =>
         dark(row, column) && !inFinder(row, column) && band(row, column) === k,
+      from(0),
+      from(0),
     ),
   );
   const finders = corners.map(({ x, y }) => ({
     x,
     y,
-    d: runs(FINDER, (row, column) => dark(y + row, x + column)),
+    d: runs(
+      FINDER,
+      (row, column) => dark(y + row, x + column),
+      from(x),
+      from(y),
+    ),
   }));
   return { bands, finders };
 }
@@ -327,16 +392,15 @@ export const QrBloom = memo(function QrCode({
   const { reduced } = useMotionPrefs();
   const shown = state === 'shown';
   const pressable = shown && (!!onPress || !!onLongPress);
-  const layers = useMemo(() => {
+  const ratio = PixelRatio.get();
+  const { grid, layers } = useMemo(() => {
     const modules = qrModules(value);
-    return { size: modules.size, ...qrLayers(modules) };
-  }, [value]);
-
-  // A module is a whole number of points wherever the code fits one, so no
-  // seam shows where one band's modules meet the next band's.
-  const unit = Math.floor(size / layers.size) || size / layers.size;
-  const drawn = unit * layers.size;
-  const origin = QR_QUIET + (size - drawn) / 2;
+    const at = qrGrid(size, modules.size, ratio);
+    return {
+      grid: at,
+      layers: { size: modules.size, ...qrLayers(modules, at.edges) },
+    };
+  }, [value, size, ratio]);
 
   // The layers stay drawn while they leave, then go, so a code that can no
   // longer be paid is not left on screen at any opacity.
@@ -382,13 +446,22 @@ export const QrBloom = memo(function QrCode({
   }));
   const creamStyle = useAnimatedStyle(() => ({ opacity: cream.get() }));
 
-  const side = qrSide(size);
-  const box = (x: number, y: number, modules: number) => ({
-    left: origin + x * unit,
-    top: origin + y * unit,
-    width: modules * unit,
-    height: modules * unit,
-  });
+  // A layer's box, from module edge x, y to the edge `modules` on, in points
+  // that land on whole pixels, and its drawing's own pixels as the viewBox.
+  const { edges } = grid;
+  const box = (x: number, y: number, modules: number) => {
+    const width = edges[x + modules] - edges[x];
+    const height = edges[y + modules] - edges[y];
+    return {
+      frame: {
+        left: edges[x] / ratio,
+        top: edges[y] / ratio,
+        width: width / ratio,
+        height: height / ratio,
+      },
+      viewBox: `0 0 ${width} ${height}`,
+    };
+  };
   return (
     <Pressable
       ref={ref}
@@ -417,7 +490,7 @@ export const QrBloom = memo(function QrCode({
       }
     >
       <Reanimated.View
-        style={[styles.card, { width: side, height: side }, cardStyle]}
+        style={[styles.card, { width: size, height: size }, cardStyle]}
       >
         <View
           style={[
@@ -436,8 +509,7 @@ export const QrBloom = memo(function QrCode({
                   layer={band}
                   state={state}
                   reduced={reduced}
-                  frame={box(0, 0, layers.size)}
-                  viewBox={`0 0 ${layers.size} ${layers.size}`}
+                  {...box(0, 0, layers.size)}
                   d={d}
                 />
               ) : null,
@@ -448,8 +520,7 @@ export const QrBloom = memo(function QrCode({
                 layer={FINDERS}
                 state={state}
                 reduced={reduced}
-                frame={box(finder.x, finder.y, FINDER)}
-                viewBox={`0 0 ${FINDER} ${FINDER}`}
+                {...box(finder.x, finder.y, FINDER)}
                 d={finder.d}
               />
             ))}
@@ -461,11 +532,11 @@ export const QrBloom = memo(function QrCode({
             style={styles.face}
           >
             {state === 'expired' ? (
-              <Glyph name="clock" size={side / 4} color={palette.dust} />
+              <Glyph name="clock" size={size / 4} color={palette.dust} />
             ) : (
               <Glyph
                 name="twin"
-                size={side * 0.7}
+                size={size * 0.7}
                 color={palette.honey}
                 strokeWidth={TWIN_STROKE}
               />

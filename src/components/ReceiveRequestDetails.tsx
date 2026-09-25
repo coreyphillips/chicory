@@ -145,7 +145,7 @@ export function ReceiveRequestDetails({
           <View style={styles.qr}>
             <QrBloom
               value={request.uri}
-              size={Math.min(220, Math.max(150, width - 160))}
+              size={Math.min(244, Math.max(174, width - 136))}
               state={face.qr}
               accessibilityLabel={
                 legacy ? copy.receive.legacyQr : copy.receive.originalQr

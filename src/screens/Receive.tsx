@@ -11,7 +11,6 @@ import type {
 import { announce } from '../design/announce';
 import { copy } from '../design/copy';
 import { haptics } from '../design/haptics';
-import { qrSide } from '../glyphs/QrBloom';
 import { focusAfterTransition } from '../motion/focus';
 import { sceneIn, sceneOut } from '../motion/presets';
 import { announceSafety } from '../motion/speech';
@@ -383,7 +382,7 @@ export function ReceiveScreen({
     if (back) return focusAfterTransition(() => qrFocus.current);
   }, [showLift, shareable]);
 
-  const qr = Math.min(240, Math.max(150, width - 120));
+  const qr = Math.min(264, Math.max(174, width - 96));
   const amountMessage =
     error && error.message === amountError.current ? error.message : '';
   return (
@@ -476,7 +475,7 @@ export function ReceiveScreen({
         {showLift && request ? (
           <LiftedQr
             value={request.uri}
-            from={qrSide(qr)}
+            from={qr}
             onClose={() => setLifted(false)}
           />
         ) : null}

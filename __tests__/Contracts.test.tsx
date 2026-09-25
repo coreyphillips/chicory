@@ -1,5 +1,11 @@
 import React from 'react';
-import { AccessibilityInfo, Platform, StyleSheet, Text } from 'react-native';
+import {
+  AccessibilityInfo,
+  PixelRatio,
+  Platform,
+  StyleSheet,
+  Text,
+} from 'react-native';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -19,7 +25,7 @@ import { ExpiryRing } from '../src/glyphs/ExpiryRing';
 import { HoldButton } from '../src/glyphs/HoldButton';
 import { Odometer } from '../src/glyphs/Odometer';
 import { PulseDot } from '../src/glyphs/PulseDot';
-import { QrBloom, qrLayers, qrModules } from '../src/glyphs/QrBloom';
+import { QrBloom, qrGrid, qrLayers, qrModules } from '../src/glyphs/QrBloom';
 import type { QrState } from '../src/glyphs/QrBloom';
 import { StatusRing } from '../src/glyphs/StatusRing';
 import type { RingVisual } from '../src/glyphs/StatusRing';
@@ -482,8 +488,14 @@ describe('ExpiryRing', () => {
 
 describe('QrBloom', () => {
   const VALUE = 'bitcoin:bcrt1q?amount=0.0001';
-  // Every band and finder square the code is split into, as drawn paths.
-  const { bands, finders } = qrLayers(qrModules(VALUE));
+  const SIZE = 200;
+  // Every band and finder square the code is split into, as drawn paths on
+  // a card SIZE across.
+  const code = qrModules(VALUE);
+  const { bands, finders } = qrLayers(
+    code,
+    qrGrid(SIZE, code.size, PixelRatio.get()).edges,
+  );
   const layers = [...bands.filter(Boolean), ...finders.map(({ d }) => d)];
   const modules = (tree: ReactTestRenderer) =>
     tree.root.findAllByType(Path).filter(node => layers.includes(node.props.d));
@@ -497,7 +509,7 @@ describe('QrBloom', () => {
     const tree = await render(
       <QrBloom
         value={VALUE}
-        size={200}
+        size={SIZE}
         state={state}
         onPress={jest.fn()}
         accessibilityLabel="Payment request QR code"
