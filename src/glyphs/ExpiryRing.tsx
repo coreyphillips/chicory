@@ -10,8 +10,8 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import Svg, { Circle, Rect } from 'react-native-svg';
 import { palette } from '../design/palette';
+import { useLoop, wave } from '../motion/loops';
 import { curves, durations } from '../motion/tokens';
-import { useLoop } from '../scenes/send/motion';
 
 /**
  * How long a quote or request has left, as a ring that runs down around the
@@ -121,9 +121,7 @@ export function ExpiryRing({
     onExpired?.();
   }, [expired, expiresAt, onExpired]);
 
-  const pulse = useLoop(durations.pulse / 2, stage === 'urgent', {
-    mirror: true,
-  });
+  const pulse = useLoop(durations.pulse, stage === 'urgent');
   const gone = useSharedValue(0);
   useEffect(() => {
     gone.set(
@@ -133,7 +131,7 @@ export function ExpiryRing({
     );
   }, [expired, gone]);
   const style = useAnimatedStyle(() => ({
-    opacity: (1 - 0.5 * pulse.get()) * (1 - gone.get()),
+    opacity: (1 - 0.5 * wave(pulse.get())) * (1 - gone.get()),
     transform: [{ scale: 1 - 0.08 * gone.get() }],
   }));
 

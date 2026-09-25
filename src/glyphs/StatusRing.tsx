@@ -19,11 +19,13 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import { GLYPHS, GLYPH_LENGTHS, Glyph, strokeFor } from '../design/glyphs';
 import type { GlyphName } from '../design/glyphs';
 import { palette } from '../design/palette';
+import { fract, useAwake, useLoop } from '../motion/loops';
+import { kick } from '../motion/springMath';
 import { curves, durations, shake, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import type { RingVisual } from '../scenes/activity/visual';
 import { radius } from '../theme';
-import { fract, haloOpacity, kick, useAwake, useLoop } from './Bloom';
+import { haloOpacity } from './Bloom';
 
 export type { RingVisual } from '../scenes/activity/visual';
 

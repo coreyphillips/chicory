@@ -102,3 +102,31 @@ export const gradients = {
     night: { color: '#3B4A7A', opacity: 0.1 },
   },
 } as const;
+
+/*
+ * Colour helpers, for a token at a strength or on its way to another.
+ */
+
+/** `hex` ('#rrggbb') at `a` opacity. */
+export function alpha(hex: string, a: number): string {
+  const channel = (at: number) => parseInt(hex.slice(at, at + 2), 16);
+  return `rgba(${channel(1)},${channel(3)},${channel(5)},${a})`;
+}
+
+/**
+ * `from` moved `t` of the way to `to`, both '#rrggbb'. Any other colour
+ * switches at the halfway mark instead of blending.
+ */
+export function mixHex(from: string, to: string, t: number): string {
+  'worklet';
+  if (t <= 0) return from;
+  if (t >= 1) return to;
+  const hex = (color: string) => color.length === 7 && color[0] === '#';
+  if (!hex(from) || !hex(to)) return t < 0.5 ? from : to;
+  const channel = (at: number) => {
+    const x = parseInt(from.slice(at, at + 2), 16);
+    const y = parseInt(to.slice(at, at + 2), 16);
+    return Math.round(x + (y - x) * t);
+  };
+  return `rgb(${channel(1)}, ${channel(3)}, ${channel(5)})`;
+}

@@ -5,8 +5,8 @@ import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { GLYPHS, strokeFor } from '../../design/glyphs';
+import { fract, useLoop, wave } from '../../motion/loops';
 import { durations } from '../../motion/tokens';
-import { useLoop } from './motion';
 
 /**
  * Glyphs that keep moving while what they mark lasts (REDESIGN.md 4,
@@ -100,7 +100,7 @@ export const WaitingClock = memo(function WaitingClockView({
         loop={turn}
         move={t => {
           'worklet';
-          return { rotate: `${t * 360}deg` };
+          return { rotate: `${fract(t) * 360}deg` };
         }}
       />
     </Frame>
@@ -122,7 +122,7 @@ export const Unplugged = memo(function UnpluggedView({
   color: string;
 }) {
   // Out and back once each 1800ms.
-  const apart = useLoop(durations.pulse / 2, true, { mirror: true });
+  const apart = useLoop(durations.pulse, true);
   const reach = (DRIFT * size) / 24;
   return (
     <Frame size={size}>
@@ -136,7 +136,7 @@ export const Unplugged = memo(function UnpluggedView({
         loop={apart}
         move={t => {
           'worklet';
-          return { translateX: -reach * t };
+          return { translateX: -reach * wave(t) };
         }}
       />
       <Layer
@@ -146,7 +146,7 @@ export const Unplugged = memo(function UnpluggedView({
         loop={apart}
         move={t => {
           'worklet';
-          return { translateX: reach * t };
+          return { translateX: reach * wave(t) };
         }}
       />
     </Frame>

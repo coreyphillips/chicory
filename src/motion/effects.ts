@@ -1,82 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AppState } from 'react-native';
+import { useCallback } from 'react';
 import {
   ReduceMotion,
-  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
-  withRepeat,
   withSequence,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import type { EntryExitAnimationFunction } from 'react-native-reanimated';
-import { riseIn } from '../../motion/presets';
-import { curves, durations, shake, springs } from '../../motion/tokens';
-import { useMotionPrefs } from '../../motion/useMotionPrefs';
-import { motionReduced } from '../../services/motion';
-import { usePaneActive } from '../../stage/panes/Pane';
+import { motionReduced } from '../services/motion';
+import { riseIn } from './presets';
+import { curves, durations, shake, springs } from './tokens';
+import { useMotionPrefs } from './useMotionPrefs';
 
-/**
- * The moving parts Send and the keypad share: endless loops that rest when
- * nobody can see them, the refusal shake, and the pop and dissolve of a chip.
+/*
+ * One-off moves any control can make: the refusal shake, and the pop and
+ * dissolve of something that arrives or is let go of as a whole, such as a
+ * chip.
  */
-
-/** Whether the app is in front, so a loop can rest while it is not. */
-function useForeground(): boolean {
-  const [front, setFront] = useState(AppState.currentState !== 'background');
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', state =>
-      setFront(state === 'active'),
-    );
-    return () => subscription.remove();
-  }, []);
-  return front;
-}
-
-/**
- * A value that runs from 0 to 1 every `period` ms while `running`, for an
- * endless loop: an orbit, a breath, a halo. Drive only transform and opacity
- * with it, on a view around a still drawing.
- *
- * The loop rests at 0 while the app is in the background, while its pane is
- * out of use, and under Reduce Motion, where a loop becomes a still state
- * (REDESIGN.md 8). It is cancelled when it stops and when it unmounts.
- * `mirror` runs it back down each other `period`, on the sine curve, for a
- * breath or a pulse: a whole breath is then two periods.
- */
-export function useLoop(
-  period: number,
-  running: boolean,
-  { mirror = false }: { mirror?: boolean } = {},
-) {
-  const { reduced } = useMotionPrefs();
-  const seen = usePaneActive();
-  const front = useForeground();
-  const progress = useSharedValue(0);
-  const on = running && seen && front && !reduced;
-  useEffect(() => {
-    if (!on) {
-      cancelAnimation(progress);
-      progress.set(0);
-      return;
-    }
-    progress.set(0);
-    progress.set(
-      withRepeat(
-        withTiming(1, {
-          duration: period,
-          easing: mirror ? curves.sine : curves.linear,
-        }),
-        -1,
-        mirror,
-      ),
-    );
-    return () => cancelAnimation(progress);
-  }, [on, period, mirror, progress]);
-  return progress;
-}
 
 /** How long a refusal tints radish in place of a shake, under Reduce Motion. */
 const TINT_MS = 400;

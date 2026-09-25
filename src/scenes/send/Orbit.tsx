@@ -2,8 +2,8 @@ import React from 'react';
 import { StyleSheet } from 'react-native';
 import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
+import { fract, useLoop } from '../../motion/loops';
 import { durations } from '../../motion/tokens';
-import { useLoop } from './motion';
 
 /** How much of the ring the moving arc covers. */
 const ARC = 0.25;
@@ -24,7 +24,7 @@ export function Orbit({
 }) {
   const turn = useLoop(durations.orbit, true);
   const style = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${turn.get() * 360}deg` }],
+    transform: [{ rotate: `${fract(turn.get()) * 360}deg` }],
   }));
   const c = size / 2;
   const r = c - stroke / 2;

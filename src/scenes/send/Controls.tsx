@@ -12,12 +12,12 @@ import { Glyph } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
+import { useShake } from '../../motion/effects';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { DrawnGlyph } from './DrawnGlyph';
 import { Orbit } from './Orbit';
-import { useShake } from './motion';
 
 /** The control's circle, the size the home circle grows to (REDESIGN.md 7, T1). */
 export const CONTROL = 88;

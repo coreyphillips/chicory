@@ -28,12 +28,12 @@ import type {
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { copy } from '../design/copy';
-import { palette } from '../design/palette';
+import { mixHex, palette } from '../design/palette';
+import { fract, useAwake, useLoop } from '../motion/loops';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { MASK, space, type as typography } from '../theme';
 import type { Unit } from '../theme';
-import { fract, useAwake, useLoop } from './Bloom';
 
 /**
  * A rolling amount (REDESIGN.md 5, Odometer). Each digit is a clipped column
@@ -297,24 +297,6 @@ export function staleDip(ms: number, index: number): number {
   const t = ms - index * DIP_STEP_MS;
   if (t <= 0 || t >= DIP_MS) return 1;
   return 1 - 0.35 * Math.sin((Math.PI * t) / DIP_MS);
-}
-
-/**
- * `from` moved `t` of the way to `to`, both '#rrggbb'. Any other colour
- * switches at the halfway mark instead of blending.
- */
-export function mixHex(from: string, to: string, t: number): string {
-  'worklet';
-  if (t <= 0) return from;
-  if (t >= 1) return to;
-  const hex = (color: string) => color.length === 7 && color[0] === '#';
-  if (!hex(from) || !hex(to)) return t < 0.5 ? from : to;
-  const channel = (at: number) => {
-    const x = parseInt(from.slice(at, at + 2), 16);
-    const y = parseInt(to.slice(at, at + 2), 16);
-    return Math.round(x + (y - x) * t);
-  };
-  return `rgb(${channel(1)}, ${channel(3)}, ${channel(5)})`;
 }
 
 /**

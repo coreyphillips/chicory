@@ -7,13 +7,14 @@ import { Glyph } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
+import { popIn, useShake } from '../../motion/effects';
+import { useLoop, wave } from '../../motion/loops';
 import { durations } from '../../motion/tokens';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { CONTROL } from './Controls';
 import { BANG, DrawnGlyph } from './DrawnGlyph';
 import type { Stroke } from './DrawnGlyph';
 import type { ResultVisual } from './model';
-import { popIn, useLoop, useShake } from './motion';
 import { Orbit } from './Orbit';
 import { useFocusOnMount } from './useFocusOnMount';
 
@@ -74,11 +75,14 @@ function Moving() {
  */
 function Held() {
   // Out and back once each 1600ms.
-  const halo = useLoop(durations.halo / 2, true, { mirror: true });
-  const haloStyle = useAnimatedStyle(() => ({
-    opacity: 0.15 + 0.35 * halo.get(),
-    transform: [{ scale: 1.04 + 0.08 * halo.get() }],
-  }));
+  const halo = useLoop(durations.halo, true);
+  const haloStyle = useAnimatedStyle(() => {
+    const out = wave(halo.get());
+    return {
+      opacity: 0.15 + 0.35 * out,
+      transform: [{ scale: 1.04 + 0.08 * out }],
+    };
+  });
   return (
     <>
       <Reanimated.View style={[styles.layer, styles.halo, haloStyle]} />

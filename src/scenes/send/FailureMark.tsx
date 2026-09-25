@@ -4,11 +4,11 @@ import Reanimated from 'react-native-reanimated';
 import type { GlyphName } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
+import { useShake } from '../../motion/effects';
 import { durations } from '../../motion/tokens';
 import { BANG, DrawnGlyph } from './DrawnGlyph';
 import type { Stroke } from './DrawnGlyph';
 import type { Failure } from './model';
-import { useShake } from './motion';
 import { Unplugged, WaitingClock } from './LoopingGlyphs';
 
 /**

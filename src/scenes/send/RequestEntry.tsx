@@ -7,6 +7,8 @@ import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
+import { dissolve, popIn, useShake } from '../../motion/effects';
+import { useLoop, wave } from '../../motion/loops';
 import { durations } from '../../motion/tokens';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { radius, space, type as typography } from '../../theme';
@@ -14,7 +16,6 @@ import { FailureMark } from './FailureMark';
 import { GlyphButton } from './GlyphButton';
 import { requestRail, shortRequest } from './model';
 import type { Failure } from './model';
-import { dissolve, popIn, useLoop, useShake } from './motion';
 
 /** Where a scan starts from on screen, for the reveal to grow out of. */
 export type Origin = { x: number; y: number };
@@ -157,10 +158,10 @@ function Well({
 }) {
   // The dashed edge breathes only while the well waits for something, in
   // and out once each 4200ms.
-  const breath = useLoop(durations.breathe / 2, !value && !refused, {
-    mirror: true,
-  });
-  const edge = useAnimatedStyle(() => ({ opacity: 0.4 + 0.6 * breath.get() }));
+  const breath = useLoop(durations.breathe, !value && !refused);
+  const edge = useAnimatedStyle(() => ({
+    opacity: 0.4 + 0.6 * wave(breath.get()),
+  }));
   const missed = useShake();
   // Where the scan button sits, measured once it is laid out, for the reveal.
   const scanButton = useRef<ComponentRef<typeof View>>(null);

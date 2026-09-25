@@ -1,5 +1,7 @@
 import { GLYPHS } from '../src/design/glyphs';
-import { palette } from '../src/design/palette';
+import { alpha, mixHex, palette } from '../src/design/palette';
+import { fract, wave } from '../src/motion/loops';
+import { kickVelocity, springStep } from '../src/motion/springMath';
 import { springs } from '../src/motion/tokens';
 import type { RingVisual } from '../src/scenes/activity/visual';
 import {
@@ -8,19 +10,15 @@ import {
   burstPose,
   chaseOpacity,
   fallPose,
-  fract,
   haloOpacity,
-  kickVelocity,
   petalDelay,
   petalState,
   ratchetAngle,
-  springStep,
   wiltPose,
 } from '../src/glyphs/Bloom';
 import {
   digitPosition,
   heroSize,
-  mixHex,
   nextPhase,
   rollCells,
   rollDuration,
@@ -38,7 +36,6 @@ import {
   ringGeometry,
 } from '../src/glyphs/StatusRing';
 import {
-  alpha,
   glyphPose,
   ripplePose,
   seedBob,
@@ -73,6 +70,14 @@ function simulate(
 }
 
 describe('loops', () => {
+  test('a wave goes out and back, and rests on every whole number', () => {
+    expect(wave(0)).toBe(0);
+    expect(wave(3)).toBeCloseTo(0);
+    expect(wave(0.5)).toBeCloseTo(1);
+    expect(wave(0.25)).toBeCloseTo(0.5);
+    for (const t of [0.1, 0.2, 0.4]) expect(wave(t)).toBeCloseTo(wave(1 - t));
+  });
+
   test('a clock is at rest on every whole number', () => {
     expect(fract(3)).toBe(0);
     expect(fract(3.25)).toBeCloseTo(0.25);

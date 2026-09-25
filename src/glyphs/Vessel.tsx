@@ -29,7 +29,8 @@ import { copy } from '../design/copy';
 import { GLYPHS, Glyph, strokeFor } from '../design/glyphs';
 import type { GlyphName, GlyphPart } from '../design/glyphs';
 import { haptics } from '../design/haptics';
-import { palette } from '../design/palette';
+import { alpha, mixHex, palette } from '../design/palette';
+import { fract, useAwake, useLoop } from '../motion/loops';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { vesselVisual } from '../scenes/home/visual';
@@ -37,8 +38,6 @@ import type { VesselVisual } from '../scenes/home/visual';
 import { usePaneActive } from '../stage/panes/Pane';
 import { amountIn, radius, space, type as typography } from '../theme';
 import type { Unit } from '../theme';
-import { fract, useAwake, useLoop } from './Bloom';
-import { mixHex } from './Odometer';
 
 /**
  * The pill under the hero: what can be spent now, solid, beside what is on
@@ -62,12 +61,6 @@ export interface VesselProps {
   unit: Unit;
   masked?: boolean;
   stale?: boolean;
-}
-
-/** `hex` ('#rrggbb') at `a` opacity. */
-export function alpha(hex: string, a: number): string {
-  const channel = (at: number) => parseInt(hex.slice(at, at + 2), 16);
-  return `rgba(${channel(1)},${channel(3)},${channel(5)},${a})`;
 }
 
 /** Glass is a colour at 35%, as the arriving bloom glass is (REDESIGN.md 3.1). */

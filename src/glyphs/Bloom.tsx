@@ -5,9 +5,8 @@ import React, {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react';
-import { AppState, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Reanimated, {
   FadeIn,
   FadeOut,
@@ -34,9 +33,10 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 import { palette } from '../design/palette';
+import { fract, useAwake, useLoop } from '../motion/loops';
+import { kick, springStep } from '../motion/springMath';
 import { curves, durations, shake, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
-import { usePaneActive } from '../stage/panes/Pane';
 
 /**
  * The chicory bloom (REDESIGN.md 5): the mark, the loader and the lock bud.
@@ -74,140 +74,6 @@ export interface BloomProps {
   detail?: 'full' | 'mark';
   /** Without one, the bloom is decoration and hidden from screen readers. */
   accessibilityLabel?: string;
-}
-
-/*
- * Loops shared by every glyph that runs one.
- *
- * A loop is a clock that counts cycles and never rewinds: each pose is a
- * periodic function of it, at rest on every whole number. A paused loop
- * picks up exactly where it stopped, and one that ends eases to the nearest
- * whole number, so nothing snaps back. Under Jest the clock lands on its
- * next whole number at once, which is the resting pose.
- */
-
-/** The fractional part of a clock: how far into its current cycle it is. */
-export function fract(x: number): number {
-  'worklet';
-  return x - Math.floor(x);
-}
-
-const foreground = () =>
-  AppState.currentState !== 'background' &&
-  AppState.currentState !== 'inactive';
-
-// One AppState subscription serves every glyph on screen, however many rows
-// of rings a list draws.
-const wakers = new Set<() => void>();
-let appState: { remove: () => void } | null = null;
-function subscribeAwake(waker: () => void) {
-  wakers.add(waker);
-  appState ??= AppState.addEventListener('change', () => {
-    for (const wake of wakers) wake();
-  });
-  return () => {
-    wakers.delete(waker);
-    if (wakers.size === 0) {
-      appState?.remove();
-      appState = null;
-    }
-  };
-}
-
-/**
- * Whether a loop here would be seen: the app is in front and the pane it is
- * drawn in is in use. Anything else pauses it.
- */
-export function useAwake(): boolean {
-  const inFront = useSyncExternalStore(subscribeAwake, foreground);
-  return usePaneActive() && inFront;
-}
-
-/**
- * A clock that counts one cycle every `period` ms while `running`, and eases
- * to rest when it stops. It is cancelled when its owner unmounts.
- */
-export function useLoop(period: number, running: boolean): SharedValue<number> {
-  const clock = useSharedValue(0);
-  useEffect(() => {
-    const at = clock.get();
-    if (running) {
-      clock.set(
-        withRepeat(
-          withTiming(at + 1, { duration: period, easing: curves.linear }),
-          -1,
-          false,
-        ),
-      );
-    } else if (at !== Math.round(at)) {
-      clock.set(
-        withTiming(Math.round(at), {
-          duration: durations.exit,
-          easing: curves.standard,
-        }),
-      );
-    }
-    return () => cancelAnimation(clock);
-  }, [clock, period, running]);
-  return clock;
-}
-
-/*
- * Spring arithmetic, for poses computed on the UI thread from a clock rather
- * than run as an animation: the ratchet's steps, and the pops that start
- * from rest with a kick instead of a target.
- */
-interface Spring {
-  damping: number;
-  stiffness: number;
-  mass: number;
-}
-
-function natural({ damping, stiffness, mass }: Spring) {
-  'worklet';
-  return {
-    w0: Math.sqrt(stiffness / mass),
-    zeta: damping / (2 * Math.sqrt(stiffness * mass)),
-  };
-}
-
-/**
- * Where a spring let go at 0 toward 1 is after `seconds`: the shape of one
- * snap. A spring damped past critical is drawn as critical, which it is
- * within a hair for the springs in tokens.ts.
- */
-export function springStep(seconds: number, config: Spring): number {
-  'worklet';
-  if (seconds <= 0) return 0;
-  const { w0, zeta } = natural(config);
-  if (zeta < 1) {
-    const wd = w0 * Math.sqrt(1 - zeta * zeta);
-    return (
-      1 -
-      Math.exp(-zeta * w0 * seconds) *
-        (Math.cos(wd * seconds) + ((zeta * w0) / wd) * Math.sin(wd * seconds))
-    );
-  }
-  return 1 - Math.exp(-w0 * seconds) * (1 + w0 * seconds);
-}
-
-/**
- * The starting velocity that throws a spring at rest out to `peak` before
- * it swings back: a pop that is all spring, with no target to reach first.
- */
-export function kickVelocity(peak: number, config: Spring): number {
-  const { w0, zeta } = natural(config);
-  if (zeta < 1) {
-    const wd = w0 * Math.sqrt(1 - zeta * zeta);
-    const top = Math.atan2(wd, zeta * w0) / wd;
-    return (peak * wd) / (Math.exp(-zeta * w0 * top) * Math.sin(wd * top));
-  }
-  return peak * w0 * Math.E;
-}
-
-/** A pop out to `peak` times the size and back, all on `config`. */
-export function kick(peak: number, config: Spring) {
-  return withSpring(1, { ...config, velocity: kickVelocity(peak, config) });
 }
 
 /*

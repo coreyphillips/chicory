@@ -13,9 +13,9 @@ import Reanimated, {
 import type { EntryExitAnimationFunction } from 'react-native-reanimated';
 import { copy } from '../design/copy';
 import { palette } from '../design/palette';
+import { useAwake, useLoop } from '../motion/loops';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
-import { useAwake, useLoop } from './Bloom';
 
 /**
  * The connection, as a 7pt dot at the mark's lower right (REDESIGN.md 5,
