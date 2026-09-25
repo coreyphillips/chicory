@@ -7,6 +7,7 @@ import { SendScreen, ReceiveScreen } from '../src/screens/Payments';
 import { Scanner } from '../src/components/Scanner';
 import { forgetSpoken } from '../src/design/announce';
 import { copy } from '../src/design/copy';
+import { FOCUS_SETTLE_MS, forgetSafety } from '../src/motion/speech';
 import * as tokens from '../src/motion/tokens';
 import { stepInMs } from '../src/scenes/send/useLanding';
 import type { WalletAdapter } from '../src/services/wallet';
@@ -82,11 +83,13 @@ const keypads = (tree: ReactTestRenderer) =>
 
 // A request held by one test's unknown payment would send the next test that
 // pays it to the held ring, the platform's announcer is a mock that keeps
-// every call, and a phrase said within 2s is not said again. Each test starts
-// with none of these, so it sees and hears only what it did.
+// every call, a phrase said within 2s is not said again, and a safety message
+// one test left unheard would be said in the next. Each test starts with none
+// of these, so it sees and hears only what it did.
 beforeEach(() => {
   clearHeldRequests();
   forgetSpoken();
+  forgetSafety();
   jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
   jest
     .mocked(AccessibilityInfo.announceForAccessibilityWithOptions)
@@ -538,9 +541,12 @@ test('a request whose payment is unknown cannot be paid again: it lands on the h
     });
     const client = adapter({ prepareSend, send });
     const paid = await payOnce(client, 'lnbc-held');
-    // Unknown is said loudly, as soon as a screen reader is on its mark.
+    // Unknown is said loudly, once a screen reader has landed on its mark.
     await act(async () => {
       jest.advanceTimersByTime(stepInMs() + 50);
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(FOCUS_SETTLE_MS + 50);
     });
     expect(said).toHaveBeenCalledWith(copy.send.heldAnnouncement, {
       queue: false,

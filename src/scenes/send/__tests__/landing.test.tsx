@@ -4,6 +4,7 @@ import type { HostInstance } from 'react-native';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { announce } from '../../../design/announce';
+import { focusPending } from '../../../motion/focus';
 import { stepInMs, useLanding } from '../useLanding';
 
 jest.mock('../../../design/announce', () => ({ announce: jest.fn() }));
@@ -75,4 +76,22 @@ test('going before it lands moves nothing, and still says what waited', async ()
   });
   await wait(stepInMs() * 2);
   expect(focused()).toEqual([]);
+});
+
+test('counts as a focus move on its way from the moment it is asked for', async () => {
+  // A safety message waits for every move on its way (motion/speech), so a
+  // landing still rising into view must count as one.
+  await draw();
+  expect(focusPending()).toBe(true);
+  await wait(stepInMs() + 50);
+  expect(focused()).toEqual(['primary']);
+  expect(focusPending()).toBe(false);
+  await act(async () => tree.unmount());
+});
+
+test('going before it lands leaves no move on its way', async () => {
+  await draw();
+  expect(focusPending()).toBe(true);
+  await act(async () => tree.unmount());
+  expect(focusPending()).toBe(false);
 });

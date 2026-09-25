@@ -26,11 +26,14 @@ export function focusOn(node: HostInstance | null | undefined) {
 
 /**
  * Moves a screen reader to what `target` names once no transition is
- * running. The move counts as pending until it is made or cancelled. Returns
- * the cancel, for an effect that unmounts first.
+ * running, and `delay` ms have passed first when one is given (for an
+ * element still rising into view). `then` runs just after the move. The move
+ * counts as pending from the call until it is made or cancelled. Returns the
+ * cancel, for an effect that unmounts first.
  */
 export function focusAfterTransition(
   target: () => HostInstance | null | undefined,
+  { delay = 0, then }: { delay?: number; then?: () => void } = {},
 ): () => void {
   pending += 1;
   let open = true;
@@ -39,12 +42,19 @@ export function focusAfterTransition(
     open = false;
     pending -= 1;
   };
-  const cancel = afterTransition(() => {
-    close();
-    focusOn(target());
-  });
+  let cancel = () => {};
+  const wait = () => {
+    cancel = afterTransition(() => {
+      close();
+      focusOn(target());
+      then?.();
+    });
+  };
+  const timer = delay > 0 ? setTimeout(wait, delay) : null;
+  if (timer === null) wait();
   return () => {
     close();
+    if (timer !== null) clearTimeout(timer);
     cancel();
   };
 }

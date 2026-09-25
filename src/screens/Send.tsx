@@ -27,6 +27,7 @@ import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
 import { CopyChip } from '../glyphs/CopyChip';
 import { sceneIn, sceneOut } from '../motion/presets';
+import { announceSafety } from '../motion/speech';
 import { AmountReadout } from '../scenes/keypad/AmountReadout';
 import { digitsOnly, grouped } from '../scenes/keypad/keys';
 import type { AmountTone } from '../scenes/keypad/keys';
@@ -98,17 +99,18 @@ const TONE_WORDS: Record<AmountTone, string | null> = {
 /**
  * A quote that ran out on its clock. An expired quote is a safety state
  * (REDESIGN.md rule 4): the hold gives way to a refresh, and the change is
- * felt, said and logged as it happens. It is said through `say`, once a
- * screen reader has landed on the refresh.
+ * felt and logged as it happens, and said through `announceSafety` once a
+ * screen reader has landed on the refresh. Returns the withdrawal, for a
+ * quote refreshed, or a Send gone, before it is heard.
  */
-function quoteExpired(say: (text: string, assertive?: boolean) => void) {
+function quoteExpired(): () => void {
   haptics.warning();
-  say(copy.send.quoteExpired, true);
   recordDiagnostic({
     phase: 'ui',
     code: 'QUOTE_EXPIRED',
     message: copy.send.quoteExpired,
   });
+  return announceSafety(copy.send.quoteExpired, 'expired');
 }
 
 /**
@@ -250,6 +252,21 @@ export function SendScreen({
   }, []);
   useEffect(() => () => onBusy(false), [onBusy]);
 
+  // What is still to be said of a quote that ran out, taken back as a fresh
+  // quote replaces it or Send goes (REDESIGN.md 9: a state that ends before
+  // it is heard is not said).
+  const expiredSaid = useRef<(() => void) | null>(null);
+  const sayExpired = useRef(() => {
+    expiredSaid.current?.();
+    expiredSaid.current = quoteExpired();
+  });
+  useEffect(() => {
+    if (expired) return;
+    expiredSaid.current?.();
+    expiredSaid.current = null;
+  }, [expired]);
+  useEffect(() => () => expiredSaid.current?.(), []);
+
   // A quote runs out on its own clock, and is said aloud once as it gets
   // close.
   useEffect(() => {
@@ -259,7 +276,7 @@ export function SendScreen({
       setTimeout(() => {
         setExpired(true);
         land(control);
-        quoteExpired(say);
+        sayExpired.current();
       }, Math.max(0, left)),
     ];
     if (left > LATE_MS) {
@@ -274,9 +291,10 @@ export function SendScreen({
   }, [review, expired, land, say]);
 
   // The stale gate closing on the payment is a safety state (REDESIGN.md
-  // rule 4): felt, said and logged as it closes. On a review it takes the
-  // hold's place, and a screen reader lands on it; as it opens again, back
-  // on the review's amount above the hold.
+  // rule 4): felt and logged as it closes, and said once a screen reader
+  // has landed, unless it opens again first. On a review it takes the hold's
+  // place, and a screen reader lands on it; as it opens again, back on the
+  // review's amount above the hold.
   const gateWas = useRef(disabled);
   useEffect(() => {
     const opened = gateWas.current && !disabled;
@@ -285,19 +303,21 @@ export function SendScreen({
     if (!disabled) return;
     haptics.warning();
     if (reviewing.current) land(control);
-    say(copy.send.stale, true);
     recordDiagnostic({ phase: 'ui', code: 'STALE', message: copy.send.stale });
-  }, [disabled, land, say]);
+    return announceSafety(copy.send.stale, 'stale');
+  }, [disabled, land]);
 
   // Landing on the held ring is felt, said and logged, once for each time.
+  // It is said once a screen reader has landed on the ring's mark and
+  // settled there (REDESIGN.md 9), unless the ring or Send goes first.
   const heldFor = held ? request.trim() : '';
   useEffect(() => {
     if (!heldFor) return;
     haptics.held();
     land(mark);
-    say(copy.send.heldAnnouncement, true);
     recordDiagnostic({ phase: 'ui', code: 'HELD', message: copy.send.held });
-  }, [heldFor, land, say]);
+    return announceSafety(copy.send.heldAnnouncement, 'held');
+  }, [heldFor, land]);
 
   // The ground behind the canvas holds honey while an outcome is unknown,
   // here before the wallet's own read of it says so, and flashes radish as a
@@ -306,10 +326,13 @@ export function SendScreen({
   const flash = useFlashTint();
 
   // A result is felt as it lands, and said once its mark has taken a screen
-  // reader's focus, so the move never cuts an assertive message short.
+  // reader's focus, so the move never cuts an assertive message short. An
+  // unknown one is a safety state, said through `announceSafety` once the
+  // landing has settled, unless the result or Send goes first.
   useEffect(() => {
     if (!result) return;
     land(mark);
+    let withdraw: (() => void) | undefined;
     switch (result.status) {
       case 'completed':
         haptics.success();
@@ -321,7 +344,7 @@ export function SendScreen({
         break;
       case 'uncertain':
         haptics.held();
-        say(copy.send.heldAnnouncement, true);
+        withdraw = announceSafety(copy.send.heldAnnouncement, 'held');
         break;
       case 'failed':
         haptics.error();
@@ -329,6 +352,7 @@ export function SendScreen({
         say(`${copy.send.failed} ${result.message}`, true);
         break;
     }
+    return withdraw;
   }, [result, flash, land, say]);
 
   useEffect(() => {
@@ -450,7 +474,7 @@ export function SendScreen({
       const late = next.expiresAt <= Date.now();
       setExpired(late);
       land(late ? control : summary);
-      if (late) quoteExpired(say);
+      if (late) sayExpired.current();
     } catch (e) {
       if (alreadySubmitted(e)) {
         // The engine has a payment for this request out already.
@@ -483,7 +507,7 @@ export function SendScreen({
     if (review.expiresAt <= Date.now()) {
       setExpired(true);
       land(control);
-      quoteExpired(say);
+      sayExpired.current();
       return;
     }
     if (heldRequest(request, activity)) {

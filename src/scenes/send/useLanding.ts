@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import type { HostInstance } from 'react-native';
 import { announce } from '../../design/announce';
-import { focusOn } from '../../motion/focus';
-import { afterTransition } from '../../motion/idle';
+import { focusAfterTransition } from '../../motion/focus';
 import { durations, overlap } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
 
@@ -27,12 +26,13 @@ const speak = (text: string, assertive: boolean) =>
  * `land(target)` moves a screen reader to `target` once its step has risen
  * into view and nothing else is moving: an element still fading in may not
  * be in the accessibility tree yet, and focus sent to it can be dropped.
- * Only the latest landing asked for is made.
+ * Only the latest landing asked for is made. It counts as a focus move on
+ * its way from the moment it is asked for, so a safety message, which Send
+ * says through `announceSafety`, waits for it to land and settle.
  *
- * `say(text)` speaks once the landing on its way has been made, so the move
- * never cuts an assertive message short, and at once when none is on its
- * way. Nothing waiting is lost: whatever is still unsaid as Send goes is
- * said then.
+ * `say(text)` speaks once the landing on its way has been made, and at once
+ * when none is on its way. Nothing waiting is lost: whatever is still
+ * unsaid as Send goes is said then.
  */
 export function useLanding() {
   const waiting = useRef<{ text: string; assertive: boolean }[]>([]);
@@ -47,18 +47,13 @@ export function useLanding() {
   const land = useCallback(
     (target: Landing) => {
       cancel.current?.();
-      let idle: (() => void) | null = null;
-      const timer = setTimeout(() => {
-        idle = afterTransition(() => {
+      cancel.current = focusAfterTransition(() => target.current, {
+        delay: stepInMs(),
+        then: () => {
           cancel.current = null;
-          focusOn(target.current);
           flush();
-        });
-      }, stepInMs());
-      cancel.current = () => {
-        clearTimeout(timer);
-        idle?.();
-      };
+        },
+      });
     },
     [flush],
   );

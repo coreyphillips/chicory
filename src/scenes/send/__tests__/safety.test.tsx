@@ -27,6 +27,7 @@ import {
 } from '../../../../test-support/query';
 import { ReviewLines } from '../ReviewLines';
 import { stepInMs } from '../useLanding';
+import { FOCUS_SETTLE_MS, forgetSafety } from '../../../motion/speech';
 
 jest.mock('../../../design/announce', () => ({ announce: jest.fn() }));
 
@@ -106,6 +107,20 @@ const arrive = (fake = false) =>
     else await new Promise<void>(resolve => setTimeout(resolve, ms));
   });
 
+/**
+ * Lets a step arrive and a safety message be heard: announceSafety holds one
+ * until the landing is made and has had FOCUS_SETTLE_MS to settle
+ * (REDESIGN.md 9).
+ */
+const heard = async (fake = false) => {
+  await arrive(fake);
+  await act(async () => {
+    const ms = FOCUS_SETTLE_MS + 50;
+    if (fake) jest.advanceTimersByTime(ms);
+    else await new Promise<void>(resolve => setTimeout(resolve, ms));
+  });
+};
+
 const type = (tree: ReactTestRenderer, text: string) =>
   act(async () => {
     field(tree, copy.send.request).props.onChangeText(text);
@@ -122,6 +137,8 @@ const focused = () =>
     );
 
 beforeEach(() => {
+  // A safety message one test left unheard is not said in the next.
+  forgetSafety();
   said.mockClear();
   jest.mocked(HapticFeedback.trigger).mockClear();
   jest.mocked(AccessibilityInfo.sendAccessibilityEvent).mockClear();
@@ -144,12 +161,31 @@ describe('a held request', () => {
     expect(prepareSend).not.toHaveBeenCalled();
     expect(meaning(tree)).toContain(copy.send.held);
     expect(pressableLabels(tree)).not.toContain(copy.send.review);
+    expect(logged()).toContain('HELD');
+    // Landed on its mark, and said once the landing has settled, so the
+    // move does not cut it short.
     await arrive();
+    expect(focused().at(-1)).toBe(copy.send.unknown);
+    expect(said).not.toHaveBeenCalledWith(copy.send.heldAnnouncement, {
+      assertive: true,
+    });
+    await heard();
     expect(said).toHaveBeenCalledWith(copy.send.heldAnnouncement, {
       assertive: true,
     });
+    await act(async () => tree.unmount());
+  });
+
+  test('left before it is heard, is not said as it goes', async () => {
+    holdRequest('lnbc-left-held', { status: 'uncertain' });
+    const tree = await draw({}, { initialRequest: 'lnbc-left-held' });
+    expect(meaning(tree)).toContain(copy.send.held);
     expect(logged()).toContain('HELD');
     await act(async () => tree.unmount());
+    await heard();
+    expect(said).not.toHaveBeenCalledWith(copy.send.heldAnnouncement, {
+      assertive: true,
+    });
   });
 
   test('opens from its chip to take another request, and stays held', async () => {
@@ -243,7 +279,7 @@ describe('a quote', () => {
     expect(said).toHaveBeenLastCalledWith(copy.send.quoteExpires(10));
     expect(find(tree, copy.send.refreshQuote)).toBeUndefined();
     await act(async () => jest.advanceTimersByTime(10_000));
-    await arrive(true);
+    await heard(true);
     expect(find(tree, copy.send.refreshQuote)).toBeDefined();
     expect(holds(tree, HOLD)).toEqual([]);
     expect(said).toHaveBeenLastCalledWith(copy.send.quoteExpired, {
@@ -362,6 +398,8 @@ test('a balance going stale closes the gate, felt, said and logged, and a tap re
   expect(holds(tree, HOLD)).toEqual([]);
   await arrive();
   expect(focused()).toEqual([HOLD]);
+  expect(said).not.toHaveBeenCalledWith(copy.send.stale, { assertive: true });
+  await heard();
   expect(said).toHaveBeenCalledWith(copy.send.stale, { assertive: true });
   await press(tree, copy.send.sendSats(4_200));
   expect(onRefresh).toHaveBeenCalledTimes(1);
@@ -374,6 +412,26 @@ test('a balance going stale closes the gate, felt, said and logged, and a tap re
   await arrive();
   expect(holds(tree, HOLD)).toHaveLength(1);
   expect(focused().at(-1)).toBe(copy.amount.spoken(4_200));
+  await act(async () => tree.unmount());
+});
+
+test('a balance fresh again before its staleness is heard is not said stale', async () => {
+  const client = { prepareSend: jest.fn().mockResolvedValue(quote()) };
+  const props = { initialRequest: 'lnbc-blip' };
+  const tree = await draw(client, props);
+  await press(tree, copy.send.review);
+  await arrive();
+  await act(async () => {
+    tree.update(screen(client, { ...props, disabled: true }));
+  });
+  // Felt and logged at once, as the gate closes.
+  expect(felt()).toContain('notificationWarning');
+  expect(logged()).toContain('STALE');
+  await act(async () => {
+    tree.update(screen(client, { ...props, disabled: false }));
+  });
+  await heard();
+  expect(said).not.toHaveBeenCalledWith(copy.send.stale, { assertive: true });
   await act(async () => tree.unmount());
 });
 
@@ -449,6 +507,10 @@ describe('a screen reader', () => {
     });
     await arrive(true);
     expect(focused().at(-1)).toBe(copy.send.refreshQuote);
+    expect(said).not.toHaveBeenCalledWith(copy.send.quoteExpired, {
+      assertive: true,
+    });
+    await heard(true);
     expect(said).toHaveBeenLastCalledWith(copy.send.quoteExpired, {
       assertive: true,
     });
@@ -489,6 +551,10 @@ describe('a screen reader', () => {
     await activate(tree, HOLD);
     await arrive();
     expect(focused().at(-1)).toBe(copy.send.unknown);
+    expect(said).not.toHaveBeenCalledWith(copy.send.heldAnnouncement, {
+      assertive: true,
+    });
+    await heard();
     const [moved] = jest
       .mocked(AccessibilityInfo.sendAccessibilityEvent)
       .mock.invocationCallOrder.slice(-1);
