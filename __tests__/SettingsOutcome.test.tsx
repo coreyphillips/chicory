@@ -17,6 +17,7 @@ import {
 } from '../src/services/diagnosticLog';
 import { setHapticsEnabled } from '../src/services/haptics';
 import type { WalletAdapter } from '../src/services/wallet';
+import { APP_VERSION } from '../src/version';
 import { ACTIVATE, activate } from '../test-support/query';
 
 function strings(children: unknown, out: string[] = []): string[] {
@@ -206,10 +207,25 @@ test('the node field follows the wallet it describes', async () => {
   await act(async () => tree.unmount());
 });
 
-test('a wallet that reports no engine version shows no engine row', async () => {
-  const adapter = client({ getConfig: jest.fn().mockResolvedValue({}) });
-  const tree = await render(base, adapter);
-  expect(text(tree)).not.toContain('Checking');
+test('a wallet that reports no engine version shows no engine row, nor any while it is asked', async () => {
+  let answer!: (config: object) => void;
+  const getConfig = jest.fn().mockReturnValue(
+    new Promise(resolve => {
+      answer = resolve;
+    }),
+  );
+  const tree = await render(base, client({ getConfig }));
+  const about = () =>
+    tree.root
+      .findAllByType(Text)
+      .map(node => strings(node.props.children).join(''))
+      .filter(line => line.startsWith('Chicory '));
+  // Still asking: the line names the app alone, with no word standing in for
+  // the version that has not come.
+  expect(getConfig).toHaveBeenCalledTimes(1);
+  expect(about()).toEqual([`Chicory ${APP_VERSION}`]);
+  await act(async () => answer({}));
+  expect(about()).toEqual([`Chicory ${APP_VERSION}`]);
   expect(text(tree)).not.toContain('Engine');
   await act(async () => tree.unmount());
 });
