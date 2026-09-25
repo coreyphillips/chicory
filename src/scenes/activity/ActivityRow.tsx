@@ -63,11 +63,14 @@ import type { AmountVisual } from './visual';
  * before, so only a new one arrives with a fade, and that rows here register
  * where they are, for a detail to grow out of. On the sheet, `back` is the
  * clock of the rows coming back in as the canvas returns home from Send or
- * Receive (`rowReturn`), which each row reads by its place in the list.
+ * Receive (`rowReturn`), which each row reads by its place in the list, and
+ * `lifted` is the payment whose detail is open, whose row steps out at once:
+ * its ring and amount are the ones flying to the detail's header (T4).
  */
 export interface RowList {
   seen: (id: string) => boolean;
   back?: SharedValue<number>;
+  lifted?: SharedValue<string>;
 }
 
 export const RowListContext = createContext<RowList | null>(null);
@@ -137,9 +140,18 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   // Coming back home from Send or Receive, the rows come back in one after
   // another (T1, reversed).
   const back = list?.back;
+  const lifted = list?.lifted;
+  const id = item.id;
   const returning = useAnimatedStyle(
-    () => ({ opacity: back ? rowReturn(back.get(), index) : 1 }),
-    [back, index],
+    () => ({
+      opacity:
+        lifted && lifted.get() === id
+          ? 0
+          : back
+          ? rowReturn(back.get(), index)
+          : 1,
+    }),
+    [back, lifted, id, index],
   );
   useEffect(
     () => (list ? registerRow(item.id, ref) : undefined),

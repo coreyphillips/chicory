@@ -25,7 +25,9 @@ import type { AmountVisual, RingVisual } from '../../scenes/activity/visual';
 import { ringWords } from '../../scenes/detail/model';
 import {
   DetailFlight,
+  HEADER_GAP,
   HEADER_OPEN,
+  HEADER_PAD,
   HEADER_RING,
   headerIn,
   lineIn,
@@ -333,7 +335,9 @@ const styles = StyleSheet.create({
   // A point rather than nothing: a screen reader passes over an element with
   // no size at all.
   title: { position: 'absolute', top: 0, left: 0, width: 1, height: 1 },
-  header: { alignItems: 'center', gap: space.sm, paddingTop: space.xs },
+  // The flight out of a row lands the ring and the amount where these put
+  // them (HEADER_TOPS), so they are the motion's to set.
+  header: { alignItems: 'center', gap: HEADER_GAP, paddingTop: HEADER_PAD },
   lines: { gap: space.xs },
   line: {
     minHeight: 44,

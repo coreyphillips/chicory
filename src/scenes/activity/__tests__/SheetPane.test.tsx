@@ -41,6 +41,7 @@ import {
   pressableLabels,
   visibleText,
 } from '../../../../test-support/query';
+import { ActivityScreen } from '../../../screens/wallet/Activity';
 import { ActivityRow, RowListContext } from '../ActivityRow';
 import { FilterBar } from '../FilterBar';
 import { FILTERS, activityStatus } from '../model';
@@ -534,6 +535,57 @@ describe('the rows', () => {
       expect(row.props.item).toBe(before[index]),
     );
     await act(async () => tree.unmount());
+  });
+
+  test('the row a detail grows out of steps out at once; the rest fade with the list', async () => {
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openActivity());
+    await settle();
+    // What the sheet tells its list's rows, which they read on the UI thread.
+    const told = () =>
+      tree.root.findByType(ActivityScreen).props.sheet.lifted.get();
+    expect(told()).toBe('');
+    await act(async () => stage.actions.openDetail(coffee));
+    // Its ring and amount are the ones flying to the detail's header.
+    expect(told()).toBe(coffee.id);
+    await settle();
+    await act(async () => stage.actions.back());
+    expect(told()).toBe('');
+    await act(async () => tree.unmount());
+  });
+
+  test('a row steps out while its own detail is open, and only then', async () => {
+    /** The opacity the row's own view is drawn at, not the list's. */
+    const opacity = (tree: ReactTestRenderer) => {
+      let node: ReactTestInstance | null = tree.root.findAll(
+        host =>
+          typeof host.type === 'string' &&
+          host.props.accessibilityLabel === ROW,
+      )[0];
+      while (
+        node &&
+        StyleSheet.flatten(node.props.style)?.opacity === undefined
+      )
+        node = node.parent;
+      return StyleSheet.flatten(node!.props.style).opacity;
+    };
+    const drawn = async (lifted: string) => {
+      const list = {
+        seen: () => true,
+        lifted: { get: () => lifted } as Reanimated.SharedValue<string>,
+      };
+      const tree = await render(
+        <RowListContext value={list}>
+          <ActivityRow item={coffee} onPress={jest.fn()} />
+        </RowListContext>,
+      );
+      const seen = opacity(tree);
+      await act(async () => tree.unmount());
+      return seen;
+    };
+    expect(await drawn(coffee.id)).toBe(0);
+    expect(await drawn(salary.id)).toBe(1);
+    expect(await drawn('')).toBe(1);
   });
 
   const rect = { x: 24, y: 480, width: 327, height: 64 };

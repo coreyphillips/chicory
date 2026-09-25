@@ -64,6 +64,8 @@ export interface SheetBinding {
   bottomInset: number;
   /** The clock of the rows coming back in, as the rows read it. */
   rowsBack?: SharedValue<number>;
+  /** The payment whose detail has grown out of its row, or ''. */
+  lifted?: SharedValue<string>;
 }
 
 /**
@@ -138,9 +140,14 @@ export function ActivityScreen({
     known.current = new Set(activity.map(item => item.id));
   }, [activity]);
   const back = sheet?.rowsBack;
+  const lifted = sheet?.lifted;
   const rowList = useMemo<RowList>(
-    () => ({ seen: id => !known.current || known.current.has(id), back }),
-    [back],
+    () => ({
+      seen: id => !known.current || known.current.has(id),
+      back,
+      lifted,
+    }),
+    [back, lifted],
   );
 
   // Stable identities, so the memoized rows can stay put across a keystroke
