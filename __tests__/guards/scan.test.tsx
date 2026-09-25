@@ -41,6 +41,7 @@ import {
   eased,
   groundCollapse,
   irisPose,
+  WELL_DROP,
   landing,
   opening,
 } from '../../src/stage/layers/ScanReveal';
@@ -459,7 +460,10 @@ describe('the disc', () => {
   test("lands in Send's well: where it grew inside Send, the new Send's from home", () => {
     const disc = discFor({ x: 300, y: 180 }, 390, 844);
     expect(landing(disc, 'send', true, 390, 47)).toEqual({ x: 300, y: 180 });
-    const well = { x: 195, y: 47 + STATUS_ROW + 64 };
+    // The centre of the well: the mini strip, the slot's padding, half the
+    // well.
+    const well = { x: 195, y: 47 + STATUS_ROW + 44 + 16 + 36 };
+    expect(WELL_DROP).toBe(96);
     expect(landing(disc, 'home', true, 390, 47)).toEqual(well);
     expect(landing(disc, 'send', false, 390, 47)).toEqual(well);
   });

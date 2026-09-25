@@ -42,7 +42,8 @@ export interface RequestEntryProps {
   onScan?: (origin: Origin | null) => void;
 }
 
-const WELL = 72;
+/** The well's height while it waits for a request. */
+export const WELL = 72;
 
 /**
  * The payment request (REDESIGN.md 6, Send): a well to paste, scan or type
@@ -163,7 +164,8 @@ function Well({
     opacity: 0.4 + 0.6 * wave(breath.get()),
   }));
   const missed = useShake();
-  // Where the scan button sits, measured once it is laid out, for the reveal.
+  // Where the scan button sits, for the reveal: measured once it is laid
+  // out and again as it is pressed, so the disc grows from where it is now.
   const scanButton = useRef<ComponentRef<typeof View>>(null);
   const scanAt = useRef<Origin | null>(null);
   const measure = () =>
@@ -218,7 +220,14 @@ function Well({
           <GlyphButton
             glyph="scan"
             accessibilityLabel={copy.send.scan}
-            onPress={live ? () => onScan(scanAt.current) : undefined}
+            onPress={
+              live
+                ? () => {
+                    measure();
+                    onScan(scanAt.current);
+                  }
+                : undefined
+            }
             disabled={busy}
             size={44}
           />

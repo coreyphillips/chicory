@@ -24,7 +24,9 @@ import {
 import type { CameraAccess } from '../../components/Scanner';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
-import { STATUS_ROW } from '../layout';
+import { WELL } from '../../scenes/send/RequestEntry';
+import { MINI_STRIP, STATUS_ROW } from '../layout';
+import { SLOT_PADDING } from '../panes/SceneSlot';
 
 type Point = { x: number; y: number };
 
@@ -38,10 +40,11 @@ export const PARTIAL = 0.6;
  */
 const REVEAL_MS = 380;
 /**
- * Where Send's request well sits below the status row, which a code read
- * from home collapses into as Send opens around it.
+ * Where the centre of Send's request well sits below the status row, which a
+ * code read from home collapses into as Send opens around it: under the mini
+ * strip the balance rests in, inside its slot's padding, half the well down.
  */
-const WELL_DROP = 64;
+export const WELL_DROP = MINI_STRIP + SLOT_PADDING.top + WELL / 2;
 /** How long the disc takes to close, and the curve it closes on. */
 const COLLAPSE_MS = durations.move;
 const COLLAPSE_CURVE = curves.standard;

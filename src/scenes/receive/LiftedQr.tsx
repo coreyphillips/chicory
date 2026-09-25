@@ -13,6 +13,7 @@ import { QR_QUIET, QrBloom } from '../../glyphs/QrBloom';
 import { curves, durations, springs } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
 import { usePaneActive } from '../../stage/panes/Pane';
+import { SLOT_PADDING } from '../../stage/panes/SceneSlot';
 import { space } from '../../theme';
 import { RING_GAP } from './RequestStep';
 
@@ -22,10 +23,10 @@ import { RING_GAP } from './RequestStep';
  * the system bar, which the scrim covers too.
  */
 const BLEED = {
-  top: -space.md,
-  left: -space.xl,
-  right: -space.xl,
-  bottom: -space.xxxl,
+  top: -SLOT_PADDING.top,
+  left: -SLOT_PADDING.side,
+  right: -SLOT_PADDING.side,
+  bottom: -SLOT_PADDING.bottom,
 };
 
 /** The scrim, in and out on the standard curve. */

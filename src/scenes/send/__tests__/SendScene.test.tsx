@@ -1,4 +1,5 @@
 import React from 'react';
+import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
@@ -110,6 +111,29 @@ test('a scan Send starts brings its code back to the same Send', async () => {
   expect(stage.state.overlay).toBeNull();
   expect(stage.state.scene).toMatchObject({ name: 'send', key });
   expect(request(tree)).toBe(SCANNED);
+  await act(async () => tree.unmount());
+});
+
+test("Send's scan grows from its own button, measured as it is pressed", async () => {
+  const tree = await openSend();
+  const button = find(tree, copy.send.scan)!;
+  // The view around the button, whose place in the window the reveal takes.
+  let well = button.parent;
+  while (well && !(well.type === View && well.props.collapsable === false)) {
+    well = well.parent;
+  }
+  jest
+    .mocked(well!.instance.measureInWindow)
+    .mockImplementationOnce(
+      (done: (x: number, y: number, w: number, h: number) => void) =>
+        done(300, 158, 44, 44),
+    );
+  await press(tree, copy.send.scan);
+  expect(stage.state.overlay).toMatchObject({
+    name: 'scan',
+    target: 'send',
+    origin: { x: 322, y: 180 },
+  });
   await act(async () => tree.unmount());
 });
 

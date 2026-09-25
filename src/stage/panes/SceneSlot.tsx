@@ -19,6 +19,17 @@ import { usePrimary } from './Primary';
 const KEYBOARD_AVOIDING = 'padding' as const;
 
 /**
+ * How far a scene's content sits inside its slot: for whatever lands on it
+ * from outside, such as a scan closing into Send's well, and whatever
+ * reaches past it to the slot's edges, such as a scrim.
+ */
+export const SLOT_PADDING = {
+  top: space.md,
+  side: space.xl,
+  bottom: space.xxxl,
+};
+
+/**
  * A scrolling place for a whole scene, that keeps its fields above the
  * keyboard.
  *
@@ -77,9 +88,9 @@ const styles = StyleSheet.create({
   // no size at all.
   title: { position: 'absolute', top: 0, left: 0, width: 1, height: 1 },
   content: {
-    paddingHorizontal: space.xl,
-    paddingTop: space.md,
-    paddingBottom: space.xxxl,
+    paddingHorizontal: SLOT_PADDING.side,
+    paddingTop: SLOT_PADDING.top,
+    paddingBottom: SLOT_PADDING.bottom,
     flexGrow: 1,
     maxWidth: 640,
     width: '100%',
