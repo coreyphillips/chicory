@@ -28,6 +28,7 @@ import { palette } from '../../../design/palette';
 import { CopyChip, chipText } from '../../../glyphs/CopyChip';
 import { ExpiryRing } from '../../../glyphs/ExpiryRing';
 import { Odometer } from '../../../glyphs/Odometer';
+import { BANDS, QR_CARD_GONE, QR_TIMING } from '../../../glyphs/QrBloom';
 import * as tokens from '../../../motion/tokens';
 import { ReceiveScreen } from '../../../screens/Receive';
 import type { WalletAdapter } from '../../../services/wallet';
@@ -49,8 +50,9 @@ import { Unplugged } from '../../send/LoopingGlyphs';
 import { quietRing } from '../controls';
 import { ReceiveHostContext, slotRoom } from '../host';
 import { Spin } from '../loops';
-import { CELEBRATION } from '../model';
+import { CELEBRATION, requestFace } from '../model';
 import { ReceiveScene } from '../ReceiveScene';
+import { ACTIVITY, RequestStep } from '../RequestStep';
 
 /**
  * Receive's accessibility, feedback and look (REDESIGN.md 6 and 9), driven
@@ -815,6 +817,31 @@ describe('the quote', () => {
   });
 });
 
+describe('a copy chip', () => {
+  test('is a mocha pill round its value and glyph, not a bar across its row', async () => {
+    // The detail's chip ran the width of the card, its value packed at the
+    // left (P7, 59-detail).
+    const tree = await mount(
+      <CopyChip label={copy.receive.transaction} value={'ab'.repeat(32)} />,
+    );
+    const chip = find(tree, copy.receive.copyValue(copy.receive.transaction))!;
+    const style = StyleSheet.flatten(
+      typeof chip.props.style === 'function'
+        ? chip.props.style({ pressed: false })
+        : chip.props.style,
+    );
+    expect(style).toMatchObject({
+      backgroundColor: palette.mocha,
+      minHeight: 48,
+      borderRadius: 24,
+    });
+    expect(StyleSheet.flatten(chip.parent!.props.style)).toMatchObject({
+      alignSelf: 'center',
+    });
+    await act(async () => tree.unmount());
+  });
+});
+
 describe('type', () => {
   /** Every run of text and every field drawn, outside the amount keypad. */
   const texts = (tree: ReactTestRenderer) =>
@@ -981,6 +1008,80 @@ describe("the request a payment's detail keeps", () => {
 });
 
 describe('the celebration', () => {
+  const paid: ReceiveStatus = {
+    phase: 'completed',
+    receivedSats: 1000,
+    confirmedSats: 1000,
+    pendingSats: 0,
+    txids: [],
+    method: 'lightning',
+  };
+
+  test("draws no dark track across the code before the code's card has gone", async () => {
+    // The husk track cut across the cream card for 200ms (P7, 50-c3 t5.37).
+    // The card goes once the bands have set off and it has faded.
+    expect(QR_CARD_GONE).toBe(QR_TIMING.step * BANDS + QR_TIMING.dissolve);
+    expect(CELEBRATION.track.delay).toBeGreaterThanOrEqual(QR_CARD_GONE);
+    const opacity = async (celebrate: boolean) => {
+      const tree = await mount(
+        <ReceiveReceipt
+          status={paid}
+          amountSats={1000}
+          celebrate={celebrate}
+        />,
+      );
+      const [track] = tree.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.testID === 'receipt-track',
+      );
+      const shown = StyleSheet.flatten(track.props.style).opacity;
+      await act(async () => tree.unmount());
+      return shown;
+    };
+    expect(await opacity(true)).toBe(0);
+    // A still receipt, as a payment's detail keeps it, has its track.
+    expect(await opacity(false)).toBe(1);
+  });
+
+  test('offers the list with a glyph that does not say money is still moving', async () => {
+    const request = requestOf();
+    const tree = await mount(
+      <RequestStep
+        request={request}
+        createdAt={Date.now()}
+        face={requestFace({
+          request,
+          now: Date.now(),
+          paid: true,
+          ambiguous: false,
+          createdAt: Date.now(),
+        })}
+        minutesLeft={10}
+        receipt={paid}
+        hidden={false}
+        unit="sats"
+        qr={264}
+        error={null}
+        onLift={noop}
+        onCopy={noop}
+        copies={0}
+        onShare={noop}
+        onAgain={noop}
+        onActivity={noop}
+        focus={{ current: null }}
+      />,
+    );
+    const glyphs = glyphsIn(find(tree, copy.receive.viewActivity)!).map(
+      glyph => glyph.props.name,
+    );
+    // The orbit is money in flight (REDESIGN.md 6); under a done mark it
+    // read as still on its way (P7, 51-c3-received).
+    expect(glyphs).toEqual([ACTIVITY]);
+    expect(ACTIVITY).not.toBe('orbit');
+    await act(async () => tree.unmount());
+  });
+
   test('counts what arrived up over 700ms, and a still receipt rolls as any amount does', async () => {
     const completed: ReceiveStatus = {
       phase: 'completed',

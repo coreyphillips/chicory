@@ -231,6 +231,14 @@ export const QR_TIMING = {
 };
 
 /**
+ * When the cream card has gone once a code can no longer be paid, in ms: it
+ * fades after the bands have set off, so a paid code implodes on cream.
+ * Whatever takes the code's place waits for this before it draws a dark
+ * stroke across where the card was.
+ */
+export const QR_CARD_GONE = QR_TIMING.step * BANDS + QR_TIMING.dissolve;
+
+/**
  * How layer `layer` (a band from the centre out, or FINDERS) moves into
  * `state`: when it starts, how long it takes, and where it ends.
  */
