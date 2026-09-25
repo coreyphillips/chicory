@@ -30,7 +30,7 @@ import { GLYPHS, Glyph, strokeFor } from '../design/glyphs';
 import type { GlyphName, GlyphPart } from '../design/glyphs';
 import { haptics } from '../design/haptics';
 import { alpha, mixHex, palette } from '../design/palette';
-import { fract, useAwake, useLoop } from '../motion/loops';
+import { fract, useAwake, useLoop, wave } from '../motion/loops';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { vesselVisual } from '../scenes/home/visual';
@@ -173,9 +173,11 @@ const FIGURES_OUT = FadeOut.duration(durations.exit).reduceMotion(
 
 /** The minute hand's turn while the money waits on a confirmation. */
 const CLOCK_MS = 6000;
-/** How long the fee gauge's needle takes to settle. */
+/** The fee gauge's needle sweeps each way in this long while fees are high. */
 const GAUGE_MS = 3000;
-/** A refresh or a rewind turns once as it appears. */
+/** A refresh turns once in this long while its retry is pending. */
+const RETRY_MS = 900;
+/** A refresh with nothing pending, or a rewind, turns once as it appears. */
 const TURN_MS = 500;
 const GLYPH_SIZE = 16;
 
@@ -194,10 +196,31 @@ const MOVES: Partial<Record<GlyphName, { part?: string; origin: string }>> = {
 };
 
 /**
- * Where the moving part of `name` is at `t`: for the clock, a clock that
- * counts turns of its minute hand; for the rest, how far their one move has run,
- * from 0 to 1. The gauge's needle sweeps up from -30 degrees, a refresh
- * turns forward once, a rewind back, and a sprout grows to full size.
+ * How long one cycle of `name`'s loop takes, for a glyph that keeps moving
+ * while its wait lasts (REDESIGN.md 4): the clock's minute hand once every
+ * 6s, the gauge's needle back and up again, 3s each way, and a refresh
+ * once every 900ms while its retry is pending. Null for a glyph that moves
+ * once as it appears.
+ */
+export function glyphLoop(name: GlyphName, retry: boolean): number | null {
+  switch (name) {
+    case 'clock':
+      return CLOCK_MS;
+    case 'gauge':
+      return 2 * GAUGE_MS;
+    case 'refresh':
+      return retry ? RETRY_MS : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Where the moving part of `name` is at `t`: for a loop, a clock that counts
+ * its cycles; for the rest, how far their one move has run, from 0 to 1.
+ * The minute hand goes round; the gauge's needle dips back 30 degrees and
+ * sweeps up again, at rest as it is drawn; a refresh turns forward, a rewind
+ * back, and a sprout grows to full size.
  */
 export function glyphPose(name: GlyphName, t: number) {
   'worklet';
@@ -205,7 +228,7 @@ export function glyphPose(name: GlyphName, t: number) {
     case 'clock':
       return { rotate: 360 * fract(t), scale: 1 };
     case 'gauge':
-      return { rotate: -30 * (1 - t), scale: 1 };
+      return { rotate: -30 * wave(t), scale: 1 };
     case 'refresh':
       return { rotate: 360 * t, scale: 1 };
     case 'rewind':
@@ -245,37 +268,40 @@ function PartsArt({ parts, color }: { parts: GlyphPart[]; color: string }) {
 function WaitGlyph({
   name,
   color,
+  retry,
   awake,
   reduced,
 }: {
   name: GlyphName;
   color: string;
+  retry: boolean;
   awake: boolean;
   reduced: boolean;
 }) {
   const move = MOVES[name];
-  const clock = useLoop(CLOCK_MS, name === 'clock' && awake && !reduced);
-  const once = useSharedValue(move && !reduced ? 0 : 1);
+  // A loop's clock rests where it would not be seen: in the background, in
+  // a pane out of use, and under Reduce Motion, where the glyph is still.
+  const period = glyphLoop(name, retry);
+  const looping = period !== null;
+  const clock = useLoop(period ?? CLOCK_MS, looping && awake && !reduced);
+  const once = useSharedValue(move && !reduced && !looping ? 0 : 1);
   useEffect(() => {
-    if (!move || reduced || name === 'clock') {
+    if (!move || reduced || looping) {
       once.set(1);
       return;
     }
     once.set(
       name === 'sprout'
         ? withSpring(1, springs.reveal)
-        : withTiming(1, {
-            duration: name === 'gauge' ? GAUGE_MS : TURN_MS,
-            easing: curves.standard,
-          }),
+        : withTiming(1, { duration: TURN_MS, easing: curves.standard }),
     );
-  }, [once, move, reduced, name]);
+  }, [once, move, reduced, name, looping]);
   const style = useAnimatedStyle(() => {
-    const pose = glyphPose(name, name === 'clock' ? clock.get() : once.get());
+    const pose = glyphPose(name, looping ? clock.get() : once.get());
     return {
       transform: [{ rotate: `${pose.rotate}deg` }, { scale: pose.scale }],
     };
-  }, [name]);
+  }, [name, looping]);
   if (!move) return <Glyph name={name} size={GLYPH_SIZE} color={color} />;
   const parts: GlyphPart[] = [...GLYPHS[name]];
   const moving = (part: GlyphPart) => !move.part || part.id === move.part;
@@ -622,6 +648,7 @@ export function Vessel({
               <WaitGlyph
                 name={glyph}
                 color={tone}
+                retry={visual.retry}
                 awake={awake}
                 reduced={reduced}
               />

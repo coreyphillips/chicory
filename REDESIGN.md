@@ -327,26 +327,27 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 
 **Animated glyphs**
 
-| Glyph          | Animation                                                                            |
-| -------------- | ------------------------------------------------------------------------------------ |
-| check          | draws in 420ms on the enter curve                                                    |
-| cross          | two strokes of 140ms each, the second starting 60ms after the first                  |
-| bang           | the line draws in 200ms, then the dot pops with the reveal spring                    |
-| copy to check  | copy scales to .6 and fades out in 120ms; the check draws in 260ms starting at +60ms |
-| send           | launches +28, -28 and fades over 240ms                                               |
-| refresh        | turns 360 degrees in 500ms; while working, loops at 900ms per turn                   |
-| bolt           | draws in 240ms, then flashes                                                         |
-| chain          | the halves slide 3pt together over 200ms                                             |
-| clock          | the minute hand turns once every 6s while waiting                                    |
-| moon           | rocks plus or minus 8 degrees on a 4200ms cycle                                      |
-| unplug         | the halves drift apart plus or minus 1.5pt and back over 1800ms                      |
-| pause          | the bars scale in with the reveal spring, 60ms apart, then hold still                |
-| question       | nods once over 600ms                                                                 |
-| shieldAlert    | the stroke blinks every 1600ms                                                       |
-| gauge          | the needle sweeps from -30 to 0 degrees over 3s                                      |
-| sprout         | grows from its base with the reveal spring, 400ms                                    |
-| eye            | blinks over 180ms                                                                    |
-| lock to unlock | the shackle lifts over 260ms                                                         |
+| Glyph          | Animation                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| check          | draws in 420ms on the enter curve                                                        |
+| cross          | two strokes of 140ms each, the second starting 60ms after the first                      |
+| bang           | the line draws in 200ms, then the dot pops with the reveal spring                        |
+| copy to check  | copy scales to .6 and fades out in 120ms; the check draws in 260ms starting at +60ms     |
+| send           | launches +28, -28 and fades over 240ms                                                   |
+| refresh        | turns 360 degrees in 500ms; while working or a retry is pending, loops at 900ms per turn |
+| bolt           | draws in 240ms, then flashes                                                             |
+| chain          | the halves slide 3pt together over 200ms                                                 |
+| clock          | the minute hand turns once every 6s while waiting                                        |
+| moon           | rocks plus or minus 8 degrees on a 4200ms cycle                                          |
+| unplug         | the halves drift apart plus or minus 1.5pt and back over 1800ms                          |
+| pause          | the bars scale in with the reveal spring, 60ms apart, then hold still                    |
+| question       | nods once over 600ms                                                                     |
+| shieldAlert    | the stroke blinks every 1600ms                                                           |
+| gauge          | while fees are high, the needle dips to -30 degrees and sweeps back to 0, 3s each way    |
+| sprout         | grows from its base with the reveal spring, 400ms                                        |
+| rewind         | turns back once over 500ms as it appears                                                 |
+| eye            | blinks over 180ms                                                                        |
+| lock to unlock | the shackle lifts over 260ms                                                             |
 
 ## 5. Signature components
 

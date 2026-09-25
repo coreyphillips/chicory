@@ -37,6 +37,7 @@ import {
   ringGeometry,
 } from '../src/glyphs/StatusRing';
 import {
+  glyphLoop,
   glyphPose,
   ripplePose,
   seedBob,
@@ -460,9 +461,10 @@ describe('Vessel', () => {
     // The minute hand turns once a cycle and rests upright on each whole one.
     expect(glyphPose('clock', 3)).toEqual({ rotate: 0, scale: 1 });
     expect(glyphPose('clock', 2.25).rotate).toBeCloseTo(90);
-    // The gauge's needle sweeps up from -30 degrees.
-    expect(glyphPose('gauge', 0).rotate).toBe(-30);
-    expect(glyphPose('gauge', 1).rotate).toBeCloseTo(0);
+    // The gauge's needle rests as drawn, dips back 30 degrees halfway round
+    // its loop, and sweeps up again.
+    expect(glyphPose('gauge', 3).rotate).toBeCloseTo(0);
+    expect(glyphPose('gauge', 2.5).rotate).toBeCloseTo(-30);
     // A refresh turns forward once, a rewind back.
     expect(glyphPose('refresh', 1).rotate).toBe(360);
     expect(glyphPose('rewind', 1).rotate).toBe(-360);
@@ -470,6 +472,17 @@ describe('Vessel', () => {
     expect(glyphPose('sprout', 0).scale).toBe(0);
     expect(glyphPose('sprout', 1).scale).toBe(1);
     expect(glyphPose('inflow', 0)).toEqual({ rotate: 0, scale: 1 });
+  });
+
+  test('the clock, the gauge and a pending retry keep moving; the rest move once', () => {
+    expect(glyphLoop('clock', false)).toBe(6000);
+    // Back over 3s and up over 3s.
+    expect(glyphLoop('gauge', false)).toBe(6000);
+    expect(glyphLoop('refresh', true)).toBe(900);
+    expect(glyphLoop('refresh', false)).toBeNull();
+    for (const name of ['rewind', 'sprout', 'inflow'] as const) {
+      expect(glyphLoop(name, true)).toBeNull();
+    }
   });
 
   test('seeds spread over the glass and bob a point out of step', () => {
