@@ -8,6 +8,7 @@ import {
   HomeScreen,
   activityStatus,
 } from '../src/screens/Wallet';
+import { chipText } from '../src/glyphs/CopyChip';
 import { useNow } from '../src/services/clock';
 
 const activity = (over: Partial<Activity> & { id: string }): Activity => ({
@@ -215,8 +216,8 @@ test('payment details keep a hidden balance hidden and follow the unit', async (
   let rendered = text(tree);
   expect(rendered).toContain('••••••');
   expect(rendered).not.toContain('4,200');
-  // A reference is not an amount; it stays readable.
-  expect(rendered).toContain('abc123txid');
+  // A reference is not an amount; it stays readable, in groups of four.
+  expect(rendered).toContain(chipText('abc123txid'));
   await act(async () => tree.unmount());
   await act(async () => {
     tree = create(<DetailScreen item={item} unit="btc" />);
