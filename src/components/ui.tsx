@@ -13,77 +13,42 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
-import { colors, fonts, HIT_SLOP, motion, radius, space, type } from '../theme';
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+import { colors, fonts, HIT_SLOP, radius, space, type } from '../theme';
+import { Glyph } from '../design/glyphs';
+import type { GlyphName } from '../design/glyphs';
+import { springs } from '../motion/tokens';
 import { haptic } from '../services/haptics';
 import { motionReduced } from '../services/motion';
 
-export type IconName =
-  | 'arrowUp'
-  | 'arrowDown'
-  | 'wallet'
-  | 'activity'
-  | 'settings'
-  | 'close'
-  | 'chevron'
-  | 'chevronDown'
-  | 'check'
-  | 'copy'
-  | 'shield'
-  | 'plus'
-  | 'back'
-  | 'eye'
-  | 'eyeOff'
-  | 'scan'
-  | 'search'
-  | 'lock'
-  | 'link'
-  | 'share'
-  | 'refresh'
-  | 'alert'
-  | 'info'
-  | 'bolt'
-  | 'clock'
-  | 'key';
+/** Names from the classic icon set, drawn now by their redesign glyphs. */
+const RENAMED = {
+  arrowUp: 'send',
+  arrowDown: 'receive',
+  link: 'chain',
+  settings: 'cog',
+  activity: 'orbit',
+} as const satisfies Record<string, GlyphName>;
 
-const paths: Partial<Record<IconName, string>> = {
-  arrowUp: 'M6 18 18 6M6 6h12v12',
-  arrowDown: 'M18 6 6 18M6 6v12h12',
-  activity: 'M3 12h4l3-8 4 16 3-8h4',
-  close: 'm6 6 12 12M6 18 18 6',
-  chevron: 'm9 5 7 7-7 7',
-  chevronDown: 'm5 9 7 7 7-7',
-  check: 'm5 12 4 4L19 6',
-  copy: 'M8 8H4v12h12v-4M8 4h12v12H8z',
-  shield: 'M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6zM8 12l3 3 5-6',
-  plus: 'M12 4v16M4 12h16',
-  back: 'M20 12H4m7-7-7 7 7 7',
-  eye: 'M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z',
-  eyeOff: 'M4 4l16 16M10.6 10.7a2 2 0 0 0 2.8 2.8M6.7 6.8C3.9 8.5 2 12 2 12s3.6 6 10 6c1.7 0 3.2-.4 4.5-1M20.9 14.4C21.6 13.3 22 12 22 12s-3.6-6-10-6c-.6 0-1.2.1-1.7.2',
-  scan: 'M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M4 12h16',
-  search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4',
-  lock: 'M6 11h12v9H6zM9 11V8a3 3 0 0 1 6 0v3',
-  link: 'M10 14a4 4 0 0 0 6 .5l2-2a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-6-.5l-2 2a4 4 0 0 0 5.7 5.7l1-1',
-  share: 'M12 15V3m0 0L8 7m4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6',
-  refresh: 'M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5',
-  alert: 'M12 4 2 20h20zM12 10v4M12 17.5v.5',
-  info: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v5M12 8v.5',
-  bolt: 'M13 3 5 14h6l-1 7 8-11h-6z',
-  clock: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2',
-  key: 'M15 3a6 6 0 1 0-4.5 10.4L4 20v1h4v-2h2v-2h2l1.5-1.5A6 6 0 0 0 15 3zM16.5 7.5v.01',
-};
+export type IconName = GlyphName | keyof typeof RENAMED;
+
+const glyphFor = (name: IconName): GlyphName =>
+  name in RENAMED ? RENAMED[name as keyof typeof RENAMED] : (name as GlyphName);
 
 /**
- * Memoized. Its props are four primitives with no children and no callback, so
- * the comparison always settles it, and there are a few dozen of these on
- * screen at once, each one an SVG subtree that was being rebuilt whenever any
- * ancestor rendered.
+ * The classic icon API over the redesign's glyphs, so every screen not yet
+ * redrawn keeps its call sites. The stroke follows the glyph's size unless one
+ * is given.
  */
-export const Icon = React.memo(function IconSvg({
+export function Icon({
   name,
   size = 24,
   color = colors.text,
-  strokeWidth = 1.7,
+  strokeWidth,
 }: {
   name: IconName;
   size?: number;
@@ -91,56 +56,28 @@ export const Icon = React.memo(function IconSvg({
   strokeWidth?: number;
 }) {
   return (
-    <Svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
+    <Glyph
+      name={glyphFor(name)}
+      size={size}
+      color={color}
       strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {name === 'wallet' ? (
-        <>
-          <Rect x="3" y="5" width="18" height="15" rx="3" />
-          <Path d="M3 9h18m-6 5h6" />
-          <Circle cx="16" cy="14" r=".5" />
-        </>
-      ) : name === 'settings' ? (
-        <>
-          <Path d="M4 6h16M4 12h16M4 18h16" />
-          <Circle cx="9" cy="6" r="2" fill={colors.background} />
-          <Circle cx="16" cy="12" r="2" fill={colors.background} />
-          <Circle cx="8" cy="18" r="2" fill={colors.background} />
-        </>
-      ) : name === 'eye' ? (
-        <>
-          <Path d={paths.eye} />
-          <Circle cx="12" cy="12" r="2.6" />
-        </>
-      ) : (
-        <Path d={paths[name]} />
-      )}
-    </Svg>
+    />
   );
-});
-Icon.displayName = 'Icon';
+}
 
-/** A press that dips slightly and settles, instead of a hard opacity step. */
+/**
+ * A press that dips slightly and springs back, instead of a hard opacity step.
+ * Reduce Motion keeps the control still.
+ */
 function usePressScale() {
-  const scale = useRef(new Animated.Value(1)).current;
-  const to = (value: number) => {
-    if (motionReduced()) return;
-    Animated.timing(scale, {
-      toValue: value,
-      duration: motion.fast,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  };
+  const scale = useSharedValue(1);
+  const style = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.get() }],
+  }));
+  const to = (value: number) =>
+    scale.set(motionReduced() ? 1 : withSpring(value, springs.snap));
   return {
-    scale,
+    style,
     onPressIn: () => to(0.97),
     onPressOut: () => to(1),
   };
@@ -195,7 +132,7 @@ export function Button({
     </>
   );
   return (
-    <Animated.View style={[{ transform: [{ scale: press.scale }] }, style]}>
+    <Reanimated.View style={[press.style, style]}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel || label}
@@ -228,7 +165,7 @@ export function Button({
         </Text>
         {iconRight ? glyph : null}
       </Pressable>
-    </Animated.View>
+    </Reanimated.View>
   );
 }
 
@@ -252,7 +189,7 @@ export function IconButton({
 }) {
   const press = usePressScale();
   return (
-    <Animated.View style={{ transform: [{ scale: press.scale }] }}>
+    <Reanimated.View style={press.style}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
@@ -278,7 +215,7 @@ export function IconButton({
           color={tone === 'primary' ? colors.primary : colors.text}
         />
       </Pressable>
-    </Animated.View>
+    </Reanimated.View>
   );
 }
 
@@ -521,16 +458,16 @@ export function Segmented<T extends string>({
           key={option}
           accessibilityRole="button"
           accessibilityLabel={option}
-          accessibilityState={{ selected: option === value, disabled: !!disabled }}
+          accessibilityState={{
+            selected: option === value,
+            disabled: !!disabled,
+          }}
           disabled={disabled}
           onPress={() => {
             haptic('selection');
             onChange(option);
           }}
-          style={[
-            styles.segment,
-            option === value && styles.segmentSelected,
-          ]}
+          style={[styles.segment, option === value && styles.segmentSelected]}
         >
           <Text
             style={[
@@ -607,9 +544,7 @@ export function ListRow({
           {value}
         </Text>
       ) : null}
-      {onPress ? (
-        <Icon name="chevron" size={16} color={colors.faint} />
-      ) : null}
+      {onPress ? <Icon name="chevron" size={16} color={colors.faint} /> : null}
     </>
   );
   if (!onPress) return <View style={styles.listRow}>{content}</View>;
@@ -705,7 +640,12 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.danger,
   },
-  buttonLabel: { ...type.label, fontSize: 16, color: colors.ink, fontWeight: '700' },
+  buttonLabel: {
+    ...type.label,
+    fontSize: 16,
+    color: colors.ink,
+    fontWeight: '700',
+  },
   secondaryLabel: { color: colors.text },
   dangerLabel: { color: colors.danger },
   disabled: { opacity: 0.45 },
@@ -770,7 +710,12 @@ export const styles = StyleSheet.create({
     borderBottomColor: colors.line,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rowLabel: { ...type.caption, fontSize: 13, color: colors.muted, flexShrink: 0 },
+  rowLabel: {
+    ...type.caption,
+    fontSize: 13,
+    color: colors.muted,
+    flexShrink: 0,
+  },
   rowValueGroup: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -798,7 +743,13 @@ export const styles = StyleSheet.create({
   errorNotice: { backgroundColor: colors.dangerSoft },
   successNotice: { backgroundColor: colors.mintSoft },
   warningNotice: { backgroundColor: colors.warningSoft },
-  noticeText: { ...type.caption, fontSize: 13, lineHeight: 20, color: colors.text, flex: 1 },
+  noticeText: {
+    ...type.caption,
+    fontSize: 13,
+    lineHeight: 20,
+    color: colors.text,
+    flex: 1,
+  },
   noticeTextWithIcon: { flex: 1 },
   errorText: { color: colors.danger },
 
