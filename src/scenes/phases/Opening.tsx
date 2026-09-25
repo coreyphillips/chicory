@@ -3,7 +3,8 @@ import { View } from 'react-native';
 import { copy } from '../../design/copy';
 import { Bloom } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
-import { PhaseRoot, useArrivalFocus } from './parts';
+import { useFocus } from '../../motion/focus';
+import { PhaseRoot } from './parts';
 import { QUIET_MS, SIZES } from './visual';
 
 /**
@@ -13,7 +14,7 @@ import { QUIET_MS, SIZES } from './visual';
  * before the loader shows.
  */
 export function Opening() {
-  const focus = useArrivalFocus();
+  const focus = useFocus();
   return (
     <PhaseRoot delay={QUIET_MS}>
       <Whisper label={copy.phase.openingWallet}>

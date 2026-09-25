@@ -32,6 +32,7 @@ import type { HeroFrame, Launch } from '../../scenes/home/motion';
 import { isTestNetwork } from '../../scenes/home/visual';
 import type { Panes } from '../../stage/panes/Pane';
 import { usePaneActive } from '../../stage/panes/Pane';
+import { usePrimary } from '../../stage/panes/Primary';
 import { space } from '../../theme';
 import type { Unit } from '../../theme';
 
@@ -109,6 +110,8 @@ export function HomeScreen({
   // only get their handlers while its pane is the one in use.
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
+  // The balance is where a screen reader lands as the canvas comes home.
+  const primary = usePrimary();
   const resting = useSharedValue(1);
   const hero = progress?.hero ?? resting;
   const bar = progress?.bar ?? resting;
@@ -269,6 +272,7 @@ export function HomeScreen({
               style={[styles.hero, heroMotion]}
             >
               <Pressable
+                ref={primary}
                 accessibilityRole="button"
                 accessibilityLabel={label}
                 accessibilityHint={copy.home.unitHint}

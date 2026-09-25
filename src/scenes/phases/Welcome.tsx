@@ -6,6 +6,7 @@ import { copy } from '../../design/copy';
 import { Bloom } from '../../glyphs/Bloom';
 import type { BloomEvent } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
+import { useFocus } from '../../motion/focus';
 import { riseIn, sceneOut } from '../../motion/presets';
 import { DeviceSetup } from '../../screens/DeviceSetup';
 import type { useWalletSession } from '../../services/useWalletSession';
@@ -17,7 +18,6 @@ import {
   refused,
   SetupPanel,
   StatusPip,
-  useArrivalFocus,
 } from './parts';
 import { SIZES, welcomeVisual } from './visual';
 
@@ -83,7 +83,7 @@ export function Welcome({
 
   // The bloom stands for the screen, as a title would, so a screen reader
   // starts there and moves on to the controls.
-  const focus = useArrivalFocus();
+  const focus = useFocus();
   // Closed on the first frame, so the bloom unfolds as the screen arrives.
   const [unfolded, setUnfolded] = useState(false);
   useEffect(() => setUnfolded(true), []);

@@ -23,6 +23,7 @@ import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { Bloom } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
+import { useFocus } from '../../motion/focus';
 import { stagger } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -31,7 +32,7 @@ import { PANE_SETTLE_MS } from '../../stage/layout';
 import type { Rect } from '../../stage/scene';
 import { radius, space, type as typography } from '../../theme';
 import { takeHandOff } from './handoff';
-import { GlyphButton, PhaseRoot, useArrivalFocus, useRunning } from './parts';
+import { GlyphButton, PhaseRoot, useRunning } from './parts';
 import { bloomTone, flightFrom, SIZES, WAVE } from './visual';
 
 /**
@@ -67,7 +68,7 @@ export function OpeningWallet({
     const settle = setTimeout(() => setLanded(true), PANE_SETTLE_MS);
     return () => clearTimeout(settle);
   }, [landed]);
-  const focus = useArrivalFocus();
+  const focus = useFocus();
   return (
     <PhaseRoot style={styles.canvas} delay={flying ? 0 : undefined}>
       <View style={styles.status}>

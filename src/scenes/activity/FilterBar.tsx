@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
+import type { Ref } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
-import type { StyleProp, ViewStyle } from 'react-native';
+import type { HostInstance, StyleProp, ViewStyle } from 'react-native';
 import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
@@ -20,6 +21,7 @@ import { palette } from '../../design/palette';
 import { riseIn, sceneOut } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
+import { usePrimary } from '../../stage/panes/Primary';
 import { HIT_SLOP, radius, space } from '../../theme';
 import { ALL, FILTERS } from './model';
 import { BAR_HEIGHT } from './sheet';
@@ -58,6 +60,8 @@ export function FilterBar({
 }) {
   // A search with words in it stays open wherever the list goes.
   const open = !!onQuery && (searching || !!query);
+  // The first filter is where a screen reader lands as the list opens.
+  const primary = usePrimary();
   const close = () => {
     onQuery?.('');
     onSearching(false);
@@ -105,9 +109,10 @@ export function FilterBar({
           exiting={sceneOut()}
           style={styles.chips}
         >
-          {FILTERS.map(({ value, glyph }) => (
+          {FILTERS.map(({ value, glyph }, index) => (
             <FilterChip
               key={value}
+              ref={index === 0 ? primary : undefined}
               glyph={glyph}
               label={copy.activity.filters[value]}
               selected={filter === value}
@@ -177,11 +182,13 @@ function FilterChip({
   label,
   selected,
   onPress,
+  ref,
 }: {
   glyph: GlyphName;
   label: string;
   selected: boolean;
   onPress?: () => void;
+  ref?: Ref<HostInstance>;
 }) {
   const on = useSharedValue(selected ? 1 : 0);
   useEffect(() => {
@@ -193,6 +200,7 @@ function FilterChip({
   }));
   return (
     <Pressable
+      ref={ref}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ selected }}

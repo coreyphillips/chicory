@@ -13,6 +13,7 @@ import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { Bloom } from '../../glyphs/Bloom';
 import type { BloomTone } from '../../glyphs/Bloom';
+import { useFocus } from '../../motion/focus';
 import { stagger } from '../../motion/presets';
 import { curves, durations } from '../../motion/tokens';
 import { NetworkSettings } from '../../screens/NetworkSettings';
@@ -27,7 +28,6 @@ import {
   refused,
   SetupPanel,
   StatusPip,
-  useArrivalFocus,
 } from './parts';
 import { bloomTone, SIZES } from './visual';
 
@@ -79,7 +79,7 @@ export function Picker({
     setNetworkEditor(false);
     return true;
   });
-  const focus = useArrivalFocus();
+  const focus = useFocus();
   const [chosen, setChosen] = useState<string | null>(null);
   const open = useCallback(
     (wallet: WalletRecord) => {

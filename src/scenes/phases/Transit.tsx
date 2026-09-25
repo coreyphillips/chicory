@@ -17,11 +17,12 @@ import type { Network } from '@beignet/wallet-core';
 import { Bloom } from '../../glyphs/Bloom';
 import type { BloomEvent } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
+import { useFocus } from '../../motion/focus';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { motionReduced } from '../../services/motion';
 import type { useWalletSession } from '../../services/useWalletSession';
-import { PhaseRoot, useArrivalFocus } from './parts';
+import { PhaseRoot } from './parts';
 import {
   BUD_OPEN,
   markFlight,
@@ -55,7 +56,7 @@ export function Transit({
   const insets = useSafeAreaInsets();
   const { reduced } = useMotionPrefs();
   const event = useArrivalEvent(look.kind, reduced);
-  const focus = useArrivalFocus();
+  const focus = useFocus();
 
   // A switch recolors toward its target once the mark has landed.
   const toward = useSharedValue(0);

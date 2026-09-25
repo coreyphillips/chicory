@@ -11,12 +11,12 @@ import Reanimated, {
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
+import { useFocus } from '../../motion/focus';
 import { riseIn } from '../../motion/presets';
 import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { radius, space, type } from '../../theme';
 import { WORD_RISE, wordDelay } from './motion';
-import { useFocus } from './ui';
 
 /** How long the eye stays open before it blinks, once the words are rising. */
 const BLINK_AFTER = 240;

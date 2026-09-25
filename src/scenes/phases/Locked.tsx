@@ -27,13 +27,14 @@ import { palette } from '../../design/palette';
 import { Bloom } from '../../glyphs/Bloom';
 import type { BloomEvent } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
+import { useFocus } from '../../motion/focus';
 import { curves, durations } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { BIOMETRY_NAMES, supportedBiometry } from '../../services/lock';
 import type { BiometryKind } from '../../services/lock';
 import { motionReduced } from '../../services/motion';
 import { space } from '../../theme';
-import { useArrivalFocus, useRunning } from './parts';
+import { useRunning } from './parts';
 import {
   BUD_OPEN,
   lockVisual,
@@ -116,7 +117,7 @@ export function LockScreen({
     [],
   );
 
-  const focus = useArrivalFocus();
+  const focus = useFocus();
   const mark = markPoint(insets);
   const glyph = kind === undefined ? null : unlockGlyph(kind);
   return (

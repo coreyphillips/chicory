@@ -23,6 +23,7 @@ import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { Bloom } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
+import { useFocus } from '../../motion/focus';
 import { curves, durations, springs } from '../../motion/tokens';
 import { NetworkSettings } from '../../screens/NetworkSettings';
 import { motionReduced } from '../../services/motion';
@@ -35,7 +36,6 @@ import {
   PhaseRoot,
   SetupPanel,
   StatusPip,
-  useArrivalFocus,
   useRunning,
 } from './parts';
 import { bloomTone, DORMANT_OPEN, SIZES, UNPLUG_DRIFT } from './visual';
@@ -101,7 +101,7 @@ export function OfflineWallet({
     return true;
   });
   // The unplug says what this phase is, so a screen reader starts there.
-  const focus = useArrivalFocus();
+  const focus = useFocus();
   // The connection dropped: the hand hears it as the unplug pops in.
   useEffect(() => {
     if (error) haptics.warning();

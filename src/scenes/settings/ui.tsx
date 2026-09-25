@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { ComponentRef, PropsWithChildren, ReactNode } from 'react';
 import {
-  AccessibilityInfo,
   AppState,
   Pressable,
   StyleSheet,
@@ -10,12 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type {
-  HostInstance,
-  StyleProp,
-  TextInputProps,
-  ViewStyle,
-} from 'react-native';
+import type { StyleProp, TextInputProps, ViewStyle } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Reanimated, {
   cancelAnimation,
@@ -34,7 +28,7 @@ import { GLYPHS, GLYPH_LENGTHS, Glyph, strokeFor } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
-import { afterTransition } from '../../motion/idle';
+import { useFocus } from '../../motion/focus';
 import { riseIn, smooth, stagger } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -91,26 +85,6 @@ function useForeground(): boolean {
     return () => subscription.remove();
   }, []);
   return front;
-}
-
-/**
- * A ref for the element a screen reader should land on whenever `on` turns
- * true, so focus follows each change of what the page holds (REDESIGN.md 9)
- * instead of being lost with the control that was pressed and then removed.
- * It moves once the change has settled: an element still arriving may not be
- * in the accessibility tree yet.
- */
-export function useFocus<T extends HostInstance = HostInstance>(on: boolean) {
-  const target = useRef<T>(null);
-  useEffect(() => {
-    if (!on) return;
-    return afterTransition(() => {
-      if (target.current) {
-        AccessibilityInfo.sendAccessibilityEvent(target.current, 'focus');
-      }
-    });
-  }, [on]);
-  return target;
 }
 
 /**

@@ -9,6 +9,7 @@ import {
 import type { RefreshControlProps } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { space } from '../../theme';
+import { usePrimary } from './Primary';
 
 // Padding on both platforms. The app draws edge to edge on Android, where the
 // window no longer shrinks for the keyboard (adjustResize does nothing), so
@@ -22,7 +23,9 @@ const KEYBOARD_AVOIDING = 'padding' as const;
  * keyboard.
  *
  * `label` names the scene for a screen reader where a title bar used to: a
- * header it reaches first, which draws nothing. `offset` is how far below the
+ * header it reaches first, which draws nothing. On the canvas that header is
+ * the scene's primary element, where a screen reader lands as the scene
+ * settles (`usePrimary`). `offset` is how far below the
  * top of the safe area the slot's parent starts, for a slot the canvas places
  * lower down.
  */
@@ -40,6 +43,7 @@ export function SceneSlot({
   // window. Every slot's parent starts below the top inset, and `offset` below
   // that, so together they are the distance between the two.
   const insets = useSafeAreaInsets();
+  const header = usePrimary();
   return (
     <KeyboardAvoidingView
       style={styles.slot}
@@ -48,6 +52,7 @@ export function SceneSlot({
     >
       {label ? (
         <View
+          ref={header}
           accessible
           accessibilityRole="header"
           accessibilityLabel={label}

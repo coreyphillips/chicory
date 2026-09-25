@@ -5,6 +5,7 @@ import { LinkButton } from '../../components/ui';
 import { copy } from '../../design/copy';
 import { Bloom } from '../../glyphs/Bloom';
 import { NetworkSettings } from '../../screens/NetworkSettings';
+import { useFocus } from '../../motion/focus';
 import type { useWalletSession } from '../../services/useWalletSession';
 import { usePhaseBack } from '../../stage/StageContext';
 import { space } from '../../theme';
@@ -15,7 +16,6 @@ import {
   refused,
   SetupPanel,
   StatusPip,
-  useArrivalFocus,
 } from './parts';
 import { bloomTone, DORMANT_OPEN, SIZES } from './visual';
 
@@ -61,7 +61,7 @@ export function Saved({
     setNetworkEditor(false);
     return true;
   });
-  const focus = useArrivalFocus();
+  const focus = useFocus();
   const reason = switchError || error;
   // The bloom speaks for what the screen no longer writes: whose wallet it is
   // when there is no name to show, and that it is still here.

@@ -16,6 +16,7 @@ import { BackupBanner } from '../src/scenes/shared/BackupBanner';
 import { ActivityScreen, HomeScreen } from '../src/screens/Wallet';
 import { SettingsScreen } from '../src/screens/Settings';
 import { copy } from '../src/design/copy';
+import { FILTERS } from '../src/scenes/activity/model';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import type { Backup } from '../src/stage/Canvas';
 import {
@@ -588,6 +589,52 @@ describe('the canvas', () => {
     );
     expect(felt).toHaveBeenCalledTimes(1);
     expect(regions()).toEqual([1, 1, 1]);
+    await act(async () => tree.unmount());
+  });
+
+  test('as each scene settles a screen reader lands on its primary element', async () => {
+    const sent = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent');
+    sent.mockClear();
+    // Under Jest a host ref holds the mocked component, props and all.
+    const landed = () =>
+      sent.mock.calls
+        .filter(([, kind]) => kind === 'focus')
+        .map(
+          ([node]) =>
+            (node as unknown as { props: { accessibilityLabel?: string } })
+              .props.accessibilityLabel,
+        );
+    // Focus waits for the panes, then for an idle moment: the next tick here.
+    const go = async (move: () => void) => {
+      await act(async () => move());
+      await settle();
+      await act(async () => {
+        await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
+      });
+      return landed().at(-1);
+    };
+    const balance = copy.home.totalBalance(261_500, 'sats');
+    const tree = await render(<OnCanvas />);
+    expect(await go(() => {})).toBe(balance);
+    expect(await go(() => stage.actions.openSend())).toBe(copy.scene.send);
+    expect(await go(() => stage.actions.back())).toBe(balance);
+    expect(await go(() => stage.actions.openActivity())).toBe(
+      copy.activity.filters[FILTERS[0].value],
+    );
+    expect(await go(() => stage.actions.openDetail(payment))).toBe(
+      copy.scene.detail,
+    );
+    await go(() => stage.actions.home());
+    expect(await go(() => stage.actions.openSettings())).toBe(
+      copy.settings.title,
+    );
+    expect(await go(() => stage.actions.back())).toBe(balance);
+    // An overlay holds the screen, and moves focus itself; closing it lands
+    // back on the scene.
+    const before = landed().length;
+    await go(() => stage.actions.openScan());
+    expect(landed().slice(before)).not.toContain(balance);
+    expect(await go(() => stage.dispatch({ type: 'back' }))).toBe(balance);
     await act(async () => tree.unmount());
   });
 

@@ -1,12 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
-import type { PropsWithChildren, Ref, RefObject } from 'react';
-import {
-  AccessibilityInfo,
-  AppState,
-  Pressable,
-  StyleSheet,
-  View,
-} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import type { PropsWithChildren, Ref } from 'react';
+import { AppState, Pressable, StyleSheet, View } from 'react-native';
 import type { HostInstance, StyleProp, ViewStyle } from 'react-native';
 import Reanimated, {
   cancelAnimation,
@@ -25,7 +19,6 @@ import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import type { BloomTone } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
-import { afterTransition } from '../../motion/idle';
 import { riseIn, sceneOut } from '../../motion/presets';
 import { curves, durations, overlap, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -61,27 +54,6 @@ export function useRunning(on: boolean): boolean {
   const awake = useAwake();
   const { reduced } = useMotionPrefs();
   return on && awake && !reduced;
-}
-
-/**
- * Where a screen reader lands when a phase arrives (REDESIGN.md 9): the
- * element holding the returned ref, once the move that brought the phase has
- * settled. Without it focus stays where the last phase left it, on a control
- * that is no longer there. A phase has one such element, the one that says
- * what it is or does.
- */
-export function useArrivalFocus(): RefObject<HostInstance | null> {
-  const ref = useRef<HostInstance>(null);
-  useEffect(
-    () =>
-      afterTransition(() => {
-        if (ref.current) {
-          AccessibilityInfo.sendAccessibilityEvent(ref.current, 'focus');
-        }
-      }),
-    [],
-  );
-  return ref;
 }
 
 /**

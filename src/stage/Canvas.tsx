@@ -29,6 +29,8 @@ import {
 } from './layout';
 import { CornerControl } from './panes/CornerControl';
 import { Pane, PanesProvider } from './panes/Pane';
+import { PrimaryFor, usePrimaryFocus } from './panes/Primary';
+import type { Primaries } from './panes/Primary';
 import { usePaneMotion } from './panes/usePaneMotion';
 import type { Overlay, Scene } from './scene';
 import { newestFirst, useStage } from './StageContext';
@@ -125,6 +127,11 @@ export interface RegionProps {
  *
  * Scan opens over all of it. The panes stay drawn beneath, out of use, and a
  * code it reads goes to the Send already open, or opens a new one.
+ *
+ * As each scene settles, and as an overlay over it closes, a screen reader
+ * lands on the scene's primary element (REDESIGN.md 9): the header of its
+ * slot, Home's balance, or the first filter of the open list. Each region
+ * names its own with `usePrimary`.
  */
 export function Canvas({
   scene,
@@ -147,6 +154,8 @@ export function Canvas({
 }) {
   const { state, dispatch, responders } = useStage();
   const { reduced } = useMotionPrefs();
+  const [primaries] = useState<Primaries>(() => new Map());
+  usePrimaryFocus(primaries, scene, !!overlay);
   const arrived = useIncoming(snapshot);
   const region: RegionProps = {
     snapshot,
@@ -230,15 +239,16 @@ export function Canvas({
   let top: ReactNode = null;
   if (scene.name === 'send') {
     top = (
-      <SendScene
-        key={scene.key}
-        {...region}
-        sceneKey={scene.key}
-        prefill={scene.prefill}
-      />
+      <PrimaryFor key={scene.key} primaries={primaries} scene="send">
+        <SendScene {...region} sceneKey={scene.key} prefill={scene.prefill} />
+      </PrimaryFor>
     );
   } else if (scene.name === 'receive') {
-    top = <ReceiveScene key={scene.key} {...region} sceneKey={scene.key} />;
+    top = (
+      <PrimaryFor key={scene.key} primaries={primaries} scene="receive">
+        <ReceiveScene {...region} sceneKey={scene.key} />
+      </PrimaryFor>
+    );
   }
 
   return (
@@ -261,7 +271,9 @@ export function Canvas({
               { top: belowStatus, height: panes.stops.home - belowStatus },
             ]}
           >
-            <HomePane {...region} home={home} />
+            <PrimaryFor primaries={primaries} scene="home">
+              <HomePane {...region} home={home} />
+            </PrimaryFor>
           </Pane>
           {/* Drawn at the right of the status row, but after Home, so a
               screen reader reaches it after the actions and before the
@@ -284,7 +296,9 @@ export function Canvas({
                 the end of the list is reachable there. Lower down the rest
                 simply runs past the bottom edge. */}
             <View style={{ height: height - panes.stops.compact }}>
-              <SheetPane {...region} shown={shown} />
+              <PrimaryFor primaries={primaries} scene="activity">
+                <SheetPane {...region} shown={shown} />
+              </PrimaryFor>
             </View>
           </Pane>
           <View
@@ -293,12 +307,9 @@ export function Canvas({
             pointerEvents={blocking ? 'none' : 'box-none'}
           >
             {scene.name === 'detail' && detail ? (
-              <DetailLayer
-                key={scene.key}
-                {...region}
-                item={detail}
-                from={scene.from}
-              />
+              <PrimaryFor key={scene.key} primaries={primaries} scene="detail">
+                <DetailLayer {...region} item={detail} from={scene.from} />
+              </PrimaryFor>
             ) : null}
           </View>
         </Pane>
@@ -315,7 +326,9 @@ export function Canvas({
               style={styles.settings}
             >
               <Pane active={!overlay} style={styles.flex}>
-                <SettingsLayer {...region} />
+                <PrimaryFor primaries={primaries} scene="settings">
+                  <SettingsLayer {...region} />
+                </PrimaryFor>
               </Pane>
             </Reanimated.View>
           ) : null}
