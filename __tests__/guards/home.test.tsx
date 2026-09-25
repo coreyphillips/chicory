@@ -216,6 +216,10 @@ const GUARDED: GuardedState[] = [
   state('btc', { unit: 'btc' }),
   state('test network', { snapshot: snapshotOf() }),
   state('backup pending', { backup: pendingBackup() }),
+  state('backup pending, away from home', {
+    backup: pendingBackup(),
+    shown: 'activity',
+  }),
   state('an uncertain payment', {
     snapshot: snapshotOf({
       wallet: MAINNET,
