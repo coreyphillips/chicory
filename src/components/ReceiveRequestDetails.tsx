@@ -3,18 +3,39 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
-import QRCode from 'react-native-qrcode-svg';
+import Reanimated from 'react-native-reanimated';
 import type { Activity, ReceiveRequest } from '@beignet/wallet-core';
-import { Body, Button, Card, Eyebrow, Field, LinkButton, Notice } from './ui';
+import { announce } from '../design/announce';
+import { copy } from '../design/copy';
+import { Glyph } from '../design/glyphs';
+import { haptics } from '../design/haptics';
+import { palette } from '../design/palette';
+import { QrBloom } from '../glyphs/QrBloom';
+import { riseIn, sceneOut } from '../motion/presets';
+import { ErrorPip, GlyphButton } from '../scenes/receive/controls';
+import { detailFace, requestRails } from '../scenes/receive/model';
 import { useNow } from '../services/clock';
-import { useToast } from './Toast';
-import { colors, fonts, radius, space, type } from '../theme';
+import { recordDiagnostic } from '../services/diagnosticLog';
+import { usePaneActive } from '../stage/panes/Pane';
+import { radius, space, type as typography } from '../theme';
 import type { WalletAdapter } from '../services/wallet';
 
+/**
+ * The request a payment was asked for with, as its detail keeps it
+ * (REDESIGN.md 6, Detail). While it can still be paid its code blooms and it
+ * can be shared or copied; once it is paid, expired or its address reused,
+ * the code goes and so do share and copy, and the request string stays as
+ * the record. How it can be paid is a row of glyphs whose label says it.
+ *
+ * An older request saved only its Lightning invoice. Its original request
+ * can be linked back with the chain and plus, which opens a well to paste
+ * the original into.
+ */
 export function ReceiveRequestDetails({
   item,
   client,
@@ -26,12 +47,14 @@ export function ReceiveRequestDetails({
   onRefresh?: () => void;
   onBusy?: (busy: boolean) => void;
 }) {
+  const live = usePaneActive();
   const [original, setOriginal] = useState('');
   const [linking, setLinking] = useState(false);
   const [linked, setLinked] = useState<ReceiveRequest | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const toast = useToast();
+  // Each copy of the request turns the copy control to a check and back.
+  const [copies, setCopies] = useState(0);
   const working = useRef(false);
   const generation = useRef({ active: true });
   const { width } = useWindowDimensions();
@@ -53,15 +76,28 @@ export function ReceiveRequestDetails({
   // The countdown only runs while there is a request to count down.
   const now = useNow(1000, !!request);
   if (!request) return null;
-  const legacy = 'legacy' in request && request.legacy;
-  const receipt = item.receiveStatus && item.receiveStatus.phase !== 'waiting';
-  const shareable =
-    item.kind === 'request' &&
-    item.status === 'pending' &&
-    request.expiresAt > now &&
-    !receipt &&
-    !item.receiveStatusUnavailable &&
-    request.bitcoinTracking !== 'ambiguous';
+  const legacy = 'legacy' in request && !!request.legacy;
+  const face = detailFace(item, request, now);
+  const { shareable } = face;
+  const reused = request.bitcoinTracking === 'ambiguous';
+  const how = legacy
+    ? copy.receive.legacy
+    : reused
+    ? copy.receive.reusedAddress
+    : requestRails(request).length > 1
+    ? copy.receive.unified
+    : copy.receive.lightningOnly;
+
+  /**
+   * A link or a share that failed: the bang beside the controls, an error
+   * haptic, the whole message at once for a screen reader, and the log.
+   */
+  function fail(said: string, code?: string) {
+    haptics.error();
+    setError(said);
+    announce(said, { assertive: true });
+    recordDiagnostic({ phase: 'ui', message: said, code });
+  }
 
   async function link() {
     if (!client || !item.paymentHash || working.current || !original.trim())
@@ -82,148 +118,212 @@ export function ReceiveRequestDetails({
       onRefresh?.();
     } catch (e) {
       if (current.active)
-        setError(
-          e instanceof Error
-            ? e.message
-            : 'Could not link the original request.',
+        fail(
+          e instanceof Error ? e.message : copy.receive.linkFailed,
+          (e as { code?: string })?.code,
         );
     } finally {
       working.current = false;
       if (current.active) setBusy(false);
     }
   }
+
+  async function paste() {
+    const current = generation.current;
+    const text = await Clipboard.getString();
+    if (current.active && text) setOriginal(text.trim());
+  }
+
   return (
-    <Card>
-      <Eyebrow>
-        {legacy ? 'Lightning invoice' : 'Original payment request'}
-      </Eyebrow>
-      {legacy ? (
-        <Body>
-          This older request saved only its Lightning invoice. Bitcoin receipts
-          appear separately until the original request is linked.
-        </Body>
-      ) : null}
-      {request.bitcoinTracking === 'lightning-only' ? (
-        <Body>This request accepts Lightning only.</Body>
-      ) : null}
-      {request.bitcoinTracking === 'ambiguous' ? (
-        <Notice>
-          This address was reused. Bitcoin payments cannot be matched to this
-          request.
-        </Notice>
-      ) : null}
-      {shareable ? (
-        <View
-          style={styles.qr}
-          accessibilityLabel={
-            legacy
-              ? 'Lightning invoice QR code'
-              : 'Original payment request QR code'
-          }
-        >
-          <QRCode
+    <View style={styles.card}>
+      {face.qr ? (
+        <View style={styles.qr}>
+          <QrBloom
             value={request.uri}
             size={Math.min(220, Math.max(150, width - 160))}
-            quietZone={12}
-            backgroundColor={colors.cream}
-            color={colors.ink}
+            state={face.qr}
+            accessibilityLabel={
+              legacy ? copy.receive.legacyQr : copy.receive.originalQr
+            }
           />
         </View>
       ) : null}
-      <Text selectable style={styles.request}>
-        {request.uri}
-      </Text>
-      {error ? <Notice kind="error">{error}</Notice> : null}
-      <Button
-        label="Share original request"
-        icon="share"
-        secondary
-        disabled={!shareable || busy}
-        onPress={() => {
-          if (shareable && !working.current)
-            Share.share({ message: request.uri }).catch(() =>
-              setError('Could not share this request.'),
-            );
-        }}
-      />
-      <Button
-        label="Copy original request"
-        icon="copy"
-        secondary
-        disabled={!shareable || busy}
-        onPress={() => {
-          if (shareable && !working.current) {
-            Clipboard.setString(request.uri);
-            toast('Original request copied', 'success', 'copy');
-          }
-        }}
-      />
-      {linked ? (
-        <Notice kind="success">
-          Original request linked. Its payment status is being refreshed.
-        </Notice>
-      ) : null}
-      {legacy && client && item.paymentHash ? (
-        <>
-          {!linking ? (
-            <LinkButton
-              label="Link original request"
-              onPress={() => setLinking(true)}
+      <View accessible accessibilityLabel={how} style={styles.rails}>
+        {requestRails({ ...request, legacy }).map(rail => (
+          <Glyph key={rail} name={rail} size={16} color={palette.steam} />
+        ))}
+        {reused ? <Glyph name="twin" size={16} color={palette.honey} /> : null}
+      </View>
+      <View
+        accessible
+        accessibilityLabel={
+          legacy ? copy.receive.legacyInvoice : copy.receive.original
+        }
+        accessibilityValue={{ text: request.uri }}
+      >
+        <Text
+          selectable={shareable}
+          style={[styles.request, !shareable && styles.kept]}
+        >
+          {request.uri}
+        </Text>
+      </View>
+      {error ? <ErrorPip message={error} /> : null}
+      <View style={styles.controls}>
+        {shareable ? (
+          <>
+            <GlyphButton
+              glyph="share"
+              label={copy.receive.shareOriginal}
+              size={48}
+              disabled={busy}
+              onPress={() => {
+                if (!working.current)
+                  Share.share({ message: request.uri }).catch(() =>
+                    fail(copy.receive.shareFailed),
+                  );
+              }}
             />
-          ) : (
-            <>
-              <Body>
-                Paste the full original bitcoin: request, including its
-                Lightning invoice. Chicory checks the invoice and wallet
-                address. Without that original request, this link cannot be
-                recovered.
-              </Body>
-              <Field
-                label="Original payment request"
-                placeholder="bitcoin:…?lightning=…"
-                value={original}
-                onChangeText={setOriginal}
-                multiline
-                autoCapitalize="none"
-                editable={!busy}
-              />
-              <Button
-                label="Link request"
-                onPress={link}
-                busy={busy}
-                disabled={!original.trim()}
-              />
-              <LinkButton
-                label="Cancel linking"
-                disabled={busy}
-                onPress={() => {
-                  setLinking(false);
-                  setOriginal('');
-                  setError('');
-                }}
-              />
-            </>
-          )}
-        </>
+            <GlyphButton
+              glyph="copy"
+              label={copy.receive.copyOriginal}
+              size={48}
+              disabled={busy}
+              confirm={copies}
+              onPress={() => {
+                if (working.current) return;
+                Clipboard.setString(request.uri);
+                announce(copy.receive.originalCopied);
+                setCopies(count => count + 1);
+              }}
+            />
+          </>
+        ) : null}
+        {legacy && client && item.paymentHash && !linking ? (
+          <GlyphButton
+            glyph="linkPlus"
+            label={copy.receive.linkOriginal}
+            size={48}
+            onPress={() => setLinking(true)}
+          />
+        ) : null}
+        {linked ? (
+          <Reanimated.View
+            entering={riseIn(8)}
+            accessible
+            accessibilityLabel={copy.receive.linked}
+            style={styles.linked}
+          >
+            <Glyph name="check" size={20} color={palette.sage} />
+          </Reanimated.View>
+        ) : null}
+      </View>
+      {legacy && client && item.paymentHash && linking ? (
+        <Reanimated.View
+          entering={riseIn(8)}
+          exiting={sceneOut()}
+          style={styles.linking}
+        >
+          <View style={styles.well}>
+            <TextInput
+              accessibilityLabel={copy.receive.original}
+              accessibilityHint={copy.receive.originalHint}
+              value={original}
+              onChangeText={live ? setOriginal : undefined}
+              multiline
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+              editable={!busy}
+              selectionColor={palette.bloom}
+              style={styles.field}
+            />
+            <GlyphButton
+              glyph="clipboard"
+              label={copy.receive.paste}
+              size={48}
+              disabled={busy}
+              onPress={() => {
+                paste().catch(() => {});
+              }}
+            />
+          </View>
+          <View style={styles.controls}>
+            <GlyphButton
+              glyph="close"
+              label={copy.receive.cancelLink}
+              size={48}
+              disabled={busy}
+              onPress={() => {
+                setLinking(false);
+                setOriginal('');
+                setError('');
+              }}
+            />
+            <GlyphButton
+              glyph="linkPlus"
+              label={copy.receive.link}
+              size={56}
+              tone="primary"
+              busy={busy}
+              disabled={!original.trim()}
+              onPress={link}
+            />
+          </View>
+        </Reanimated.View>
       ) : null}
-    </Card>
+    </View>
   );
 }
+
 const styles = StyleSheet.create({
-  qr: {
+  card: {
+    padding: space.lg,
+    borderRadius: radius.xl,
+    backgroundColor: palette.espresso,
+    gap: space.md,
     alignItems: 'center',
-    padding: space.md,
-    borderRadius: radius.lg,
-    backgroundColor: colors.cream,
   },
+  qr: { alignItems: 'center' },
+  rails: { flexDirection: 'row', gap: space.sm, alignItems: 'center' },
   request: {
-    ...type.micro,
+    ...typography.mono,
     fontSize: 11,
     lineHeight: 18,
-    // 'monospace' is an Android-only alias; iOS silently fell back to the
-    // proportional system font for every request string.
-    fontFamily: fonts.mono,
-    color: colors.text,
-    fontWeight: '400',
+    color: palette.cream,
+  },
+  kept: { color: palette.steam },
+  controls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.lg,
+  },
+  linked: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.sageSoft,
+  },
+  linking: { alignSelf: 'stretch', gap: space.md },
+  well: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    padding: space.xs,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: palette.bark,
+  },
+  field: {
+    ...typography.mono,
+    flex: 1,
+    minHeight: 88,
+    paddingHorizontal: space.sm,
+    color: palette.cream,
+    textAlignVertical: 'top',
   },
 });

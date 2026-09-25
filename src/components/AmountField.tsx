@@ -24,6 +24,10 @@ import { Chip } from './ui';
  * There is no system keyboard. `label`, `placeholder` and `hint` are spoken
  * rather than drawn, and presets are chips labelled with their amount alone.
  * `autoFocus` moves a screen reader to the amount once it is shown.
+ *
+ * `editable` false means something else sets the amount: a lock shows and
+ * the keypad goes. `busy` is a wait while the amount is used, as while a
+ * quote is asked for: the keypad and presets stay, and take no touches.
  */
 export function AmountField({
   label = copy.amount.field,
@@ -32,6 +36,7 @@ export function AmountField({
   placeholder,
   hint,
   editable = true,
+  busy = false,
   presets,
   autoFocus,
 }: {
@@ -41,6 +46,7 @@ export function AmountField({
   placeholder?: string;
   hint?: string;
   editable?: boolean;
+  busy?: boolean;
   presets?: number[];
   autoFocus?: boolean;
 }) {
@@ -61,6 +67,7 @@ export function AmountField({
       placeholder={placeholder}
       hint={hint}
       editable={editable}
+      busy={busy}
     >
       {presets?.length ? (
         <View style={styles.presets}>
@@ -69,8 +76,10 @@ export function AmountField({
               key={preset}
               label={copy.amount.preset(preset)}
               selected={digits === String(preset)}
-              disabled={!editable}
-              onPress={live ? () => onChangeText(String(preset)) : undefined}
+              disabled={!editable || busy}
+              onPress={
+                live && !busy ? () => onChangeText(String(preset)) : undefined
+              }
             />
           ))}
         </View>

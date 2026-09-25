@@ -1,58 +1,15 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
-import { IconButton } from './ui';
-import { useToast } from './Toast';
-import { colors, fonts, space, type } from '../theme';
+import { CopyChip } from '../glyphs/CopyChip';
 
 /**
- * A reference value with a copy button.
+ * A reference value that copies with a tap: a copy chip (REDESIGN.md 5).
  *
  * Payment hashes, transaction ids and addresses used to be selectable text
  * only, which on a phone means a long-press and two drag handles over a 64
- * character string. The value stays selectable as well, for anyone who wants
- * part of it.
+ * character string. The chip copies all of it with a tap and shows all of it
+ * on a long press. `label` names the value for a screen reader, which hears
+ * "Copy {label}" and then "{label} copied".
  */
-export function CopyValue({
-  label,
-  value,
-  monospace = true,
-}: {
-  label: string;
-  value: string;
-  monospace?: boolean;
-}) {
-  const toast = useToast();
-  return (
-    <View style={styles.wrap}>
-      <View style={styles.text}>
-        <Text style={styles.label}>{label}</Text>
-        <Text selectable style={[styles.value, monospace && styles.mono]}>
-          {value}
-        </Text>
-      </View>
-      <IconButton
-        name="copy"
-        size={17}
-        accessibilityLabel={`Copy ${label.toLowerCase()}`}
-        onPress={() => {
-          Clipboard.setString(value);
-          toast(`${label} copied`, 'success', 'copy');
-        }}
-      />
-    </View>
-  );
+export function CopyValue({ label, value }: { label: string; value: string }) {
+  return <CopyChip label={label} value={value} />;
 }
-
-const styles = StyleSheet.create({
-  wrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    paddingVertical: space.xs,
-  },
-  text: { flex: 1, gap: 3 },
-  label: { ...type.micro, color: colors.muted },
-  value: { ...type.caption, fontSize: 12, color: colors.text },
-  mono: { fontFamily: fonts.mono, fontSize: 11, lineHeight: 17 },
-});

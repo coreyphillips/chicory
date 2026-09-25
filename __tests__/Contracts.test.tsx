@@ -9,7 +9,7 @@ import {
   State,
 } from 'react-native-gesture-handler';
 import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
-import { G, Rect } from 'react-native-svg';
+import { G, Path, Rect } from 'react-native-svg';
 import type { Activity } from '@beignet/wallet-core';
 import { Scanner } from '../src/components/Scanner';
 import { Bloom } from '../src/glyphs/Bloom';
@@ -19,7 +19,7 @@ import { ExpiryRing } from '../src/glyphs/ExpiryRing';
 import { HoldButton } from '../src/glyphs/HoldButton';
 import { Odometer } from '../src/glyphs/Odometer';
 import { PulseDot } from '../src/glyphs/PulseDot';
-import { QrBloom } from '../src/glyphs/QrBloom';
+import { QrBloom, qrLayers, qrModules } from '../src/glyphs/QrBloom';
 import type { QrState } from '../src/glyphs/QrBloom';
 import { StatusRing } from '../src/glyphs/StatusRing';
 import type { RingVisual } from '../src/glyphs/StatusRing';
@@ -452,29 +452,33 @@ describe('ExpiryRing', () => {
 });
 
 describe('QrBloom', () => {
-  const code = (tree: ReactTestRenderer) =>
-    tree.root.findAll(node => node.type === ('QRCode' as never));
+  const VALUE = 'bitcoin:bcrt1q?amount=0.0001';
+  // Every band and finder square the code is split into, as drawn paths.
+  const { bands, finders } = qrLayers(qrModules(VALUE));
+  const layers = [...bands.filter(Boolean), ...finders.map(({ d }) => d)];
+  const modules = (tree: ReactTestRenderer) =>
+    tree.root.findAllByType(Path).filter(node => layers.includes(node.props.d));
 
-  test.each<[QrState, number]>([
-    ['shown', 1],
-    ['expired', 0],
-    ['paid', 0],
-    ['scattered', 0],
-  ])('%s draws %i codes', async (state, count) => {
+  test.each<[QrState, boolean]>([
+    ['shown', true],
+    ['expired', false],
+    ['paid', false],
+    ['scattered', false],
+  ])('%s draws a scannable code: %s', async (state, drawn) => {
     const tree = await render(
       <QrBloom
-        value="bitcoin:bcrt1q?amount=0.0001"
+        value={VALUE}
         size={200}
         state={state}
         onPress={jest.fn()}
         accessibilityLabel="Payment request QR code"
       />,
     );
-    expect(code(tree)).toHaveLength(count);
+    expect(modules(tree)).toHaveLength(drawn ? layers.length : 0);
+    // Only a code that can still be paid is named, or takes a press.
     const card = control(tree, 'Payment request QR code');
-    expect(typeof card.props.onPress).toBe(
-      state === 'shown' ? 'function' : 'undefined',
-    );
+    if (drawn) expect(typeof card.props.onPress).toBe('function');
+    else expect(card).toBeUndefined();
   });
 });
 

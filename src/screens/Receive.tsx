@@ -1,45 +1,49 @@
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  Animated,
-  Modal,
-  Pressable,
-  Share,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Share, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
-import QRCode from 'react-native-qrcode-svg';
+import Reanimated from 'react-native-reanimated';
 import { parseSats } from '@beignet/wallet-core';
-import type { ReceiveQuote, ReceiveRequest } from '@beignet/wallet-core';
-import {
-  Body,
-  Button,
-  Card,
-  Field,
-  LinkButton,
-  Notice,
-  Row,
-  Title,
-} from '../components/ui';
-import { AmountField } from '../components/AmountField';
-import { useToast } from '../components/Toast';
-import { ReceiveReceipt } from '../components/ReceiveReceipt';
-import { useReceiveStatus } from '../services/useReceiveStatus';
+import type {
+  ReceiveQuote,
+  ReceiveRequest,
+  ReceiveStatus,
+} from '@beignet/wallet-core';
+import { announce } from '../design/announce';
+import { copy } from '../design/copy';
+import { haptics } from '../design/haptics';
+import { qrSide } from '../glyphs/QrBloom';
+import { sceneIn, sceneOut } from '../motion/presets';
+import { useFocusOn } from '../scenes/receive/focus';
+import type { Focus } from '../scenes/receive/focus';
+import { FormStep } from '../scenes/receive/FormStep';
+import { useReceiveHost } from '../scenes/receive/host';
+import { LiftedQr } from '../scenes/receive/LiftedQr';
+import { amountCue, remainderSats, requestFace } from '../scenes/receive/model';
+import { QuoteStep } from '../scenes/receive/QuoteStep';
+import { RequestStep } from '../scenes/receive/RequestStep';
 import { useNow } from '../services/clock';
+import { recordDiagnostic } from '../services/diagnosticLog';
+import { useReceiveStatus } from '../services/useReceiveStatus';
 import { errorMessage as message } from '../services/useWalletSession';
-import { haptic } from '../services/haptics';
-import { useEnter } from '../services/motion';
-import { colors, number, radius, space, type as typography } from '../theme';
 import type { WalletAdapter } from '../services/wallet';
+import { usePaneActive } from '../stage/panes/Pane';
+import type { Unit } from '../theme';
 
+const codeOf = (e: unknown) => (e as { code?: string })?.code;
+
+/**
+ * Receive (REDESIGN.md 6): an amount, a quote for it, and the request it
+ * becomes, which then shows what arrives for it. Everything a screen used
+ * to say in sentences is said by glyphs, rings and motion here, and in the
+ * labels a screen reader reads.
+ */
 export function ReceiveScreen({
   client,
   receivableSats = 0,
   offlineReceivableSats,
   disabled = false,
+  hidden = false,
+  unit = 'sats',
   onActivity,
   onRefresh,
   onBusy,
@@ -53,14 +57,21 @@ export function ReceiveScreen({
   offlineReceivableSats?: number;
   /** Set when the wallet's balance is too old to quote against. */
   disabled?: boolean;
+  /** Amounts that arrive are masked, as the balance is. */
+  hidden?: boolean;
+  /** The unit amounts that arrive are shown in. */
+  unit?: Unit;
   onActivity: () => void;
   onRefresh?: () => void;
   onBusy: (busy: boolean) => void;
 }) {
+  const { useBack, setTint } = useReceiveHost();
+  const live = usePaneActive();
+  const { width } = useWindowDimensions();
   const [capacityChanged, setCapacityChanged] = useState(false);
   // Receiving offline is an opt-in, never the default: the ordinary request
   // is paid over the home channel or provisioned by the primary just in
-  // time. The box is offered only when the engine advertises offline
+  // time. The switch is offered only when the engine advertises offline
   // receiving; the primary still has to offer settlement, and the engine
   // says so at quote time when it does not.
   const [offlineAvailable, setOfflineAvailable] = useState(false);
@@ -68,7 +79,8 @@ export function ReceiveScreen({
   useEffect(() => {
     let active = true;
     // Read through a promise so a client without the method (the demo
-    // client, older hosts) leaves the box off rather than breaking the form.
+    // client, older hosts) leaves the switch off rather than breaking the
+    // form.
     Promise.resolve()
       .then(() => client.getConfig())
       .then(config => {
@@ -93,19 +105,30 @@ export function ReceiveScreen({
   // for an offline receive, whose slot holds one fixed amount.
   const amountRequired = receivableSats <= 0 || capacityChanged || offline;
   const [amount, setAmount] = useState('');
-  const typedSats = /^\d+$/.test(amount.trim()) ? Number(amount.trim()) : 0;
-  const overOffline =
-    offline &&
-    offlineReceivableSats !== undefined &&
-    typedSats > offlineReceivableSats;
+  const cue = amountCue({
+    amount,
+    required: amountRequired,
+    offline,
+    cap: offlineReceivableSats,
+  });
+  const ready = !(amountRequired && cue.empty) && !cue.over && !cue.under;
   const [description, setDescription] = useState('');
+  const [noteOpen, setNoteOpen] = useState(false);
   const [quote, setQuote] = useState<ReceiveQuote | null>(null);
+  const [quotedAt, setQuotedAt] = useState(0);
+  // The engine can call a quote expired a moment before this clock does.
+  const [lapsed, setLapsed] = useState(false);
   const [request, setRequest] = useState<ReceiveRequest | null>(null);
+  const [createdAt, setCreatedAt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [enlarged, setEnlarged] = useState(false);
+  // Each refusal of a control shakes it once.
+  const [refusals, setRefusals] = useState(0);
+  const [offlineRefusals, setOfflineRefusals] = useState(0);
+  const [lifted, setLifted] = useState(false);
+  // Each copy of the request turns the copy control to a check and back.
+  const [copies, setCopies] = useState(0);
   const amountError = useRef('');
-  const toast = useToast();
   useEffect(() => {
     if (receivableSats > 0) {
       setCapacityChanged(false);
@@ -121,71 +144,121 @@ export function ReceiveScreen({
     onBusy(busy);
     return () => onBusy(false);
   }, [busy, onBusy]);
-  const { width } = useWindowDimensions();
   const working = useRef(false);
   const tracking = useReceiveStatus(client, request, onRefresh || (() => {}));
   const receipt =
     tracking?.status && tracking.status.phase !== 'waiting'
       ? tracking.status
       : null;
-  // Same as the send sheet: the clock is only read by the two expiry checks
-  // below, so it runs only while there is something that can expire.
-  const now = useNow(1000, !!request || !!quote);
-  const expired = request
-    ? now >= request.expiresAt
-    : quote
-    ? now >= quote.expiresAt
-    : false;
-  const step = receipt
-    ? 'receipt'
-    : request
-    ? 'request'
-    : quote
-    ? 'quote'
-    : 'form';
+  // The clock is only read by the expiry checks below, so it runs only while
+  // there is something that can expire; a request that has been paid no
+  // longer can.
+  const now = useNow(1000, (!!request && !receipt) || !!quote);
+  const face = request
+    ? requestFace({
+        request,
+        now,
+        paid: !!receipt,
+        ambiguous: !!tracking?.ambiguous,
+        createdAt: request.createdAt ?? createdAt,
+      })
+    : null;
+  const quoteExpired = quote ? lapsed || now >= quote.expiresAt : false;
+  const step = request ? 'request' : quote ? 'quote' : 'form';
   // Back to the ordinary request when an offline one no longer fits, but only
   // on the form: creating an offline request reserves its channel, which takes
   // the figure to 0 while that request is still on screen.
   useEffect(() => {
     if (step === 'form' && !offlineOffered) setOffline(false);
   }, [step, offlineOffered]);
-  const enter = useEnter(step);
-  const celebrated = useRef(false);
+
+  // The night tint while the request being made, or shown, is an offline one.
+  const night = request ? !!request.offlineReceive && !face?.expired : offline;
   useEffect(() => {
-    if (receipt && !celebrated.current) {
-      celebrated.current = true;
-      haptic(receipt.phase === 'completed' ? 'success' : 'light');
+    setTint(night ? 'night' : null);
+  }, [night, setTint]);
+  useEffect(() => () => setTint(null), [setTint]);
+
+  useArrival(receipt, request);
+  useWarning(!!face?.expired && !receipt && !tracking?.ambiguous, () => {
+    announce(copy.receive.expired, { assertive: true });
+    recordDiagnostic({ phase: 'ui', message: copy.receive.expired });
+  });
+  useWarning(!!tracking?.ambiguous, () => {
+    const said = tracking?.error ?? copy.receive.reusedAddress;
+    announce(`${said} ${copy.receive.reusedShare}`, { assertive: true });
+    recordDiagnostic({
+      phase: 'ui',
+      message: said,
+      code: 'AMBIGUOUS_RECEIVE_ADDRESS',
+    });
+  });
+  useWarning(quoteExpired, () => {
+    announce(copy.receive.quoteExpired, { assertive: true });
+    // One the engine refused was logged in its own words as it did.
+    if (!lapsed) {
+      recordDiagnostic({
+        phase: 'ui',
+        message: copy.receive.quoteExpired,
+        code: 'QUOTE_EXPIRED',
+      });
     }
-  }, [receipt]);
+  });
+  // A stale balance holds back making a request (REDESIGN.md rule 4), which
+  // a screen reader hears at once while there is one to make. The balance's
+  // own look and haptic are the canvas's.
+  const heldBack = disabled && live && step !== 'request';
+  useEffect(() => {
+    if (heldBack) announce(copy.receive.stale, { assertive: true });
+  }, [heldBack]);
+
+  /**
+   * Something asked for failed: the control that asked shakes, unless the
+   * amount cue answers for it, and a screen reader hears why at once.
+   */
+  function refuse(e: unknown, shake = true) {
+    const said = message(e);
+    haptics.error();
+    setError(said);
+    if (shake) setRefusals(count => count + 1);
+    announce(said, { assertive: true });
+    recordDiagnostic({ phase: 'ui', message: said, code: codeOf(e) });
+  }
 
   async function price() {
-    if (working.current || (amountRequired && !amount.trim())) {
-      return;
-    }
+    if (working.current || disabled || !ready) return;
     working.current = true;
     setBusy(true);
     setError('');
     try {
-      setQuote(
-        await client.quoteReceive({
-          amountSats: amount.trim() ? parseSats(amount) : undefined,
-          description: description.trim(),
-          ...(offline ? { mode: 'offline' as const } : {}),
-        }),
-      );
+      const next = await client.quoteReceive({
+        amountSats: amount.trim() ? parseSats(amount) : undefined,
+        description: description.trim(),
+        ...(offline ? { mode: 'offline' as const } : {}),
+      });
+      setQuote(next);
+      setQuotedAt(Date.now());
+      setLapsed(false);
     } catch (e) {
-      const needsAmount = (e as { code?: string })?.code === 'AMOUNT_REQUIRED';
+      // The infinity shakes to a sprout instead: an amount is needed after all.
+      const needsAmount = codeOf(e) === 'AMOUNT_REQUIRED';
       amountError.current = needsAmount ? message(e) : '';
       if (needsAmount) setCapacityChanged(true);
-      haptic('error');
-      setError(message(e));
+      // Or the moon shakes off: the engine will not take this one offline,
+      // and never makes it an ordinary request by itself.
+      const offlineRefused = offline && codeOf(e) === 'RECEIVE_UNAVAILABLE';
+      if (offlineRefused) {
+        setOffline(false);
+        setOfflineRefusals(count => count + 1);
+      }
+      refuse(e, !needsAmount && !offlineRefused);
     } finally {
       working.current = false;
       setBusy(false);
     }
   }
   async function create() {
-    if (!quote || working.current || expired) {
+    if (!quote || working.current || quoteExpired || disabled) {
       return;
     }
     working.current = true;
@@ -193,354 +266,222 @@ export function ReceiveScreen({
     setError('');
     try {
       setRequest(await client.receive(quote));
+      setCreatedAt(Date.now());
       setQuote(null);
       onRefresh?.();
     } catch (e) {
-      haptic('error');
-      setError(message(e));
-      setQuote(null);
+      if (codeOf(e) === 'QUOTE_EXPIRED') {
+        // The quote stays, with refresh in place of create, as at zero.
+        setLapsed(true);
+        recordDiagnostic({ phase: 'ui', message: message(e), code: codeOf(e) });
+      } else {
+        refuse(e);
+        setQuote(null);
+      }
     } finally {
       working.current = false;
       setBusy(false);
     }
   }
+  /** A stale balance holds a control back: it shakes, and the wallet refreshes. */
+  function blocked() {
+    haptics.warning();
+    setRefusals(count => count + 1);
+    onRefresh?.();
+  }
 
-  const qrSize = Math.min(240, Math.max(150, width - 120));
+  const shareable = !!face?.shareable;
+  const uri = request?.uri;
+  const lift = useCallback(() => {
+    if (shareable) setLifted(true);
+  }, [shareable]);
+  const copyRequest = useCallback(() => {
+    if (!shareable || !uri) return;
+    Clipboard.setString(uri);
+    announce(copy.receive.copied);
+    setCopies(count => count + 1);
+  }, [shareable, uri]);
+  function share() {
+    if (!shareable || !uri) return;
+    Share.share({ message: uri }).catch(refuse);
+  }
+  /**
+   * Another request, or the rest of this one: a partly paid request starts
+   * the next at exactly what is still owed, and keeps its note.
+   */
+  function again() {
+    const remainder = request
+      ? remainderSats(request.amountSats, receipt)
+      : null;
+    setRequest(null);
+    setLifted(false);
+    setCapacityChanged(false);
+    setError('');
+    setAmount(remainder !== null ? String(remainder) : '');
+    if (receipt?.phase !== 'partial') {
+      setDescription('');
+      setNoteOpen(false);
+    }
+  }
+
+  // Android back sets a lifted code down, and takes a quote back to the
+  // amount it was for.
+  const showLift = lifted && shareable;
+  useBack(() => {
+    if (showLift) {
+      setLifted(false);
+      return true;
+    }
+    if (step === 'quote' && !busy) {
+      setQuote(null);
+      setError('');
+      return true;
+    }
+    return false;
+  }, live && (showLift || step === 'quote'));
+
+  // A screen reader follows each step to what it is about.
+  const focus: Focus = useRef(null);
+  useFocusOn(focus, `${step} ${face?.qr ?? ''} ${receipt?.phase ?? ''}`);
+
+  const qr = Math.min(240, Math.max(150, width - 120));
+  const amountMessage = error && error === amountError.current ? error : '';
   return (
-    <Animated.View style={[styles.stack, enter]}>
-      {!receipt ? (
-        <Title>
-          {tracking?.ambiguous
-            ? 'Check Activity.'
-            : request
-            ? 'Your request'
-            : 'Receive'}
-        </Title>
-      ) : null}
-      {!receipt && tracking?.ambiguous ? (
-        <Body>The original request is saved in Activity.</Body>
-      ) : null}
-      {!receipt && request?.bitcoinTracking === 'lightning-only' ? (
-        <Body>This request accepts Lightning only.</Body>
-      ) : null}
-      {error ? (
-        <Notice kind="error" icon="alert">
-          {error}
-        </Notice>
-      ) : null}
-      {tracking?.error ? <Notice icon="info">{tracking.error}</Notice> : null}
-      {request ? (
-        <>
-          {receipt ? (
-            <>
-              <View style={styles.receiptStage}>
-                <ReceiveReceipt
-                  status={receipt}
-                  amountSats={request.amountSats}
-                />
-              </View>
-              <Button label="View activity" onPress={onActivity} />
-            </>
-          ) : (
-            <>
-              {tracking?.ambiguous ? (
-                <Notice icon="alert">
-                  This address belongs to more than one request. Create a new
-                  request before sharing again.
-                </Notice>
-              ) : expired ? (
-                <Notice kind="error" icon="clock">
-                  This request has expired. Create a fresh request before asking
-                  someone to pay.
-                </Notice>
-              ) : (
-                <Pressable
-                  accessibilityRole="button"
-                  accessible
-                  accessibilityLabel="Payment request QR code"
-                  accessibilityHint="Shows the code larger, so it is easier to scan."
-                  onPress={() => setEnlarged(true)}
-                  style={styles.qrCard}
-                >
-                  <QRCode
-                    value={request.uri}
-                    size={qrSize}
-                    quietZone={14}
-                    ecl="M"
-                    backgroundColor={colors.cream}
-                    color={colors.ink}
-                  />
-                  <Text style={styles.qrAmount}>
-                    {request.amountSats
-                      ? `${number(request.amountSats)} sats`
-                      : 'Any amount'}
-                  </Text>
-                  {request.description ? (
-                    <Text style={styles.qrNote}>{request.description}</Text>
-                  ) : null}
-                </Pressable>
-              )}
-              <Text style={styles.countdown}>
-                {expired
-                  ? 'Expired'
-                  : `Request expires in ${Math.ceil(
-                      Math.max(0, request.expiresAt - now) / 60000,
-                    )} minutes`}
-              </Text>
-              {request.offlineReceive && !expired ? (
-                <Body>
-                  You can close your wallet. Payments will appear when you
-                  reopen it.
-                </Body>
-              ) : null}
-              {request.warnings.map((warning, i) => (
-                <Notice key={i} icon="info">
-                  {warning}
-                </Notice>
-              ))}
-              <Button
-                label="Share request"
-                icon="share"
-                disabled={expired || tracking?.ambiguous}
-                onPress={() => {
-                  Share.share({ message: request.uri }).catch(e =>
-                    setError(message(e)),
-                  );
-                }}
-              />
-              <Button
-                label="Copy request"
-                icon="copy"
-                secondary
-                disabled={expired || tracking?.ambiguous}
-                onPress={() => {
-                  Clipboard.setString(request.uri);
-                  toast('Request copied', 'success', 'copy');
-                }}
-              />
-            </>
-          )}
-          <LinkButton
-            label={
-              receipt?.phase === 'partial'
-                ? 'Request the remaining amount'
-                : 'Create another request'
-            }
-            onPress={() => {
-              setRequest(null);
-              setCapacityChanged(false);
-              setError('');
-              celebrated.current = false;
-              setAmount(
-                receipt?.phase === 'partial' && request.amountSats != null
-                  ? String(
-                      Math.max(0, request.amountSats - receipt.receivedSats),
-                    )
-                  : '',
-              );
-              if (receipt?.phase !== 'partial') setDescription('');
-            }}
+    <View style={styles.root}>
+      <Reanimated.View key={step} entering={sceneIn()} exiting={sceneOut()}>
+        {request && face ? (
+          <RequestStep
+            request={request}
+            createdAt={request.createdAt ?? createdAt}
+            face={face}
+            minutesLeft={Math.ceil(
+              Math.max(0, request.expiresAt - now) / 60000,
+            )}
+            receipt={receipt}
+            trackingError={tracking?.error}
+            hidden={hidden}
+            unit={unit}
+            qr={qr}
+            error={error}
+            onLift={lift}
+            onCopy={copyRequest}
+            copies={copies}
+            onShare={share}
+            onAgain={again}
+            onActivity={onActivity}
+            focus={focus}
           />
-          <Modal
-            visible={enlarged}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setEnlarged(false)}
-          >
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close enlarged QR code"
-              style={styles.enlargeBackdrop}
-              onPress={() => setEnlarged(false)}
-            >
-              <View style={styles.enlargeCard}>
-                <QRCode
-                  value={request.uri}
-                  size={Math.min(320, width - 72)}
-                  quietZone={16}
-                  ecl="M"
-                  backgroundColor={colors.cream}
-                  color={colors.ink}
-                />
-              </View>
-            </Pressable>
-          </Modal>
-        </>
-      ) : quote ? (
-        <>
-          <Card>
-            <Row
-              label="Requested"
-              value={
-                quote.amountSats
-                  ? `${number(quote.amountSats)} sats`
-                  : 'Sender chooses'
-              }
-            />
-            <Row label="Receive fee" value={`${number(quote.feeSats)} sats`} />
-            {quote.amountSats && quote.netSats !== null ? (
-              <Row
-                label="You receive"
-                value={`${number(quote.netSats ?? 0)} sats`}
-              />
-            ) : null}
-          </Card>
-          {offline ? (
-            <Notice icon="info">
-              Payable while this wallet is closed. Your primary node prepares it
-              and settles the payment for you.
-            </Notice>
-          ) : null}
-          {quote.warnings.map((warning, i) => (
-            <Notice key={i} icon="info">
-              {warning}
-            </Notice>
-          ))}
-          {expired ? (
-            <Notice icon="clock">Quote expired. Review again.</Notice>
-          ) : null}
-          <Button
-            label="Create request"
-            icon="arrowDown"
-            onPress={create}
+        ) : quote ? (
+          <QuoteStep
+            quote={quote}
+            quotedAt={quotedAt}
+            offline={offline}
+            receivableSats={receivableSats}
+            expired={quoteExpired}
             busy={busy}
-            disabled={expired}
-          />
-          <Button
-            label={expired ? 'Refresh quote' : 'Edit amount'}
-            secondary
-            onPress={() => {
+            stale={disabled}
+            error={error}
+            shake={refusals}
+            onCreate={create}
+            onRequote={() => {
               setQuote(null);
-              if (expired) price();
+              price();
             }}
-            disabled={busy}
+            onEdit={() => {
+              setQuote(null);
+              setError('');
+            }}
+            onBlocked={blocked}
+            focus={focus}
           />
-        </>
-      ) : (
-        <>
-          {disabled ? (
-            <Notice kind="warning" icon="clock">
-              Balance not confirmed recently. Refresh before creating a request.
-            </Notice>
-          ) : null}
-          <AmountField
-            value={amount}
-            onChangeText={setAmount}
-            placeholder={amountRequired ? 'Enter an amount' : 'Any amount'}
-            presets={[1000, 10000, 50000]}
-            editable={!busy}
-            hint={
-              overOffline
-                ? `An offline receive can take up to ${number(
-                    offlineReceivableSats ?? 0,
-                  )} sats right now.`
-                : amountRequired
-                ? 'Enter an amount for your payment request.'
-                : undefined
-            }
-          />
-          <Field
-            label="Note · optional"
-            placeholder="Dinner, a coffee, just because…"
-            value={description}
-            onChangeText={setDescription}
-            maxLength={180}
-            editable={!busy}
-          />
-          {offlineOffered ? (
-            <View style={styles.optIn}>
-              <View style={styles.optInRow}>
-                <Text style={styles.optInLabel}>Receive offline</Text>
-                <Switch
-                  accessibilityLabel="Receive offline"
-                  accessibilityHint="Accept this payment even while this wallet is closed."
-                  value={offline}
-                  disabled={busy}
-                  trackColor={{ true: colors.primary, false: colors.line }}
-                  thumbColor={colors.text}
-                  onValueChange={next => {
-                    setOffline(next);
-                    setError('');
-                  }}
-                />
-              </View>
-              <Text style={styles.optInHint}>
-                {offline
-                  ? `Accept this payment even while this wallet is closed. Your primary node prepares it, so it has to offer offline settlement. ${
-                      offlineReceivableSats === undefined
-                        ? 'Enter at least 354 sats.'
-                        : `Enter 354 to ${number(offlineReceivableSats)} sats.`
-                    }`
-                  : 'Off, the request is paid over your channel or provisioned by your primary node just in time.'}
-              </Text>
-            </View>
-          ) : null}
-          <Button
-            label="Continue"
-            icon="arrowDown"
-            onPress={price}
+        ) : (
+          <FormStep
+            amount={amount}
+            onAmount={setAmount}
+            cue={cue}
+            cap={offlineReceivableSats}
+            amountMessage={amountMessage}
+            note={description}
+            onNote={setDescription}
+            noteOpen={noteOpen}
+            onNoteOpen={setNoteOpen}
+            offlineOffered={offlineOffered}
+            offline={offline}
+            offlineRefused={offlineRefusals}
+            onOffline={next => {
+              setOffline(next);
+              setError('');
+            }}
             busy={busy}
-            disabled={
-              disabled || (amountRequired && !amount.trim()) || overOffline
-            }
+            stale={disabled}
+            ready={ready}
+            error={amountMessage ? '' : error}
+            shake={refusals}
+            onContinue={price}
+            onBlocked={blocked}
+            focus={focus}
           />
-        </>
-      )}
-    </Animated.View>
+        )}
+      </Reanimated.View>
+      {showLift && request ? (
+        <LiftedQr
+          value={request.uri}
+          from={qrSide(qr)}
+          onClose={() => setLifted(false)}
+        />
+      ) : null}
+    </View>
   );
 }
 
+/**
+ * Money arriving (REDESIGN.md 3.6 and 5): the incoming haptic the first time
+ * a request sees any, a success when it completes after that, and each new
+ * phase said to a screen reader.
+ */
+function useArrival(
+  receipt: ReceiveStatus | null,
+  request: ReceiveRequest | null,
+) {
+  const heard = useRef<{
+    request: ReceiveRequest | null;
+    phase: ReceiveStatus['phase'] | null;
+  }>({ request: null, phase: null });
+  useEffect(() => {
+    if (!receipt || !request) return;
+    const last = heard.current;
+    const first = last.request !== request;
+    if (!first && last.phase === receipt.phase) return;
+    heard.current = { request, phase: receipt.phase };
+    if (first) haptics.incoming();
+    else if (receipt.phase === 'completed') haptics.success();
+    announce(
+      receipt.phase === 'completed'
+        ? copy.receive.received
+        : receipt.phase === 'partial'
+        ? copy.receive.partial
+        : copy.receive.detected,
+    );
+  }, [receipt, request]);
+}
+
+/**
+ * A safety state starting (REDESIGN.md rule 4): the warning haptic, once,
+ * and whatever else it says, each time `on` turns true.
+ */
+function useWarning(on: boolean, say: () => void) {
+  const said = useRef(say);
+  said.current = say;
+  const was = useRef(false);
+  useEffect(() => {
+    if (on && !was.current) {
+      haptics.warning();
+      said.current();
+    }
+    was.current = on;
+  }, [on]);
+}
+
 const styles = StyleSheet.create({
-  stack: { gap: space.lg },
-  optIn: { gap: space.xs },
-  optInRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space.xs + 2,
-    minHeight: 44,
-  },
-  optInLabel: {
-    ...typography.body,
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.text,
-    flexShrink: 1,
-  },
-  optInHint: { ...typography.caption, color: colors.muted },
-  countdown: {
-    ...typography.caption,
-    color: colors.muted,
-    textAlign: 'center',
-  },
-  receiptStage: { position: 'relative' },
-  qrCard: {
-    backgroundColor: colors.cream,
-    borderRadius: radius.xxl,
-    padding: space.xl,
-    alignItems: 'center',
-    gap: space.sm,
-  },
-  qrAmount: {
-    ...typography.heading,
-    fontSize: 26,
-    color: colors.ink,
-  },
-  qrNote: {
-    ...typography.caption,
-    color: colors.creamInk,
-    textAlign: 'center',
-  },
-  enlargeBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.86)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: space.xl,
-  },
-  enlargeCard: {
-    backgroundColor: colors.cream,
-    borderRadius: radius.xxl,
-    padding: space.xl,
-  },
+  root: { flex: 1 },
 });

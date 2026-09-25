@@ -9,6 +9,7 @@ import {
   activityStatus,
 } from '../src/screens/Wallet';
 import { copy } from '../src/design/copy';
+import { chipText } from '../src/glyphs/CopyChip';
 import { useNow } from '../src/services/clock';
 import { copyViolations } from '../test-support/copyGuard';
 import { mount } from '../test-support/guard';
@@ -247,7 +248,9 @@ test('payment details keep a hidden balance hidden and follow the unit', async (
   expect(rendered).toContain('••••••');
   expect(rendered).not.toContain('4,200');
   expect(meaning(tree)).not.toContain('4,200');
-  // A reference is not an amount; it stays readable, and copies whole.
+  // A reference is not an amount; it stays readable, in groups of four,
+  // and copies whole.
+  expect(rendered).toContain(chipText('abc123txid'));
   expect(meaning(tree)).toContain('abc123txid');
   await act(async () => tree.unmount());
   await act(async () => {

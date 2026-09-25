@@ -177,7 +177,7 @@ export function AmountReadout({
           text: shown ? `${shown} ${UNIT}` : placeholder || `0 ${UNIT}`,
         }}
         accessibilityHint={hint}
-        accessibilityState={{ disabled: !editable }}
+        accessibilityState={{ disabled: !editable, busy }}
         style={[styles.readout, refusal.style]}
       >
         <Reanimated.View
