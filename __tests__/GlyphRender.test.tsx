@@ -659,6 +659,44 @@ describe('Odometer', () => {
     expect(visibleText(tree).join('')).toBe('1,295sats');
   });
 
+  test('every figure stops growing at its cap, in every variant and state', async () => {
+    const CAPS: Record<OdometerVariant, number> = {
+      hero: 1.2,
+      amount: 1.2,
+      amountDetail: 1.2,
+      line: 1.4,
+      row: 1.4,
+    };
+    const caps = (tree: ReactTestRenderer) =>
+      new Set(
+        tree.root
+          .findAllByType(Text)
+          .map(text => text.props.maxFontSizeMultiplier),
+      );
+    for (const variant of VARIANTS) {
+      const odometer = (
+        props: Partial<React.ComponentProps<typeof Odometer>>,
+      ) => (
+        <Odometer
+          sats={1_450}
+          unit="sats"
+          variant={variant}
+          sign="+"
+          {...props}
+        />
+      );
+      const tree = await render(odometer({}));
+      expect(caps(tree)).toEqual(new Set([CAPS[variant]]));
+      // Mid-roll, as columns; in BTC; and hidden.
+      act(() => tree.update(odometer({ sats: 1_295 })));
+      expect(caps(tree)).toEqual(new Set([CAPS[variant]]));
+      await act(async () => tree.update(odometer({ unit: 'btc' })));
+      expect(caps(tree)).toEqual(new Set([CAPS[variant]]));
+      await act(async () => tree.update(odometer({ masked: true })));
+      expect(caps(tree)).toEqual(new Set([CAPS[variant]]));
+    }
+  });
+
   test('under Reduce Motion a new amount crossfades instead of rolling', async () => {
     reducedMotion();
     const tree = await render(
