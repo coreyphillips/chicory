@@ -1,5 +1,7 @@
 import React, { memo, useEffect, useMemo, useState } from 'react';
+import type { Ref } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import type { HostInstance } from 'react-native';
 import Reanimated, {
   ReduceMotion,
   cancelAnimation,
@@ -45,6 +47,8 @@ export interface QrBloomProps {
   onPress?: () => void;
   onLongPress?: () => void;
   accessibilityLabel: string;
+  /** The code itself, for a screen reader to be sent back to. */
+  ref?: Ref<HostInstance>;
 }
 
 /** The quiet zone around the modules, which scanners need to find the code. */
@@ -317,6 +321,7 @@ export const QrBloom = memo(function QrCode({
   onPress,
   onLongPress,
   accessibilityLabel,
+  ref,
 }: QrBloomProps) {
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
@@ -386,6 +391,7 @@ export const QrBloom = memo(function QrCode({
   });
   return (
     <Pressable
+      ref={ref}
       accessible={shown}
       accessibilityRole={pressable ? 'button' : 'image'}
       accessibilityLabel={shown ? accessibilityLabel : undefined}

@@ -12,6 +12,8 @@ import { announce } from '../design/announce';
 import { copy } from '../design/copy';
 import { haptics } from '../design/haptics';
 import { qrSide } from '../glyphs/QrBloom';
+import { focusOn } from '../motion/focus';
+import { afterTransition } from '../motion/idle';
 import { sceneIn, sceneOut } from '../motion/presets';
 import { useFocusOn } from '../scenes/receive/focus';
 import type { Focus } from '../scenes/receive/focus';
@@ -338,15 +340,37 @@ export function ReceiveScreen({
     return false;
   }, live && (showLift || step === 'quote'));
 
-  // A screen reader follows each step to what it is about.
+  // A screen reader follows each step to what it is about, and a quote
+  // running out to the refresh that replaced create.
   const focus: Focus = useRef(null);
-  useFocusOn(focus, `${step} ${face?.qr ?? ''} ${receipt?.phase ?? ''}`);
+  useFocusOn(
+    focus,
+    `${step} ${quoteExpired} ${face?.qr ?? ''} ${receipt?.phase ?? ''}`,
+  );
+  // A lifted code set down hands a screen reader back to the code it was
+  // lifted from, while that code can still be paid; one that went for good
+  // has the step's own focus to follow instead.
+  const qrFocus: Focus = useRef(null);
+  const wasLifted = useRef(false);
+  useEffect(() => {
+    const back = wasLifted.current && !showLift && shareable;
+    wasLifted.current = showLift;
+    if (back) return afterTransition(() => focusOn(qrFocus.current));
+  }, [showLift, shareable]);
 
   const qr = Math.min(240, Math.max(150, width - 120));
   const amountMessage = error && error === amountError.current ? error : '';
   return (
     <View style={styles.root}>
-      <Reanimated.View key={step} entering={sceneIn()} exiting={sceneOut()}>
+      {/* Under a lifted code, the step it covers is out of a screen
+          reader's reach, as it is out of a finger's. */}
+      <Reanimated.View
+        key={step}
+        entering={sceneIn()}
+        exiting={sceneOut()}
+        accessibilityElementsHidden={showLift}
+        importantForAccessibility={showLift ? 'no-hide-descendants' : 'auto'}
+      >
         {request && face ? (
           <RequestStep
             request={request}
@@ -368,6 +392,7 @@ export function ReceiveScreen({
             onAgain={again}
             onActivity={onActivity}
             focus={focus}
+            qrFocus={qrFocus}
           />
         ) : quote ? (
           <QuoteStep

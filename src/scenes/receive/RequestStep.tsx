@@ -60,6 +60,7 @@ export function RequestStep({
   onAgain,
   onActivity,
   focus,
+  qrFocus,
 }: {
   request: ReceiveRequest;
   createdAt: number;
@@ -82,6 +83,8 @@ export function RequestStep({
   onActivity: () => void;
   /** Takes what the request now says: the receipt, a safety state, or itself. */
   focus: Focus;
+  /** The code, where a screen reader goes back to as a lifted code is set down. */
+  qrFocus?: Focus;
 }) {
   const side = frameSide(qr);
   const remainder = remainderSats(request.amountSats, receipt);
@@ -113,6 +116,7 @@ export function RequestStep({
               </View>
             ) : null}
             <QrBloom
+              ref={qrFocus}
               value={request.uri}
               size={qr}
               state={face.qr}
@@ -197,6 +201,13 @@ export function RequestStep({
           tone={face.shareable && !receipt ? 'raised' : 'primary'}
           halo={scattered}
           pulse={face.qr === 'expired' ? 1 : undefined}
+          value={
+            remainder === null
+              ? undefined
+              : hidden
+              ? copy.amount.hidden
+              : copy.amount.spoken(remainder)
+          }
           onPress={onAgain}
         >
           {/* What is owed gives away what arrived, so it hides with it. */}

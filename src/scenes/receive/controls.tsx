@@ -82,9 +82,11 @@ export function turnIn(): EntryExitAnimationFunction {
  * say it is the way on; `halo` rings it in bloom for as long as it is the
  * only way on; a new `confirm` turns its glyph to a sage check and back, as
  * a copy chip's does when it copies. `busy` turns an orbit round it.
- * Children sit beside the glyph
- * as data, such as the amount a request is for. `focusRef` is where a
- * screen reader's focus is sent when this is the way on.
+ * Children sit beside the glyph as data, such as what a request still
+ * needs, and `value` says them for a screen reader, which hears the label in
+ * their place. `focusRef` is where a screen reader's focus is sent when this
+ * is the way on. The orbit and the halo are drawing, which a screen reader
+ * passes over.
  */
 export function GlyphButton({
   glyph,
@@ -102,6 +104,7 @@ export function GlyphButton({
   confirm,
   halo = false,
   expanded,
+  value,
   focusRef,
   children,
 }: PropsWithChildren<{
@@ -121,6 +124,8 @@ export function GlyphButton({
   halo?: boolean;
   /** For a control that opens something: whether it is open. */
   expanded?: boolean;
+  /** What the children show, as a screen reader hears it after the label. */
+  value?: string;
   focusRef?: Focus;
 }>) {
   const live = usePaneActive();
@@ -163,9 +168,11 @@ export function GlyphButton({
       <Reanimated.View style={refusal.style}>
         <Reanimated.View style={scaled}>
           {halo ? (
-            <Pulse style={[styles.around, around(size)]}>
-              <View style={[styles.haloRing, ring(size)]} />
-            </Pulse>
+            <Decor size={size}>
+              <Pulse>
+                <View style={[styles.haloRing, ring(size)]} />
+              </Pulse>
+            </Decor>
           ) : null}
           <Pressable
             ref={focusRef}
@@ -173,6 +180,7 @@ export function GlyphButton({
             accessibilityLabel={label}
             accessibilityHint={hint}
             accessibilityState={{ disabled: quiet, busy, expanded }}
+            accessibilityValue={value ? { text: value } : undefined}
             disabled={disabled || busy}
             onPressIn={live ? () => to(0.94) : undefined}
             onPressOut={live ? () => to(1) : undefined}
@@ -220,9 +228,11 @@ export function GlyphButton({
             />
           </Pressable>
           {busy ? (
-            <Spin style={[styles.around, around(size)]}>
-              <Orbit size={size + ORBIT_GAP * 2} />
-            </Spin>
+            <Decor size={size}>
+              <Spin>
+                <Orbit size={size + ORBIT_GAP * 2} />
+              </Spin>
+            </Decor>
           ) : null}
         </Reanimated.View>
       </Reanimated.View>
@@ -245,6 +255,23 @@ const around = (size: number) => ({
   left: -ORBIT_GAP,
   ...ring(size),
 });
+
+/**
+ * Drawing just outside a control `size` across, such as its orbit or its
+ * halo: it takes no touches, and a screen reader passes over it.
+ */
+function Decor({ size, children }: PropsWithChildren<{ size: number }>) {
+  return (
+    <View
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[styles.around, around(size)]}
+    >
+      {children}
+    </View>
+  );
+}
 
 /** A quarter arc in bloom, which turns while something is being prepared. */
 function Orbit({ size }: { size: number }) {
