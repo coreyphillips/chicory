@@ -22,11 +22,13 @@ import { Backdrop, glowBleed } from '../../src/scenes/home/Backdrop';
 import { HomePane } from '../../src/scenes/home/HomePane';
 import {
   LAUNCH_DROP,
+  PETALS,
   PULL_TRIGGER,
   REFUSED,
   heroPose,
   launchPose,
   pullOffset,
+  pullPetals,
   pullProgress,
   tintTiming,
   vesselOpacity,
@@ -487,6 +489,17 @@ describe('the motion', () => {
     );
     expect(pullProgress(PULL_TRIGGER / 2)).toBe(0.5);
     expect(pullProgress(PULL_TRIGGER * 2)).toBe(1);
+  });
+
+  test('the pull bloom opens a petal each twelfth of the way, and is in flower at the trigger', () => {
+    const step = PULL_TRIGGER / PETALS;
+    expect(pullPetals(0)).toBe(0);
+    expect(pullPetals(step - 0.01)).toBe(0);
+    expect(pullPetals(step)).toBe(1);
+    expect(pullPetals(PULL_TRIGGER / 2)).toBe(PETALS / 2);
+    expect(pullPetals(PULL_TRIGGER - 0.01)).toBe(PETALS - 1);
+    expect(pullPetals(PULL_TRIGGER)).toBe(PETALS);
+    expect(pullPetals(PULL_TRIGGER * 3)).toBe(PETALS);
   });
 
   test('a tint plays under Reduce Motion, and a refused action tints for 400ms', () => {

@@ -19,7 +19,6 @@ import { scheduleOnRN } from 'react-native-worklets';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import { haptics } from '../../design/haptics';
-import { Bloom } from '../../glyphs/Bloom';
 import { Odometer } from '../../glyphs/Odometer';
 import { Vessel } from '../../glyphs/Vessel';
 import { curves, durations, springs } from '../../motion/tokens';
@@ -32,10 +31,10 @@ import {
   heroPose,
   launchPose,
   pullOffset,
-  pullProgress,
   vesselOpacity,
 } from '../../scenes/home/motion';
 import type { HeroFrame, Launch } from '../../scenes/home/motion';
+import { PullBloom } from '../../scenes/home/PullBloom';
 import { isTestNetwork } from '../../scenes/home/visual';
 import type { Panes } from '../../stage/panes/Pane';
 import { usePaneActive } from '../../stage/panes/Pane';
@@ -59,9 +58,9 @@ const GATED = 0.94;
  *
  * Tapping the hero rolls it between sats and BTC, and a long press hides it;
  * a screen reader has both as actions. Pulling the pane down opens a bloom
- * above the balance, and letting go past the point it is fully open starts
- * a refresh. An old balance gates the actions, which say so and refresh when
- * tapped rather than act.
+ * above the balance petal by petal, and letting go once it is in full flower
+ * starts a refresh. An old balance gates the actions, which say so and
+ * refresh when tapped rather than act.
  *
  * On the canvas `progress` carries the panes: `hero` shrinks the balance into
  * a mini strip in the status row, fading the vessel first, and `bar` fades
@@ -186,16 +185,6 @@ export function HomeScreen({
   const stackStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: pullOffset(pull.get()) }],
   }));
-  const pullStyle = useAnimatedStyle(() => {
-    const reach = pullProgress(pull.get());
-    return {
-      opacity: reach,
-      transform: [
-        { scale: 0.5 + 0.5 * reach },
-        { rotate: `${-90 * (1 - reach)}deg` },
-      ],
-    };
-  });
   const heroMotion = useAnimatedStyle(() => {
     const pose = heroPose(hero.get(), frame.get());
     return {
@@ -267,14 +256,7 @@ export function HomeScreen({
     <GestureRoot style={styles.fill}>
       <GestureDetector gesture={pan}>
         <View style={styles.fill}>
-          <Reanimated.View
-            pointerEvents="none"
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={[styles.pull, pullStyle]}
-          >
-            <Bloom size={32} tone={test ? 'test' : 'live'} />
-          </Reanimated.View>
+          <PullBloom pull={pull} test={test} />
           <Reanimated.View style={[styles.stack, stackStyle]}>
             <View style={styles.middle}>
               <Reanimated.View
@@ -415,13 +397,6 @@ function useLaunchStyle(
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  pull: {
-    position: 'absolute',
-    top: space.xs,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
   stack: {
     flex: 1,
     paddingHorizontal: space.xl,
