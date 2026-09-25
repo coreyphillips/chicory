@@ -16,11 +16,11 @@ import Reanimated, {
   useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withRepeat,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import type { SharedValue } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
@@ -33,6 +33,7 @@ import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { HIT_SLOP, fonts, radius, space, type } from '../../theme';
+import { drawPlan } from './motion';
 
 /**
  * The Settings language (REDESIGN.md rule 2): the one place words stay on
@@ -49,7 +50,7 @@ import { HIT_SLOP, fonts, radius, space, type } from '../../theme';
  * The copy guard's marker. Everything under it is a settings-class surface
  * whose words may stay on screen; the guard reads the rest of the tree.
  */
-export const SETTINGS_SURFACE = 'scene-settings';
+const SETTINGS_SURFACE = 'scene-settings';
 
 /**
  * The root of a settings-class surface: Settings itself, the new wallet sheet
@@ -71,7 +72,7 @@ export function SettingsSurface({
 }
 
 /** Whether the app is in front, so a loop can rest while nobody sees it. */
-export function useForeground(): boolean {
+function useForeground(): boolean {
   const [front, setFront] = useState(true);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', state =>
@@ -131,15 +132,21 @@ export function Working({
 }
 
 /**
- * Breathes its children's opacity while `on`, for a state that must keep
- * being noticed. It rests while the app is in the background and holds still
- * under Reduce Motion, where the colour and the shape still say it.
+ * Breathes its children's opacity while `on`, one breath every `period`, for
+ * a state that must keep being noticed. It rests while the app is in the
+ * background and holds still under Reduce Motion, where the colour and the
+ * shape still say it.
  */
 export function Breathe({
   on,
+  period = durations.pulse,
   style,
   children,
-}: PropsWithChildren<{ on: boolean; style?: StyleProp<ViewStyle> }>) {
+}: PropsWithChildren<{
+  on: boolean;
+  period?: number;
+  style?: StyleProp<ViewStyle>;
+}>) {
   const { reduced } = useMotionPrefs();
   const front = useForeground();
   const level = useSharedValue(1);
@@ -152,16 +159,13 @@ export function Breathe({
     }
     level.set(
       withRepeat(
-        withTiming(0.35, {
-          duration: durations.pulse / 2,
-          easing: curves.sine,
-        }),
+        withTiming(0.35, { duration: period / 2, easing: curves.sine }),
         -1,
         true,
       ),
     );
     return () => cancelAnimation(level);
-  }, [running, level]);
+  }, [running, period, level]);
   const breathing = useAnimatedStyle(() => ({ opacity: level.get() }));
   return (
     <Reanimated.View style={[style, breathing]}>{children}</Reanimated.View>
@@ -170,33 +174,60 @@ export function Breathe({
 
 const AnimatedPath = Reanimated.createAnimatedComponent(Path);
 
+/**
+ * One part of a drawn glyph: a stroke that draws along its length after
+ * `delay`, or, for a dot, which has no length to draw, one that pops to its
+ * full width on the reveal spring.
+ */
 function DrawnPart({
   d,
   length,
-  drawn,
+  width,
+  delay,
+  duration,
+  pop,
+  reduced,
 }: {
   d: string;
   length: number;
-  drawn: SharedValue<number>;
+  width: number;
+  delay: number;
+  duration: number;
+  pop: boolean;
+  reduced: boolean;
 }) {
-  const dash = useAnimatedProps(() => ({
-    strokeDashoffset: length * (1 - drawn.get()),
+  const drawn = useSharedValue(reduced ? 1 : 0);
+  useEffect(() => {
+    if (reduced) return;
+    drawn.set(
+      withDelay(
+        delay,
+        pop
+          ? withSpring(1, springs.reveal)
+          : withTiming(1, { duration, easing: curves.enter }),
+      ),
+    );
+    return () => cancelAnimation(drawn);
+  }, [reduced, delay, duration, pop, drawn]);
+  const arriving = useAnimatedProps(() => ({
+    strokeWidth: pop ? width * drawn.get() : width,
+    strokeDashoffset: pop ? 0 : length * (1 - drawn.get()),
   }));
   return (
     <AnimatedPath
       d={d}
-      strokeDasharray={[length, length]}
-      animatedProps={dash}
+      strokeDasharray={pop ? undefined : [length, length]}
+      animatedProps={arriving}
     />
   );
 }
 
 /**
- * A glyph whose stroke draws itself in once, as an outcome's check or bang
- * does (REDESIGN.md 4, Animated glyphs). Under Reduce Motion it is simply
- * there.
+ * A glyph that draws itself in once, as an outcome's check or bang does,
+ * part by part as `drawPlan` sets out (REDESIGN.md 4, Animated glyphs).
+ * Under Reduce Motion it is simply there.
  */
-export function DrawnGlyph({
+function DrawnGlyph({
   name,
   size = 20,
   color,
@@ -206,14 +237,8 @@ export function DrawnGlyph({
   color: string;
 }) {
   const { reduced } = useMotionPrefs();
-  const drawn = useSharedValue(reduced ? 1 : 0);
-  useEffect(() => {
-    if (reduced) return;
-    drawn.set(
-      withTiming(1, { duration: durations.draw, easing: curves.enter }),
-    );
-    return () => cancelAnimation(drawn);
-  }, [reduced, drawn]);
+  const width = strokeFor(size);
+  const plan = drawPlan(name);
   return (
     <Svg
       width={size}
@@ -221,7 +246,7 @@ export function DrawnGlyph({
       viewBox="0 0 24 24"
       fill="none"
       stroke={color}
-      strokeWidth={strokeFor(size)}
+      strokeWidth={width}
       strokeLinecap="round"
       strokeLinejoin="round"
       accessibilityElementsHidden
@@ -232,7 +257,11 @@ export function DrawnGlyph({
           key={part.id}
           d={part.d}
           length={GLYPH_LENGTHS[name][index]}
-          drawn={drawn}
+          width={width}
+          delay={plan[index].delay}
+          duration={plan[index].duration}
+          pop={plan[index].pop}
+          reduced={reduced}
         />
       ))}
     </Svg>
@@ -263,7 +292,8 @@ const CASCADE = 2;
  * One group of settings: an espresso card led by its glyph and heading. It
  * rises into place `index` steps after Settings arrives, and grows or shrinks
  * smoothly when what it holds changes. `tone` honey is for a section that
- * needs doing: a honey outline, and a halo that breathes around its glyph.
+ * needs doing: a honey outline, and a halo that breathes around its glyph at
+ * the halo's pace.
  */
 export function Section({
   glyph,
@@ -291,7 +321,7 @@ export function Section({
           {glyph ? (
             <View style={styles.sectionGlyph}>
               {honey ? (
-                <Breathe on style={styles.halo}>
+                <Breathe on period={durations.halo} style={styles.halo}>
                   <View style={styles.haloRing} />
                 </Breathe>
               ) : null}
@@ -337,45 +367,32 @@ function Chevron({ open }: { open?: boolean }) {
 }
 
 /**
- * A row that does something: its glyph, its label, an optional value, and a
- * chevron. `expanded`, when given, says the row opens something below it and
- * whether that is open now; the chevron turns to match.
+ * A row that does something: its glyph, its label and a chevron.
+ * `expanded`, when given, says the row opens something below it and whether
+ * that is open now; the chevron turns to match.
  */
 export function Row({
   glyph,
   label,
-  value,
   onPress,
   accessibilityLabel,
   accessibilityHint,
   expanded,
-  disabled = false,
-  tone = 'plain',
 }: {
   glyph?: GlyphName;
   label: string;
-  value?: string;
   onPress: () => unknown;
   accessibilityLabel?: string;
   accessibilityHint?: string;
   expanded?: boolean;
-  disabled?: boolean;
-  tone?: 'plain' | 'danger';
 }) {
   const live = usePaneActive();
-  const danger = tone === 'danger';
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={
-        accessibilityLabel ?? (value ? `${label}, ${value}` : label)
-      }
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityHint={accessibilityHint}
-      accessibilityState={{
-        disabled,
-        ...(expanded === undefined ? {} : { expanded }),
-      }}
-      disabled={disabled}
+      accessibilityState={expanded === undefined ? undefined : { expanded }}
       hitSlop={HIT_SLOP}
       onPress={
         live
@@ -385,48 +402,25 @@ export function Row({
             }
           : undefined
       }
-      style={({ pressed }) => [
-        styles.row,
-        pressed && styles.pressed,
-        disabled && styles.inactive,
-      ]}
+      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
       {glyph ? (
         <View style={styles.rowGlyph}>
-          <Glyph
-            name={glyph}
-            size={20}
-            color={danger ? palette.radish : palette.steam}
-          />
+          <Glyph name={glyph} size={20} color={palette.steam} />
         </View>
       ) : null}
-      <Text style={[styles.rowLabel, danger && styles.danger]}>{label}</Text>
-      {value ? (
-        <Text numberOfLines={1} style={styles.rowValue}>
-          {value}
-        </Text>
-      ) : (
-        <View style={styles.flex} />
-      )}
+      <Text style={styles.rowLabel}>{label}</Text>
       <Chevron open={expanded} />
     </Pressable>
   );
 }
 
 /** A setting's value, shown and selectable but not a control. */
-export function Line({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+export function Line({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.line}>
       <Text style={styles.lineLabel}>{label}</Text>
-      <Text selectable style={[styles.lineValue, mono && styles.mono]}>
+      <Text selectable style={styles.lineValue}>
         {value}
       </Text>
     </View>
@@ -527,7 +521,6 @@ export function Action({
   tone = 'primary',
   busy = false,
   disabled = false,
-  accessibilityLabel,
   accessibilityHint,
 }: {
   label: string;
@@ -536,7 +529,6 @@ export function Action({
   tone?: 'primary' | 'quiet' | 'danger';
   busy?: boolean;
   disabled?: boolean;
-  accessibilityLabel?: string;
   accessibilityHint?: string;
 }) {
   const live = usePaneActive();
@@ -559,7 +551,7 @@ export function Action({
     <Reanimated.View style={pressing}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel ?? label}
+        accessibilityLabel={label}
         accessibilityHint={accessibilityHint}
         accessibilityState={{ disabled: inactive, busy }}
         disabled={inactive}
@@ -598,14 +590,12 @@ export function Link({
   glyph,
   tone = 'bloom',
   disabled = false,
-  accessibilityHint,
 }: {
   label: string;
   onPress: () => unknown;
   glyph?: GlyphName;
   tone?: 'bloom' | 'steam' | 'radish';
   disabled?: boolean;
-  accessibilityHint?: string;
 }) {
   const live = usePaneActive();
   const ink =
@@ -618,7 +608,6 @@ export function Link({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled }}
       disabled={disabled}
       hitSlop={HIT_SLOP}
@@ -746,7 +735,9 @@ const NOTE: Record<
 /**
  * A line that matters: a safety line in honey, an outcome, or an error in
  * radish. It rises into place, and an outcome's check or bang draws itself
- * in, so a result is seen arriving rather than found. An error is an alert.
+ * in, so a result is seen arriving rather than found. An error is an alert,
+ * and is read out as it arrives, since it lands away from the press that
+ * caused it.
  */
 export function Note({
   tone = 'info',
@@ -759,11 +750,14 @@ export function Note({
 }) {
   const look = NOTE[tone];
   const shape = glyph ?? look.glyph;
+  const error = tone === 'error';
+  useEffect(() => {
+    if (error) announce(children);
+  }, [error, children]);
   return (
     <Reanimated.View
       entering={riseIn(8)}
-      accessibilityRole={tone === 'error' ? 'alert' : undefined}
-      accessibilityLiveRegion={tone === 'error' ? 'polite' : 'none'}
+      accessibilityRole={error ? 'alert' : undefined}
       style={[styles.note, { backgroundColor: look.fill }]}
     >
       <View style={styles.noteGlyph}>
@@ -841,12 +835,14 @@ export function CopyLine({
   );
 }
 
+/** The smallest a control is drawn (REDESIGN.md 3.4). */
+const TOUCH = 48;
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   left: { textAlign: 'left' },
   pressed: { opacity: 0.6 },
   inactive: { opacity: 0.45 },
-  danger: { color: palette.radish },
   mono: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 18 },
 
   title: { ...type.title, color: palette.cream },
@@ -902,8 +898,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   rowGlyph: { width: 32, alignItems: 'center' },
-  rowLabel: { ...type.body, color: palette.cream },
-  rowValue: { ...type.body, color: palette.steam, flex: 1, textAlign: 'right' },
+  rowLabel: { ...type.body, color: palette.cream, flex: 1 },
 
   line: {
     flexDirection: 'row',
@@ -969,14 +964,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: space.xs,
-    minHeight: 44,
+    minHeight: TOUCH,
   },
   linkLabel: { ...type.label },
 
   choice: { flexDirection: 'row', gap: space.xs },
   chip: {
     flex: 1,
-    minHeight: 44,
+    minHeight: TOUCH,
     borderRadius: radius.round,
     borderWidth: 1,
     borderColor: palette.husk,
@@ -1000,9 +995,9 @@ const styles = StyleSheet.create({
 
   copyLine: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   copy: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: TOUCH,
+    height: TOUCH,
+    borderRadius: TOUCH / 2,
     backgroundColor: palette.mocha,
     alignItems: 'center',
     justifyContent: 'center',

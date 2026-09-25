@@ -1,10 +1,13 @@
 import React from 'react';
-import { AppState, Text } from 'react-native';
+import { AccessibilityInfo, AppState, Text } from 'react-native';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
 import * as Keychain from 'react-native-keychain';
 import type { WalletSnapshot } from '@beignet/wallet-core';
+import { GLYPHS } from '../src/design/glyphs';
+import type { GlyphName } from '../src/design/glyphs';
 import { haptics } from '../src/design/haptics';
+import { drawPlan } from '../src/scenes/settings/motion';
 import { SettingsScreen } from '../src/screens/Settings';
 import {
   clearDiagnostics,
@@ -513,5 +516,49 @@ describe('diagnostics', () => {
     const [ui, node] = recentDiagnostics();
     expect(ui.message).toHaveLength(1000);
     expect(node.message).toHaveLength(300);
+  });
+});
+
+test('an error is read out as it arrives', async () => {
+  const announced = jest.mocked(
+    AccessibilityInfo.announceForAccessibilityWithOptions,
+  );
+  announced.mockClear();
+  const adapter = client({
+    updatePrimary: jest
+      .fn()
+      .mockRejectedValue(new Error('The node refused the change.')),
+  });
+  const tree = await render(base, adapter);
+  await act(async () => press(tree, 'Change primary node').props.onPress());
+  await act(async () => press(tree, 'Save primary node').props.onPress());
+  expect(announced).toHaveBeenCalledWith(
+    'The node refused the change.',
+    expect.anything(),
+  );
+  await act(async () => tree.unmount());
+});
+
+describe('outcome glyphs', () => {
+  test('draw in the way each is drawn everywhere', () => {
+    expect(drawPlan('check')).toEqual([
+      { delay: 0, duration: 420, pop: false },
+    ]);
+    // Two strokes of 140ms, the second 60ms behind the first.
+    expect(drawPlan('cross')).toEqual([
+      { delay: 0, duration: 140, pop: false },
+      { delay: 60, duration: 140, pop: false },
+    ]);
+    // The line draws in 200ms, then the dot pops.
+    expect(drawPlan('bang')).toEqual([
+      { delay: 0, duration: 200, pop: false },
+      { delay: 200, duration: 0, pop: true },
+    ]);
+  });
+
+  test('have a step for every part of every glyph', () => {
+    for (const name of Object.keys(GLYPHS) as GlyphName[]) {
+      expect(drawPlan(name)).toHaveLength(GLYPHS[name].length);
+    }
   });
 });

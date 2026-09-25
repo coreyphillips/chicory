@@ -1,9 +1,41 @@
 import { Easing } from 'react-native-reanimated';
+import { GLYPHS } from '../../design/glyphs';
+import type { GlyphName } from '../../design/glyphs';
+import { durations } from '../../motion/tokens';
 
 /**
  * The timing and geometry the settings surfaces move by, as plain numbers so
- * each is a table test (REDESIGN.md 6, Backup and setup).
+ * each is a table test: how an outcome's glyph draws in (REDESIGN.md 4), and
+ * the backup and restore flows (REDESIGN.md 6, Backup and setup).
  */
+
+/** How one part of a glyph arrives: when, for how long, and whether it pops. */
+export interface DrawStep {
+  delay: number;
+  duration: number;
+  /** A dot pops on the reveal spring instead of drawing, having no length. */
+  pop: boolean;
+}
+
+const drawn = (delay: number, duration: number): DrawStep => ({
+  delay,
+  duration,
+  pop: false,
+});
+
+/**
+ * How each part of `name` draws itself in (REDESIGN.md 4, Animated glyphs):
+ * the cross is two 140ms strokes, the second 60ms behind the first, and the
+ * bang's line draws in 200ms before its dot pops. Anything else, the check
+ * included, draws all its parts together over 420ms.
+ */
+export function drawPlan(name: GlyphName): DrawStep[] {
+  if (name === 'cross') return [drawn(0, 140), drawn(60, 140)];
+  if (name === 'bang') {
+    return [drawn(0, 200), { delay: 200, duration: 0, pop: true }];
+  }
+  return GLYPHS[name].map(() => drawn(0, durations.draw));
+}
 
 /** The recovery words rise in reading order, this far apart. */
 export const WORD_STAGGER = 30;
