@@ -24,6 +24,7 @@ import { palette } from '../../design/palette';
 import { Bloom } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
 import { useFocus } from '../../motion/focus';
+import { riseIn, sceneOut } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { NetworkSettings } from '../../screens/NetworkSettings';
 import { motionReduced } from '../../services/motion';
@@ -49,9 +50,10 @@ import { bloomTone, DORMANT_OPEN, SIZES, UNPLUG_DRIFT } from './visual';
  * connection and a bolt retry reruns the wallet's Lightning setup, with a
  * honey pip when that setup has failed before.
  *
- * The cog opens a setup panel in the Settings language: the network editor,
- * the recovery phrase, another wallet and the lock all stay reachable,
- * because this is exactly the screen where someone needs them.
+ * The cog opens a setup panel in the Settings language, holding the network
+ * editor and the recovery phrase, and under it the glyphs that leave this
+ * wallet, for another one or for the lock. All stay reachable, because this
+ * is exactly the screen where someone needs them.
  */
 export function OfflineWallet({
   name,
@@ -186,18 +188,31 @@ export function OfflineWallet({
             />
           ) : null}
           <RecoveryPhrase loadPhrase={loadPhrase} />
-          <LinkButton
+        </SetupPanel>
+      ) : null}
+      {/* Leaving the wallet is not setup, so it keeps to glyphs, outside the
+          panel's settings-class marker (REDESIGN.md 10.1). */}
+      {panel ? (
+        <Reanimated.View
+          entering={riseIn()}
+          exiting={sceneOut()}
+          style={styles.leave}
+        >
+          <GlyphButton
+            glyph="swap"
+            size={SIZES.cog}
             label={copy.phase.chooseWallet}
             disabled={busy}
             onPress={onChooseWallet}
           />
-          <LinkButton
+          <GlyphButton
+            glyph="lock"
+            size={SIZES.cog}
             label={copy.phase.lockDevice}
-            tone="muted"
             disabled={busy}
             onPress={onDisconnect}
           />
-        </SetupPanel>
+        </Reanimated.View>
       ) : null}
     </PhaseRoot>
   );
@@ -345,4 +360,5 @@ const styles = StyleSheet.create({
   unplug: { width: UNPLUG_SIZE, height: UNPLUG_SIZE },
   part: StyleSheet.absoluteFill,
   controls: { flexDirection: 'row', alignItems: 'center', gap: space.xl },
+  leave: { flexDirection: 'row', justifyContent: 'center', gap: space.xxl },
 });

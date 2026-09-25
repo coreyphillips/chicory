@@ -89,13 +89,20 @@ export function Picker({
     },
     [selectWallet],
   );
+  // The new wallet sheet is a settings-class surface of its own, drawn over
+  // the picker, so the network editor closes as it opens: a tree holds one
+  // settings-class surface at a time (REDESIGN.md 10.1).
+  const openSheet = (restoring: boolean) => {
+    if (networkEditor) setNetworkEditor(false);
+    onCreateWallet(restoring);
+  };
   const create = () => {
     // A network with no primary node cannot have a wallet made from its
     // defaults: the shared client refuses one without a node. Open the form
     // that asks for it instead of failing with a message about a URI nobody
     // was given a chance to type.
     if (!activeProfile.primaryUri.trim()) {
-      onCreateWallet(false);
+      openSheet(false);
       return;
     }
     setChosen(null);
@@ -153,7 +160,7 @@ export function Picker({
           size={SIZES.cog}
           label={copy.phase.restore}
           disabled={selecting}
-          onPress={() => onCreateWallet(true)}
+          onPress={() => openSheet(true)}
         />
         <GlyphButton
           glyph={networkEditor ? 'close' : 'cog'}
