@@ -31,6 +31,24 @@ export const home = {
   refresh: 'Refresh wallet',
   /** The shield tile, which leads to the recovery phrase in Settings. */
   backupHint: 'Opens Settings to reveal and save it.',
+  /**
+   * Why the vessel's money waits, in words, after the engine's own notes on
+   * the wallet's funding. Figures are left to the vessel's label.
+   */
+  vesselWait: {
+    arriving: 'On its way.',
+    belowFloor:
+      'Below the channel floor. It moves into the channel once more arrives.',
+    moving: 'Moving into the channel now.',
+    feeWait: 'Waiting for a lower network fee to move it into the channel.',
+    failed: 'Moving it into the channel failed. Retrying.',
+    confirming: 'It moves into the channel once the current transfer confirms.',
+    conflicted:
+      "A payer's funding was spent elsewhere. Your balance is being restored. Nothing of yours is lost.",
+    reverted:
+      "Your balance was restored after a payer's funding was spent elsewhere. Nothing of yours was lost.",
+    unpaired: "Moving. A payer's transfer locks after three confirmations.",
+  },
 };
 
 /** How the wallet is doing, which the status row and the mark carry. */

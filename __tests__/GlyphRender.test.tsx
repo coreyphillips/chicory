@@ -26,6 +26,7 @@ import { StatusRing, ringColor } from '../src/glyphs/StatusRing';
 import type { RingVisual } from '../src/glyphs/StatusRing';
 import { Vessel, WAIT_WORDS } from '../src/glyphs/Vessel';
 import { Whisper, WhisperProvider } from '../src/glyphs/Whisper';
+import { copy } from '../src/design/copy';
 import { GLYPHS } from '../src/design/glyphs';
 import { palette } from '../src/design/palette';
 import * as loops from '../src/motion/loops';
@@ -801,6 +802,19 @@ describe('Vessel', () => {
       true,
     ],
   ];
+
+  test('its words for each wait live with the rest of Home’s copy', () => {
+    // REDESIGN.md 9, Strings: every string lives under src/design/copy.
+    expect(WAIT_WORDS).toBe(copy.home.vesselWait);
+    expect(Object.keys(copy.home.vesselWait).sort()).toEqual(
+      WAITS.map(
+        ([, , words]) =>
+          Object.entries(copy.home.vesselWait).find(
+            ([, said]) => said === words,
+          )?.[0],
+      ).sort(),
+    );
+  });
 
   test.each(WAITS)(
     '%s names its wait in the value, and its glyph whispers it',

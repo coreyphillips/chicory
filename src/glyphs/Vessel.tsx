@@ -84,22 +84,9 @@ const FILLS: Record<VesselVisual['fill'], string> = {
 
 /**
  * Why the money waits, in words, after the engine's own notes on the
- * wallet's funding. Figures are left to the label.
+ * wallet's funding (`copy.home.vesselWait`). Figures are left to the label.
  */
-export const WAIT_WORDS = {
-  arriving: 'On its way.',
-  belowFloor:
-    'Below the channel floor. It moves into the channel once more arrives.',
-  moving: 'Moving into the channel now.',
-  feeWait: 'Waiting for a lower network fee to move it into the channel.',
-  failed: 'Moving it into the channel failed. Retrying.',
-  confirming: 'It moves into the channel once the current transfer confirms.',
-  conflicted:
-    "A payer's funding was spent elsewhere. Your balance is being restored. Nothing of yours is lost.",
-  reverted:
-    "Your balance was restored after a payer's funding was spent elsewhere. Nothing of yours was lost.",
-  unpaired: "Moving. A payer's transfer locks after three confirmations.",
-};
+export const WAIT_WORDS = copy.home.vesselWait;
 
 /**
  * What the vessel's look says, in words: each glyph and glass names its
