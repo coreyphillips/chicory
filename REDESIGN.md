@@ -5,6 +5,7 @@ This branch (`redesign`) is an experimental redesign of the Chicory app. It is n
 ## 1. Product rules
 
 1. **Text lives in Settings.** Outside Settings, visible text is limited to data:
+
    - amounts and their unit ("sats", "BTC")
    - dates and times
    - recovery words and their numbers
@@ -12,14 +13,17 @@ This branch (`redesign`) is an experimental redesign of the Chicory app. It is n
    - wallet names and user notes
 
    Everything else is carried by a glyph, ring, color, motion or haptic. No "Loading...", no hint paragraphs, no text toasts.
+
 2. **Settings-class surfaces may keep short text.** These are Settings itself, restore phrase entry, recovery phrase reveal and backup, first-run network setup, create wallet, and the diagnostics view. They are drawn in the Settings visual language, and their safety lines stay.
 3. **Whisper.** Long-pressing a status glyph, ring or disabled control for 400ms shows its accessibility string in a small cocoa pill:
+
    - Text: cream, 13pt.
    - Entry: scale .92 to 1 with a 160ms fade.
    - Hides after 2400ms.
    - Fires a `tick`.
 
    This is the only text a user can summon outside Settings.
+
 4. **Safety contract.** Applies to: uncertain or held send, reused receive address, expired request or quote, backup pending, stale balance, and test vs mainnet. Every such state must be:
    - persistent until resolved;
    - encoded three ways: color, a distinct glyph or ring shape, and motion, with a haptic when it starts;
@@ -47,17 +51,17 @@ This branch (`redesign`) is an experimental redesign of the Chicory app. It is n
 
 - **`src/stage/phase.ts`: `derivePhase(input): Phase`.** A pure selector over the session and app lock. It keeps the precedence of the old if/else ladder:
 
-  | Phase | When |
-  |---|---|
-  | `locked` | the app lock is closed |
-  | `transit` | `why` is `erasing`, `closing` or `switching` |
-  | `opening` | initializing |
-  | `saved` | no client, a device wallet exists, and device setup is not visible |
-  | `welcome` | no client |
-  | `picker` | a client, but no wallet id |
-  | `loading` | a wallet id, no snapshot, no error |
-  | `offline` | a wallet id, no snapshot, and an error |
-  | `wallet` | a snapshot |
+  | Phase     | When                                                               |
+  | --------- | ------------------------------------------------------------------ |
+  | `locked`  | the app lock is closed                                             |
+  | `transit` | `why` is `erasing`, `closing` or `switching`                       |
+  | `opening` | initializing                                                       |
+  | `saved`   | no client, a device wallet exists, and device setup is not visible |
+  | `welcome` | no client                                                          |
+  | `picker`  | a client, but no wallet id                                         |
+  | `loading` | a wallet id, no snapshot, no error                                 |
+  | `offline` | a wallet id, no snapshot, and an error                             |
+  | `wallet`  | a snapshot                                                         |
 
 - **`src/stage/scene.ts`: `stageReducer(state, action)`.**
   - Scenes: `home`, `activity`, `detail`, `send`, `receive`, `settings`.
@@ -94,27 +98,27 @@ This branch (`redesign`) is an experimental redesign of the Chicory app. It is n
 
 Contrast values are WCAG against roast / espresso / mocha.
 
-| Token | Hex | Role | Contrast |
-|---|---|---|---|
-| roast | #110E0C | app background, top pane | |
-| espresso | #1A1512 | bottom sheet | |
-| mocha | #241D19 | pressed keys, chips, raised | |
-| cocoa | #2F2621 | Whisper pill, overlays | |
-| husk | #3D332C | ring tracks, hairlines (decorative only) | |
-| bark | #4A3E36 | strong decorative stroke | |
-| cream | #F3ECDF | primary numbers | 16.4 / 15.4 / 14.1 |
-| steam | #B9AD9E | secondary numbers, units, stale balance | 8.7 / 8.2 / 7.5 |
-| dust | #8C8174 | day headers, word numbers, expired | 5.0 / 4.75 / 4.35 |
-| ink | #1C1511 | glyphs on light fills | |
-| bloom | #8FA5E4 | brand, pending, focus | 7.9 / 7.5 / 6.9 |
-| bloomHi | #A9BAEE | petal tips, highlights | |
-| bloomDeep | #6F88CF | petal mid, pressed | |
-| bloomNight | #4F66AD | petal base, glow | |
-| stamen | #3E4F8F | bloom center | |
-| sage | #9FD4A6 | done, received, connected | 11.4 |
-| honey | #F2C46B | attention: uncertain, backup, fee wait, reconnecting | 11.8 |
-| radish | #FF8373 | failed, refused, over limit | 8.0 |
-| slate | #9AA0AE | replaces bloom on test networks | 7.3 |
+| Token      | Hex     | Role                                                 | Contrast           |
+| ---------- | ------- | ---------------------------------------------------- | ------------------ |
+| roast      | #110E0C | app background, top pane                             |                    |
+| espresso   | #1A1512 | bottom sheet                                         |                    |
+| mocha      | #241D19 | pressed keys, chips, raised                          |                    |
+| cocoa      | #2F2621 | Whisper pill, overlays                               |                    |
+| husk       | #3D332C | ring tracks, hairlines (decorative only)             |                    |
+| bark       | #4A3E36 | strong decorative stroke                             |                    |
+| cream      | #F3ECDF | primary numbers                                      | 16.4 / 15.4 / 14.1 |
+| steam      | #B9AD9E | secondary numbers, units, stale balance              | 8.7 / 8.2 / 7.5    |
+| dust       | #8C8174 | day headers, word numbers, expired                   | 5.0 / 4.75 / 4.35  |
+| ink        | #1C1511 | glyphs on light fills                                |                    |
+| bloom      | #8FA5E4 | brand, pending, focus                                | 7.9 / 7.5 / 6.9    |
+| bloomHi    | #A9BAEE | petal tips, highlights                               |                    |
+| bloomDeep  | #6F88CF | petal mid, pressed                                   |                    |
+| bloomNight | #4F66AD | petal base, glow                                     |                    |
+| stamen     | #3E4F8F | bloom center                                         |                    |
+| sage       | #9FD4A6 | done, received, connected                            | 11.4               |
+| honey      | #F2C46B | attention: uncertain, backup, fee wait, reconnecting | 11.8               |
+| radish     | #FF8373 | failed, refused, over limit                          | 8.0                |
+| slate      | #9AA0AE | replaces bloom on test networks                      | 7.3                |
 
 - **Soft fills:** bloomSoft #282933, sageSoft #2B3228, honeySoft #3A2F1D, radishSoft #3C231F, creamSoft #3A3632.
 - **Washes:** bloomWash #202026, sageWash #22261E, honeyWash #2C2417, radishWash #2E1C18.
@@ -122,48 +126,50 @@ Contrast values are WCAG against roast / espresso / mocha.
 - **Scrim:** rgba(17,14,12,0.88).
 
 **Rules**
+
 - Every meaningful number is at least 7:1.
 - Dust never carries a number that matters.
 - QR codes are always ink on cream.
 
 **Semantic mapping**
 
-| Meaning | Color |
-|---|---|
-| Done | sage |
-| In flight | bloom |
-| Attention | honey |
-| Failed | radish |
-| Expired | dust glyph on a husk ring |
-| Test network | slate in place of bloom |
+| Meaning      | Color                     |
+| ------------ | ------------------------- |
+| Done         | sage                      |
+| In flight    | bloom                     |
+| Attention    | honey                     |
+| Failed       | radish                    |
+| Expired      | dust glyph on a husk ring |
+| Test network | slate in place of bloom   |
 
 **Legacy aliases in `theme.ts`.** These keep old screens compiling while they are migrated:
 
-| Old name | New token |
-|---|---|
-| primary | bloom |
-| mint | sage |
-| warning | honey |
-| danger | radish |
-| background | roast |
-| surface | espresso |
-| raised | mocha |
-| overlay | cocoa |
-| line | husk |
-| text | cream |
-| muted | steam |
-| faint | dust |
+| Old name   | New token |
+| ---------- | --------- |
+| primary    | bloom     |
+| mint       | sage      |
+| warning    | honey     |
+| danger     | radish    |
+| background | roast     |
+| surface    | espresso  |
+| raised     | mocha     |
+| overlay    | cocoa     |
+| line       | husk      |
+| text       | cream     |
+| muted      | steam     |
+| faint      | dust      |
 
 ### 3.2 Gradients (top pane)
 
-| Layer | Definition | Motion |
-|---|---|---|
-| G0 | linear 180 degrees, #17131B to #110E0C | static |
+| Layer         | Definition                                                                            | Motion                                                                         |
+| ------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| G0            | linear 180 degrees, #17131B to #110E0C                                                | static                                                                         |
 | G1 bloom glow | radial at cx .5, cy .4, r .6: #4F66AD alpha .28, then #2A2A45 alpha .12 at .6, then 0 | translate plus or minus 6% / 4% on an 18s sine; rotate 0 to 8 degrees over 26s |
-| G2 crema | radial at cx .8, cy .9, r .5: #6B4A33 alpha .18 to 0 | the opposite phase of G1, 22s |
-| G3 state tint | one tint at a time, crossfaded over 600ms (below) | |
+| G2 crema      | radial at cx .8, cy .9, r .5: #6B4A33 alpha .18 to 0                                  | the opposite phase of G1, 22s                                                  |
+| G3 state tint | one tint at a time, crossfaded over 600ms (below)                                     |                                                                                |
 
 G3 tints:
+
 - **Honey** (backup pending or uncertain): alpha .10 at the mark.
 - **Sage flash** (money arrived): alpha .22, 300ms in and 900ms out.
 - **Radish** (failure): alpha .14 for 1200ms.
@@ -175,19 +181,19 @@ G3 tints:
 
 - System faces. Every number uses `fontVariant: ['tabular-nums']`.
 
-| Style | Size / line height | Weight and details |
-|---|---|---|
-| hero | 64/72, letter spacing -1.5 | 300. Steps down to 56, 48, 40 by fitted width. Never `adjustsFontSizeToFit`. |
-| heroUnit | 15/20 | 500, steam |
-| amount | 48/56 | 300 |
-| amountDetail | 40/48 | 300 |
-| line | 20/26 | 400 |
-| row | 16/22 | 600 for received, 400 for sent |
-| meta | 12/16 | steam |
-| micro | 11/14, letter spacing 1.2 | 600, dust |
-| mono | 12/18 | shown in groups of 4 |
-| word | 17/22 | 500 |
-| keypad | 30/36 | 300 |
+| Style        | Size / line height         | Weight and details                                                           |
+| ------------ | -------------------------- | ---------------------------------------------------------------------------- |
+| hero         | 64/72, letter spacing -1.5 | 300. Steps down to 56, 48, 40 by fitted width. Never `adjustsFontSizeToFit`. |
+| heroUnit     | 15/20                      | 500, steam                                                                   |
+| amount       | 48/56                      | 300                                                                          |
+| amountDetail | 40/48                      | 300                                                                          |
+| line         | 20/26                      | 400                                                                          |
+| row          | 16/22                      | 600 for received, 400 for sent                                               |
+| meta         | 12/16                      | steam                                                                        |
+| micro        | 11/14, letter spacing 1.2  | 600, dust                                                                    |
+| mono         | 12/18                      | shown in groups of 4                                                         |
+| word         | 17/22                      | 500                                                                          |
+| keypad       | 30/36                      | 300                                                                          |
 
 - Settings keeps text styles: title 28/34 at 600, body 15/22, label 13/18 at 600.
 - `maxFontSizeMultiplier`: hero and amount 1.2, rows 1.4, Settings unlimited.
@@ -202,15 +208,16 @@ G3 tints:
 
 **Springs** (damping / stiffness / mass):
 
-| Spring | Values | Used for |
-|---|---|---|
-| snap | 26 / 420 / 0.9 | press, release, keys, chips, ratchet steps |
-| pane | 30 / 260 / 1 | sheet, shared elements, reveals |
-| reveal | 18 / 180 / 1 | pop-ins, petal unfolds, bursts, check scale |
-| soft | 22 / 120 / 1 | liquid levels, re-saturation |
-| boing | 10 / 300 / 0.6 | bloom center pops only |
+| Spring | Values         | Used for                                    |
+| ------ | -------------- | ------------------------------------------- |
+| snap   | 26 / 420 / 0.9 | press, release, keys, chips, ratchet steps  |
+| pane   | 30 / 260 / 1   | sheet, shared elements, reveals             |
+| reveal | 18 / 180 / 1   | pop-ins, petal unfolds, bursts, check scale |
+| soft   | 22 / 120 / 1   | liquid levels, re-saturation                |
+| boing  | 10 / 300 / 0.6 | bloom center pops only                      |
 
 **Curves:**
+
 - standard `bezier(.4,0,.2,1)`
 - enter `bezier(.05,.7,.1,1)`
 - exit `bezier(.3,0,.8,.15)`
@@ -219,19 +226,20 @@ G3 tints:
 
 **Durations (ms):**
 
-| Name | ms | Name | ms |
-|---|---|---|---|
-| tick | 90 | orbit | 1400 per revolution |
-| exit | 140 | pulse | 1800 |
-| enter | 220 | halo | 1600 |
-| move | 320 | sheen | 2400 |
-| draw | 420 | shimmer | 2600 |
-| celebrate | 900 | dashRotate | 8000 |
-| breathe | 4200 | hold | 700 (1000 with warnings) |
+| Name      | ms   | Name       | ms                       |
+| --------- | ---- | ---------- | ------------------------ |
+| tick      | 90   | orbit      | 1400 per revolution      |
+| exit      | 140  | pulse      | 1800                     |
+| enter     | 220  | halo       | 1600                     |
+| move      | 320  | sheen      | 2400                     |
+| draw      | 420  | shimmer    | 2600                     |
+| celebrate | 900  | dashRotate | 8000                     |
+| breathe   | 4200 | hold       | 700 (1000 with warnings) |
 
 **Shake:** translateX keyframes 0, -8, 8, -5, 5, -2, 0 at 55ms per step (330ms total).
 
 **Overlap rule:**
+
 - Exits start at t0 and run 140ms on the exit curve, scaling to .98.
 - Pane springs start at t0.
 - Entering content starts at +80ms and runs 220ms on the enter curve, rising 8 to 16pt.
@@ -242,19 +250,19 @@ G3 tints:
 
 Semantic names are defined in `src/design/haptics.ts` on top of `services/haptics.ts`:
 
-| Name | Maps to | Used for |
-|---|---|---|
-| tick | selection | keys, chips, toggles, row taps |
-| tap | impactLight | primary press-in |
-| thud | impactMedium | hold complete, scan detected |
-| rigid | rigid | refused key |
-| soft | soft | petal steps, liquid settle, pull threshold |
-| success | notificationSuccess | success |
-| warning | notificationWarning | warning |
-| error | notificationError | error |
-| incoming | success, then light at +120ms and light at +240ms | money arrived only |
-| held | warning, then warning at +300ms | held payment |
-| hold ramp | tick at 25%, 50%, 75%, thud at 100% | hold to send |
+| Name      | Maps to                                           | Used for                                   |
+| --------- | ------------------------------------------------- | ------------------------------------------ |
+| tick      | selection                                         | keys, chips, toggles, row taps             |
+| tap       | impactLight                                       | primary press-in                           |
+| thud      | impactMedium                                      | hold complete, scan detected               |
+| rigid     | rigid                                             | refused key                                |
+| soft      | soft                                              | petal steps, liquid settle, pull threshold |
+| success   | notificationSuccess                               | success                                    |
+| warning   | notificationWarning                               | warning                                    |
+| error     | notificationError                                 | error                                      |
+| incoming  | success, then light at +120ms and light at +240ms | money arrived only                         |
+| held      | warning, then warning at +300ms                   | held payment                               |
+| hold ramp | tick at 25%, 50%, 75%, thud at 100%               | hold to send                               |
 
 ## 4. Glyphs
 
@@ -268,63 +276,63 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
   - Settings only: alert, info, back, chevron, chevronDown, wallet.
 - **New paths:**
 
-| Glyph | Path |
-|---|---|
-| cog | `M10.04 5.18L10.23 2.87L13.77 2.87L13.96 5.18A7.1 7.1 0 0 1 15.44 5.79L17.2 4.29L19.71 6.8L18.21 8.56A7.1 7.1 0 0 1 18.82 10.04L21.13 10.23L21.13 13.77L18.82 13.96A7.1 7.1 0 0 1 18.21 15.44L19.71 17.2L17.2 19.71L15.44 18.21A7.1 7.1 0 0 1 13.96 18.82L13.77 21.13L10.23 21.13L10.04 18.82A7.1 7.1 0 0 1 8.56 18.21L6.8 19.71L4.29 17.2L5.79 15.44A7.1 7.1 0 0 1 5.18 13.96L2.87 13.77L2.87 10.23L5.18 10.04A7.1 7.1 0 0 1 5.79 8.56L4.29 6.8L6.8 4.29L8.56 5.79A7.1 7.1 0 0 1 10.04 5.18ZM12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z` |
-| question | `M9.2 9a2.8 2.8 0 1 1 4.2 2.4c-.9.6-1.4 1.2-1.4 2.2v.6M12 17.5v.01` |
-| pause | `M9 7v10M15 7v10` |
-| cross | `m7.5 7.5 9 9M16.5 7.5l-9 9` |
-| bang | `M12 5.5v8.5M12 18.5v.01` |
-| moon | `M19.5 14.6A7.8 7.8 0 1 1 9.4 4.5a6.2 6.2 0 0 0 10.1 10.1z` |
-| unplug | left `M3 12h3M6 9.5h2.5a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5H6z`, right `M21 12h-3M18 9.5h-2.5a1.5 1.5 0 0 0-1.5 1.5v2a1.5 1.5 0 0 0 1.5 1.5H18z`, spark `M12 5.5v2M12 16.5v2` |
-| infinity | `M8 9.3c-3.6 0-3.6 5.4 0 5.4 2.6 0 5.4-5.4 8-5.4 3.6 0 3.6 5.4 0 5.4-2.6 0-5.4-5.4-8-5.4z` |
-| clipboard | `M9 3.5h6v3H9zM9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2` |
-| backspace | `M9 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6-7zM12 9.5l5 5M17 9.5l-5 5` |
-| qr | `M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM18 14h2M14 18v2` |
-| sprout | `M12 21v-8M12 13C12 9 9 7 5 7c0 4 3 6 7 6zM12 11c0-3.5 2.5-6 6.5-6 0 3.5-2.5 6-6.5 6z` |
-| restore | `M4 12a8 8 0 1 0 2.3-5.6M4 4.5v4h4M10 10.5h5M10 13.5h3.5` |
-| swap | `M7 4 4 7l3 3M4 7h12M17 20l3-3-3-3M20 17H8` |
-| shieldAlert | `M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6zM12 8.5v4.5M12 16.2v.01` |
-| twin | `M9.5 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM14.5 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z` |
-| linkPlus | chain plus `M18 15v5M15.5 17.5h5` |
-| gauge | `M4.5 17a8 8 0 1 1 15 0M12 13l3.5-3.5M12 13v.01` |
-| rewind | `M4 12a8 8 0 1 0 2.6-5.9M4 4v5h5` |
-| inflow | `M12 3v10M8 9l4 4 4-4M5 14v3a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-3` |
-| fund | `M7 5.5a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 8.5h8M17 5.5l3 3-3 3M4 16h16M4 20h16` |
-| cameraOff | `M4 4l16 16M9 5h6l1.5 2H19a1 1 0 0 1 1 1v8.5M16.5 19H5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h2M10.2 10.3a3 3 0 0 0 4.2 4.2` |
-| faceScan | `M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 9.5v1M15 9.5v1M12 9.5V13h-1M9.5 15.5c1.4 1.2 3.6 1.2 5 0` |
-| fingerprint | `M8 5.5a7.5 7.5 0 0 1 11.5 6.5v1M4.5 10a7.5 7.5 0 0 1 1.3-3M4.5 14.5v-2M8.5 19a11 11 0 0 1-1-4.5V12a4.5 4.5 0 0 1 9 0v1.5M12 12v2.5a9 9 0 0 0 1.8 5.5M16.3 17.5a14 14 0 0 1-.3-3` |
-| passcode | `M7 9h.01M12 9h.01M17 9h.01M7 14h.01M12 14h.01M17 14h.01` (stroke 2.6) |
-| pencil | `M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4` |
-| flask | `M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3M7.5 14h9` |
-| hash | `M10 4 8 20M16 4l-2 16M5 9h15M4 15h15` |
-| pin | `M12 21s7-6.2 7-11.5a7 7 0 1 0-14 0C5 14.8 12 21 12 21zM12 7.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4z` |
-| boltRetry | refresh plus `M12.6 8.5 10 12.5h3l-.6 3 2.6-4h-3z` |
-| orbit | `M12 4a8 8 0 1 1-8 8M12 4v.01` |
-| unlock | `M6 11h12v9H6zM9 11V8a3 3 0 0 1 5.8-1.1` |
+| Glyph       | Path                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| cog         | `M10.04 5.18L10.23 2.87L13.77 2.87L13.96 5.18A7.1 7.1 0 0 1 15.44 5.79L17.2 4.29L19.71 6.8L18.21 8.56A7.1 7.1 0 0 1 18.82 10.04L21.13 10.23L21.13 13.77L18.82 13.96A7.1 7.1 0 0 1 18.21 15.44L19.71 17.2L17.2 19.71L15.44 18.21A7.1 7.1 0 0 1 13.96 18.82L13.77 21.13L10.23 21.13L10.04 18.82A7.1 7.1 0 0 1 8.56 18.21L6.8 19.71L4.29 17.2L5.79 15.44A7.1 7.1 0 0 1 5.18 13.96L2.87 13.77L2.87 10.23L5.18 10.04A7.1 7.1 0 0 1 5.79 8.56L4.29 6.8L6.8 4.29L8.56 5.79A7.1 7.1 0 0 1 10.04 5.18ZM12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z` |
+| question    | `M9.2 9a2.8 2.8 0 1 1 4.2 2.4c-.9.6-1.4 1.2-1.4 2.2v.6M12 17.5v.01`                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| pause       | `M9 7v10M15 7v10`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| cross       | `m7.5 7.5 9 9M16.5 7.5l-9 9`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| bang        | `M12 5.5v8.5M12 18.5v.01`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| moon        | `M19.5 14.6A7.8 7.8 0 1 1 9.4 4.5a6.2 6.2 0 0 0 10.1 10.1z`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| unplug      | left `M3 12h3M6 9.5h2.5a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5H6z`, right `M21 12h-3M18 9.5h-2.5a1.5 1.5 0 0 0-1.5 1.5v2a1.5 1.5 0 0 0 1.5 1.5H18z`, spark `M12 5.5v2M12 16.5v2`                                                                                                                                                                                                                                                                                                                                                        |
+| infinity    | `M8 9.3c-3.6 0-3.6 5.4 0 5.4 2.6 0 5.4-5.4 8-5.4 3.6 0 3.6 5.4 0 5.4-2.6 0-5.4-5.4-8-5.4z`                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| clipboard   | `M9 3.5h6v3H9zM9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2`                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| backspace   | `M9 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6-7zM12 9.5l5 5M17 9.5l-5 5`                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| qr          | `M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM18 14h2M14 18v2`                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| sprout      | `M12 21v-8M12 13C12 9 9 7 5 7c0 4 3 6 7 6zM12 11c0-3.5 2.5-6 6.5-6 0 3.5-2.5 6-6.5 6z`                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| restore     | `M4 12a8 8 0 1 0 2.3-5.6M4 4.5v4h4M10 10.5h5M10 13.5h3.5`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| swap        | `M7 4 4 7l3 3M4 7h12M17 20l3-3-3-3M20 17H8`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| shieldAlert | `M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6zM12 8.5v4.5M12 16.2v.01`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| twin        | `M9.5 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM14.5 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z`                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| linkPlus    | chain plus `M18 15v5M15.5 17.5h5`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| gauge       | `M4.5 17a8 8 0 1 1 15 0M12 13l3.5-3.5M12 13v.01`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| rewind      | `M4 12a8 8 0 1 0 2.6-5.9M4 4v5h5`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| inflow      | `M12 3v10M8 9l4 4 4-4M5 14v3a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-3`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| fund        | `M7 5.5a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 8.5h8M17 5.5l3 3-3 3M4 16h16M4 20h16`                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| cameraOff   | `M4 4l16 16M9 5h6l1.5 2H19a1 1 0 0 1 1 1v8.5M16.5 19H5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h2M10.2 10.3a3 3 0 0 0 4.2 4.2`                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| faceScan    | `M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 9.5v1M15 9.5v1M12 9.5V13h-1M9.5 15.5c1.4 1.2 3.6 1.2 5 0`                                                                                                                                                                                                                                                                                                                                                                                    |
+| fingerprint | `M8 5.5a7.5 7.5 0 0 1 11.5 6.5v1M4.5 10a7.5 7.5 0 0 1 1.3-3M4.5 14.5v-2M8.5 19a11 11 0 0 1-1-4.5V12a4.5 4.5 0 0 1 9 0v1.5M12 12v2.5a9 9 0 0 0 1.8 5.5M16.3 17.5a14 14 0 0 1-.3-3`                                                                                                                                                                                                                                                                                                                                                              |
+| passcode    | `M7 9h.01M12 9h.01M17 9h.01M7 14h.01M12 14h.01M17 14h.01` (stroke 2.6)                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| pencil      | `M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| flask       | `M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3M7.5 14h9`                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| hash        | `M10 4 8 20M16 4l-2 16M5 9h15M4 15h15`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| pin         | `M12 21s7-6.2 7-11.5a7 7 0 1 0-14 0C5 14.8 12 21 12 21zM12 7.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4z`                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| boltRetry   | refresh plus `M12.6 8.5 10 12.5h3l-.6 3 2.6-4h-3z`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| orbit       | `M12 4a8 8 0 1 1-8 8M12 4v.01`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| unlock      | `M6 11h12v9H6zM9 11V8a3 3 0 0 1 5.8-1.1`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 **Animated glyphs**
 
-| Glyph | Animation |
-|---|---|
-| check | draws in 420ms on the enter curve |
-| cross | two strokes of 140ms each, the second starting 60ms after the first |
-| bang | the line draws in 200ms, then the dot pops with the reveal spring |
-| copy to check | copy scales to .6 and fades out in 120ms; the check draws in 260ms starting at +60ms |
-| send | launches +28, -28 and fades over 240ms |
-| refresh | turns 360 degrees in 500ms; while working, loops at 900ms per turn |
-| bolt | draws in 240ms, then flashes |
-| chain | the halves slide 3pt together over 200ms |
-| clock | the minute hand turns once every 6s while waiting |
-| moon | rocks plus or minus 8 degrees on a 4200ms cycle |
-| unplug | the halves drift apart plus or minus 1.5pt and back over 1800ms |
-| pause | the bars scale in with the reveal spring, 60ms apart, then hold still |
-| question | nods once over 600ms |
-| shieldAlert | the stroke blinks every 1600ms |
-| gauge | the needle sweeps from -30 to 0 degrees over 3s |
-| sprout | grows from its base with the reveal spring, 400ms |
-| eye | blinks over 180ms |
-| lock to unlock | the shackle lifts over 260ms |
+| Glyph          | Animation                                                                            |
+| -------------- | ------------------------------------------------------------------------------------ |
+| check          | draws in 420ms on the enter curve                                                    |
+| cross          | two strokes of 140ms each, the second starting 60ms after the first                  |
+| bang           | the line draws in 200ms, then the dot pops with the reveal spring                    |
+| copy to check  | copy scales to .6 and fades out in 120ms; the check draws in 260ms starting at +60ms |
+| send           | launches +28, -28 and fades over 240ms                                               |
+| refresh        | turns 360 degrees in 500ms; while working, loops at 900ms per turn                   |
+| bolt           | draws in 240ms, then flashes                                                         |
+| chain          | the halves slide 3pt together over 200ms                                             |
+| clock          | the minute hand turns once every 6s while waiting                                    |
+| moon           | rocks plus or minus 8 degrees on a 4200ms cycle                                      |
+| unplug         | the halves drift apart plus or minus 1.5pt and back over 1800ms                      |
+| pause          | the bars scale in with the reveal spring, 60ms apart, then hold still                |
+| question       | nods once over 600ms                                                                 |
+| shieldAlert    | the stroke blinks every 1600ms                                                       |
+| gauge          | the needle sweeps from -30 to 0 degrees over 3s                                      |
+| sprout         | grows from its base with the reveal spring, 400ms                                    |
+| eye            | blinks over 180ms                                                                    |
+| lock to unlock | the shackle lifts over 260ms                                                         |
 
 ## 5. Signature components
 
@@ -384,16 +392,16 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
   - Arriving: bloom glass at .35 alpha, with a sheen that sweeps across every 2400ms.
 - **Styles, chosen from `snapshot.wallet.lfbw`:**
 
-  | Source | Look |
-  |---|---|
-  | wait/below-floor (under 25,000 sats) | dust "seeds" that bob 1pt |
-  | splice-in, open, open-v2 | glass plus a `sprout` |
-  | wait/fee-too-high | honey glass, no sheen, plus a honey `gauge` |
-  | failed | radish glass plus `refresh` with a retry ring |
-  | wait/splicing, channel-pending, unconfirmed | slow sheen plus `clock` |
-  | lastSplice conflicted | reversed honey sheen plus `rewind` |
-  | lastSplice reverted | sage wash plus `rewind` |
-  | unpairedFunding | `inflow` |
+  | Source                                      | Look                                          |
+  | ------------------------------------------- | --------------------------------------------- |
+  | wait/below-floor (under 25,000 sats)        | dust "seeds" that bob 1pt                     |
+  | splice-in, open, open-v2                    | glass plus a `sprout`                         |
+  | wait/fee-too-high                           | honey glass, no sheen, plus a honey `gauge`   |
+  | failed                                      | radish glass plus `refresh` with a retry ring |
+  | wait/splicing, channel-pending, unconfirmed | slow sheen plus `clock`                       |
+  | lastSplice conflicted                       | reversed honey sheen plus `rewind`            |
+  | lastSplice reverted                         | sage wash plus `rewind`                       |
+  | unpairedFunding                             | `inflow`                                      |
 
 - **Channelize.** When funds move into the channel, the solid segment grows with the soft spring and a cream ripple runs along the seam.
 - **Tap.** The vessel expands to 28pt and shows both numbers for 3s.
@@ -411,12 +419,12 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 - **Layers:** track, progress arc, orbit, halo, glyph slot.
 - **Transitions:**
 
-  | To | What happens |
-  |---|---|
+  | To        | What happens                                                                              |
+  | --------- | ----------------------------------------------------------------------------------------- |
   | completed | progress fills to 1 over 360ms; the check draws starting at +120ms; the ring pops to 1.08 |
-  | failed | turns radish, shakes, draws a cross |
-  | uncertain | steady honey with the halo looping, plus `pause` |
-  | expired | the stroke becomes dashed (3 5) and fades to .55 |
+  | failed    | turns radish, shakes, draws a cross                                                       |
+  | uncertain | steady honey with the halo looping, plus `pause`                                          |
+  | expired   | the stroke becomes dashed (3 5) and fades to .55                                          |
 
 ### CopyChip
 
@@ -451,13 +459,13 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 
 ### Received celebration
 
-| Time (ms) | What happens |
-|---|---|
-| 0 | incoming haptic; the QR implodes (420ms) |
-| 120 | the sage ring draws (480ms) |
-| 200 | the amount counts up (700ms) |
-| 600 | the check draws (420ms) |
-| 700 | the petal burst (800ms) and the sage tint |
+| Time (ms) | What happens                              |
+| --------- | ----------------------------------------- |
+| 0         | incoming haptic; the QR implodes (420ms)  |
+| 120       | the sage ring draws (480ms)               |
+| 200       | the amount counts up (700ms)              |
+| 600       | the check draws (420ms)                   |
+| 700       | the petal burst (800ms) and the sage tint |
 
 On-chain but not yet confirmed: the sequence stops at a sage orbit.
 
@@ -488,36 +496,36 @@ A cocoa pill anchored above its source (see rule 3).
 
 ### Shell phases
 
-| Phase | What it shows |
-|---|---|
-| lock check | roast; the bud fades in after 250ms |
-| locked | A closed bud (120pt, q .08) breathing, with the biometric glyph (faceScan, fingerprint, eye or passcode) below it. The whole screen is the button. Prompting: the glyph draws in a loop. Refused: the bud shakes and the glyph flashes radish (error haptic). Unlocked: the petals unfold, then Home builds (R-1). |
-| transit closing | the mark flies to center at 96pt and the petals fold |
-| transit switching | the bloom ratchets and recolors to the target network's color |
-| transit erasing | the petals fall; a husk bud breathes |
-| opening | the chase loader at 96pt |
-| saved (open failed) | A dormant bloom and the wallet name, a radish pip when there is an error, a 64pt `refresh` (Open device wallet), and a `cog` for network settings. |
-| welcome | The bloom unfolds, then breathes. Controls: a 72pt `sprout` (Create a wallet, bloom fill), a 56pt `restore` outline, a 44pt `cog`. On error the bloom half-wilts and `refresh` (Try again) replaces `sprout`. |
-| picker | Wallet rows: mark, name, and `flask` on test networks. Then a `sprout` row, and `restore`, `cog` and `lock` along the bottom. |
-| loading | The canvas with 5 husk dots breathing in the hero spot, skeleton rows in the sheet, and the actions disabled. |
-| offline | A dormant mark with a hollow radish dot, `unplug`, a 64pt `refresh` (Retry connection), a 56pt `boltRetry` (Retry wallet setup, with a honey pip when there is a setupError), and a `cog`. |
+| Phase               | What it shows                                                                                                                                                                                                                                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| lock check          | roast; the bud fades in after 250ms                                                                                                                                                                                                                                                                                |
+| locked              | A closed bud (120pt, q .08) breathing, with the biometric glyph (faceScan, fingerprint, eye or passcode) below it. The whole screen is the button. Prompting: the glyph draws in a loop. Refused: the bud shakes and the glyph flashes radish (error haptic). Unlocked: the petals unfold, then Home builds (R-1). |
+| transit closing     | the mark flies to center at 96pt and the petals fold                                                                                                                                                                                                                                                               |
+| transit switching   | the bloom ratchets and recolors to the target network's color                                                                                                                                                                                                                                                      |
+| transit erasing     | the petals fall; a husk bud breathes                                                                                                                                                                                                                                                                               |
+| opening             | the chase loader at 96pt                                                                                                                                                                                                                                                                                           |
+| saved (open failed) | A dormant bloom and the wallet name, a radish pip when there is an error, a 64pt `refresh` (Open device wallet), and a `cog` for network settings.                                                                                                                                                                 |
+| welcome             | The bloom unfolds, then breathes. Controls: a 72pt `sprout` (Create a wallet, bloom fill), a 56pt `restore` outline, a 44pt `cog`. On error the bloom half-wilts and `refresh` (Try again) replaces `sprout`.                                                                                                      |
+| picker              | Wallet rows: mark, name, and `flask` on test networks. Then a `sprout` row, and `restore`, `cog` and `lock` along the bottom.                                                                                                                                                                                      |
+| loading             | The canvas with 5 husk dots breathing in the hero spot, skeleton rows in the sheet, and the actions disabled.                                                                                                                                                                                                      |
+| offline             | A dormant mark with a hollow radish dot, `unplug`, a 64pt `refresh` (Retry connection), a 56pt `boltRetry` (Retry wallet setup, with a honey pip when there is a setupError), and a `cog`.                                                                                                                         |
 
 ### Wallet health
 
-| State | Visual |
-|---|---|
-| fresh | The PulseDot is sage and pings on each poll. |
-| reconnecting | The PulseDot is honey and pulses. |
+| State               | Visual                                                                                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| fresh               | The PulseDot is sage and pings on each poll.                                                                                                                                          |
+| reconnecting        | The PulseDot is honey and pulses.                                                                                                                                                     |
 | stale (45s or more) | The hero goes steam with the shimmer wave; the glow drops to .25; the actions turn dust and scale to .94. Tapping one shakes it, fires a warning haptic, and starts a manual refresh. |
-| cached launch | The stale look plus a ratcheting mark. The first live read re-saturates it and fires a sage ping. |
-| setup pending | Petals open to q .6 and the center breathes. |
-| setup ready | Petals open fully. |
-| setup failed | Petals droop, with a honey pip. |
-| refresh failed | The PulseDot is hollow radish. |
-| manual refresh | The mark ratchets. Pulling down on the top pane opens the petals as you pull. |
-| hidden | 6-dot masks everywhere, toggled by long-pressing the hero. |
-| unit | Tapping the hero rolls between sats and BTC. |
-| test network | Slate replaces bloom everywhere, with a `flask` micro-glyph. |
+| cached launch       | The stale look plus a ratcheting mark. The first live read re-saturates it and fires a sage ping.                                                                                     |
+| setup pending       | Petals open to q .6 and the center breathes.                                                                                                                                          |
+| setup ready         | Petals open fully.                                                                                                                                                                    |
+| setup failed        | Petals droop, with a honey pip.                                                                                                                                                       |
+| refresh failed      | The PulseDot is hollow radish.                                                                                                                                                        |
+| manual refresh      | The mark ratchets. Pulling down on the top pane opens the petals as you pull.                                                                                                         |
+| hidden              | 6-dot masks everywhere, toggled by long-pressing the hero.                                                                                                                            |
+| unit                | Tapping the hero rolls between sats and BTC.                                                                                                                                          |
+| test network        | Slate replaces bloom everywhere, with a `flask` micro-glyph.                                                                                                                          |
 
 ### Activity row (64pt)
 
@@ -538,21 +546,21 @@ A cocoa pill anchored above its source (see rule 3).
   - failed or expired: dust, struck through
 - **Rings.**
 
-  | State | Ring |
-  |---|---|
-  | completed sent | a steam ring with `send` |
-  | completed received | a sage ring with `receive` |
-  | pending | a bloom orbit |
-  | request waiting | dashed, rotating once every 8s; `moon` when it is an offline request |
-  | confirming | a sage orbit plus the fill |
-  | partial | a sage arc plus a honey dashed remainder |
-  | uncertain | steady honey, a halo, `pause` |
-  | failed | a radish `cross` |
-  | expired | dust dashes; the row drops to .55 |
-  | unavailable | a gap plus `question` |
-  | legacy | a `chain` micro-glyph |
-  | reused address | honey `twin` |
-  | transfer | `swap` |
+  | State              | Ring                                                                 |
+  | ------------------ | -------------------------------------------------------------------- |
+  | completed sent     | a steam ring with `send`                                             |
+  | completed received | a sage ring with `receive`                                           |
+  | pending            | a bloom orbit                                                        |
+  | request waiting    | dashed, rotating once every 8s; `moon` when it is an offline request |
+  | confirming         | a sage orbit plus the fill                                           |
+  | partial            | a sage arc plus a honey dashed remainder                             |
+  | uncertain          | steady honey, a halo, `pause`                                        |
+  | failed             | a radish `cross`                                                     |
+  | expired            | dust dashes; the row drops to .55                                    |
+  | unavailable        | a gap plus `question`                                                |
+  | legacy             | a `chain` micro-glyph                                                |
+  | reused address     | honey `twin`                                                         |
+  | transfer           | `swap`                                                               |
 
 - **Attention shelf.** Pinned first: the backup tile, then uncertain items, then partial ones.
 - **Filters.** Glyph chips: send, receive, qr, orbit. Tapping the active chip again clears it. `search` expands into a field.
@@ -560,39 +568,39 @@ A cocoa pill anchored above its source (see rule 3).
 
 ### Send
 
-| State | Visual |
-|---|---|
-| compose | A request well with 44pt `clipboard` and `scan` buttons and a breathing dashed border. |
-| accepted | The well collapses into a chip: rail glyph, shortened destination, and `lock` if the amount is fixed. |
-| fixed amount | The keypad drops away and a `lock` sits beside the amount. |
-| amount entry | The keypad. Honey plus `clock` when over what can be spent but within the total; radish when over the total. |
-| preparing | The control orbits. |
-| review | The chip, the amount at 48pt, then the lines `rail + <= fee`, `~ expected`, `= total`. The HoldButton sits inside the ExpiryRing. Warnings show as honey pips. |
-| expired | The ring retracts and `refresh` appears (warning haptic). |
-| sending | The arrow launches and an orbit starts. |
-| completed | A 120pt cream disc with an ink check. Returns home after 2200ms. |
-| pending | An orbit. |
-| uncertain | A 120pt honey ring, steady, with a halo and `pause`. No resend. Assertive announcement. `held` haptic. |
-| held request re-entered | Goes straight to the held ring. |
-| failed | A radish `bang`, a shake, and the tint. |
-| stale | The control is dust; a tap shakes it and refreshes. |
+| State                   | Visual                                                                                                                                                         |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| compose                 | A request well with 44pt `clipboard` and `scan` buttons and a breathing dashed border.                                                                         |
+| accepted                | The well collapses into a chip: rail glyph, shortened destination, and `lock` if the amount is fixed.                                                          |
+| fixed amount            | The keypad drops away and a `lock` sits beside the amount.                                                                                                     |
+| amount entry            | The keypad. Honey plus `clock` when over what can be spent but within the total; radish when over the total.                                                   |
+| preparing               | The control orbits.                                                                                                                                            |
+| review                  | The chip, the amount at 48pt, then the lines `rail + <= fee`, `~ expected`, `= total`. The HoldButton sits inside the ExpiryRing. Warnings show as honey pips. |
+| expired                 | The ring retracts and `refresh` appears (warning haptic).                                                                                                      |
+| sending                 | The arrow launches and an orbit starts.                                                                                                                        |
+| completed               | A 120pt cream disc with an ink check. Returns home after 2200ms.                                                                                               |
+| pending                 | An orbit.                                                                                                                                                      |
+| uncertain               | A 120pt honey ring, steady, with a halo and `pause`. No resend. Assertive announcement. `held` haptic.                                                         |
+| held request re-entered | Goes straight to the held ring.                                                                                                                                |
+| failed                  | A radish `bang`, a shake, and the tint.                                                                                                                        |
+| stale                   | The control is dust; a tap shakes it and refreshes.                                                                                                            |
 
 ### Receive
 
-| State | Visual |
-|---|---|
-| amount | Shows infinity while empty. Preset chips (1,000 / 10,000 / 50,000), `pencil`, `moon` when offered. |
-| amount required | A dust 0 with a caret, plus `sprout`. |
-| offline on | The moon fills, the night tint shows, and the cap is marked on the amount. |
-| quote | `- fee = net`. The create control is a tap, inside the expiry ring. |
-| request | QrBloom with a frame ring, rails beneath (`bolt` + `chain`, or `bolt` only), a moon badge when offline, `share`, `copy` and `plus`. |
-| near expiry | The frame turns honey. |
-| expired | The QR dissolves; share and copy are removed. |
-| reused address | The QR scatters, a honey `twin` appears, share and copy are removed, and `plus` becomes the primary control. |
-| tracking unavailable | A `question` badge. |
-| detected | Celebration part 1. |
-| partial | A split ring showing received over requested, and `plus` with the remainder. |
-| completed | The full celebration. |
+| State                | Visual                                                                                                                              |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| amount               | Shows infinity while empty. Preset chips (1,000 / 10,000 / 50,000), `pencil`, `moon` when offered.                                  |
+| amount required      | A dust 0 with a caret, plus `sprout`.                                                                                               |
+| offline on           | The moon fills, the night tint shows, and the cap is marked on the amount.                                                          |
+| quote                | `- fee = net`. The create control is a tap, inside the expiry ring.                                                                 |
+| request              | QrBloom with a frame ring, rails beneath (`bolt` + `chain`, or `bolt` only), a moon badge when offline, `share`, `copy` and `plus`. |
+| near expiry          | The frame turns honey.                                                                                                              |
+| expired              | The QR dissolves; share and copy are removed.                                                                                       |
+| reused address       | The QR scatters, a honey `twin` appears, share and copy are removed, and `plus` becomes the primary control.                        |
+| tracking unavailable | A `question` badge.                                                                                                                 |
+| detected             | Celebration part 1.                                                                                                                 |
+| partial              | A split ring showing received over requested, and `plus` with the remainder.                                                        |
+| completed            | The full celebration.                                                                                                               |
 
 ### Backup and setup
 
@@ -603,34 +611,34 @@ A cocoa pill anchored above its source (see rule 3).
 
 ### Engine errors
 
-| Code | Visual |
-|---|---|
-| INSUFFICIENT_FUNDS, amount within total | honey, plus a vessel marker |
-| INSUFFICIENT_FUNDS, amount over total | radish and a shake |
-| parse and refused inputs | the chip dissolves with a `cross` |
-| PRIMARY_DOWN | honey `unplug` |
-| NO_ROUTE | `bolt` plus `cross` |
-| FUNDING_UNCONFIRMED | `chain` plus `clock` |
-| AMOUNT_REQUIRED | the infinity glyph shakes to 0 |
-| RECEIVE_UNAVAILABLE | the moon shakes off |
-| QUOTE_EXPIRED | `refresh` |
-| AMBIGUOUS_RECEIVE_ADDRESS | twin |
-| INVALID_MNEMONIC | wilt |
-| anything unmapped | a radish `bang`, a shake and an error haptic (user-initiated only). The full message goes to `recordDiagnostic` and is announced and readable through Whisper and Settings > Diagnostics. |
+| Code                                    | Visual                                                                                                                                                                                    |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| INSUFFICIENT_FUNDS, amount within total | honey, plus a vessel marker                                                                                                                                                               |
+| INSUFFICIENT_FUNDS, amount over total   | radish and a shake                                                                                                                                                                        |
+| parse and refused inputs                | the chip dissolves with a `cross`                                                                                                                                                         |
+| PRIMARY_DOWN                            | honey `unplug`                                                                                                                                                                            |
+| NO_ROUTE                                | `bolt` plus `cross`                                                                                                                                                                       |
+| FUNDING_UNCONFIRMED                     | `chain` plus `clock`                                                                                                                                                                      |
+| AMOUNT_REQUIRED                         | the infinity glyph shakes to 0                                                                                                                                                            |
+| RECEIVE_UNAVAILABLE                     | the moon shakes off                                                                                                                                                                       |
+| QUOTE_EXPIRED                           | `refresh`                                                                                                                                                                                 |
+| AMBIGUOUS_RECEIVE_ADDRESS               | twin                                                                                                                                                                                      |
+| INVALID_MNEMONIC                        | wilt                                                                                                                                                                                      |
+| anything unmapped                       | a radish `bang`, a shake and an error haptic (user-initiated only). The full message goes to `recordDiagnostic` and is announced and readable through Whisper and Settings > Diagnostics. |
 
 ## 7. Choreography (ms from the tap)
 
 **T1, Home to Send** (T2, Receive, mirrors it with the receive circle):
 
-| Time | What happens |
-|---|---|
-| 0 | tap haptic |
-| 0 to 300 | the sheet slides off the bottom; rows fade out by 140 |
-| 0 to 140 | scan and receive fade and shrink to .8; the vessel fades; the cog spins out |
-| 0 to 320 | the hero shrinks to the mini strip (scale .34), rolling from the total to the available amount; the tapped circle moves to bottom center and grows 56 to 88 |
-| 80 | the close control spins in |
-| 80 to 300 | the well rises 12pt |
-| 120 to 360 | keypad rows enter, 30ms apart |
+| Time       | What happens                                                                                                                                                |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0          | tap haptic                                                                                                                                                  |
+| 0 to 300   | the sheet slides off the bottom; rows fade out by 140                                                                                                       |
+| 0 to 140   | scan and receive fade and shrink to .8; the vessel fades; the cog spins out                                                                                 |
+| 0 to 320   | the hero shrinks to the mini strip (scale .34), rolling from the total to the available amount; the tapped circle moves to bottom center and grows 56 to 88 |
+| 80         | the close control spins in                                                                                                                                  |
+| 80 to 300  | the well rises 12pt                                                                                                                                         |
+| 120 to 360 | keypad rows enter, 30ms apart                                                                                                                               |
 
 Going back reverses it: content exits in 140ms, the springs reverse, and rows re-enter 25ms apart.
 
@@ -638,14 +646,15 @@ Going back reverses it: content exits in 140ms, the springs reverse, and rows re
 
 **T4, Row to Detail:**
 
-| Time | What happens |
-|---|---|
-| 0 | tick; the sheet moves to compact |
-| 0 to 140 | the other rows fade out and drop 8pt |
-| 0 to 320 | ring and amount clones fly to the header (40 to 96) |
-| 120 onward | lines stagger in, 40ms apart |
+| Time       | What happens                                        |
+| ---------- | --------------------------------------------------- |
+| 0          | tick; the sheet moves to compact                    |
+| 0 to 140   | the other rows fade out and drop 8pt                |
+| 0 to 320   | ring and amount clones fly to the header (40 to 96) |
+| 120 onward | lines stagger in, 40ms apart                        |
 
 **T5, Home and Activity.** Driven by the gesture. Progress interpolates:
+
 - hero scale: 1 to .34
 - action row opacity: 1 to 0 over the first .4
 - vessel opacity: 1 to 0 over the first .3
@@ -657,14 +666,14 @@ Release on velocity over 800pt/s, or past 40% going up or 25% going down. Rubber
 
 **R-1, unlock:**
 
-| Time | What happens |
-|---|---|
-| 0 | success haptic; the bloom unfolds |
-| 500 to 880 | the bloom flies to the mark (28pt) |
-| 600 to 1500 | the hero counts up |
-| 650 | the sheet rises |
-| 700 | the actions pop in, 50ms apart |
-| 750 | the rows stagger in, 30ms apart |
+| Time        | What happens                       |
+| ----------- | ---------------------------------- |
+| 0           | success haptic; the bloom unfolds  |
+| 500 to 880  | the bloom flies to the mark (28pt) |
+| 600 to 1500 | the hero counts up                 |
+| 650         | the sheet rises                    |
+| 700         | the actions pop in, 50ms apart     |
+| 750         | the rows stagger in, 30ms apart    |
 
 **R-2, choosing a wallet.** The tapped control grows into the loader, which flies to the mark once a wallet id exists.
 
