@@ -5,6 +5,7 @@ import { AmountField } from '../../components/AmountField';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
 import { riseIn, sceneOut, stagger } from '../../motion/presets';
+import { useLaunchLanding } from '../../stage/panes/Launch';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { radius, space, type as typography } from '../../theme';
 import { AmountCue, AmountFace } from './AmountCue';
@@ -94,6 +95,7 @@ export function FormStep({
   const live = usePaneActive();
   const { bloom } = useBloom();
   const { room } = useReceiveHost();
+  const landing = useLaunchLanding();
   const showNote = noteOpen || note !== '';
   // Each time an amount turns out to be needed, the amount shakes once.
   const needed = cue.kind === 'required';
@@ -165,20 +167,23 @@ export function FormStep({
   const controls = (
     <Reanimated.View entering={stagger(3)} style={styles.controls}>
       <View style={styles.side} />
-      <GlyphButton
-        glyph="receive"
-        label={copy.receive.continue}
-        hint={stale ? copy.receive.stale : undefined}
-        size={CONTROL}
-        tone="primary"
-        disabled={!stale && !ready}
-        blocked={stale}
-        busy={busy}
-        shake={shake}
-        onPress={onContinue}
-        onBlocked={onBlocked}
-        focusRef={focus}
-      />
+      {/* Home's Receive circle lands exactly on it (REDESIGN.md 7, T2). */}
+      <View ref={landing.ref} onLayout={landing.onLayout} collapsable={false}>
+        <GlyphButton
+          glyph="receive"
+          label={copy.receive.continue}
+          hint={stale ? copy.receive.stale : undefined}
+          size={CONTROL}
+          tone="primary"
+          disabled={!stale && !ready}
+          blocked={stale}
+          busy={busy}
+          shake={shake}
+          onPress={onContinue}
+          onBlocked={onBlocked}
+          focusRef={focus}
+        />
+      </View>
       <View style={styles.side}>
         {error ? <ErrorPip message={error.message} code={error.code} /> : null}
       </View>

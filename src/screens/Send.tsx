@@ -63,6 +63,7 @@ import { recordDiagnostic } from '../services/diagnosticLog';
 import { errorMessage } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
 import { heldRequest, holdRequest } from '../stage/heldRequests';
+import { useLaunchLanding } from '../stage/panes/Launch';
 import { usePaneActive } from '../stage/panes/Pane';
 import { useFlashTint, useHoldTint } from '../stage/StageContext';
 import {
@@ -190,6 +191,7 @@ export function SendScreen({
   ref?: Ref<SendHandle>;
 }) {
   const live = usePaneActive();
+  const launchLanding = useLaunchLanding();
   const [request, setRequest] = useState(initialRequest);
   // A request that arrived whole shows as a chip; one being typed as text,
   // and one the parser refuses stays in the well with its cross, so it never
@@ -884,29 +886,36 @@ export function SendScreen({
         />
         <View style={styles.controls}>
           <View style={styles.side} />
-          <CircleControl
-            accessibilityLabel={copy.send.review}
-            accessibilityHint={
-              disabled
-                ? copy.send.stale
-                : busy
-                ? copy.send.preparing
-                : request.trim()
-                ? undefined
-                : copy.send.reviewWaits
-            }
-            onPress={
-              !live || busy
-                ? undefined
-                : disabled
-                ? onRefresh
-                : request.trim()
-                ? prepare
-                : undefined
-            }
-            busy={busy}
-            stale={disabled}
-          />
+          {/* Home's Send circle lands exactly on it (REDESIGN.md 7, T1). */}
+          <View
+            ref={launchLanding.ref}
+            onLayout={launchLanding.onLayout}
+            collapsable={false}
+          >
+            <CircleControl
+              accessibilityLabel={copy.send.review}
+              accessibilityHint={
+                disabled
+                  ? copy.send.stale
+                  : busy
+                  ? copy.send.preparing
+                  : request.trim()
+                  ? undefined
+                  : copy.send.reviewWaits
+              }
+              onPress={
+                !live || busy
+                  ? undefined
+                  : disabled
+                  ? onRefresh
+                  : request.trim()
+                  ? prepare
+                  : undefined
+              }
+              busy={busy}
+              stale={disabled}
+            />
+          </View>
           <View style={[styles.side, styles.end]}>
             {failure && failure.target !== 'request' ? (
               <FailureMark failure={failure} />

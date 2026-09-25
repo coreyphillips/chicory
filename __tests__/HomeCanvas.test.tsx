@@ -14,6 +14,7 @@ import { ActionCircle } from '../src/scenes/home/ActionCircle';
 import { BackupTile } from '../src/scenes/home/BackupTile';
 import { StatusRow } from '../src/scenes/home/StatusRow';
 import { stripOpacity } from '../src/scenes/home/motion';
+import { ReceiveScreen, SendScreen } from '../src/screens/Payments';
 import { HomeScreen } from '../src/screens/Wallet';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import {
@@ -306,6 +307,76 @@ describe('Send and Receive open from their circle', () => {
       await act(async () => tree.unmount());
     } finally {
       measure.mockReset();
+    }
+  });
+
+  test("lands on Send's review control and Receive's Continue as each scene measures them", async () => {
+    const made = Reanimated.useSharedValue;
+    let launch!: Launch;
+    function Launching({ children }: { children: React.ReactNode }) {
+      launch = React.useState<Launch>(() => ({
+        x: made(201),
+        y: made(764),
+        handover: made(0),
+      }))[0];
+      return <LaunchProvider value={launch}>{children}</LaunchProvider>;
+    }
+    const noop = () => {};
+    const client = {} as never;
+    for (const [label, scene] of [
+      [
+        copy.send.review,
+        <SendScreen
+          client={client}
+          onActivity={noop}
+          onRefresh={noop}
+          onBusy={noop}
+        />,
+      ],
+      [
+        copy.receive.continue,
+        <ReceiveScreen
+          client={client}
+          receivableSats={10_000}
+          onActivity={noop}
+          onBusy={noop}
+        />,
+      ],
+    ] as const) {
+      const tree = await mount(
+        <GestureHandlerRootView>
+          <Launching>{scene}</Launching>
+        </GestureHandlerRootView>,
+      );
+      // The view that holds the control, which the scene measures. Send's
+      // waits for a request, so it is drawn with no onPress yet.
+      let holder: ReactTestInstance | null = tree.root.find(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.accessibilityLabel === label,
+      ).parent;
+      while (
+        holder &&
+        !(
+          holder.type === View &&
+          holder.props.collapsable === false &&
+          holder.props.onLayout
+        )
+      ) {
+        holder = holder.parent;
+      }
+      expect(holder?.props.onLayout).toEqual(expect.any(Function));
+      // Where a device draws it: 752 on the 874pt phone, not 764.
+      jest
+        .mocked(holder!.instance.measureInWindow)
+        .mockImplementationOnce(
+          (done: (x: number, y: number, w: number, h: number) => void) =>
+            done(157, 708, 88, 88),
+        );
+      await act(async () => holder!.props.onLayout());
+      expect(launch.x.get()).toBe(201);
+      expect(launch.y.get()).toBe(752);
+      await act(async () => tree.unmount());
     }
   });
 
