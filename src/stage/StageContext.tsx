@@ -15,20 +15,30 @@ import { initialStage, stageReducer } from './scene';
 import type { Rect, StageAction, StageState } from './scene';
 
 /**
+ * How a gesture that let go hands its speed to the move it asks for:
+ * `velocity` is the sheet's, in points a second, down being positive. The
+ * seam's spring then carries on from the fling rather than from rest.
+ */
+export interface Fling {
+  velocity?: number;
+}
+
+/**
  * Every way a control moves the canvas, named for what it asks. Each is a
  * stable function for the life of the stage, so a screen can take one as a
- * prop without re-rendering whenever the scene changes.
+ * prop without re-rendering whenever the scene changes. The two a sheet
+ * drag can end in, `openActivity` and `home`, take its `Fling`.
  */
 export interface StageActions {
   openSend: (prefill?: string) => void;
   openReceive: () => void;
   openScan: (origin?: { x: number; y: number }) => void;
   openDetail: (item: Activity, rect?: Rect) => void;
-  openActivity: () => void;
+  openActivity: (fling?: Fling) => void;
   openSettings: () => void;
   openCreate: (restoring: boolean) => void;
   back: () => void;
-  home: () => void;
+  home: (fling?: Fling) => void;
   setBusy: (busy: boolean) => void;
 }
 
@@ -38,8 +48,11 @@ export interface StageActions {
 export interface PaneMotion {
   /** A pane is still on its way, so a tap now would land on a moving target. */
   moving: () => boolean;
-  /** Starts the panes toward `next`, in the tick a tap asked for it. */
-  follow: (next: StageState) => void;
+  /**
+   * Starts the panes toward `next`, in the tick a tap asked for it, with the
+   * speed of the gesture that asked, if one did.
+   */
+  follow: (next: StageState, fling?: Fling) => void;
 }
 
 /** One registered answer, read at the moment it is asked for. */
@@ -173,14 +186,20 @@ export function useStageStore(): StageStore {
     // A tap is refused while a pane is still moving. Otherwise the panes start
     // toward where it leads in the same tick, rather than a frame later when
     // the canvas renders the new scene.
-    const tap = (action: StageAction) => {
+    const tap = (action: StageAction, fling?: Fling) => {
       const motion = panes.current;
       if (motion?.moving()) return;
       const before = latest.current;
       latest.current = stageReducer(before, action);
       dispatch(action);
-      if (latest.current !== before) motion?.follow(latest.current);
+      if (latest.current !== before) motion?.follow(latest.current, fling);
     };
+    // A control's handler may be called with its press event; only a
+    // gesture's own fling carries a speed.
+    const speed = (fling?: Fling): Fling | undefined =>
+      typeof fling?.velocity === 'number'
+        ? { velocity: fling.velocity }
+        : undefined;
     return {
       openSend: (prefill = '') =>
         tap({ type: 'open', scene: { name: 'send', prefill } }),
@@ -199,12 +218,13 @@ export function useStageStore(): StageStore {
           type: 'open',
           scene: { name: 'detail', item, from: rect ?? null },
         }),
-      openActivity: () => tap({ type: 'open', scene: { name: 'activity' } }),
+      openActivity: fling =>
+        tap({ type: 'open', scene: { name: 'activity' } }, speed(fling)),
       openSettings: () => tap({ type: 'open', scene: { name: 'settings' } }),
       openCreate: restoring =>
         tap({ type: 'overlay', overlay: { name: 'create', restoring } }),
       back: () => tap({ type: 'back' }),
-      home: () => tap({ type: 'home' }),
+      home: fling => tap({ type: 'home' }, speed(fling)),
       // A screen's own state, not a tap: a payment that starts while a pane
       // settles must still hold the user in it.
       setBusy: busy => dispatch({ type: 'busy', busy }),

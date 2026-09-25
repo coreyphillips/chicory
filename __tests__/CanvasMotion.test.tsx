@@ -204,6 +204,20 @@ describe('the stage store', () => {
     await act(async () => tree.unmount());
   });
 
+  test('a sheet let go hands its speed to the move, and a press hands none', async () => {
+    const tree = await render(<Bare />);
+    const follow = jest.fn();
+    stage.panes.current = { moving: () => false, follow };
+    await act(async () => stage.actions.openActivity({ velocity: -1200 }));
+    expect(follow.mock.calls[0][1]).toEqual({ velocity: -1200 });
+    // A control that passes the handler straight to onPress calls it with its
+    // press event, which is no fling.
+    await act(async () => stage.actions.home({ nativeEvent: {} } as never));
+    expect(stage.state.scene.name).toBe('home');
+    expect(follow.mock.calls[1][1]).toBeUndefined();
+    await act(async () => tree.unmount());
+  });
+
   test('two taps in one tick each start from where the one before led', async () => {
     const tree = await render(<Bare />);
     const follow = jest.fn();

@@ -171,10 +171,11 @@ describe('the drag', () => {
     const tree = await render(<OnCanvas />);
     await drag(tree, -40, { velocity: -(FLING + 200) });
     expect(stage.state.scene.name).toBe('activity');
-    // The canvas aims the seam at compact, then the sheet's own spring takes
-    // over with the finger's speed, so it is the last one set.
-    const last = springs.mock.calls.filter(([to]) => to === at().compact).pop();
-    expect(last?.[1]).toMatchObject({ velocity: -(FLING + 200) });
+    // The canvas aims the seam at compact once, with the finger's speed, and
+    // nothing sets it again after.
+    const aimed = springs.mock.calls.filter(([to]) => to === at().compact);
+    expect(aimed).toHaveLength(1);
+    expect(aimed[0][1]).toMatchObject({ velocity: -(FLING + 200) });
     await act(async () => tree.unmount());
   });
 

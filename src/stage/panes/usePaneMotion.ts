@@ -13,6 +13,7 @@ import { useTransitionLock } from '../../motion/useTransitionLock';
 import { PANE_SETTLE_MS, canvasLayout, sameLayout, stops } from '../layout';
 import type { CanvasLayout } from '../layout';
 import { useStage } from '../StageContext';
+import type { Fling } from '../StageContext';
 import type { Panes } from './Pane';
 
 /**
@@ -44,6 +45,10 @@ const SETTLE = { duration: PANE_SETTLE_MS, easing: curves.linear };
  * the new scene. Either way it starts once: a pose already aimed for is not
  * aimed for again.
  *
+ * A move a gesture asked for starts the seam's spring at the gesture's speed,
+ * so a sheet flung toward a stop carries on from the finger rather than from
+ * rest.
+ *
  * While the panes move, the transition lock holds: taps are refused and
  * `blocking` is true. It lifts once the panes look settled, PANE_SETTLE_MS
  * after the move starts, timed on the UI thread alongside the springs. A
@@ -71,7 +76,7 @@ export function usePaneMotion(
   const aimed = useRef(layout);
 
   const aim = useCallback(
-    (next: CanvasLayout) => {
+    (next: CanvasLayout, fling?: Fling) => {
       if (sameLayout(next, aimed.current)) return;
       aimed.current = next;
       const covered = next.covered ? 1 : 0;
@@ -87,7 +92,13 @@ export function usePaneMotion(
         'worklet';
         scheduleOnRN(end);
       };
-      seam.set(withSpring(at[next.seam], springs.pane));
+      const velocity = fling?.velocity ?? 0;
+      seam.set(
+        withSpring(
+          at[next.seam],
+          velocity ? { ...springs.pane, velocity } : springs.pane,
+        ),
+      );
       hero.set(withSpring(next.hero, springs.pane));
       bar.set(withSpring(next.bar, springs.pane));
       cover.set(withSpring(covered, springs.pane));
@@ -111,7 +122,7 @@ export function usePaneMotion(
   useLayoutEffect(() => {
     registry.current = {
       moving: () => active.current,
-      follow: next => aim(canvasLayout(next)),
+      follow: (next, fling) => aim(canvasLayout(next), fling),
     };
     return () => {
       registry.current = null;

@@ -54,9 +54,9 @@ const HOME: StageAction = { type: 'home' };
  * Let go, it goes where the finger threw it, or past 40% up or 25% down,
  * springing on with the finger's speed. A tick marks crossing the threshold
  * mid drag and a soft tap the snap. The stage then moves to the scene the
- * sheet landed on, through the same action a tap would dispatch; the canvas
- * starts its own spring for that, so the sheet's spring is set again after
- * it, carrying the finger's speed rather than starting from rest.
+ * sheet landed on, through the same action a tap would dispatch, handed the
+ * finger's speed, so the canvas's own spring carries on from the fling
+ * rather than starting from rest.
  *
  * Returns the gesture, for the sheet and for the list to scroll alongside,
  * and `onScroll` for the list.
@@ -95,7 +95,6 @@ export function useSheetDrag(shown: CanvasSceneName, enabled: boolean) {
   const settle = useCallback(
     (opens: boolean, velocity: number) => {
       const { seam, hero, bar } = panes;
-      const target = opens ? panes.stops.compact : panes.stops.home;
       if (opens !== opened) {
         const action = opens ? OPEN : HOME;
         // The same refusals a tap meets: a pane still moving, or a reducer
@@ -105,11 +104,8 @@ export function useSheetDrag(shown: CanvasSceneName, enabled: boolean) {
           stageReducer(latest.current, action) !== latest.current;
         if (goes) {
           haptics.soft();
-          if (opens) actions.openActivity();
-          else actions.home();
-          if (!reduced) {
-            seam.set(withSpring(target, { ...springs.pane, velocity }));
-          }
+          if (opens) actions.openActivity({ velocity });
+          else actions.home({ velocity });
           return;
         }
       }
