@@ -11,6 +11,7 @@ import Reanimated, {
 import Svg, { Path } from 'react-native-svg';
 import { copy } from '../design/copy';
 import { Glyph } from '../design/glyphs';
+import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
 import { riseIn } from '../motion/presets';
 import { curves, durations, springs } from '../motion/tokens';
@@ -383,8 +384,22 @@ export const QrBloom = memo(function QrCode({
       accessibilityElementsHidden={!shown}
       importantForAccessibility={shown ? 'auto' : 'no-hide-descendants'}
       disabled={!pressable}
-      onPress={live && pressable ? onPress : undefined}
-      onLongPress={live && pressable ? onLongPress : undefined}
+      onPress={
+        live && pressable && onPress
+          ? () => {
+              haptics.tick();
+              onPress();
+            }
+          : undefined
+      }
+      onLongPress={
+        live && pressable && onLongPress
+          ? () => {
+              haptics.tick();
+              onLongPress();
+            }
+          : undefined
+      }
     >
       <Reanimated.View
         style={[styles.card, { width: side, height: side }, cardStyle]}

@@ -15,6 +15,7 @@ import { Glyph } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
+import { CopiedGlyph } from '../../glyphs/CopyChip';
 import { riseIn } from '../../motion/presets';
 import { curves, durations, shake, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -116,7 +117,9 @@ export function turnIn(): EntryExitAnimationFunction {
  * answers a tap with `onBlocked`, as a control held back by a stale balance
  * shakes and refreshes. A new `shake` refuses; a new `pulse` swells once to
  * say it is the way on; `halo` rings it in bloom for as long as it is the
- * only way on. `busy` turns an orbit round it. Children sit beside the glyph
+ * only way on; a new `confirm` turns its glyph to a sage check and back, as
+ * a copy chip's does when it copies. `busy` turns an orbit round it.
+ * Children sit beside the glyph
  * as data, such as the amount a request is for. `focusRef` is where a
  * screen reader's focus is sent when this is the way on.
  */
@@ -133,6 +136,7 @@ export function GlyphButton({
   busy = false,
   shake: shakeKey,
   pulse: pulseKey,
+  confirm,
   halo = false,
   expanded,
   focusRef,
@@ -150,6 +154,7 @@ export function GlyphButton({
   busy?: boolean;
   shake?: number;
   pulse?: number;
+  confirm?: number;
   halo?: boolean;
   /** For a control that opens something: whether it is open. */
   expanded?: boolean;
@@ -224,7 +229,16 @@ export function GlyphButton({
           quiet && styles.quiet,
         ]}
       >
-        <Glyph name={glyph} size={Math.round(size * 0.42)} color={ink} />
+        {confirm === undefined ? (
+          <Glyph name={glyph} size={Math.round(size * 0.42)} color={ink} />
+        ) : (
+          <CopiedGlyph
+            name={glyph}
+            size={Math.round(size * 0.42)}
+            color={ink}
+            copies={confirm}
+          />
+        )}
         {children ? (
           <Text
             style={[styles.data, { color: ink }]}

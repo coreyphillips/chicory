@@ -24,7 +24,6 @@ import { recordDiagnostic } from '../services/diagnosticLog';
 import { usePaneActive } from '../stage/panes/Pane';
 import { radius, space, type as typography } from '../theme';
 import type { WalletAdapter } from '../services/wallet';
-import { useToast } from './Toast';
 
 /**
  * The request a payment was asked for with, as its detail keeps it
@@ -54,7 +53,8 @@ export function ReceiveRequestDetails({
   const [linked, setLinked] = useState<ReceiveRequest | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const toast = useToast();
+  // Each copy of the request turns the copy control to a check and back.
+  const [copies, setCopies] = useState(0);
   const working = useRef(false);
   const generation = useRef({ active: true });
   const { width } = useWindowDimensions();
@@ -189,10 +189,12 @@ export function ReceiveRequestDetails({
               label={copy.receive.copyOriginal}
               size={48}
               disabled={busy}
+              confirm={copies}
               onPress={() => {
                 if (working.current) return;
                 Clipboard.setString(request.uri);
-                toast(copy.receive.originalCopied, 'success', 'copy');
+                announce(copy.receive.originalCopied);
+                setCopies(count => count + 1);
               }}
             />
           </>

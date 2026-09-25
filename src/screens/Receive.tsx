@@ -8,7 +8,6 @@ import type {
   ReceiveRequest,
   ReceiveStatus,
 } from '@beignet/wallet-core';
-import { useToast } from '../components/Toast';
 import { announce } from '../design/announce';
 import { copy } from '../design/copy';
 import { haptics } from '../design/haptics';
@@ -68,7 +67,6 @@ export function ReceiveScreen({
 }) {
   const { useBack, setTint } = useReceiveHost();
   const live = usePaneActive();
-  const toast = useToast();
   const { width } = useWindowDimensions();
   const [capacityChanged, setCapacityChanged] = useState(false);
   // Receiving offline is an opt-in, never the default: the ordinary request
@@ -128,6 +126,8 @@ export function ReceiveScreen({
   const [refusals, setRefusals] = useState(0);
   const [offlineRefusals, setOfflineRefusals] = useState(0);
   const [lifted, setLifted] = useState(false);
+  // Each copy of the request turns the copy control to a check and back.
+  const [copies, setCopies] = useState(0);
   const amountError = useRef('');
   useEffect(() => {
     if (receivableSats > 0) {
@@ -293,16 +293,14 @@ export function ReceiveScreen({
   const shareable = !!face?.shareable;
   const uri = request?.uri;
   const lift = useCallback(() => {
-    if (!shareable) return;
-    haptics.tick();
-    setLifted(true);
+    if (shareable) setLifted(true);
   }, [shareable]);
   const copyRequest = useCallback(() => {
     if (!shareable || !uri) return;
-    haptics.tick();
     Clipboard.setString(uri);
-    toast(copy.receive.copied, 'success', 'copy');
-  }, [shareable, uri, toast]);
+    announce(copy.receive.copied);
+    setCopies(count => count + 1);
+  }, [shareable, uri]);
   function share() {
     if (!shareable || !uri) return;
     Share.share({ message: uri }).catch(refuse);
@@ -367,6 +365,7 @@ export function ReceiveScreen({
             error={error}
             onLift={lift}
             onCopy={copyRequest}
+            copies={copies}
             onShare={share}
             onAgain={again}
             onActivity={onActivity}

@@ -11,7 +11,7 @@ import type {
 import { ToastProvider, useToast } from '../src/components/Toast';
 import { copy } from '../src/design/copy';
 import { haptics } from '../src/design/haptics';
-import { CopyChip } from '../src/glyphs/CopyChip';
+import { CopiedGlyph, CopyChip } from '../src/glyphs/CopyChip';
 import {
   BANDS,
   FINDERS,
@@ -990,6 +990,23 @@ describe('the safety states on a request', () => {
     expect(find(tree, copy.receive.closeQr)).toBeUndefined();
     await act(async () => qr(tree).props.onLongPress());
     expect(Clipboard.setString).toHaveBeenLastCalledWith(created.uri);
+    await act(async () => tree.unmount());
+  });
+
+  test('a copied request turns its copy control to a check and says so, with nothing written on screen', async () => {
+    const said = spoken();
+    const created = fresh();
+    const { tree } = await made(created);
+    const confirmed = () => tree.root.findByType(CopiedGlyph).props.copies;
+    expect(confirmed()).toBe(0);
+    await act(async () => press(tree, 'Copy request').props.onPress());
+    expect(Clipboard.setString).toHaveBeenLastCalledWith(created.uri);
+    expect(confirmed()).toBe(1);
+    // A long press on the code confirms at the same control.
+    await act(async () => qr(tree).props.onLongPress());
+    expect(confirmed()).toBe(2);
+    expect(said.mock.calls.map(call => call[0])).toContain(copy.receive.copied);
+    expect(visibleText(tree)).not.toContain(copy.receive.copied);
     await act(async () => tree.unmount());
   });
 

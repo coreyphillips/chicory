@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Reanimated, {
@@ -62,43 +62,62 @@ export const COPIED = {
 
 const GLYPH = 16;
 
-export function CopyChip({ label, value, glyph = 'copy' }: CopyChipProps) {
-  const live = usePaneActive();
-  const { reduced } = useMotionPrefs();
-  const [expanded, setExpanded] = useState(false);
-  const [copies, setCopies] = useState(0);
+/** How long the check stays before the glyph comes back. */
+const SETTLE = COPIED.washIn + COPIED.hold;
 
+/**
+ * A glyph that turns into a sage check each time `copies` counts up, and
+ * back once the copy has been seen (REDESIGN.md 4, copy to check): it
+ * shrinks to .6 and fades as the check draws in. Under Reduce Motion the two
+ * only crossfade. The chip draws it, and so does a control that copies.
+ */
+export function CopiedGlyph({
+  name,
+  size,
+  color,
+  copies,
+}: {
+  name: GlyphName;
+  size: number;
+  color: string;
+  copies: number;
+}) {
+  const { reduced } = useMotionPrefs();
   // 0 is the glyph at rest; 1 is the check that replaced it.
   const swap = useSharedValue(0);
   const check = useSharedValue(0);
-  const wash = useSharedValue(0);
-  const sweep = useSharedValue(0);
+  // Only a new copy plays. A control that mounts with copies behind it, as
+  // on a fresh request, starts at rest, and so does one whose motion setting
+  // changed mid-way.
+  const seen = useRef(copies);
   useEffect(() => {
-    if (!copies) return;
-    const settle = COPIED.washIn + COPIED.hold;
+    if (copies === seen.current) {
+      swap.set(0);
+      check.set(0);
+      return;
+    }
+    seen.current = copies;
     const stop = () => {
       cancelAnimation(swap);
       cancelAnimation(check);
-      cancelAnimation(wash);
-      cancelAnimation(sweep);
     };
     if (reduced) {
-      // The glyph and the check crossfade in place, for as long as the wash
-      // would have held, and nothing sweeps.
       const fade = { duration: COPIED.glyphOut };
       const flip = () =>
         withSequence(
           withTiming(1, fade),
-          withDelay(settle, withTiming(0, fade)),
+          withDelay(SETTLE, withTiming(0, fade)),
         );
       swap.set(flip());
       check.set(flip());
       return stop;
     }
-    const out = { duration: COPIED.glyphOut, easing: curves.exit };
     const back = { duration: COPIED.washOut, easing: curves.standard };
     swap.set(
-      withSequence(withTiming(1, out), withDelay(settle, withTiming(0, back))),
+      withSequence(
+        withTiming(1, { duration: COPIED.glyphOut, easing: curves.exit }),
+        withDelay(SETTLE, withTiming(0, back)),
+      ),
     );
     check.set(
       withSequence(
@@ -106,9 +125,49 @@ export function CopyChip({ label, value, glyph = 'copy' }: CopyChipProps) {
           COPIED.checkDelay,
           withTiming(1, { duration: COPIED.checkDraw, easing: curves.enter }),
         ),
-        withDelay(settle - COPIED.checkDraw, withTiming(0, back)),
+        withDelay(SETTLE - COPIED.checkDraw, withTiming(0, back)),
       ),
     );
+    return stop;
+  }, [copies, reduced, swap, check]);
+  const glyphStyle = useAnimatedStyle(() => ({
+    opacity: 1 - swap.get(),
+    transform: [{ scale: 1 - 0.4 * swap.get() }],
+  }));
+  const box = { width: size, height: size };
+  return (
+    <View style={box}>
+      <Reanimated.View style={glyphStyle}>
+        <Glyph name={name} size={size} color={color} />
+      </Reanimated.View>
+      <View style={styles.check}>
+        <DrawnGlyph
+          name="check"
+          size={size}
+          color={palette.sage}
+          progress={check}
+        />
+      </View>
+    </View>
+  );
+}
+
+export function CopyChip({ label, value, glyph = 'copy' }: CopyChipProps) {
+  const live = usePaneActive();
+  const { reduced } = useMotionPrefs();
+  const [expanded, setExpanded] = useState(false);
+  const [copies, setCopies] = useState(0);
+
+  // A cream wash sweeps across as the glyph turns to a check. Under Reduce
+  // Motion the glyph's crossfade is all there is.
+  const wash = useSharedValue(0);
+  const sweep = useSharedValue(0);
+  useEffect(() => {
+    if (!copies || reduced) {
+      wash.set(0);
+      return;
+    }
+    const back = { duration: COPIED.washOut, easing: curves.standard };
     sweep.set(0);
     sweep.set(withTiming(1, { duration: COPIED.washIn, easing: curves.enter }));
     wash.set(
@@ -117,13 +176,12 @@ export function CopyChip({ label, value, glyph = 'copy' }: CopyChipProps) {
         withDelay(COPIED.hold, withTiming(0, back)),
       ),
     );
-    return stop;
-  }, [copies, reduced, swap, check, wash, sweep]);
+    return () => {
+      cancelAnimation(wash);
+      cancelAnimation(sweep);
+    };
+  }, [copies, reduced, wash, sweep]);
 
-  const glyphStyle = useAnimatedStyle(() => ({
-    opacity: 1 - swap.get(),
-    transform: [{ scale: 1 - 0.4 * swap.get() }],
-  }));
   const washStyle = useAnimatedStyle(() => ({
     opacity: wash.get(),
     transform: [{ scaleX: sweep.get() }],
@@ -159,19 +217,12 @@ export function CopyChip({ label, value, glyph = 'copy' }: CopyChipProps) {
         >
           {chipText(value, expanded)}
         </Text>
-        <View style={styles.glyph}>
-          <Reanimated.View style={glyphStyle}>
-            <Glyph name={glyph} size={GLYPH} color={palette.steam} />
-          </Reanimated.View>
-          <View style={styles.check}>
-            <DrawnGlyph
-              name="check"
-              size={GLYPH}
-              color={palette.sage}
-              progress={check}
-            />
-          </View>
-        </View>
+        <CopiedGlyph
+          name={glyph}
+          size={GLYPH}
+          color={palette.steam}
+          copies={copies}
+        />
       </Pressable>
     </Reanimated.View>
   );
@@ -195,6 +246,5 @@ const styles = StyleSheet.create({
     transformOrigin: 'left',
   },
   value: { ...typography.mono, flexShrink: 1, color: palette.cream },
-  glyph: { width: GLYPH, height: GLYPH },
   check: { ...StyleSheet.absoluteFill },
 });

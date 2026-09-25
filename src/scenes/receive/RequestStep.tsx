@@ -55,6 +55,7 @@ export function RequestStep({
   error,
   onLift,
   onCopy,
+  copies,
   onShare,
   onAgain,
   onActivity,
@@ -74,6 +75,8 @@ export function RequestStep({
   error: string;
   onLift: () => void;
   onCopy: () => void;
+  /** How many times the request has been copied, for the copy control's check. */
+  copies: number;
   onShare: () => void;
   onAgain: () => void;
   onActivity: () => void;
@@ -181,6 +184,7 @@ export function RequestStep({
             <GlyphButton
               glyph="copy"
               label={copy.receive.copy}
+              confirm={copies}
               onPress={onCopy}
             />
           </>
