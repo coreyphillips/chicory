@@ -25,6 +25,7 @@ import {
 } from '../../../../test-support/fixtures';
 import { field, meaning, press } from '../../../../test-support/query';
 import { ActivityRow, RowListContext } from '../ActivityRow';
+import { FilterBar } from '../FilterBar';
 import * as rowRects from '../rowRects';
 import { SheetPane } from '../SheetPane';
 import { FLING } from '../sheet';
@@ -292,6 +293,32 @@ describe('the list on the sheet', () => {
     await act(async () => tree.unmount());
   });
 
+  test('back home, the preview is the whole history again', async () => {
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openActivity());
+    await settle();
+    await press(tree, 'Sent');
+    await press(tree, copy.activity.search);
+    await act(async () =>
+      field(tree, copy.activity.search).props.onChangeText('coffee'),
+    );
+    expect(meaning(tree)).not.toContain('Salary');
+    await act(async () => stage.actions.home());
+    await settle();
+    // No bar shows at home to say the list was narrowed, so it is not.
+    expect(meaning(tree)).toContain('Salary');
+    await act(async () => stage.actions.openActivity());
+    await settle();
+    expect(() => field(tree, copy.activity.search)).toThrow();
+    const sent = tree.root.findAll(
+      node =>
+        node.props.accessibilityLabel === 'Sent' &&
+        !!node.props.accessibilityState,
+    )[0];
+    expect(sent.props.accessibilityState.selected).toBe(false);
+    await act(async () => tree.unmount());
+  });
+
   test('a refresh that failed puts a retry on the open list', async () => {
     const retry = jest.mocked(session.manualRefresh);
     retry.mockClear();
@@ -326,6 +353,22 @@ describe('the list on the sheet', () => {
     await settle();
     await act(async () => stage.actions.back());
     expect(opacity()).toBe(1);
+    // Over the whole list the filter bar goes and comes back with them.
+    const bar = () =>
+      StyleSheet.flatten(
+        tree.root
+          .findByType(FilterBar)
+          .findAll(node => typeof node.type === 'string')[0].props.style,
+      ).opacity;
+    await settle();
+    await act(async () => stage.actions.openActivity());
+    await settle();
+    expect(bar()).toBe(1);
+    await act(async () => stage.actions.openDetail(coffee));
+    expect(bar()).toBe(0);
+    await settle();
+    await act(async () => stage.actions.back());
+    expect(bar()).toBe(1);
     await act(async () => tree.unmount());
   });
 });

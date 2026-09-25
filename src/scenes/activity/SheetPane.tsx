@@ -26,6 +26,7 @@ import { usePaneActive, usePanes } from '../../stage/panes/Pane';
 import { useSceneBack, useStage } from '../../stage/StageContext';
 import { HIT_SLOP, radius } from '../../theme';
 import { BackupBanner } from '../shared/BackupBanner';
+import { ALL } from './model';
 import type { ActivitySection } from './model';
 import {
   DETAIL_DROP,
@@ -83,16 +84,8 @@ export function SheetPane({
   }, [setQuery]);
   useSceneBack(closeSearch, live && opened && (searching || !!query));
 
-  // The bar arrives over the last part of the way up, and the list gives
-  // back the room it takes at home.
-  const { home, compact } = panes.stops;
-  const barStyle = useAnimatedStyle(() => {
-    const progress = sheetProgress(panes.seam.get(), { home, compact });
-    return { opacity: filterFor(progress) };
-  }, [home, compact]);
-
-  // T4 and T1: the rows fade, and drop under a detail, as the canvas moves
-  // on, and come back once it has returned.
+  // T4 and T1: the rows and the bar fade, and the rows drop under a detail,
+  // as the canvas moves on, and come back once it has returned.
   const shows = useSharedValue(sheet ? 1 : 0);
   const drop = useSharedValue(0);
   useLayoutEffect(() => {
@@ -109,6 +102,14 @@ export function SheetPane({
       drop.set(shown === 'detail' ? withTiming(DETAIL_DROP, EXIT) : 0);
     }
   }, [sheet, shown, reduced, shows, drop]);
+
+  // The bar arrives over the last part of the way up, and the list gives
+  // back the room it takes at home.
+  const { home, compact } = panes.stops;
+  const barStyle = useAnimatedStyle(() => {
+    const progress = sheetProgress(panes.seam.get(), { home, compact });
+    return { opacity: filterFor(progress) * shows.get() };
+  }, [home, compact]);
   const listStyle = useAnimatedStyle(() => {
     const progress = sheetProgress(panes.seam.get(), { home, compact });
     return {
@@ -118,14 +119,20 @@ export function SheetPane({
   }, [home, compact]);
 
   // Back home, the preview shows the newest payments, wherever the list
-  // was scrolled to.
+  // was scrolled to and whatever it was narrowed to: the bar that would say
+  // so is gone there, and a preview that quietly left out a payment would
+  // mislead.
   const was = useRef(shown);
+  const { setFilter } = view;
   useLayoutEffect(() => {
     if (shown === 'home' && was.current !== 'home') {
       list.current?.scrollToOffset({ offset: 0 });
+      setFilter(ALL);
+      setQuery('');
+      setSearching(false);
     }
     was.current = shown;
-  }, [shown]);
+  }, [shown, setFilter, setQuery]);
 
   const binding: SheetBinding = {
     opened,
