@@ -5,12 +5,13 @@ import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import type { SendResult, SendReview } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
-import { palette } from '../../../design/palette';
+import { mixHex, palette } from '../../../design/palette';
 import { ExpiryRing } from '../../../glyphs/ExpiryRing';
 import { HoldButton } from '../../../glyphs/HoldButton';
 import { SendScreen } from '../../../screens/Send';
 import type { WalletAdapter } from '../../../services/wallet';
 import { activate, field, press } from '../../../../test-support/query';
+import { bloomFor } from '../tone';
 
 /**
  * A payment on a test network (REDESIGN.md 3.1 and rule 4): slate stands in
@@ -137,4 +138,19 @@ describe.each([
     expectTone(tree);
     await act(async () => tree.unmount());
   });
+});
+
+test('the soft fill behind a test network control is the palette’s slateSoft', () => {
+  // The same step from roast toward slate as bloomSoft is toward bloom.
+  const channels = (color: string) =>
+    color.startsWith('#')
+      ? [1, 3, 5].map(at => parseInt(color.slice(at, at + 2), 16))
+      : color.match(/\d+/g)!.map(Number);
+  expect(bloomFor(true).soft).toBe(palette.slateSoft);
+  expect(channels(palette.slateSoft)).toEqual(
+    channels(mixHex(palette.roast, palette.slate, 0.18)),
+  );
+  expect(channels(palette.bloomSoft)).toEqual(
+    channels(mixHex(palette.roast, palette.bloom, 0.18)),
+  );
 });

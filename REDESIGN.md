@@ -135,7 +135,7 @@ Contrast values are WCAG against roast / espresso / mocha.
 | radish     | #FF8373 | failed, refused, over limit                          | 8.0                |
 | slate      | #9AA0AE | replaces bloom on test networks                      | 7.3                |
 
-- **Soft fills:** bloomSoft #282933, sageSoft #2B3228, honeySoft #3A2F1D, radishSoft #3C231F, creamSoft #3A3632.
+- **Soft fills:** bloomSoft #282933, sageSoft #2B3228, honeySoft #3A2F1D, radishSoft #3C231F, creamSoft #3A3632. On a test network slateSoft #2A2829 stands in for bloomSoft, the same 18% step from roast.
 - **Washes:** bloomWash #202026, sageWash #22261E, honeyWash #2C2417, radishWash #2E1C18.
 - **Arriving glass:** bloom at 35% alpha; on a test network, slate at 35% (`slateGlass`).
 - **Scrim:** rgba(17,14,12,0.88).

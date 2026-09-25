@@ -38,6 +38,8 @@ export const palette = {
 
   // Soft fills, for a disc or chip that carries a state behind its glyph.
   bloomSoft: '#282933',
+  // The same step from roast toward slate, for a test network.
+  slateSoft: '#2A2829',
   sageSoft: '#2B3228',
   honeySoft: '#3A2F1D',
   radishSoft: '#3C231F',

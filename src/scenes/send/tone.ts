@@ -1,12 +1,11 @@
 import { createContext, useContext } from 'react';
-import { mixHex, palette } from '../../design/palette';
+import { palette } from '../../design/palette';
 
 /**
  * Bloom as a payment draws it (REDESIGN.md 3.1): on a test network slate
  * stands in for it everywhere, so a payment of play money never looks like
- * one of real money. `soft` is the fill behind a control, the same step from
- * roast toward slate as bloomSoft is toward bloom, and `hi` the sparks of a
- * hold that commits.
+ * one of real money. `soft` is the fill behind a control, bloomSoft or on a
+ * test network slateSoft, and `hi` the sparks of a hold that commits.
  */
 export interface Bloom {
   tone: string;
@@ -22,7 +21,7 @@ const LIVE: Bloom = {
 
 const TEST: Bloom = {
   tone: palette.slate,
-  soft: mixHex(palette.roast, palette.slate, 0.18),
+  soft: palette.slateSoft,
   hi: palette.slate,
 };
 
