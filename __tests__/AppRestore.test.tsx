@@ -9,7 +9,7 @@ import { defaultPreferences } from '../src/services/networks';
 import { NetworkSettings } from '../src/screens/NetworkSettings';
 import { SettingsScreen } from '../src/screens/Settings';
 import { eraseDeviceStorage } from '../src/embedded/storage';
-import { meaning } from '../test-support/query';
+import { allText, meaning } from '../test-support/query';
 import { activePhase, activeScene } from '../test-support/scene';
 jest.mock('../src/embedded/storage', () => ({
   eraseDeviceStorage: jest.fn().mockResolvedValue(undefined),
@@ -585,14 +585,14 @@ test('a returning wallet opens on the wallet page with its last figures while th
     tree = create(<App />);
   });
   // The wallet page, with the cached total, and none of the offline controls.
-  const before = text(tree);
+  const before = meaning(tree);
   expect(before).toContain('Total balance');
   expect(before).toContain('123,456');
-  expect(before).not.toContain('Balances are unavailable');
+  expect(allText(tree)).not.toContain('Balances are unavailable');
   expect(label(tree, 'Retry connection')).toBeUndefined();
   // A cached figure is old by definition, so it cannot be spent against. The
   // gate says so by being closed; the page does not also ask to be refreshed.
-  expect(before).not.toContain('Pull to refresh');
+  expect(allText(tree)).not.toContain('Pull to refresh');
   expect(
     label(tree, 'Send').props.accessibilityState?.disabled ??
       label(tree, 'Send').props.disabled,
@@ -601,14 +601,13 @@ test('a returning wallet opens on the wallet page with its last figures while th
     finish();
   });
   // The live snapshot lands a few promise hops after the engine reports.
-  for (let i = 0; i < 50 && !text(tree).includes('200,000'); i++) {
+  for (let i = 0; i < 50 && !meaning(tree).includes('200,000'); i++) {
     await act(async () => {
       await new Promise<void>(resolve => setTimeout(() => resolve(), 20));
     });
   }
-  const after = text(tree);
-  expect(after).toContain('200,000');
-  expect(after).not.toContain('123,456');
+  expect(meaning(tree)).toContain('200,000');
+  expect(allText(tree)).not.toContain('123,456');
   // Written to this wallet's own slot. One shared slot meant switching
   // networks threw away the other network's figures.
   expect(
@@ -655,12 +654,12 @@ test('a returning wallet with nothing cached shows a quiet opening page, not the
   await act(async () => {
     finish();
   });
-  for (let i = 0; i < 50 && !text(tree).includes('123,456'); i++) {
+  for (let i = 0; i < 50 && !meaning(tree).includes('123,456'); i++) {
     await act(async () => {
       await new Promise<void>(resolve => setTimeout(() => resolve(), 20));
     });
   }
-  expect(text(tree)).toContain('123,456');
+  expect(meaning(tree)).toContain('123,456');
   await act(async () => {
     tree.unmount();
   });
@@ -760,7 +759,7 @@ test('a pending backup reminder sits above Activity rather than replacing it', a
   await act(async () => {
     label(tree, 'Try again').props.onPress();
   });
-  expect(text(tree)).toContain('Save your recovery phrase.');
+  expect(meaning(tree)).toContain('Save your recovery phrase.');
   await act(async () => {
     label(tree, 'Activity').props.onPress();
   });
@@ -903,10 +902,10 @@ test('a first run takes no taps: the defaults create the wallet and the page ope
     network: 'mainnet',
     primaryUri: prefs.profiles.mainnet.primaryUri,
   });
-  const shown = text(tree);
+  const shown = meaning(tree);
   expect(shown).toContain('Total balance');
   expect(shown).toContain('Save your recovery phrase.');
-  expect(shown).not.toContain('fixture words never shown');
+  expect(allText(tree)).not.toContain('fixture words never shown');
   const session = JSON.parse(records.get(SESSION)!);
   expect(session.walletId).toBe('new-mainnet');
   expect(session.backupPending).toBe(true);

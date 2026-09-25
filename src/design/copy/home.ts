@@ -13,8 +13,12 @@ export const home = {
   hideHint: 'Masks every amount on screen.',
   showBalance: 'Show balance',
   hideBalance: 'Hide balance',
+  switchUnit: 'Switch unit',
+  /** What the vessel says: nothing about arriving when nothing is. */
   split: (available: number, arriving: number) =>
-    `${sats(available)} ready to send, ${sats(arriving)} arriving`,
+    arriving > 0
+      ? `${sats(available)} ready to send, ${sats(arriving)} arriving`
+      : `${sats(available)} ready to send`,
   send: 'Send',
   sendHint: 'Paste or scan a payment request.',
   receive: 'Receive',
@@ -25,6 +29,8 @@ export const home = {
   close: 'Close',
   activity: 'Activity',
   refresh: 'Refresh wallet',
+  /** The shield tile, which leads to the recovery phrase in Settings. */
+  backupHint: 'Opens Settings to reveal and save it.',
 };
 
 /** How the wallet is doing, which the status row and the mark carry. */
@@ -32,6 +38,12 @@ export const health = {
   fresh: 'Connected.',
   reconnecting: 'Reconnecting to your wallet.',
   refreshFailed: 'The last refresh did not complete.',
+  /**
+   * What the refresh notice above Home used to say, word for word. The mark
+   * speaks it now, and a long press on the mark shows it.
+   */
+  refreshFailedDetail: (error: string) =>
+    `Could not refresh. Showing the last known state. ${error}`,
   stale: 'Balance not confirmed recently.',
   staleAction: 'Balance not confirmed recently. Refreshing now.',
   cached: 'Showing the last saved balance until the wallet answers.',

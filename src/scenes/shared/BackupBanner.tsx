@@ -11,8 +11,9 @@ import { space } from '../../theme';
  * the safety line and the phrase, above whatever is showing. It draws nothing
  * once the backup is done.
  *
- * Home replaces it with the honey halo and the shield tile, and Settings with
- * its own recovery phrase flow (REDESIGN.md 6, Backup and setup).
+ * Home no longer draws it: there the honey halo on the mark and the shield
+ * tile lead to Settings, which reveals the phrase here until it has a
+ * recovery phrase flow of its own (REDESIGN.md 6, Backup and setup).
  */
 export function BackupBanner({ backup }: { backup: Backup | null }) {
   if (!backup?.pending) return null;

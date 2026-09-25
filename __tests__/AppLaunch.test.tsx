@@ -168,7 +168,7 @@ test('with no lock set the app opens straight into its wallet', async () => {
       tree = create(<App />);
     });
     expect(text(tree)).not.toContain('Chicory is locked.');
-    expect(text(tree)).toContain('Total balance');
+    expect(meaning(tree)).toContain('Total balance');
   } finally {
     await act(async () => tree?.unmount());
     jest.restoreAllMocks();

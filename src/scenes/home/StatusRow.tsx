@@ -1,98 +1,165 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+import Reanimated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { IconButton, Notice, StatusDot } from '../../components/ui';
 import { copy } from '../../design/copy';
+import { Glyph } from '../../design/glyphs';
+import { haptics } from '../../design/haptics';
+import { palette } from '../../design/palette';
+import { Bloom } from '../../glyphs/Bloom';
+import type { BloomEvent } from '../../glyphs/Bloom';
+import { PulseDot } from '../../glyphs/PulseDot';
+import { Whisper } from '../../glyphs/Whisper';
+import { riseIn } from '../../motion/presets';
+import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import type { RegionProps } from '../../stage/Canvas';
 import type { CanvasSceneName } from '../../stage/layout';
 import { STATUS_ROW } from '../../stage/layout';
 import { CORNER_ROOM } from '../../stage/panes/CornerControl';
 import { usePaneActive } from '../../stage/panes/Pane';
-import { colors, space, type as typography } from '../../theme';
+import { useStage } from '../../stage/StageContext';
+import { useIncoming } from '../../stage/useIncoming';
+import { HIT_SLOP, space } from '../../theme';
+import { BackupTile } from './BackupTile';
+import { GestureRoot } from './GestureRoot';
+import { useAppActive } from './useAppActive';
+import { healthText, markVisual } from './visual';
+
+/** The mark's size, and the touch target around it. */
+const MARK = 28;
+const TARGET = 48;
 
 /**
- * The status row, which every scene on the canvas keeps: the wallet's name
- * and its connection, and for now the two controls that hide the balance and
- * refresh. The canvas runs under the system status bar, so the row starts
- * below it.
+ * The status row, which every scene on the canvas keeps: the bloom mark,
+ * which is how the wallet is, and at home the shield tile of a recovery
+ * phrase still to save. The canvas runs under the system status bar, so the
+ * row starts below it.
+ *
+ * The mark is the refresh control. Its petals open with the wallet's
+ * lightning setup, ratchet while a refresh runs and go dormant while the
+ * balance is old; its PulseDot is the connection. What it all means is its
+ * accessibility value, and a long press whispers it. The network shows as a
+ * colour, slate off mainnet with a flask beside the mark, and the wallet's
+ * name is left to Settings.
  *
  * The corner control at its right is the canvas's own, drawn after Home so a
  * screen reader reaches it in order (REDESIGN.md 9); the row leaves it room.
  */
 export function StatusRow({
+  shown,
   snapshot,
   session,
-  view,
+  stale,
+  backup,
 }: RegionProps & {
   /** The scene the canvas shows. */
   shown: CanvasSceneName;
 }) {
   const live = usePaneActive();
+  const { actions } = useStage();
   const { top } = useSafeAreaInsets();
-  const { wallet, primary } = snapshot;
-  const { hidden, setHidden } = view;
+  const { reduced } = useMotionPrefs();
+  const awake = useAppActive();
   const refreshing = session.refreshing || session.connecting;
+  const health = {
+    snapshot,
+    stale,
+    refreshing: session.refreshing,
+    connecting: session.connecting,
+    error: session.error,
+    backupPending: !!backup?.pending,
+  };
+  const mark = markVisual(health);
+  const value = healthText(health);
+  const arrived = useIncoming(snapshot);
+  const event = useMarkEvent(mark.droop, arrived);
+  const refresh = useCallback(() => {
+    haptics.tick();
+    session.manualRefresh();
+  }, [session]);
   return (
     <View
       style={[styles.status, { paddingTop: top, height: top + STATUS_ROW }]}
     >
-      <View style={styles.identity}>
-        <Text numberOfLines={1} style={styles.wallet}>
-          {wallet.name}
-          <Text style={styles.network}>{`  ·  ${wallet.network}`}</Text>
-        </Text>
-        <View
-          accessible
-          accessibilityLabel={
-            primary.connected ? copy.health.fresh : copy.health.reconnecting
-          }
-        >
-          <StatusDot tone={primary.connected ? 'good' : 'wait'} />
-        </View>
-      </View>
-      <View style={styles.controls}>
-        <IconButton
-          name={hidden ? 'eyeOff' : 'eye'}
-          tone="plain"
-          accessibilityLabel={
-            hidden ? copy.home.showBalance : copy.home.hideBalance
-          }
-          accessibilityHint={copy.home.hideHint}
-          onPress={live ? () => setHidden(!hidden) : undefined}
-        />
-        <IconButton
-          name="refresh"
-          tone="plain"
-          disabled={refreshing}
-          accessibilityLabel={copy.home.refresh}
-          onPress={live ? session.manualRefresh : undefined}
-        />
-      </View>
+      <GestureRoot style={styles.identity}>
+        <Whisper label={value}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={copy.home.refresh}
+            accessibilityValue={{ text: value }}
+            accessibilityState={{ disabled: refreshing, busy: refreshing }}
+            disabled={refreshing}
+            hitSlop={HIT_SLOP}
+            onPress={live ? refresh : undefined}
+            style={styles.mark}
+          >
+            <Bloom
+              size={MARK}
+              detail="mark"
+              mode={mark.mode}
+              open={mark.open}
+              tone={mark.tone}
+              halo={mark.halo}
+              event={event}
+            />
+            {/* The dot is part of the mark: its words are the mark's. */}
+            <View
+              style={styles.dot}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              <PulseDot state={mark.pulse} pingKey={snapshot.updatedAt} />
+            </View>
+            {mark.droop ? <View style={styles.pip} /> : null}
+          </Pressable>
+        </Whisper>
+        {/* A test network is a safety state (REDESIGN.md rule 4): the slate
+            mark is its colour, the flask its shape, and the flask rising in
+            as the wallet opens its motion. */}
+        {mark.flask ? (
+          <Reanimated.View entering={riseIn()}>
+            <Glyph name="flask" size={14} color={palette.slate} />
+          </Reanimated.View>
+        ) : null}
+        {/* The tile only leads anywhere from home; elsewhere the halo stays. */}
+        {backup?.pending && shown === 'home' ? (
+          <BackupTile
+            running={live && awake && !reduced}
+            onOpen={live ? actions.openSettings : undefined}
+          />
+        ) : null}
+      </GestureRoot>
     </View>
   );
 }
 
 /**
- * A refresh that failed, said in words above Home until the mark's PulseDot
- * carries it (REDESIGN.md 6, Wallet health). Nothing while the last one
- * worked.
+ * The one-off the mark plays: it wilts when setup stops short, and bursts
+ * when money arrives, unless it is drooping.
  */
-export function RefreshFailed({ error }: { error: string }) {
-  return error ? (
-    <Notice kind="error" icon="alert">
-      {copy.notice.refreshFailed(error)}
-    </Notice>
-  ) : null;
+function useMarkEvent(droop: boolean, arrived: number): BloomEvent | undefined {
+  const [event, setEvent] = useState<BloomEvent>();
+  const last = useRef({ droop: false, arrived });
+  useEffect(() => {
+    const before = last.current;
+    last.current = { droop, arrived };
+    const kind =
+      droop && !before.droop
+        ? 'wilt'
+        : arrived !== before.arrived && !droop
+        ? 'burst'
+        : null;
+    if (kind) setEvent(prior => ({ kind, key: (prior?.key ?? 0) + 1 }));
+  }, [droop, arrived]);
+  return event;
 }
 
 const styles = StyleSheet.create({
   status: {
-    paddingLeft: space.xl,
+    paddingLeft: space.xl - (TARGET - MARK) / 2,
     paddingRight: space.xl + CORNER_ROOM,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: space.sm,
   },
   identity: {
     flexShrink: 1,
@@ -100,12 +167,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.xs,
   },
-  wallet: { ...typography.micro, color: colors.muted, flexShrink: 1 },
-  network: {
-    ...typography.micro,
-    color: colors.faint,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+  mark: {
+    width: TARGET,
+    height: TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  controls: { flexDirection: 'row', alignItems: 'center', gap: space.xxs },
+  // The PulseDot at the mark's lower right, and the setup pip at its upper
+  // right, each just inside the petals' reach.
+  dot: {
+    position: 'absolute',
+    right: (TARGET - MARK) / 2 - 1,
+    bottom: (TARGET - MARK) / 2 - 1,
+  },
+  pip: {
+    position: 'absolute',
+    top: (TARGET - MARK) / 2 - 1,
+    right: (TARGET - MARK) / 2 - 1,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: palette.honey,
+  },
 });
