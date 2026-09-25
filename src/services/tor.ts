@@ -32,13 +32,31 @@ const BOOTSTRAP_TIMEOUT_MS = 120000;
  * local target. Nothing listens here; the service is removed on the next line.
  */
 const UNUSED_TARGET_PORT = 9051;
+/** `getServiceStatus`: 0 bootstrapping, 1 usable, 2 no daemon. */
+const STATUS_STARTING = 0;
 const STATUS_RUNNING = 1;
+/** How often a caller looks again at a daemon that is still bootstrapping. */
+const STATUS_POLL_MS = 1000;
+/** It names Tor, so the wallet reports the private network as unavailable. */
+const TOR_GONE =
+  'Tor is not running and cannot start again until the app is reopened.';
 
 export type TorPhase = 'stopped' | 'starting' | 'ready' | 'failed';
 
 let phase: TorPhase = 'stopped';
 let started: Promise<void> | null = null;
 let failure = '';
+/**
+ * Whether this process has asked the library to run Tor. Tor runs at most once
+ * per process. A failed bootstrap leaves no daemon behind (the library reports
+ * 2, as it does before any start), and asking again runs Tor's main a second
+ * time, which aborts the whole app from native code:
+ *
+ *   tor_run_main -> pubsub_install -> tor_abort_ (SIGABRT)
+ *
+ * So after the first start, callers only ever wait on that daemon.
+ */
+let launched = false;
 
 export function isOnionHost(host: string): boolean {
   return (
@@ -88,37 +106,57 @@ async function removePublishedService(address: string) {
   }
 }
 
+/**
+ * Whether the daemon this process launched serves its proxy. One that is still
+ * bootstrapping is waited on for as long as a start would have waited.
+ */
+async function daemonRunning(tor: NativeTor): Promise<boolean> {
+  const deadline = Date.now() + BOOTSTRAP_TIMEOUT_MS;
+  let status = await tor.getServiceStatus();
+  while (status === STATUS_STARTING && Date.now() < deadline) {
+    await new Promise<void>(resolve => setTimeout(resolve, STATUS_POLL_MS));
+    status = await tor.getServiceStatus();
+  }
+  return status === STATUS_RUNNING;
+}
+
 async function startTor(): Promise<void> {
   const tor = nativeTor();
-  const result = await tor.startTorIfNotRunning({
+  const params = {
     data_dir: torDataDirectory(),
     socks_port: TOR_SOCKS_PORT,
     target_port: UNUSED_TARGET_PORT,
     timeout_ms: BOOTSTRAP_TIMEOUT_MS,
-  });
+  };
+  launched = true;
+  const result = await tor.startTorIfNotRunning(params);
   if (result.is_success) {
     await removePublishedService(result.onion_address);
   }
   // A failed reply can still mean a bootstrapped daemon, because the library
   // reports the state of its unwanted onion service. The proxy is what matters.
-  const status = await tor.getServiceStatus();
-  if (status !== STATUS_RUNNING) {
-    throw new Error(
-      result.error_message?.trim() ||
-        'Tor could not connect on this device. Check the network connection and try again.',
-    );
+  if (!(await daemonRunning(tor))) {
+    throw new Error(result.error_message?.trim() || TOR_GONE);
+  }
+}
+
+/** Use the daemon an earlier start launched. This never starts another. */
+async function rejoinTor(): Promise<void> {
+  if (!(await daemonRunning(nativeTor()))) {
+    throw new Error(TOR_GONE);
   }
 }
 
 /**
- * Start Tor once and reuse it. A failed attempt clears itself so the next
- * connection retries instead of inheriting a dead result.
+ * Start Tor once and reuse it. After a failure the next connection asks
+ * whether that one daemon came up after all; it never starts a second one, so
+ * a daemon that is gone stays gone until the app restarts.
  */
 export function ensureTorReady(): Promise<void> {
   if (!started) {
     phase = 'starting';
     failure = '';
-    started = startTor().then(
+    started = (launched ? rejoinTor() : startTor()).then(
       () => {
         phase = 'ready';
       },
@@ -148,6 +186,7 @@ export function ensureTorReady(): Promise<void> {
  * network the wallet is on, so stopping it when a wallet closes only bought a
  * second cold bootstrap on the way back in. It now lives as long as the app
  * does. This stays exported for a caller that genuinely owns the process.
+ * Tor cannot start again in the same process afterwards (see `launched`).
  */
 export async function stopTor(): Promise<void> {
   const pending = started;
