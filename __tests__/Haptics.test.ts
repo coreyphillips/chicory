@@ -1,6 +1,7 @@
 import React from 'react';
 import { AccessibilityInfo, Platform, Vibration } from 'react-native';
 import { act, create } from 'react-test-renderer';
+import type { ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
 import { haptics } from '../src/design/haptics';
 import { useMotionPrefs } from '../src/motion/useMotionPrefs';
@@ -90,8 +91,9 @@ test('haptics stay on with Reduce Motion on', async () => {
     prefs = useMotionPrefs();
     return null;
   }
+  let tree!: ReactTestRenderer;
   await act(async () => {
-    create(React.createElement(Probe));
+    tree = create(React.createElement(Probe));
   });
   expect(prefs.reduced).toBe(true);
   expect(motionReduced()).toBe(true);
@@ -105,6 +107,9 @@ test('haptics stay on with Reduce Motion on', async () => {
     'impactLight',
     'impactLight',
   ]);
+  // One listener serves every caller, so the next test's listener is its
+  // own only once nothing here still listens.
+  await act(async () => tree.unmount());
 });
 
 test('turning Reduce Motion on mid-session leaves haptics on too', async () => {
@@ -120,8 +125,9 @@ test('turning Reduce Motion on mid-session leaves haptics on too', async () => {
     prefs = useMotionPrefs();
     return null;
   }
+  let tree!: ReactTestRenderer;
   await act(async () => {
-    create(React.createElement(Probe));
+    tree = create(React.createElement(Probe));
   });
   expect(prefs.reduced).toBe(false);
 
@@ -129,4 +135,5 @@ test('turning Reduce Motion on mid-session leaves haptics on too', async () => {
   expect(prefs.reduced).toBe(true);
   haptics.warning();
   expect(played()).toEqual(['notificationWarning']);
+  await act(async () => tree.unmount());
 });
