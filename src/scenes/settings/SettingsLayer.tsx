@@ -55,6 +55,7 @@ export function SettingsLayer({
         <CornerControl home={false} />
       </View>
       <SceneSlot
+        label={copy.settings.title}
         refreshControl={
           <RefreshControl
             refreshing={session.refreshing}

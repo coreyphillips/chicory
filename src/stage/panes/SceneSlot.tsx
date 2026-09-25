@@ -1,6 +1,11 @@
 import React from 'react';
 import type { PropsWithChildren, ReactElement } from 'react';
-import { KeyboardAvoidingView, ScrollView, StyleSheet } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import type { RefreshControlProps } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { space } from '../../theme';
@@ -16,9 +21,10 @@ const KEYBOARD_AVOIDING = 'padding' as const;
  * A scrolling place for a whole scene, that keeps its fields above the
  * keyboard.
  *
- * `label` names the scene for a screen reader where a title bar used to.
- * `offset` is how far below the top of the safe area the slot's parent
- * starts, for a slot the canvas places lower down.
+ * `label` names the scene for a screen reader where a title bar used to: a
+ * header it reaches first, which draws nothing. `offset` is how far below the
+ * top of the safe area the slot's parent starts, for a slot the canvas places
+ * lower down.
  */
 export function SceneSlot({
   label,
@@ -39,8 +45,15 @@ export function SceneSlot({
       style={styles.slot}
       behavior={KEYBOARD_AVOIDING}
       keyboardVerticalOffset={insets.top + offset}
-      accessibilityLabel={label}
     >
+      {label ? (
+        <View
+          accessible
+          accessibilityRole="header"
+          accessibilityLabel={label}
+          style={styles.title}
+        />
+      ) : null}
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -55,6 +68,9 @@ export function SceneSlot({
 
 const styles = StyleSheet.create({
   slot: { flex: 1 },
+  // A point rather than nothing: a screen reader passes over an element with
+  // no size at all.
+  title: { position: 'absolute', top: 0, left: 0, width: 1, height: 1 },
   content: {
     paddingHorizontal: space.xl,
     paddingTop: space.md,

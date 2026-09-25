@@ -29,6 +29,7 @@ import { palette } from '../src/design/palette';
 import { DetailCard } from '../src/stage/layers/DetailCard';
 import { ScanReveal } from '../src/stage/layers/ScanReveal';
 import { Pane, usePaneActive } from '../src/stage/panes/Pane';
+import { SceneSlot } from '../src/stage/panes/SceneSlot';
 import { MASK } from '../src/theme';
 import { componentName, visibleText } from '../test-support/query';
 
@@ -104,6 +105,37 @@ describe('Pane', () => {
     expect(visibleText(tree)).toEqual(['set aside']);
     const outside = await render(<Probe />);
     expect(visibleText(outside)).toEqual(['in use']);
+  });
+});
+
+describe('SceneSlot', () => {
+  test('names its scene with a header a screen reader reaches first', async () => {
+    const tree = await render(
+      <SceneSlot label="Payment details">
+        <Text>4,200</Text>
+      </SceneSlot>,
+    );
+    const slot = host(tree.root.findByType(SceneSlot));
+    expect(slot.props.accessibilityLabel).toBeUndefined();
+    const title = host(slot.children[0] as ReactTestInstance);
+    expect(title.props).toMatchObject({
+      accessible: true,
+      accessibilityRole: 'header',
+      accessibilityLabel: 'Payment details',
+    });
+    expect(title.children).toEqual([]);
+    expect(visibleText(tree)).toEqual(['4,200']);
+  });
+
+  test('without a label it draws no header', async () => {
+    const tree = await render(
+      <SceneSlot>
+        <Text>4,200</Text>
+      </SceneSlot>,
+    );
+    expect(
+      tree.root.findAll(node => node.props.accessibilityRole === 'header'),
+    ).toEqual([]);
   });
 });
 

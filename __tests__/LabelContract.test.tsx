@@ -93,8 +93,18 @@ const RETIRED: Record<string, string> = {
     'The tab bar is gone. Close returns home from every scene, so no control is called Wallet.',
 };
 
-/** Phrases a suite proves are gone, which no label or text may bring back. */
-const MUST_BE_ABSENT = ['Explore a preview', 'Connect a host'];
+/**
+ * Phrases a suite proves are gone, which no label, text or spoken string
+ * may bring back (REDESIGN.md 9).
+ */
+const MUST_BE_ABSENT = [
+  'Explore a preview',
+  'Connect a host',
+  'Pull to refresh',
+  'Welcome back',
+  'Sent, just like that.',
+  'Share this request.',
+];
 
 const CONTRACT = [...LABELS, ...Object.keys(TEMPLATES), ...PRESETS];
 
@@ -187,12 +197,53 @@ test('only labels the contract recorded can be retired, and each says why', () =
   }
 });
 
+const absentFrom = (texts: Iterable<string>) =>
+  [...texts].filter(text =>
+    MUST_BE_ABSENT.some(phrase => text.includes(phrase)),
+  );
+
 test('phrases that must never appear are nowhere in the app', () => {
-  const said = [
-    ...source.literals,
-    ...source.templates,
-    ...source.jsxText,
-  ].filter(text => MUST_BE_ABSENT.some(phrase => text.includes(phrase)));
-  expect(said).toEqual([]);
+  expect(
+    absentFrom([...source.literals, ...source.templates, ...source.jsxText]),
+  ).toEqual([]);
   expect(CONTRACT.filter(label => MUST_BE_ABSENT.includes(label))).toEqual([]);
+});
+
+test('phrases that must never appear are not in any file under src, comments included', () => {
+  const files = filesUnder(path.join(ROOT, 'src'), /\.tsx?$/).filter(
+    file => absentFrom([fs.readFileSync(file, 'utf8')]).length > 0,
+  );
+  expect(files.map(file => path.relative(ROOT, file))).toEqual([]);
+});
+
+/** Values a copy builder is tried with: words for one, amounts for another. */
+const SAMPLES: unknown[][] = [
+  ['First wallet', 'regtest', 'note'],
+  [4200, 1000, 500],
+];
+
+/** Every string `copy` can speak, each builder tried with each sample. */
+function spoken(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (typeof value === 'function') {
+    return SAMPLES.flatMap(sample => {
+      try {
+        return [String(value(...sample))];
+      } catch {
+        return [];
+      }
+    });
+  }
+  if (value && typeof value === 'object') {
+    return Object.values(value).flatMap(spoken);
+  }
+  return [];
+}
+
+test('no string a screen reader is given says a phrase that must never appear', () => {
+  const strings = spoken(copy);
+  expect(strings.length).toBeGreaterThan(100);
+  expect(absentFrom(strings)).toEqual([]);
+  // A phrase inside a longer string still counts.
+  expect(absentFrom(['Done. Pull to refresh.'])).toHaveLength(1);
 });
