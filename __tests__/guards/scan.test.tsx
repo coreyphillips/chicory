@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { ReduceMotion } from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -16,6 +17,7 @@ import {
   CAUGHT_SCALE,
   REFUSAL_QUIET_MS,
   Scanner,
+  TINT_MS,
   cornerPath,
   flight,
   reticleLoops,
@@ -83,12 +85,14 @@ jest.mock('react-native-camera-kit', () => ({
 // Reanimated's mock lands every timing at once. A test that needs to stand
 // in the middle of the reveal sets mockHoldTimings, which holds back each
 // timing's end, and how long it runs, in mockHeld to be run later. Delays
-// are noted in mockDelays, since the mock drops them.
+// are noted in mockDelays, since the mock drops them, and beside each, in
+// mockDelayModes, what it was told of Reduce Motion.
 const mockHeld: Array<{
   done: (finished?: boolean) => void;
   duration?: number;
 }> = [];
 const mockDelays: number[] = [];
+const mockDelayModes: unknown[] = [];
 let mockHoldTimings = false;
 jest.mock('react-native-reanimated', () => {
   const mock = require('react-native-reanimated/mock');
@@ -105,8 +109,9 @@ jest.mock('react-native-reanimated', () => {
       }
       return mock.withTiming(value, config, callback);
     },
-    withDelay: (delay: number, animation: unknown) => {
+    withDelay: (delay: number, animation: unknown, reduceMotion?: unknown) => {
       mockDelays.push(delay);
+      mockDelayModes.push(reduceMotion);
       return animation;
     },
   };
@@ -118,6 +123,7 @@ afterEach(() => {
   mockHoldTimings = false;
   mockHeld.length = 0;
   mockDelays.length = 0;
+  mockDelayModes.length = 0;
 });
 
 /** A BIP 173 example address, as a payment link: a code that can be paid. */
@@ -794,6 +800,23 @@ describe('reading a code', () => {
       await act(async () => tree.unmount());
     },
   );
+
+  test('under Reduce Motion a refusal holds its radish tint, on the corners and on paste', async () => {
+    reducedMotion();
+    // The setting is read once and kept, so the scanner mounts knowing it.
+    const first = await mount(scanner());
+    await act(async () => first.unmount());
+    const tree = await mount(scanner());
+    mockDelays.length = 0;
+    mockDelayModes.length = 0;
+    await readCode(tree, UNPAYABLE);
+    await pasting(async () => LNURL)(tree);
+    // Each tint is held before it fades, which Reduce Motion would
+    // otherwise skip: the corners' for the code, the ring's for the paste.
+    const held = mockDelayModes.filter((_, at) => mockDelays[at] === TINT_MS);
+    expect(held).toEqual([ReduceMotion.Never, ReduceMotion.Never]);
+    await act(async () => tree.unmount());
+  });
 
   test('Close hands the scan back', async () => {
     const onCancel = jest.fn();

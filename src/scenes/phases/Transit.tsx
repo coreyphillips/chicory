@@ -58,7 +58,9 @@ export function Transit({
   const event = useArrivalEvent(look.kind, reduced);
   const focus = useFocus();
 
-  // A switch recolors toward its target once the mark has landed.
+  // A switch recolors toward its target once the mark has landed. A colour
+  // moves nothing, so under Reduce Motion it still plays, as a crossfade,
+  // and still waits for the mark.
   const toward = useSharedValue(0);
   useEffect(() => {
     if (look.kind !== 'switching') return;
@@ -68,7 +70,9 @@ export function Transit({
         withTiming(1, {
           duration: reduced ? durations.crossfade : durations.celebrate,
           easing: curves.standard,
+          reduceMotion: ReduceMotion.Never,
         }),
+        ReduceMotion.Never,
       ),
     );
   }, [look.kind, toward, reduced]);

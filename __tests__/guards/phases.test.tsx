@@ -5,10 +5,13 @@ import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Keychain from 'react-native-keychain';
+import * as Reanimated from 'react-native-reanimated';
+import { ReduceMotion } from 'react-native-reanimated';
 import HapticFeedback from 'react-native-haptic-feedback';
 import { copy } from '../../src/design/copy';
 import { palette } from '../../src/design/palette';
 import { Bloom } from '../../src/glyphs/Bloom';
+import { durations } from '../../src/motion/tokens';
 import { handOff, takeHandOff } from '../../src/scenes/phases/handoff';
 import { OpeningWallet } from '../../src/scenes/phases/Loading';
 import { LockScreen } from '../../src/scenes/phases/Locked';
@@ -23,6 +26,7 @@ import {
   lockVisual,
   markFlight,
   markPoint,
+  QUIET_MS,
   SIZES,
   transitVisual,
   unlockGlyph,
@@ -699,6 +703,63 @@ describe('phase behaviour', () => {
           palette.radishSoft,
     );
     expect(tints).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('under Reduce Motion the bud still waits its beat, then fades in', async () => {
+    // Watched from before the lock draws, since its entrance keeps what it
+    // was drawn with.
+    const delays = jest.spyOn(Reanimated, 'withDelay');
+    const tree = await reduced(() => lock());
+    const [root] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        typeof node.props.entering === 'function',
+    );
+    delays.mockClear();
+    const bud = root.props.entering({});
+    const waits = delays.mock.calls.map(([delay, , reduce]) => [delay, reduce]);
+    delays.mockRestore();
+    // Nothing travels: it only fades, and not until the lock has had its
+    // quiet beat, which Reduce Motion would otherwise skip.
+    expect(bud.initialValues.transform).toEqual([{ scale: 1 }]);
+    expect(waits).toEqual([
+      [QUIET_MS, ReduceMotion.Never],
+      [QUIET_MS, ReduceMotion.Never],
+    ]);
+    await act(async () => tree.unmount());
+  });
+
+  test('under Reduce Motion a switch still recolours, once the mark has landed', async () => {
+    const switching = () =>
+      staged(
+        <Transit
+          erasing={false}
+          closing={false}
+          switchTarget="mainnet"
+          network="regtest"
+        />,
+      );
+    // Reduce Motion is read once and kept, so the transit mounts knowing it.
+    const first = await reduced(switching);
+    await act(async () => first.unmount());
+    const delays = jest.spyOn(Reanimated, 'withDelay');
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    const tree = await reduced(switching);
+    const waits = delays.mock.calls
+      .filter(([delay]) => delay === durations.move)
+      .map(([, , reduce]) => reduce);
+    const fades = timings.mock.calls
+      .map(([, config]) => config ?? {})
+      .filter(config => config.duration === durations.crossfade);
+    delays.mockRestore();
+    timings.mockRestore();
+    expect(waits.length).toBeGreaterThan(0);
+    for (const reduce of waits) expect(reduce).toBe(ReduceMotion.Never);
+    expect(fades.length).toBeGreaterThan(0);
+    for (const fade of fades) {
+      expect(fade.reduceMotion).toBe(ReduceMotion.Never);
+    }
     await act(async () => tree.unmount());
   });
 

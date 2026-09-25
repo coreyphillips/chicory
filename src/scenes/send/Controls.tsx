@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import type { ComponentRef, ReactNode, Ref } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Reanimated, {
+  ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -151,10 +152,12 @@ export function QuoteRefresh({
   const { reduced } = useMotionPrefs();
   const turned = useSharedValue(0);
   useEffect(() => {
+    // Under Reduce Motion the arrow only fades, so the fade plays.
     turned.set(
       withTiming(1, {
         duration: reduced ? durations.crossfade : durations.move,
         easing: curves.standard,
+        reduceMotion: ReduceMotion.Never,
       }),
     );
   }, [reduced, turned]);

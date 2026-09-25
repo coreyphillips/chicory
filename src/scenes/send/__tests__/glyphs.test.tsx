@@ -1,6 +1,8 @@
 import React from 'react';
 import { AccessibilityInfo, StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Reanimated from 'react-native-reanimated';
+import { ReduceMotion } from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
@@ -8,8 +10,10 @@ import { Circle, Path } from 'react-native-svg';
 import { palette } from '../../../design/palette';
 import { ExpiryRing } from '../../../glyphs/ExpiryRing';
 import { HoldButton } from '../../../glyphs/HoldButton';
+import { durations } from '../../../motion/tokens';
 import { mount } from '../../../../test-support/guard';
 import { GLYPHS } from '../../../design/glyphs';
+import { QuoteRefresh } from '../Controls';
 import { BANG, DrawnGlyph } from '../DrawnGlyph';
 import { Orbit } from '../Orbit';
 import { Unplugged, WaitingClock } from '../LoopingGlyphs';
@@ -302,6 +306,72 @@ describe('under Reduce Motion', () => {
     await act(async () => hold(tree).props.onLongPress());
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(felt().at(-1)).toBe('impactMedium');
+    await act(async () => tree.unmount());
+  });
+
+  /** The timings started while `run` runs, and where each was headed. */
+  async function timed(run: () => Promise<void>) {
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    await run();
+    const started = timings.mock.calls.map(([to, config]) => ({
+      to,
+      duration: config?.duration,
+      reduceMotion: config?.reduceMotion,
+    }));
+    timings.mockRestore();
+    return started;
+  }
+
+  test('a commit still flashes cream and fades its arrow, and the arrow fades back', async () => {
+    const element = (busy: boolean) => (
+      <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} busy={busy} />
+    );
+    const tree = await mount(element(false));
+    const committing = await timed(() =>
+      act(async () => hold(tree).props.onLongPress()),
+    );
+    // The flash in and out, and the arrow's crossfade away, each a colour
+    // or a fade, so none is skipped.
+    expect(committing).toEqual([
+      { to: 1, duration: durations.tick, reduceMotion: ReduceMotion.Never },
+      { to: 0, duration: durations.move, reduceMotion: ReduceMotion.Never },
+      {
+        to: 1,
+        duration: durations.crossfade,
+        reduceMotion: ReduceMotion.Never,
+      },
+    ]);
+    // A send that comes back without a result gives the arrow back.
+    await act(async () => tree.update(element(true)));
+    const returning = await timed(() =>
+      act(async () => tree.update(element(false))),
+    );
+    expect(returning).toEqual([
+      {
+        to: 0,
+        duration: durations.crossfade,
+        reduceMotion: ReduceMotion.Never,
+      },
+    ]);
+    await act(async () => tree.unmount());
+  });
+
+  test("a quote's arrow crossfades to the refresh rather than cutting", async () => {
+    let tree!: ReactTestRenderer;
+    const mounting = await timed(async () => {
+      tree = await mount(
+        <GestureHandlerRootView>
+          <QuoteRefresh onPress={jest.fn()} busy={false} />
+        </GestureHandlerRootView>,
+      );
+    });
+    const fades = mounting.filter(
+      timing => timing.duration === durations.crossfade,
+    );
+    expect(fades.length).toBeGreaterThan(0);
+    for (const fade of fades) {
+      expect(fade.reduceMotion).toBe(ReduceMotion.Never);
+    }
     await act(async () => tree.unmount());
   });
 });

@@ -250,7 +250,9 @@ function UnlockGlyph({
 
 /**
  * The lock check leaves the screen plain roast, and the bud surfaces after a
- * beat (REDESIGN.md 6), so a lock that opens at once never shows.
+ * beat (REDESIGN.md 6), so a lock that opens at once never shows. Under
+ * Reduce Motion it only fades in, after the same beat, which Reanimated
+ * would otherwise skip.
  */
 function budIn(): EntryExitAnimationFunction {
   const reduced = motionReduced();
@@ -264,8 +266,16 @@ function budIn(): EntryExitAnimationFunction {
     return {
       initialValues: { opacity: 0, transform: [{ scale: reduced ? 1 : 0.96 }] },
       animations: {
-        opacity: withDelay(QUIET_MS, withTiming(1, config)),
-        transform: [{ scale: withDelay(QUIET_MS, withTiming(1, config)) }],
+        opacity: withDelay(QUIET_MS, withTiming(1, config), ReduceMotion.Never),
+        transform: [
+          {
+            scale: withDelay(
+              QUIET_MS,
+              withTiming(1, config),
+              ReduceMotion.Never,
+            ),
+          },
+        ],
       },
     };
   };

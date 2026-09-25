@@ -1004,4 +1004,22 @@ describe('the canvas', () => {
     expect(flat(canvas).transform).toBeUndefined();
     await act(async () => tree.unmount());
   });
+
+  test('under Reduce Motion the build still holds for its crossfade', async () => {
+    jest
+      .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
+      .mockResolvedValue(true);
+    // The setting is read once and kept, so the canvas builds knowing it.
+    const first = await render(<OnCanvas />);
+    await act(async () => first.unmount());
+    const delays = jest.spyOn(Reanimated, 'withDelay');
+    const tree = await render(<OnCanvas arrival="load" />);
+    // Focus, and what is said after it, wait for the build to land, which
+    // Reduce Motion would otherwise skip straight past.
+    const holds = delays.mock.calls
+      .filter(([delay]) => delay === durations.crossfade)
+      .map(([, , reduce]) => reduce);
+    expect(holds).toEqual([Reanimated.ReduceMotion.Never]);
+    await act(async () => tree.unmount());
+  });
 });

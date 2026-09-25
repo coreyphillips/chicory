@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import Reanimated, {
+  ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -240,6 +241,8 @@ export function Canvas({
   useEffect(() => {
     if (!build || played.current) return;
     played.current = true;
+    // Under Reduce Motion the build is a crossfade and holds for that long;
+    // left to the system setting, Reanimated would skip the wait.
     const hold = reduced ? durations.crossfade : build.beats.done;
     const end = beginTransition(hold);
     landed.set(
@@ -249,6 +252,7 @@ export function Canvas({
           'worklet';
           if (done) scheduleOnRN(end);
         }),
+        ReduceMotion.Never,
       ),
     );
     if (build.arrival === 'reconnect') haptics.success();

@@ -148,16 +148,22 @@ export function HoldButton({
   }, []);
 
   // Sending shows no arrow. Back from sending without a result, as when the
-  // send itself was refused, the circle is ready to be held again.
+  // send itself was refused, the circle is ready to be held again and the
+  // arrow comes back. Under Reduce Motion that is only a fade, so it plays.
   useEffect(() => {
     if (busy) {
       if (!committed.current) launch.set(1);
       return;
     }
     committed.current = false;
-    launch.set(withTiming(0, { duration: durations.enter }));
+    launch.set(
+      withTiming(0, {
+        duration: reduced ? durations.crossfade : durations.enter,
+        reduceMotion: ReduceMotion.Never,
+      }),
+    );
     fill.set(withSpring(0, springs.snap));
-  }, [busy, launch, fill]);
+  }, [busy, reduced, launch, fill]);
 
   const begin = () => {
     committed.current = false;
@@ -191,14 +197,27 @@ export function HoldButton({
     committed.current = true;
     haptics.holdRamp(4);
     fill.set(1);
+    // The flash is a colour and the reduced launch a fade, so both play under
+    // Reduce Motion, which would otherwise skip them.
     flash.set(
       withSequence(
-        withTiming(1, { duration: durations.tick }),
-        withTiming(0, { duration: durations.move }),
+        withTiming(1, {
+          duration: durations.tick,
+          reduceMotion: ReduceMotion.Never,
+        }),
+        withTiming(0, {
+          duration: durations.move,
+          reduceMotion: ReduceMotion.Never,
+        }),
       ),
     );
     if (reduced) {
-      launch.set(withTiming(1, { duration: durations.crossfade }));
+      launch.set(
+        withTiming(1, {
+          duration: durations.crossfade,
+          reduceMotion: ReduceMotion.Never,
+        }),
+      );
     } else {
       scale.set(
         withSequence(

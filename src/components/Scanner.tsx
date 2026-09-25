@@ -126,7 +126,7 @@ const COVER_MS = 300;
  */
 export const REFUSAL_QUIET_MS = 1500;
 /** Reduce Motion's stand-in for a shake: a radish tint held this long. */
-const TINT_MS = 400;
+export const TINT_MS = 400;
 /** The round controls, at the minimum comfortable size and then some. */
 const CONTROL = 56;
 
@@ -628,7 +628,7 @@ function GlyphButton({
       ring.set(
         withSequence(
           withTiming(1, { ...FADE, duration: durations.tick }),
-          withDelay(TINT_MS, withTiming(0, FADE)),
+          withDelay(TINT_MS, withTiming(0, FADE), ReduceMotion.Never),
         ),
       );
       return;
@@ -834,7 +834,7 @@ export function Scanner({
       radish.set(
         withSequence(
           withTiming(1, { ...FADE, duration: durations.tick }),
-          withDelay(TINT_MS, withTiming(0, FADE)),
+          withDelay(TINT_MS, withTiming(0, FADE), ReduceMotion.Never),
         ),
       );
       return;
