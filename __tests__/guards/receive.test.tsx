@@ -478,6 +478,10 @@ const GUARDED: GuardedState[] = [
   // What arrives.
   state('a payment detected, confirming', receipt(receiptOf('pending'))),
   state('part of it here', receipt(receiptOf('partial'))),
+  state(
+    'part of it here, hidden',
+    receipt(receiptOf('partial'), { hidden: true }),
+  ),
   state('a payment received', receipt(receiptOf('completed'))),
   state(
     'part of it here, on a reused address',

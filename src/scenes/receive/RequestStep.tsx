@@ -18,7 +18,7 @@ import { QrBloom, qrSide } from '../../glyphs/QrBloom';
 import { riseIn, stagger } from '../../motion/presets';
 import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
-import { radius, space, type as typography } from '../../theme';
+import { MASK, radius, space, type as typography } from '../../theme';
 import type { Unit } from '../../theme';
 import { ErrorPip, GlyphButton, WarningPips } from './controls';
 import type { Focus } from './focus';
@@ -201,7 +201,8 @@ export function RequestStep({
           pulse={face.qr === 'expired' ? 1 : undefined}
           onPress={onAgain}
         >
-          {remainder !== null ? shownSats(remainder) : null}
+          {/* What is owed gives away what arrived, so it hides with it. */}
+          {remainder === null ? null : hidden ? MASK : shownSats(remainder)}
         </GlyphButton>
       </Reanimated.View>
       {error ? <ErrorPip message={error} /> : null}

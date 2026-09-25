@@ -40,6 +40,7 @@ import { DetailScreen, activityStatus } from '../src/screens/Wallet';
 import { recentDiagnostics } from '../src/services/diagnosticLog';
 import { useReceiveStatus } from '../src/services/useReceiveStatus';
 import type { WalletAdapter } from '../src/services/wallet';
+import { MASK } from '../src/theme';
 import { amountValue, enterAmount } from '../test-support/keypad';
 import { alerts, find, meaning, visibleText } from '../test-support/query';
 
@@ -1255,6 +1256,21 @@ describe('the safety states on a request', () => {
     expect(find(tree, 'Share request')).toBeUndefined();
     expect(find(tree, 'Copy request')).toBeUndefined();
     expect(warned).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('a hidden balance hides what is still owed, which would give away what arrived', async () => {
+    const { tree } = await made(fresh(), jest.fn().mockResolvedValue(partial), {
+      hidden: true,
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(meaning(tree)).toContain('Part of it is here.');
+    expect(find(tree, 'Request the remaining amount')).toBeDefined();
+    expect(visibleText(tree)).toContain(MASK);
+    expect(meaning(tree)).not.toContain('600');
+    expect(meaning(tree)).not.toContain('400 sats');
     await act(async () => tree.unmount());
   });
 
