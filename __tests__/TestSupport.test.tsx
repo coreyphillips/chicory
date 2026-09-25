@@ -163,6 +163,32 @@ describe('query', () => {
     ]);
     await act(async () => tree.unmount());
   });
+
+  test('alerts skip a pane out of use and the hidden parts of an alert', async () => {
+    const tree = await render(
+      <View>
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <View accessibilityRole="alert" accessibilityLabel="Behind" />
+        </View>
+        <View importantForAccessibility="no-hide-descendants">
+          <View accessibilityRole="alert">
+            <Text>Hidden on Android</Text>
+          </View>
+        </View>
+        <View accessibilityRole="alert">
+          <Text>Payment failed.</Text>
+          <View accessibilityElementsHidden>
+            <Text>Decoration</Text>
+          </View>
+        </View>
+      </View>,
+    );
+    expect(alerts(tree)).toEqual(['Payment failed.']);
+    await act(async () => tree.unmount());
+  });
 });
 
 describe('keypad', () => {

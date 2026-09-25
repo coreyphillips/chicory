@@ -1,7 +1,7 @@
 /**
  * One track's guard: the states it redraws, each held to REDESIGN.md rule 1
- * (the screen shows data and nothing else) and to rule 9 (a screen reader
- * can name every control).
+ * (the screen shows data and nothing else) and to section 9 (a screen
+ * reader can name every control).
  *
  * Each track keeps its own list in its own file under __tests__/guards, so no
  * two tracks edit the same one. The CopyGuard and A11yCoverage suites keep

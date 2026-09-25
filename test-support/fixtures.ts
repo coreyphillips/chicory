@@ -15,7 +15,6 @@ import type {
   WalletRecord,
   WalletSnapshot,
 } from '@beignet/wallet-core';
-import { chipText } from '../src/glyphs/CopyChip';
 import { btc, compact, dateLabel, dayLabel, number } from '../src/theme';
 
 /** The moment the fixtures are set at. */
@@ -301,6 +300,21 @@ export function everyActivity(): Record<string, Activity> {
   return out;
 }
 
+const groups = (text: string) => text.match(/.{1,4}/g)?.join(' ') ?? '';
+
+/**
+ * A reference as a copy chip shows it (REDESIGN.md 5, CopyChip): grouped in
+ * fours, and shortened in the middle to eight characters at each end unless
+ * `full`. Kept here rather than imported, so the fixtures depend on no
+ * track's files; a state that draws a reference some other way passes what
+ * it draws in `extra`.
+ */
+function chipShown(value: string, full = false): string {
+  const KEEP = 8;
+  if (full || value.length <= KEEP * 2 + 4) return groups(value);
+  return `${groups(value.slice(0, KEEP))} … ${groups(value.slice(-KEEP))}`;
+}
+
 /** The references a payment can show, as written and as the app shortens them. */
 function referencesOf(item: Activity): string[] {
   const request = item.receiveRequest;
@@ -316,7 +330,7 @@ function referencesOf(item: Activity): string[] {
     ...(item.receiveStatus?.txids ?? []),
   ].flatMap(value =>
     value
-      ? [value, compact(value), chipText(value), chipText(value, true)]
+      ? [value, compact(value), chipShown(value), chipShown(value, true)]
       : [],
   );
 }

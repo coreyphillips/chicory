@@ -229,10 +229,12 @@ export function allText(tree: ReactTestRenderer): string {
 
 /**
  * What each alert says, in tree order: its label when it has one, since that
- * is what a screen reader reads, else the text inside it.
+ * is what a screen reader reads, else the text inside it. Like a screen
+ * reader, it skips an alert in a pane out of use, and any part of an alert
+ * that is hidden.
  */
 export function alerts(tree: ReactTestRenderer): string[] {
-  return hosts(tree)
+  return hosts(tree, true)
     .filter(node => node.props.accessibilityRole === 'alert')
     .map(node => {
       const [label] = strings(node.props, ['accessibilityLabel']);
@@ -241,7 +243,9 @@ export function alerts(tree: ReactTestRenderer): string[] {
       const walk = (at: ReactTestRendererJSON) => {
         inside.push(...ownText(at.children));
         for (const child of at.children ?? []) {
-          if (typeof child !== 'string') walk(child);
+          if (typeof child !== 'string' && !hiddenFromScreenReaders(child)) {
+            walk(child);
+          }
         }
       };
       walk(node);
