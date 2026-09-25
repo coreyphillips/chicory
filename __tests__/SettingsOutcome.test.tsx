@@ -3,13 +3,13 @@ import { AccessibilityInfo, AppState, Text } from 'react-native';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
 import * as Keychain from 'react-native-keychain';
-import type { WalletSnapshot } from '@beignet/wallet-core';
+import type { WalletRecord, WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../src/design/copy';
 import { GLYPHS } from '../src/design/glyphs';
 import type { GlyphName } from '../src/design/glyphs';
 import { haptics } from '../src/design/haptics';
 import { drawPlan } from '../src/scenes/settings/motion';
-import { SettingsScreen } from '../src/screens/Settings';
+import { SettingsScreen, WalletPicker } from '../src/screens/Settings';
 import {
   clearDiagnostics,
   recentDiagnostics,
@@ -674,5 +674,39 @@ describe('outcome glyphs', () => {
     for (const name of Object.keys(GLYPHS) as GlyphName[]) {
       expect(drawPlan(name)).toHaveLength(GLYPHS[name].length);
     }
+  });
+});
+
+describe('the wallet picker', () => {
+  test('turns the chosen wallet into an orbit while it opens', async () => {
+    const wallets = [
+      { id: 'a', name: 'First', network: 'regtest', status: 'stopped' },
+      { id: 'b', name: 'Second', network: 'mainnet', status: 'stopped' },
+    ] as WalletRecord[];
+    const onSelect = jest.fn();
+    const picker = (busy: boolean) => (
+      <WalletPicker
+        wallets={wallets}
+        busy={busy}
+        onSelect={onSelect}
+        onCreate={jest.fn()}
+      />
+    );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(picker(false));
+    });
+    await act(async () => press(tree, 'Open Second').props.onPress());
+    expect(onSelect).toHaveBeenCalledWith(wallets[1]);
+    await act(async () => tree.update(picker(true)));
+    const state = (label: string) =>
+      tree.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.accessibilityLabel === label,
+      )[0].props.accessibilityState;
+    expect(state('Open Second')).toEqual({ disabled: true, busy: true });
+    expect(state('Open First')).toEqual({ disabled: true, busy: false });
+    await act(async () => tree.unmount());
   });
 });

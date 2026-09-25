@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { WalletRecord } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
@@ -12,14 +12,19 @@ import { Working, testNetwork } from './ui';
 
 const words = copy.settings.picker;
 
-/** One saved wallet: its mark, its name, a flask on a test network. */
+/**
+ * One saved wallet: its mark, its name, a flask on a test network. The one
+ * being opened turns its chevron into an orbit, which is all the wait says.
+ */
 const WalletRow = memo(function WalletRowView({
   wallet,
   busy,
+  opening,
   onSelect,
 }: {
   wallet: WalletRecord;
   busy: boolean;
+  opening: boolean;
   onSelect: (wallet: WalletRecord) => void;
 }) {
   const live = usePaneActive();
@@ -30,7 +35,7 @@ const WalletRow = memo(function WalletRowView({
       accessibilityLabel={words.open(wallet.name)}
       accessibilityHint={words.openHint}
       accessibilityValue={{ text: words.status(wallet.network, wallet.status) }}
-      accessibilityState={{ disabled: busy }}
+      accessibilityState={{ disabled: busy, busy: opening }}
       disabled={busy}
       onPress={
         live
@@ -43,7 +48,7 @@ const WalletRow = memo(function WalletRowView({
       style={({ pressed }) => [
         styles.wallet,
         pressed && styles.pressed,
-        busy && styles.inactive,
+        busy && !opening && styles.inactive,
       ]}
     >
       <Bloom size={28} tone={test ? 'test' : 'live'} />
@@ -51,7 +56,11 @@ const WalletRow = memo(function WalletRowView({
         {wallet.name}
       </Text>
       {test ? <Glyph name="flask" size={16} color={palette.slate} /> : null}
-      <Glyph name="chevron" size={16} color={palette.dust} />
+      {opening ? (
+        <Working size={16} color={test ? palette.slate : palette.bloom} />
+      ) : (
+        <Glyph name="chevron" size={16} color={palette.dust} />
+      )}
     </Pressable>
   );
 });
@@ -74,6 +83,14 @@ export function WalletPicker({
   onCreate: () => void;
 }) {
   const live = usePaneActive();
+  const [chosen, setChosen] = useState('');
+  const select = useCallback(
+    (wallet: WalletRecord) => {
+      setChosen(wallet.id);
+      onSelect(wallet);
+    },
+    [onSelect],
+  );
   return (
     <View style={styles.stack}>
       <View
@@ -87,7 +104,8 @@ export function WalletPicker({
           key={wallet.id}
           wallet={wallet}
           busy={busy}
-          onSelect={onSelect}
+          opening={busy && wallet.id === chosen}
+          onSelect={select}
         />
       ))}
       {wallets.length === 0 ? (
