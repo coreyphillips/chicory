@@ -19,6 +19,7 @@ import type {
 } from 'react-native-reanimated';
 import type { Network } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
+import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { Bloom } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
@@ -102,9 +103,11 @@ export function OpeningWallet({
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       >
-        <View style={[styles.action, styles.side]} />
-        <View style={[styles.action, styles.centre]} />
-        <View style={[styles.action, styles.side]} />
+        {ACTIONS.map(({ glyph, disc, size }) => (
+          <View key={glyph} style={[styles.action, disc]}>
+            <Glyph name={glyph} size={size} color={palette.husk} />
+          </View>
+        ))}
       </View>
       <View
         style={styles.sheet}
@@ -128,6 +131,23 @@ export function OpeningWallet({
     </PhaseRoot>
   );
 }
+
+/**
+ * The action row as Home draws it, Send, Scan and Receive, in husk: there,
+ * so the page reads as the wallet, and plainly not yet of use.
+ */
+const ACTIONS = (
+  [
+    ['send', SIZES.secondary],
+    ['scan', 76],
+    ['receive', SIZES.secondary],
+  ] as const
+).map(([glyph, disc]) => ({
+  glyph,
+  disc: { width: disc, height: disc, borderRadius: disc / 2 },
+  // Drawn at the size a glyph control of that disc draws its glyph.
+  size: Math.round(disc * 0.42),
+}));
 
 /** How much the mark lifts as it leaves the picker row. */
 const LIFT = 1.25;
@@ -294,12 +314,11 @@ const styles = StyleSheet.create({
     gap: space.xl,
   },
   action: {
-    borderRadius: radius.round,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1.5,
     borderColor: palette.husk,
   },
-  side: { width: SIZES.secondary, height: SIZES.secondary },
-  centre: { width: 76, height: 76 },
   sheet: {
     gap: space.xs,
     paddingTop: space.lg,

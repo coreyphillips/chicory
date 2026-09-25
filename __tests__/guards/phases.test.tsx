@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Keychain from 'react-native-keychain';
 import HapticFeedback from 'react-native-haptic-feedback';
 import { copy } from '../../src/design/copy';
+import { palette } from '../../src/design/palette';
 import { Bloom } from '../../src/glyphs/Bloom';
 import { handOff, takeHandOff } from '../../src/scenes/phases/handoff';
 import { OpeningWallet } from '../../src/scenes/phases/Loading';
@@ -40,7 +41,12 @@ import type { StageStore } from '../../src/stage/StageContext';
 import { guardData, snapshotOf, walletOf } from '../../test-support/fixtures';
 import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
-import { find, meaning, press } from '../../test-support/query';
+import {
+  find,
+  meaning,
+  press,
+  pressableLabels,
+} from '../../test-support/query';
 
 /**
  * The shell phases under the copy guard (REDESIGN.md rule 1) and the
@@ -768,6 +774,22 @@ describe('phase behaviour', () => {
     expect(refused()).toHaveLength(0);
     await retry(false);
     expect(refused()).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('the loading page shows the actions to come, out of reach', async () => {
+    const tree = await loading();
+    // The actions are drawn in husk, as glyphs only: nothing to press.
+    const actions = tree.root
+      .findAll(
+        node =>
+          typeof node.type !== 'string' &&
+          typeof node.props.name === 'string' &&
+          node.props.color === palette.husk,
+      )
+      .map(node => node.props.name);
+    expect([...new Set(actions)]).toEqual(['send', 'scan', 'receive']);
+    expect([...pressableLabels(tree)]).toEqual([copy.phase.lockDevice]);
     await act(async () => tree.unmount());
   });
 
