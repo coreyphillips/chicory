@@ -162,12 +162,44 @@ export function shortRequest(request: string): string {
   )}`;
 }
 
-/** How an amount sits against the balance. */
+/**
+ * Whether money on its way would let `sats` go, once it lands. Only then does
+ * waiting help: the gap between what can be sent and the total may be money
+ * that never becomes spendable, such as the channel's reserve.
+ */
+export function arrivalCovers(sats: number, balance: Balance): boolean {
+  return (
+    balance.pendingSats > 0 &&
+    sats <= balance.totalSats &&
+    sats <= balance.availableSats + balance.pendingSats
+  );
+}
+
+/**
+ * How an amount sits against the balance (REDESIGN.md 5, Keypad): honey,
+ * with its clock, only while what is arriving would cover it, and radish past
+ * what can be sent when waiting would not help.
+ */
 export function amountTone(sats: number, balance?: Balance): AmountTone {
-  if (!balance || !(sats > 0)) return 'plain';
-  if (sats > balance.totalSats) return 'over-total';
-  if (sats > balance.availableSats) return 'over-spendable';
-  return 'plain';
+  if (!balance || !(sats > 0) || sats <= balance.availableSats) return 'plain';
+  return arrivalCovers(sats, balance) ? 'over-spendable' : 'over-total';
+}
+
+/**
+ * What a screen reader hears about an amount held against the balance, for
+ * `tone`: that the rest is on its way only while it is, that the wallet holds
+ * less only past its total, and otherwise how much can be sent now, which is
+ * the limit the amount went past. Null while the amount is fine.
+ */
+export function amountWords(
+  tone: AmountTone,
+  sats: number,
+  balance?: Balance,
+): string | null {
+  if (tone === 'over-spendable') return copy.amount.overSpendable;
+  if (tone !== 'over-total') return null;
+  if (!balance || sats > balance.totalSats) return copy.amount.overTotal;
+  return `${copy.home.split(balance.availableSats, balance.pendingSats)}.`;
 }
 
 /**
@@ -288,13 +320,17 @@ export function sendFailure(
     return failure('request', 'radish', ['cross']);
   }
   if (code === 'INSUFFICIENT_FUNDS') {
-    // Radish only for an amount known to be past all the wallet holds.
+    // Honey and a clock say waiting will help, so only while money on its
+    // way would cover the amount; otherwise it is past what can be sent.
     const { amountSats, balance } = context;
-    const pastTotal =
-      amountSats !== null && !!balance && amountSats > balance.totalSats;
-    return pastTotal
-      ? failure('amount', 'radish', ['bang'])
-      : failure('amount', 'honey', ['clock']);
+    const waits =
+      !balance ||
+      (amountSats === null
+        ? balance.pendingSats > 0
+        : arrivalCovers(amountSats, balance));
+    return waits
+      ? failure('amount', 'honey', ['clock'])
+      : failure('amount', 'radish', ['bang']);
   }
   if (AMOUNT_REFUSED.has(code)) return failure('amount', 'radish', ['bang']);
   switch (code) {

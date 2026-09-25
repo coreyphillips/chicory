@@ -40,6 +40,7 @@ import {
   HOME_AFTER_MS,
   alreadySubmitted,
   amountTone,
+  amountWords,
   errorCode,
   fixedAmount,
   isUncertain,
@@ -89,13 +90,6 @@ const shownIn = (sats: number, unit: Unit) => {
 
 /** A quote this close to running out is said aloud once. */
 const LATE_MS = 10_000;
-
-const TONE_WORDS: Record<AmountTone, string | null> = {
-  plain: null,
-  'over-spendable': copy.amount.overSpendable,
-  'over-total': copy.amount.overTotal,
-  under: null,
-};
 
 /**
  * A quote that ran out on its clock. An expired quote is a safety state
@@ -850,7 +844,7 @@ export function SendScreen({
       : amountTone(Number(shownAmount) || 0, balance);
     const hint = [
       fixedSats === null ? null : copy.amount.fixed,
-      TONE_WORDS[tone],
+      amountWords(tone, Number(shownAmount) || 0, balance),
       amountFailure?.message,
     ]
       .filter(Boolean)
