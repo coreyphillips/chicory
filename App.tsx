@@ -19,6 +19,12 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import type { Activity, Network } from '@beignet/wallet-core';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import {
   Body,
   Button,
@@ -185,10 +191,7 @@ function WalletApp() {
    */
   const returning = deviceHint;
   const backupPending =
-    !!client &&
-    !!rememberedSession?.backupPending &&
-    !closing &&
-    !switching;
+    !!client && !!rememberedSession?.backupPending && !closing && !switching;
 
   if (lock.locked) {
     return (
@@ -210,7 +213,9 @@ function WalletApp() {
             ? 'Erasing your wallet from this phone…'
             : closing
             ? 'Closing your wallet…'
-            : `Closing this wallet and opening ${switchTarget || 'the selected network'}…`}
+            : `Closing this wallet and opening ${
+                switchTarget || 'the selected network'
+              }…`}
         </Body>
       </View>
     );
@@ -230,7 +235,9 @@ function WalletApp() {
       <View style={styles.stack}>
         <Title>{savedWallet?.name || 'Your wallet'}</Title>
         {error || switchError ? (
-          <Body>This wallet is still on your phone. It could not be opened just now.</Body>
+          <Body>
+            This wallet is still on your phone. It could not be opened just now.
+          </Body>
         ) : null}
         {switchError || error ? (
           <Notice kind="error" icon="alert">
@@ -549,10 +556,7 @@ function WalletApp() {
           />
         </View>
       ) : (
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={KEYBOARD_AVOIDING}
-        >
+        <KeyboardAvoidingView style={styles.flex} behavior={KEYBOARD_AVOIDING}>
           <ScrollView
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
@@ -572,9 +576,7 @@ function WalletApp() {
           </ScrollView>
         </KeyboardAvoidingView>
       )}
-      {showChrome ? (
-        <TabBar tab={tab} onTab={setTabState} />
-      ) : null}
+      {showChrome ? <TabBar tab={tab} onTab={setTabState} /> : null}
       <SheetModal sheet={sheet} busy={sheetBusy} onClose={closeSheet}>
         {client && sheet === 'send' ? (
           <SendScreen
@@ -738,7 +740,10 @@ function SheetModal({
       onRequestClose={onClose}
       presentationStyle="fullScreen"
     >
-      <SafeAreaView style={styles.root} edges={['top', 'bottom', 'left', 'right']}>
+      <SafeAreaView
+        style={styles.root}
+        edges={['top', 'bottom', 'left', 'right']}
+      >
         <View style={styles.sheetHeader}>
           <Text style={styles.sheetTitle}>
             {sheet ? SHEET_TITLES[sheet] : ''}
@@ -750,10 +755,7 @@ function SheetModal({
             onPress={onClose}
           />
         </View>
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={KEYBOARD_AVOIDING}
-        >
+        <KeyboardAvoidingView style={styles.flex} behavior={KEYBOARD_AVOIDING}>
           <ScrollView
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
@@ -858,7 +860,11 @@ function OfflineWallet({
           {setupError}
         </Notice>
       ) : null}
-      <Button label="Retry connection" onPress={onRetryConnection} busy={busy} />
+      <Button
+        label="Retry connection"
+        onPress={onRetryConnection}
+        busy={busy}
+      />
       <Button
         secondary
         label="Retry wallet setup"
@@ -912,7 +918,10 @@ function LockScreen({
   onUnlock: () => void;
 }) {
   return (
-    <SafeAreaView style={styles.root} edges={['top', 'bottom', 'left', 'right']}>
+    <SafeAreaView
+      style={styles.root}
+      edges={['top', 'bottom', 'left', 'right']}
+    >
       <StatusBar barStyle="light-content" />
       <View style={styles.lockScreen}>
         <View style={styles.lockMark}>
@@ -924,24 +933,38 @@ function LockScreen({
             {error}
           </Notice>
         ) : null}
-        <Button
-          label="Unlock"
-          icon="key"
-          busy={prompting}
-          onPress={onUnlock}
-        />
+        <Button label="Unlock" icon="key" busy={prompting} onPress={onUnlock} />
       </View>
     </SafeAreaView>
   );
 }
 
+/**
+ * The whole app fades in on a worklet, so the first frame after launch already
+ * proves the animation runtime is alive on the UI thread.
+ */
+function Root({ children }: { children: React.ReactNode }) {
+  const shown = useSharedValue(0);
+  const style = useAnimatedStyle(() => ({ opacity: shown.get() }));
+  React.useEffect(() => {
+    shown.set(withTiming(1, { duration: 220 }));
+  }, [shown]);
+  return (
+    <Reanimated.View style={[styles.flex, style]}>{children}</Reanimated.View>
+  );
+}
+
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <ToastProvider>
-        <WalletApp />
-      </ToastProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
+        <ToastProvider>
+          <Root>
+            <WalletApp />
+          </Root>
+        </ToastProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
