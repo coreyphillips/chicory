@@ -10,8 +10,15 @@ import {
   listShift,
   pastThreshold,
   releaseOpens,
+  ROW_RETURN_MS,
+  ROW_RETURN_SPAN,
+  ROW_RETURN_STEP,
+  STAGGERED_ROWS,
+  rowBeat,
+  rowReturn,
   sheetProgress,
 } from '../sheet';
+import { BUILD, buildBeats } from '../../../stage/layout';
 
 /**
  * The sheet under the finger (REDESIGN.md 7, T5): where the seam follows a
@@ -89,5 +96,46 @@ describe('what moves with the sheet', () => {
     expect(listShift(0)).toBe(-BAR_HEIGHT);
     expect(listShift(0.8)).toBeCloseTo(-BAR_HEIGHT / 2);
     expect(listShift(1)).toBeCloseTo(0);
+  });
+});
+
+describe('the rows coming back in (T1, reversed)', () => {
+  test('each starts 25ms after the one above and is in 220ms later', () => {
+    expect(ROW_RETURN_STEP).toBe(25);
+    for (const index of [0, 1, 5]) {
+      const start = index * ROW_RETURN_STEP;
+      expect(rowReturn(start, index)).toBe(0);
+      expect(rowReturn(start + ROW_RETURN_MS / 2, index)).toBeGreaterThan(0);
+      expect(rowReturn(start + ROW_RETURN_MS / 2, index)).toBeLessThan(1);
+      expect(rowReturn(start + ROW_RETURN_MS, index)).toBe(1);
+    }
+    // A row lower down is never ahead of one above it.
+    for (let ms = 0; ms <= ROW_RETURN_SPAN; ms += 10) {
+      expect(rowReturn(ms, 3)).toBeLessThanOrEqual(rowReturn(ms, 2));
+    }
+  });
+
+  test('rows below the first screen come in with its last, and all are in by the end', () => {
+    const last = STAGGERED_ROWS - 1;
+    expect(rowReturn(200, 40)).toBe(rowReturn(200, last));
+    expect(rowReturn(ROW_RETURN_SPAN, 40)).toBe(1);
+    expect(ROW_RETURN_SPAN).toBe(ROW_RETURN_MS + last * ROW_RETURN_STEP);
+  });
+});
+
+describe('the rows as the canvas builds in (R-1, R-3)', () => {
+  test('wait for their beat, 30ms apart down the list', () => {
+    const beats = buildBeats('unlock');
+    expect(beats.rowStep).toBe(BUILD.rowStep);
+    expect(rowBeat(beats, 0, 0)).toBe(beats.rows);
+    expect(rowBeat(beats, 1, 0)).toBe(beats.rows + 30);
+    expect(rowBeat(beats, 4, 0)).toBe(beats.rows + 120);
+  });
+
+  test('count from when the build began, and never wait less than nothing', () => {
+    const beats = buildBeats('load');
+    expect(rowBeat(beats, 2, 100)).toBe(beats.rows + 60 - 100);
+    expect(rowBeat(beats, 0, beats.done)).toBe(0);
+    expect(rowBeat(beats, 40, 0)).toBe(rowBeat(beats, STAGGERED_ROWS - 1, 0));
   });
 });

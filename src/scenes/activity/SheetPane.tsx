@@ -28,6 +28,7 @@ import type { ActivitySection } from './model';
 import {
   DETAIL_DROP,
   GRIP_HEIGHT,
+  ROW_RETURN_SPAN,
   filterFor,
   listShift,
   sheetProgress,
@@ -82,23 +83,42 @@ export function SheetPane({
   useSceneBack(closeSearch, live && opened && (searching || !!query));
 
   // T4 and T1: the rows and the bar fade, and the rows drop under a detail,
-  // as the canvas moves on, and come back once it has returned.
+  // as the canvas moves on, and come back once it has returned. Back from
+  // Send or Receive the rows also come back in one after another, 25ms
+  // apart, on a clock of their own (`rowReturn`).
   const shows = useSharedValue(sheet ? 1 : 0);
   const drop = useSharedValue(0);
+  const rowsBack = useSharedValue(ROW_RETURN_SPAN);
+  const before = useRef(shown);
   useLayoutEffect(() => {
+    const from = before.current;
+    before.current = shown;
     if (reduced) {
       shows.set(withTiming(sheet ? 1 : 0, FADE));
       drop.set(0);
+      rowsBack.set(ROW_RETURN_SPAN);
       return;
     }
     if (sheet) {
       shows.set(withDelay(overlap.enterDelay, withTiming(1, ENTER)));
       drop.set(withDelay(overlap.enterDelay, withTiming(0, ENTER)));
+      if (from === 'send' || from === 'receive') {
+        rowsBack.set(0);
+        rowsBack.set(
+          withDelay(
+            overlap.enterDelay,
+            withTiming(ROW_RETURN_SPAN, {
+              duration: ROW_RETURN_SPAN,
+              easing: curves.linear,
+            }),
+          ),
+        );
+      }
     } else {
       shows.set(withTiming(0, EXIT));
       drop.set(shown === 'detail' ? withTiming(DETAIL_DROP, EXIT) : 0);
     }
-  }, [sheet, shown, reduced, shows, drop]);
+  }, [sheet, shown, reduced, shows, drop, rowsBack]);
 
   // The bar arrives over the last part of the way up, and the list gives
   // back the room it takes at home.
@@ -138,6 +158,7 @@ export function SheetPane({
     gesture: drag.gesture,
     onScroll: drag.onScroll,
     listRef: list,
+    rowsBack,
     searching,
     onSearching: setSearching,
     bottomInset: bottom,

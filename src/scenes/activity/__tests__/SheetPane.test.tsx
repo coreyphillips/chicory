@@ -20,7 +20,8 @@ import { copy } from '../../../design/copy';
 import { haptics } from '../../../design/haptics';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
 import type { Backup } from '../../../stage/Canvas';
-import { stops } from '../../../stage/layout';
+import { buildBeats, stops } from '../../../stage/layout';
+import type { Arrival } from '../../../stage/layout';
 import { Pane } from '../../../stage/panes/Pane';
 import {
   StageProvider,
@@ -45,7 +46,8 @@ import { FilterBar } from '../FilterBar';
 import { FILTERS, activityStatus } from '../model';
 import * as rowRects from '../rowRects';
 import { SheetPane } from '../SheetPane';
-import { FLING } from '../sheet';
+import { FLING, ROW_RETURN_SPAN, rowBeat } from '../sheet';
+import * as presets from '../../../motion/presets';
 
 /**
  * The sheet on the canvas (REDESIGN.md 6 and 7, T5): the drag between home
@@ -81,10 +83,12 @@ function OnCanvas({
   snapshot = snapshotOf({ activity: [coffee, salary] }),
   error = '',
   backup = null,
+  arrival,
 }: {
   snapshot?: WalletSnapshot;
   error?: string;
   backup?: Backup | null;
+  arrival?: Arrival;
 }) {
   stage = useStageStore();
   const view = useCanvasView();
@@ -100,6 +104,7 @@ function OnCanvas({
           stale={false}
           backup={backup}
           view={view}
+          arrival={arrival}
         />
       </StageProvider>
     </GestureHandlerRootView>
@@ -469,6 +474,52 @@ describe('the rows', () => {
       [coffee.id, 'undefined'],
       [salary.id, 'undefined'],
     ]);
+    await act(async () => tree.unmount());
+  });
+
+  test('as the canvas builds in, the rows rise in on their beat, 30ms apart', async () => {
+    const rises = jest.spyOn(presets, 'riseIn');
+    const began = Date.now();
+    const tree = await render(<OnCanvas arrival="unlock" />);
+    const rows = rowsOf(tree);
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      expect(typeof outer(row).props.entering).toBe('function');
+    }
+    const beats = buildBeats('unlock');
+    const delays = rises.mock.calls.map(([, delay]) => delay ?? 0);
+    const elapsed = Date.now() - began;
+    // A row's place counts the day headers above it, which take room too.
+    const places = rows.map(row => row.props.index);
+    expect(places[1]).toBeGreaterThan(places[0]);
+    places.forEach(place => {
+      const beat = rowBeat(beats, place, 0);
+      expect(
+        delays.some(delay => delay <= beat && delay >= beat - elapsed),
+      ).toBe(true);
+    });
+    await act(async () => tree.unmount());
+  });
+
+  test('coming back from Send, the rows come back in one after another', async () => {
+    const tree = await render(<OnCanvas />);
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    const returned = () =>
+      timings.mock.calls.filter(
+        ([to, config]) =>
+          to === ROW_RETURN_SPAN && config?.duration === ROW_RETURN_SPAN,
+      );
+    await act(async () => stage.actions.openActivity());
+    await settle();
+    await act(async () => stage.actions.home());
+    await settle();
+    // Only a return from Send or Receive staggers them.
+    expect(returned()).toEqual([]);
+    await act(async () => stage.actions.openSend());
+    await settle();
+    await act(async () => stage.actions.back());
+    await settle();
+    expect(returned()).toHaveLength(1);
     await act(async () => tree.unmount());
   });
 

@@ -1,3 +1,5 @@
+import { durations } from '../../motion/tokens';
+
 /**
  * The sheet under the finger (REDESIGN.md 7, T5), as pure worklets, so the
  * drag is table-tested and the gesture only reads their answers.
@@ -21,6 +23,20 @@ export const GRIP_HEIGHT = 28;
 export const BAR_HEIGHT = 52;
 /** How far the rows drop as a payment's detail grows over them (T4). */
 export const DETAIL_DROP = 8;
+/**
+ * The rows a stagger runs down, about a screen of them; any further down
+ * come in with the last of these.
+ */
+export const STAGGERED_ROWS = 12;
+/**
+ * How far apart the rows come back in as the canvas returns home from Send
+ * or Receive (REDESIGN.md 7, T1 reversed), and how long each takes.
+ */
+export const ROW_RETURN_STEP = 25;
+export const ROW_RETURN_MS = durations.enter;
+/** The whole return, from the first row setting out to the last one in. */
+export const ROW_RETURN_SPAN =
+  ROW_RETURN_MS + ROW_RETURN_STEP * (STAGGERED_ROWS - 1);
 
 export interface SheetStops {
   /** The seam with the whole list showing. */
@@ -96,4 +112,30 @@ export function filterFor(progress: number): number {
 export function listShift(progress: number): number {
   'worklet';
   return -BAR_HEIGHT * (1 - filterFor(progress));
+}
+
+/**
+ * Row `index`'s opacity `ms` into a return home from Send or Receive: each
+ * row sets out ROW_RETURN_STEP after the one above and eases in over
+ * ROW_RETURN_MS.
+ */
+export function rowReturn(ms: number, index: number): number {
+  'worklet';
+  const start = Math.min(index, STAGGERED_ROWS - 1) * ROW_RETURN_STEP;
+  const t = clamp01((ms - start) / ROW_RETURN_MS);
+  return 1 - (1 - t) ** 3;
+}
+
+/**
+ * How long a row at `position` down the list waits to enter as the canvas
+ * builds in (REDESIGN.md 7, R-1 and R-3): the rows' beat, `rowStep` apart,
+ * less the `elapsed` ms since the build began.
+ */
+export function rowBeat(
+  beats: { rows: number; rowStep: number },
+  position: number,
+  elapsed: number,
+): number {
+  const step = Math.min(position, STAGGERED_ROWS - 1) * beats.rowStep;
+  return Math.max(0, beats.rows + step - elapsed);
 }

@@ -18,7 +18,7 @@ import type {
 import { FlatList } from 'react-native-gesture-handler';
 import type { PanGesture } from 'react-native-gesture-handler';
 import Reanimated from 'react-native-reanimated';
-import type { AnimatedStyle } from 'react-native-reanimated';
+import type { AnimatedStyle, SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import { palette } from '../../design/palette';
@@ -62,6 +62,8 @@ export interface SheetBinding {
   onSearching: (open: boolean) => void;
   /** The system bar's height, kept clear below the last row. */
   bottomInset: number;
+  /** The clock of the rows coming back in, as the rows read it. */
+  rowsBack?: SharedValue<number>;
 }
 
 /**
@@ -135,15 +137,16 @@ export function ActivityScreen({
   useEffect(() => {
     known.current = new Set(activity.map(item => item.id));
   }, [activity]);
+  const back = sheet?.rowsBack;
   const rowList = useMemo<RowList>(
-    () => ({ seen: id => !known.current || known.current.has(id) }),
-    [],
+    () => ({ seen: id => !known.current || known.current.has(id), back }),
+    [back],
   );
 
   // Stable identities, so the memoized rows can stay put across a keystroke
   // and across a background poll that changed nothing they show.
   const renderItem = useCallback(
-    ({ item: row }: { item: ActivitySection }) =>
+    ({ item: row, index }: { item: ActivitySection; index: number }) =>
       row.kind === 'header' ? (
         <Text numberOfLines={1} maxFontSizeMultiplier={1.4} style={styles.day}>
           {row.label}
@@ -155,6 +158,7 @@ export function ActivityScreen({
           hidden={hidden}
           unit={unit}
           test={test}
+          index={index}
           onPress={onDetail}
         />
       ),

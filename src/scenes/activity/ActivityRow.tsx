@@ -12,6 +12,7 @@ import Reanimated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
+import type { SharedValue } from 'react-native-reanimated';
 import type { Activity } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
@@ -20,7 +21,8 @@ import { palette } from '../../design/palette';
 import { StatusRing } from '../../glyphs/StatusRing';
 import { Whisper } from '../../glyphs/Whisper';
 import { riseIn } from '../../motion/presets';
-import { curves } from '../../motion/tokens';
+import { curves, overlap } from '../../motion/tokens';
+import { useBuild } from '../../stage/panes/Build';
 import { usePaneActive } from '../../stage/panes/Pane';
 import type { Rect } from '../../stage/scene';
 import {
@@ -45,6 +47,7 @@ import {
 import type { Band } from './model';
 import { measureNode, registerRow } from './rowRects';
 import type { RowNode } from './rowRects';
+import { rowBeat, rowReturn } from './sheet';
 import {
   EXPIRED_OPACITY,
   RAIL_GLYPH,
@@ -58,10 +61,13 @@ import type { AmountVisual } from './visual';
 /**
  * What the list tells the rows it draws: whether a payment has been shown
  * before, so only a new one arrives with a fade, and that rows here register
- * where they are, for a detail to grow out of.
+ * where they are, for a detail to grow out of. On the sheet, `back` is the
+ * clock of the rows coming back in as the canvas returns home from Send or
+ * Receive (`rowReturn`), which each row reads by its place in the list.
  */
 export interface RowList {
   seen: (id: string) => boolean;
+  back?: SharedValue<number>;
 }
 
 export const RowListContext = createContext<RowList | null>(null);
@@ -97,6 +103,7 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   unit = 'sats',
   band,
   test = false,
+  index = 0,
 }: {
   item: Activity;
   onPress: (item: Activity, rect?: Rect) => void;
@@ -106,14 +113,33 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   band?: Band;
   /** On a test network, whose rings are slate where they would be bloom. */
   test?: boolean;
+  /** Where the row sits in the list, for the rows to stagger in by. */
+  index?: number;
 }) {
   const live = usePaneActive();
   const list = useContext(RowListContext);
   const ref = useRef<RowNode>(null);
-  // Decided once, as the row mounts: only a payment the list has not shown
-  // before arrives with a fade. One scrolled back into view does not.
+  // Decided once, as the row mounts. As the canvas builds in, each row in
+  // the list rises in on the rows' beat, 30ms after the one above (R-1 and
+  // R-3). Otherwise only a payment the list has not shown before arrives,
+  // falling into place; one scrolled back into view does not.
+  const build = useBuild();
   const [entering] = useState(() =>
-    list && !list.seen(item.id) ? riseIn(ARRIVE) : undefined,
+    list && build
+      ? riseIn(
+          overlap.rise,
+          rowBeat(build.beats, index, Date.now() - build.began),
+        )
+      : list && !list.seen(item.id)
+      ? riseIn(ARRIVE)
+      : undefined,
+  );
+  // Coming back home from Send or Receive, the rows come back in one after
+  // another (T1, reversed).
+  const back = list?.back;
+  const returning = useAnimatedStyle(
+    () => ({ opacity: back ? rowReturn(back.get(), index) : 1 }),
+    [back, index],
   );
   useEffect(
     () => (list ? registerRow(item.id, ref) : undefined),
@@ -144,66 +170,68 @@ export const ActivityRow = React.memo(function ActivityRowItem({
 
   return (
     <Reanimated.View entering={entering}>
-      <Pressable
-        ref={ref}
-        accessibilityRole="button"
-        // Hiding the balance has to hide it from the screen reader too, or
-        // the amount is simply announced out loud instead of shown.
-        accessibilityLabel={label}
-        accessibilityHint={copy.activity.rowHint}
-        accessibilityValue={{ text: value }}
-        onPress={live ? press : undefined}
-        style={({ pressed }) => [
-          styles.row,
-          band && [styles.band, BANDS[band]],
-          item.status === 'expired' && styles.expired,
-          pressed && styles.pressed,
-        ]}
-      >
-        {/* Held, the ring whispers what it shows (REDESIGN.md rule 3). */}
-        <Whisper label={[status, ...ringFlags(ring)].join('. ')}>
-          <StatusRing size={ROW_RING} visual={ring} test={test} />
-        </Whisper>
-        <View style={styles.middle}>
-          {look.open ? (
-            <Glyph name="infinity" size={ROW_OPEN} color={TONES[look.tone]} />
-          ) : (
-            <View style={styles.amount}>
+      <Reanimated.View style={returning}>
+        <Pressable
+          ref={ref}
+          accessibilityRole="button"
+          // Hiding the balance has to hide it from the screen reader too, or
+          // the amount is simply announced out loud instead of shown.
+          accessibilityLabel={label}
+          accessibilityHint={copy.activity.rowHint}
+          accessibilityValue={{ text: value }}
+          onPress={live ? press : undefined}
+          style={({ pressed }) => [
+            styles.row,
+            band && [styles.band, BANDS[band]],
+            item.status === 'expired' && styles.expired,
+            pressed && styles.pressed,
+          ]}
+        >
+          {/* Held, the ring whispers what it shows (REDESIGN.md rule 3). */}
+          <Whisper label={[status, ...ringFlags(ring)].join('. ')}>
+            <StatusRing size={ROW_RING} visual={ring} test={test} />
+          </Whisper>
+          <View style={styles.middle}>
+            {look.open ? (
+              <Glyph name="infinity" size={ROW_OPEN} color={TONES[look.tone]} />
+            ) : (
+              <View style={styles.amount}>
+                <Text
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={1.4}
+                  style={[
+                    styles.figure,
+                    { color: TONES[look.tone], fontWeight: look.weight },
+                  ]}
+                >
+                  {hidden ? MASK : `${look.sign}${amount.value}`}
+                  <Text style={styles.unit}> {amount.suffix}</Text>
+                </Text>
+                <Strike struck={look.struck} />
+              </View>
+            )}
+            {item.description ? (
               <Text
                 numberOfLines={1}
                 maxFontSizeMultiplier={1.4}
-                style={[
-                  styles.figure,
-                  { color: TONES[look.tone], fontWeight: look.weight },
-                ]}
+                style={styles.note}
               >
-                {hidden ? MASK : `${look.sign}${amount.value}`}
-                <Text style={styles.unit}> {amount.suffix}</Text>
+                {item.description}
               </Text>
-              <Strike struck={look.struck} />
-            </View>
-          )}
-          {item.description ? (
-            <Text
-              numberOfLines={1}
-              maxFontSizeMultiplier={1.4}
-              style={styles.note}
-            >
-              {item.description}
+            ) : null}
+          </View>
+          <View style={styles.side}>
+            <Text maxFontSizeMultiplier={1.4} style={styles.time}>
+              {timeLabel(item.timestamp)}
             </Text>
-          ) : null}
-        </View>
-        <View style={styles.side}>
-          <Text maxFontSizeMultiplier={1.4} style={styles.time}>
-            {timeLabel(item.timestamp)}
-          </Text>
-          <Glyph
-            name={RAIL_GLYPH[railOf(item)]}
-            size={14}
-            color={palette.dust}
-          />
-        </View>
-      </Pressable>
+            <Glyph
+              name={RAIL_GLYPH[railOf(item)]}
+              size={14}
+              color={palette.dust}
+            />
+          </View>
+        </Pressable>
+      </Reanimated.View>
     </Reanimated.View>
   );
 });
