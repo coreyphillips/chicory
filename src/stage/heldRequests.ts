@@ -167,3 +167,12 @@ export function heldRequest(
   }
   return entry ? { status: entry.status } : null;
 }
+
+/**
+ * Forgets every request this process has held. For tests only, so each one
+ * starts with nothing held: the app itself lets a request go only once the
+ * payment it holds for completes or fails.
+ */
+export function clearHeldRequests() {
+  held.clear();
+}
