@@ -766,10 +766,12 @@ export function Bloom({
     );
   }, [behind, behindShown, reduced]);
 
-  // Loops.
+  // Loops. A breath and a halo only decorate, and rest with the ambient
+  // clock; the chase and the ratchet say something is under way.
   const inhale = useLoop(
     durations.breathe,
     mode === 'breathe' && awake && !reduced,
+    true,
   );
   const chase = useLoop(CHASE_MS, mode === 'chase' && awake && !reduced);
   // How much of the chase shows, so starting and stopping it fades.
@@ -814,7 +816,7 @@ export function Bloom({
     }
     return () => cancelAnimation(turn);
   }, [turn, ratcheting]);
-  const glow = useLoop(durations.halo, halo && awake && !reduced);
+  const glow = useLoop(durations.halo, halo && awake && !reduced, true);
 
   // Events.
   const burst = useSharedValue(1);

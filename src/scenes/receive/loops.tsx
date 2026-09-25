@@ -32,13 +32,14 @@ const TILT = 8;
 
 /**
  * Rocks its children 8 degrees one way and then the other over 4200ms, from
- * level and back to it: the moon.
+ * level and back to it: the moon. It only decorates, so it rests level with
+ * the ambient clock (REDESIGN.md 3.5).
  */
 export function Rock({
   style,
   children,
 }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
-  const clock = useLoop(durations.breathe, true);
+  const clock = useLoop(durations.breathe, true, true);
   const rock = useAnimatedStyle(() => ({
     transform: [
       { rotate: `${-TILT * Math.sin(2 * Math.PI * clock.get())}deg` },
@@ -50,7 +51,8 @@ export function Rock({
 /**
  * Fades its children between full and `low` and back, once per `period`: a
  * caret waiting for digits, a halo asking to be pressed. At rest it holds at
- * full.
+ * full, and it rests with the ambient clock, since what it marks shows
+ * without it (REDESIGN.md 3.5).
  */
 export function Pulse({
   period = durations.halo,
@@ -62,7 +64,7 @@ export function Pulse({
   low?: number;
   style?: StyleProp<ViewStyle>;
 }>) {
-  const clock = useLoop(period, true);
+  const clock = useLoop(period, true, true);
   const pulse = useAnimatedStyle(() => ({
     opacity: 1 - (1 - low) * wave(clock.get()),
   }));

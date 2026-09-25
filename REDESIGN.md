@@ -254,6 +254,12 @@ G3 tints:
 
 **Shake:** translateX keyframes 0, -8, 8, -5, 5, -2, 0 at 55ms per step (330ms total).
 
+**Ambient rest.** A loop that only decorates rests once nobody has touched the app for 20s (`AMBIENT_REST_MS` in `src/motion/ambient.ts`), easing to its resting pose, and picks up where it stopped at the next touch or the next change worth seeing. A phone left alone then draws nothing, which spares its battery and lets a tool that waits for a still screen, such as Android's uiautomator, read it.
+
+- **Ambient, and rests:** the backdrop's drift and turn, a bloom's breath and halo (the mark included), the vessel's sheen, seeds and the clock or gauge of a wait, the pulse dot's ping, the backup shield's blink, the rocking moon of a request payable offline, a caret or halo waiting for a press, and the breath of Send's empty well.
+- **Meaning, and never rests:** anything that says something is under way: a payment's orbit, a waiting request's dashes, a held outcome's halo, a busy control's spin, a vessel retry, the stale shimmer, the reconnecting pulse, the unplug's drift while a connection is away, Send's waiting clock, the chase and the ratchet while a wallet opens or refreshes, the scanner's reticle, and an expiry ring's last seconds.
+- **What wakes it:** any touch under the stage's root, which a capturing responder sees and never takes; the app coming to the front; a new phase, scene or overlay; the balance going stale or fresh; and a read that changes what the wallet shows (`shownBy`: the balances, the connection, the wallet's setup, each payment's state). A read that only lands does not, since one lands every 12s.
+
 **Overlap rule:**
 
 - Exits start at t0 and run 140ms on the exit curve, scaling to .98.
@@ -432,7 +438,7 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 
 - **Shape.** A 7pt dot at the mark's bottom right.
 - **States.**
-  - sage: pings on each successful poll (scale to 2.6, fade, 900ms)
+  - sage: pings on each successful poll (scale to 2.6, fade, 900ms), but not while decoration rests (3.5)
   - honey: pulses 1 to 1.3 every 1800ms while reconnecting
   - hollow radish: refresh failed
 
@@ -827,7 +833,8 @@ The amount keypad (`src/scenes/keypad`) replaces the system keyboard for amounts
 
 Shared by every glyph and scene, in `src/motion` (tokens and presets aside):
 
-- **`loops.ts`.** `useLoop(period, running)` is the one loop clock: it counts a cycle every `period` ms and eases to the nearest whole cycle when it stops, and it rests wherever nobody would see it move (the app in the background, its pane out of use, Reduce Motion). A loop that turns reads `fract(clock)`; one that goes out and back, a breath or a pulse, reads `wave(clock)`, so a whole breath is one period. `useAwake()` is whether a loop here would be seen.
+- **`loops.ts`.** `useLoop(period, running, ambient?)` is the one loop clock: it counts a cycle every `period` ms and eases to the nearest whole cycle when it stops, and it rests wherever nobody would see it move (the app in the background, its pane out of use, Reduce Motion), and, when `ambient`, while decoration rests (3.5). A loop that turns reads `fract(clock)`; one that goes out and back, a breath or a pulse, reads `wave(clock)`, so a whole breath is one period. `useAwake()` is whether a loop here would be seen.
+- **`ambient.ts`.** The ambient clock (3.5): `useAmbientRest(ambient?)` for a loop of its own, such as the backdrop's swings, `wakeAmbient()` for a change worth seeing, and `wakeOnTouch`, the capturing responder props the stage's root carries. Only ambient listeners keep its timer, so with no decoration on screen none runs.
 - **`springMath.ts`.** `springStep`, `kickVelocity` and `kick`, for poses computed from a clock on the UI thread and for pops that start from rest.
 - **`effects.ts`.** `useShake()` (a shake, or a 400ms radish tint under Reduce Motion), `popIn(from?)` and `dissolve()` for something that arrives or is let go of as a whole.
 - **`focus.ts`.** `useFocus(on)`, `focusOn(node)` and `focusAfterTransition(target, { delay, then })`, which counts the move as pending from the call until it is made, after `delay` ms and once no transition runs, and runs `then` after it (10.1, Focus).

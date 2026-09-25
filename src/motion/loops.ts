@@ -8,6 +8,7 @@ import {
 } from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
 import { usePaneActive } from '../stage/panes/Pane';
+import { useAmbientRest } from './ambient';
 import { curves, durations } from './tokens';
 import { useMotionPrefs } from './useMotionPrefs';
 
@@ -78,13 +79,23 @@ export function useAwake(): boolean {
  * under Reduce Motion, where a loop becomes a still state (REDESIGN.md 8).
  * It is cancelled when its owner unmounts.
  *
+ * An `ambient` loop only decorates, and rests too once the app has gone
+ * untouched a while, picking up where it stopped with the next touch
+ * (`ambient.ts`, REDESIGN.md 3.5). A loop that says something is under way
+ * leaves it false.
+ *
  * A loop that turns reads `fract` of it; one that goes out and back, such as
  * a breath, reads `wave` of it, and a whole breath is then one period.
  */
-export function useLoop(period: number, running: boolean): SharedValue<number> {
+export function useLoop(
+  period: number,
+  running: boolean,
+  ambient = false,
+): SharedValue<number> {
   const { reduced } = useMotionPrefs();
   const awake = useAwake();
-  const on = running && awake && !reduced;
+  const idle = useAmbientRest(ambient);
+  const on = running && awake && !reduced && !idle;
   const clock = useSharedValue(0);
   useEffect(() => {
     const at = clock.get();

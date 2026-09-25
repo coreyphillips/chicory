@@ -27,6 +27,7 @@ import Svg, {
 } from 'react-native-svg';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { gradients, palette } from '../../design/palette';
+import { useAmbientRest } from '../../motion/ambient';
 import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import type { RegionProps } from '../../stage/Canvas';
@@ -96,8 +97,9 @@ export function glowBleed(width: number, height: number): number {
  * G0 is a still vertical wash. G1, the bloom glow, drifts on an 18 second
  * sine and turns slowly over 26; G2, the crema, drifts the opposite way on
  * 22. Only the views around them move, by transform and opacity, and never
- * while the pane is covered, the app is away, or motion is reduced. A stale
- * balance dims both, and a test network turns the glow slate.
+ * while the pane is covered, the app is away, motion is reduced, or the app
+ * has gone untouched long enough for decoration to rest. A stale balance
+ * dims both, and a test network turns the glow slate.
  *
  * G3 is the state tint, one at a time, crossfading over 600ms: honey while a
  * backup waits or a payment's outcome is unknown, night while an offline
@@ -118,7 +120,8 @@ export function Backdrop({
   const live = usePaneActive();
   const awake = useAppActive();
   const { reduced } = useMotionPrefs();
-  const running = live && awake && !reduced;
+  const resting = useAmbientRest();
+  const running = live && awake && !reduced && !resting;
   const bleed = glowBleed(width, height);
   const spill = { top: -bleed, left: -bleed, right: -bleed, bottom: -bleed };
   const asked = useTint();

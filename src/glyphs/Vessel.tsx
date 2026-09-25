@@ -327,9 +327,15 @@ function WaitGlyph({
   const move = MOVES[name];
   // A loop's clock rests where it would not be seen: in the background, in
   // a pane out of use, and under Reduce Motion, where the glyph is still.
+  // A clock or a gauge only decorates a long wait, and rests with the
+  // ambient clock; a retry is under way, and keeps turning.
   const period = glyphLoop(name, retry);
   const looping = period !== null;
-  const clock = useLoop(period ?? CLOCK_MS, looping && awake && !reduced);
+  const clock = useLoop(
+    period ?? CLOCK_MS,
+    looping && awake && !reduced,
+    name !== 'refresh',
+  );
   const once = useSharedValue(move && !reduced && !looping ? 0 : 1);
   useEffect(() => {
     if (!move || reduced || looping) {
@@ -530,12 +536,14 @@ export function Vessel({
   }, [dim, stale]);
 
   const sheening = split && visual.sheen !== 'none' && !stale;
+  // The sheen and the seeds only decorate, and rest with the ambient clock.
   const sheen = useLoop(
     visual.sheen === 'slow' ? SHEEN_MS.slow : SHEEN_MS.sweep,
     sheening && awake && !reduced && width > 0,
+    true,
   );
   const seeds = split && visual.fill === 'seeds';
-  const bob = useLoop(durations.pulse, seeds && awake && !reduced);
+  const bob = useLoop(durations.pulse, seeds && awake && !reduced, true);
   const reversed = visual.sheen === 'reversed';
 
   // The pill grows about the middle of its row, over its neighbours rather

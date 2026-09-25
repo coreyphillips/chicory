@@ -27,11 +27,12 @@ const BLINK = 0.65;
  * with the recovery phrase. The phrase itself, and every word about it, stay
  * there.
  *
- * The shield's stroke blinks every 1600ms while anyone would see it.
+ * The shield's stroke blinks every 1600ms while anyone would see it, and
+ * holds whole while decoration rests (REDESIGN.md 3.5).
  */
 export function BackupShelf({ onOpen }: { onOpen: () => void }) {
   const live = usePaneActive();
-  const clock = useLoop(durations.halo, true);
+  const clock = useLoop(durations.halo, true, true);
   const blink = useAnimatedStyle(() => ({
     opacity: 1 - BLINK * wave(clock.get()),
   }));
