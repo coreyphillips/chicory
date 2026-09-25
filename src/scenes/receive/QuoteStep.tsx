@@ -20,7 +20,7 @@ import {
 import type { Focus } from './focus';
 import { feeGlyph, shownSats } from './model';
 import type { Refused } from './model';
-import { useBloom } from './tone';
+import { useBloom, useTestNetwork } from './tone';
 
 /** The ring that runs down around the create control. */
 const RING = CONTROL + 16;
@@ -68,6 +68,7 @@ export function QuoteStep({
 }) {
   const live = usePaneActive();
   const { bloom } = useBloom();
+  const test = useTestNetwork();
   const glyph = feeGlyph({
     offline,
     feeSats: quote.feeSats,
@@ -150,6 +151,7 @@ export function QuoteStep({
             size={RING}
             expiresAt={quote.expiresAt}
             createdAt={quotedAt}
+            test={test}
           />
         </View>
         {expired ? (

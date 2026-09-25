@@ -24,7 +24,7 @@ import { ErrorPip, GlyphButton, WarningPips } from './controls';
 import type { Focus } from './focus';
 import { Rock } from './loops';
 import type { Refused, RequestFace } from './model';
-import { useBloom } from './tone';
+import { useBloom, useTestNetwork } from './tone';
 import { lateAt, remainderSats, requestRails, shownSats } from './model';
 
 /** The expiry ring runs this far outside the card. */
@@ -87,6 +87,7 @@ export function RequestStep({
   /** The code, where a screen reader goes back to as a lifted code is set down. */
   qrFocus?: Focus;
 }) {
+  const test = useTestNetwork();
   const side = frameSide(qr);
   const remainder = remainderSats(request.amountSats, receipt);
   const scattered = face.qr === 'scattered';
@@ -113,6 +114,7 @@ export function RequestStep({
                   expiresAt={request.expiresAt}
                   createdAt={createdAt}
                   lateAt={lateAt(createdAt, request.expiresAt)}
+                  test={test}
                 />
               </View>
             ) : null}

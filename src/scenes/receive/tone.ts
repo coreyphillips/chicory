@@ -38,3 +38,9 @@ export const TestNetwork = createContext(false);
 
 /** Bloom, or slate in its place, for whatever is drawn here. */
 export const useBloom = (): Bloom => bloomFor(useContext(TestNetwork));
+
+/**
+ * Whether what is drawn here is for a test network, for a glyph that takes
+ * its own `test`, such as an expiry ring.
+ */
+export const useTestNetwork = (): boolean => useContext(TestNetwork);

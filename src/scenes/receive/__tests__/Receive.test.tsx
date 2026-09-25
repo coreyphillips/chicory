@@ -635,16 +635,13 @@ describe('a test network', () => {
       : false;
 
   /**
-   * Where something is drawn in bloom, as the path of components to it,
-   * leaving out the expiry rings, which draw their own colours
+   * Where something is drawn in bloom, as the path of components to it. The
+   * expiry rings count too: on a test network their calm stroke is slate
    * (REDESIGN.md 10.2).
    */
   const inBloom = (tree: ReactTestRenderer) =>
     tree.root
       .findAll(node => {
-        for (let at: ReactTestInstance | null = node; at; at = at.parent) {
-          if (at.type === ExpiryRing) return false;
-        }
         const { stroke, fill, color, selectionColor, style } = node.props;
         return blooms([
           stroke,
@@ -696,8 +693,11 @@ describe('a test network', () => {
     await act(async () => answer(quoteOf()));
     // The fee's moon and the create control.
     seen.push(...inBloom(tree));
+    // The quote's expiry ring.
+    expect(tree.root.findAllByType(ExpiryRing).length).toBeGreaterThan(0);
     await tap(tree, copy.receive.create);
-    // The rocking moon of an offline request.
+    // The rocking moon of an offline request, and its code's expiry ring.
+    expect(tree.root.findAllByType(ExpiryRing).length).toBeGreaterThan(0);
     seen.push(...inBloom(tree));
     await act(async () => tree.unmount());
     return seen;
