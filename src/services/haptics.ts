@@ -13,6 +13,8 @@ type Feedback =
   | 'selection'
   | 'light'
   | 'medium'
+  | 'rigid'
+  | 'soft'
   | 'success'
   | 'warning'
   | 'error';
@@ -21,6 +23,8 @@ const RN_HAPTIC: Record<Feedback, string> = {
   selection: 'selection',
   light: 'impactLight',
   medium: 'impactMedium',
+  rigid: 'rigid',
+  soft: 'soft',
   success: 'notificationSuccess',
   warning: 'notificationWarning',
   error: 'notificationError',
@@ -30,6 +34,8 @@ const ANDROID_FALLBACK_MS: Record<Feedback, number> = {
   selection: 8,
   light: 10,
   medium: 18,
+  rigid: 14,
+  soft: 6,
   success: 24,
   warning: 32,
   error: 42,
@@ -50,7 +56,7 @@ function resolve() {
 }
 
 let enabled = true;
-/** Turned off wholesale when the user has reduce-motion on. */
+/** Turned off wholesale by Settings > Haptics, never by Reduce Motion. */
 export function setHapticsEnabled(value: boolean) {
   enabled = value;
 }

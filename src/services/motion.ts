@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing } from 'react-native';
 import { motion } from '../theme';
-import { setHapticsEnabled } from './haptics';
 
 /**
  * Whether this device wants motion at all.
  *
  * Read once at mount and kept current through the accessibility event, so a
  * user who turns Reduce Motion on mid-session gets the calmer app immediately.
- * Haptics are tied to the same switch: someone who has asked for less movement
- * has usually not asked for more buzzing.
+ * Haptics are not tied to it. With less on screen they carry more of the
+ * meaning, so only Settings > Haptics turns them off (REDESIGN.md rule 7).
  */
 let reduced = false;
 export const motionReduced = () => reduced;
@@ -20,10 +19,11 @@ export function useReducedMotion() {
     let active = true;
     const apply = (next: boolean) => {
       reduced = next;
-      setHapticsEnabled(!next);
       if (active) setValue(next);
     };
-    AccessibilityInfo.isReduceMotionEnabled().then(apply).catch(() => {});
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(apply)
+      .catch(() => {});
     const subscription = AccessibilityInfo.addEventListener(
       'reduceMotionChanged',
       apply,
