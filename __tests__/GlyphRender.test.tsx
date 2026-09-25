@@ -465,6 +465,22 @@ describe('Odometer', () => {
     expect(visibleText(tree).join('')).toBe('4,200sats');
   });
 
+  test('a masked amount is its dots alone, whichever way it went', async () => {
+    for (const sign of ['+', '-'] as const) {
+      const tree = await render(
+        <Odometer sats={4_200} unit="sats" variant="row" sign={sign} masked />,
+      );
+      expect(visibleText(tree).join('')).toBe(`${MASK}sats`);
+      expect(prose(tree)).toEqual([]);
+      await act(async () =>
+        tree.update(
+          <Odometer sats={4_200} unit="sats" variant="row" sign={sign} />,
+        ),
+      );
+      expect(visibleText(tree).join('')).toBe(`${SIGNS[sign]}4,200sats`);
+    }
+  });
+
   test('a stale amount is inked steam', async () => {
     const tree = await render(
       <Odometer sats={4_200} unit="sats" variant="hero" stale />,

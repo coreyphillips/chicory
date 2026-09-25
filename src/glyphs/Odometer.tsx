@@ -65,6 +65,7 @@ export interface OdometerProps {
   stale?: boolean;
   variant: OdometerVariant;
   color?: string;
+  /** Drawn before the digits, and dropped while masked. */
   sign?: '+' | '-' | null;
   accessibilityLabel?: string;
 }
@@ -743,6 +744,8 @@ export function Odometer({
   const shimmer = useLoop(durations.shimmer, stale && awake && !reduced);
 
   const dots = masked && phase !== 'scramble';
+  // A masked amount is its dots alone: a sign would say which way it went.
+  const signed = masked ? null : sign;
   const motion: Motion = phase === 'rest' ? 'still' : phase;
   const cells =
     phase === 'roll' ? rollCells(span, sats, unit) : cellsFor(sats, unit);
@@ -754,7 +757,8 @@ export function Odometer({
   // midway, and a mask is sized as its six dots, so a hidden balance does
   // not give away how long it is.
   const marks = dots ? 0 : cells.filter(cell => cell.kind === 'mark').length;
-  const figures = (dots ? DOTS.length : cells.length - marks) + (sign ? 1 : 0);
+  const figures =
+    (dots ? DOTS.length : cells.length - marks) + (signed ? 1 : 0);
   const base =
     variant === 'hero'
       ? HERO_AT[
@@ -796,12 +800,12 @@ export function Odometer({
       >
         <LayoutAnimationConfig skipEntering>
           <View style={styles.cells}>
-            {sign ? (
+            {signed ? (
               <Reanimated.Text
                 style={[...rig.text, ink]}
                 maxFontSizeMultiplier={maxScale}
               >
-                {sign === '-' ? '−' : '+'}
+                {signed === '-' ? '−' : '+'}
               </Reanimated.Text>
             ) : null}
             {dots

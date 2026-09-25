@@ -17,7 +17,7 @@ import { DetailCard } from '../../../stage/layers/DetailCard';
 import { SceneSlot } from '../../../stage/panes/SceneSlot';
 import { StageProvider, useStageStore } from '../../../stage/StageContext';
 import type { StageStore } from '../../../stage/StageContext';
-import { dateLabel } from '../../../theme';
+import { MASK, dateLabel } from '../../../theme';
 import {
   activityOf,
   everyActivity,
@@ -177,11 +177,17 @@ describe('the detail', () => {
   test('keeps a hidden balance hidden, in what it shows and what it says', async () => {
     const item = EVERY['sent completed'];
     const tree = await render(<DetailScreen item={item} hidden />);
-    expect(tree.root.findByType(Odometer).props).toMatchObject({
+    const amount = tree.root.findByType(Odometer);
+    expect(amount.props).toMatchObject({
       masked: true,
-      sign: null,
       accessibilityLabel: copy.detail.amountHidden,
     });
+    // The mask alone, with no sign to say which way the money went.
+    const drawn = amount
+      .findAllByType(Text)
+      .flatMap(node => node.props.children)
+      .join('');
+    expect(drawn).toBe(`${MASK}sats`);
     expect(spoken(tree, copy.detail.feeHidden(false))).toBeDefined();
     expect(meaning(tree)).not.toContain('4,200');
     expect(meaning(tree)).not.toContain('12 sats');

@@ -174,16 +174,7 @@ export function DetailScreen({
               masked={hidden}
               variant="amountDetail"
               color={TONES[look.tone]}
-              // A masked amount is the mask alone, as it is in the rows.
-              sign={
-                hidden
-                  ? null
-                  : look.sign === '+'
-                  ? '+'
-                  : look.sign === '−'
-                  ? '-'
-                  : null
-              }
+              sign={look.sign === '+' ? '+' : look.sign === '−' ? '-' : null}
               accessibilityLabel={
                 hidden
                   ? copy.detail.amountHidden
