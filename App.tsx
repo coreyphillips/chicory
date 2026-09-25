@@ -49,6 +49,7 @@ import { Welcome } from './src/scenes/phases/Welcome';
 import { Picker } from './src/scenes/phases/Picker';
 import { OpeningWallet } from './src/scenes/phases/Loading';
 import { OfflineWallet } from './src/scenes/phases/Offline';
+import { backupPending, derivePhase, phaseInput } from './src/stage/phase';
 
 type Sheet = 'send' | 'receive' | 'detail' | 'create' | null;
 
@@ -175,17 +176,9 @@ function WalletApp() {
     [wallets, activeProfile.network],
   );
   const enter = useEnter(`${tab}:${walletId}:${!!snapshot}`);
-  /**
-   * A device wallet actually exists here, so this launch is a return rather
-   * than a first run. `deviceHint` is false for a vault that was prepared but
-   * never got a wallet, which must keep offering setup rather than claiming
-   * there is something saved to open.
-   */
-  const returning = deviceHint;
-  const backupPending =
-    !!client && !!rememberedSession?.backupPending && !closing && !switching;
+  const phase = derivePhase(phaseInput(lock, session));
 
-  if (lock.locked) {
+  if (phase.kind === 'locked') {
     return (
       <LockScreen
         prompting={lock.prompting}
@@ -196,142 +189,147 @@ function WalletApp() {
   }
 
   let content;
-  if (switching || closing) {
-    content = (
-      <Transit
-        erasing={erasing}
-        closing={closing}
-        switchTarget={switchTarget}
-      />
-    );
-  } else if (initializing) {
-    content = <Opening />;
-  } else if (!client && returning && !deviceVisible) {
-    // A wallet already lives on this device. Whatever went wrong, first-run
-    // setup is the wrong screen: it offers to put a wallet somewhere, which is
-    // not the question. Show the wallet that is here and how to get back into
-    // it.
-    content = (
-      <Saved
-        name={savedWallet?.name}
-        network={activeProfile.network}
-        error={error}
-        switchError={switchError}
-        connecting={connecting}
-        networkEditor={networkEditor}
-        openWallet={session.openWallet}
-        setError={session.setError}
-        setNetworkEditor={session.setNetworkEditor}
-        setDeviceVisible={session.setDeviceVisible}
-        switchNetwork={session.switchNetwork}
-      />
-    );
-  } else if (!client) {
-    content = (
-      <Welcome
-        error={error}
-        connecting={connecting}
-        initializing={initializing}
-        deviceVisible={deviceVisible}
-        deviceHint={deviceHint}
-        rememberedSession={rememberedSession}
-        openDevice={session.openDevice}
-        openWallet={session.openWallet}
-        setError={session.setError}
-        setDeviceVisible={session.setDeviceVisible}
-        onCreateWallet={openCreate}
-      />
-    );
-  } else if (!walletId) {
-    content = (
-      <Picker
-        wallets={walletsOnNetwork}
-        activeProfile={activeProfile}
-        error={error}
-        switchError={switchError}
-        networkEditor={networkEditor}
-        selecting={selecting}
-        switchNetwork={session.switchNetwork}
-        setNetworkEditor={session.setNetworkEditor}
-        selectWallet={session.selectWallet}
-        createDefaultWallet={session.createDefaultWallet}
-        disconnect={session.disconnect}
-        onCreateWallet={openCreate}
-      />
-    );
-  } else if (!snapshot && !error) {
-    // The engine is starting and nothing has gone wrong. This is a wallet
-    // page that has not filled in yet, not a connection problem, so it does
-    // not offer retries, network settings or the recovery phrase.
-    content = (
-      <OpeningWallet
-        name={savedWallet?.name}
-        network={savedWallet?.network || activeProfile.network}
-        busy={connecting || selecting || refreshing}
-        onDisconnect={session.disconnect}
-      />
-    );
-  } else if (!snapshot) {
-    content = (
-      <OfflineWallet
-        name={savedWallet?.name}
-        network={savedWallet?.network || activeProfile.network}
-        setupError={savedWallet?.lfbw?.setupError}
-        error={switchError || error}
-        busy={refreshing || connecting || selecting}
-        networkEditor={networkEditor}
-        onRetryConnection={session.manualRefresh}
-        onRetrySetup={session.retrySetup}
-        onToggleNetwork={() => session.setNetworkEditor(!networkEditor)}
-        onApplyNetwork={session.switchNetwork}
-        onChooseWallet={session.chooseWallet}
-        onDisconnect={session.disconnect}
-        loadPhrase={() => client.getRecoveryPhrase()}
-      />
-    );
-  } else {
-    content = (
-      <View style={styles.stack}>
-        {error ? (
-          <Notice kind="error" icon="alert">
-            {`${REFRESH_FAILED} ${error}`}
-          </Notice>
-        ) : null}
-        {tab === 'Wallet' ? (
-          <HomeScreen
-            snapshot={snapshot}
-            hidden={hidden}
-            unit={unit}
-            stale={stale}
-            onSend={() => setSheet('send')}
-            onReceive={() => setSheet('receive')}
-            onScan={openScanner}
-            onActivity={showActivity}
-            onDetail={openDetail}
-            onToggleUnit={() => setUnit(unit === 'sats' ? 'btc' : 'sats')}
-          />
-        ) : tab === 'Activity' ? null : (
-          <SettingsScreen
-            snapshot={snapshot}
-            client={client}
-            switchError={switchError}
-            onDisconnect={() => {
-              session.disconnect();
-            }}
-            onChooseWallet={session.chooseWallet}
-            onRefresh={session.manualRefresh}
-            onNetwork={session.switchNetwork}
-            onErase={session.eraseDevice}
-          />
-        )}
-      </View>
-    );
+  switch (phase.kind) {
+    case 'transit':
+      content = (
+        <Transit
+          erasing={erasing}
+          closing={closing}
+          switchTarget={switchTarget}
+        />
+      );
+      break;
+    case 'opening':
+      content = <Opening />;
+      break;
+    case 'saved':
+      content = (
+        <Saved
+          name={savedWallet?.name}
+          network={activeProfile.network}
+          error={error}
+          switchError={switchError}
+          connecting={connecting}
+          networkEditor={networkEditor}
+          openWallet={session.openWallet}
+          setError={session.setError}
+          setNetworkEditor={session.setNetworkEditor}
+          setDeviceVisible={session.setDeviceVisible}
+          switchNetwork={session.switchNetwork}
+        />
+      );
+      break;
+    case 'welcome':
+      content = (
+        <Welcome
+          error={error}
+          connecting={connecting}
+          initializing={initializing}
+          deviceVisible={deviceVisible}
+          deviceHint={deviceHint}
+          rememberedSession={rememberedSession}
+          openDevice={session.openDevice}
+          openWallet={session.openWallet}
+          setError={session.setError}
+          setDeviceVisible={session.setDeviceVisible}
+          onCreateWallet={openCreate}
+        />
+      );
+      break;
+    case 'picker':
+      content = (
+        <Picker
+          wallets={walletsOnNetwork}
+          activeProfile={activeProfile}
+          error={error}
+          switchError={switchError}
+          networkEditor={networkEditor}
+          selecting={selecting}
+          switchNetwork={session.switchNetwork}
+          setNetworkEditor={session.setNetworkEditor}
+          selectWallet={session.selectWallet}
+          createDefaultWallet={session.createDefaultWallet}
+          disconnect={session.disconnect}
+          onCreateWallet={openCreate}
+        />
+      );
+      break;
+    case 'loading':
+      content = (
+        <OpeningWallet
+          name={savedWallet?.name}
+          network={savedWallet?.network || activeProfile.network}
+          busy={connecting || selecting || refreshing}
+          onDisconnect={session.disconnect}
+        />
+      );
+      break;
+    // The phase already promises a client, and a snapshot for the wallet. The
+    // checks below only carry that promise to the compiler.
+    case 'offline':
+      content = client ? (
+        <OfflineWallet
+          name={savedWallet?.name}
+          network={savedWallet?.network || activeProfile.network}
+          setupError={savedWallet?.lfbw?.setupError}
+          error={switchError || error}
+          busy={refreshing || connecting || selecting}
+          networkEditor={networkEditor}
+          onRetryConnection={session.manualRefresh}
+          onRetrySetup={session.retrySetup}
+          onToggleNetwork={() => session.setNetworkEditor(!networkEditor)}
+          onApplyNetwork={session.switchNetwork}
+          onChooseWallet={session.chooseWallet}
+          onDisconnect={session.disconnect}
+          loadPhrase={() => client.getRecoveryPhrase()}
+        />
+      ) : null;
+      break;
+    case 'wallet':
+      content =
+        client && snapshot ? (
+          <View style={styles.stack}>
+            {error ? (
+              <Notice kind="error" icon="alert">
+                {`${REFRESH_FAILED} ${error}`}
+              </Notice>
+            ) : null}
+            {tab === 'Wallet' ? (
+              <HomeScreen
+                snapshot={snapshot}
+                hidden={hidden}
+                unit={unit}
+                stale={stale}
+                onSend={() => setSheet('send')}
+                onReceive={() => setSheet('receive')}
+                onScan={openScanner}
+                onActivity={showActivity}
+                onDetail={openDetail}
+                onToggleUnit={() => setUnit(unit === 'sats' ? 'btc' : 'sats')}
+              />
+            ) : tab === 'Activity' ? null : (
+              <SettingsScreen
+                snapshot={snapshot}
+                client={client}
+                switchError={switchError}
+                onDisconnect={() => {
+                  session.disconnect();
+                }}
+                onChooseWallet={session.chooseWallet}
+                onRefresh={session.manualRefresh}
+                onNetwork={session.switchNetwork}
+                onErase={session.eraseDevice}
+              />
+            )}
+          </View>
+        ) : null;
+      break;
   }
 
   // A pending backup sits above whatever screen is showing, the Activity list
   // included, rather than replacing it.
   const backupNotice =
-    backupPending && client ? (
+    backupPending(session) && client ? (
       <>
         <Notice kind="warning" icon="alert">
           Save your recovery phrase.
