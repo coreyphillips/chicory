@@ -1,6 +1,7 @@
 import React from 'react';
 import type { PropsWithChildren } from 'react';
 import { StyleSheet } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
 import Reanimated from 'react-native-reanimated';
 import { sceneIn, sceneOut } from '../../motion/presets';
 
@@ -9,12 +10,15 @@ import { sceneIn, sceneOut } from '../../motion/presets';
  * leaves with a short fade, so for a moment both are drawn and neither pops.
  * The canvas keys it by scene, so each open arrives afresh.
  */
-export function Arriving({ children }: PropsWithChildren) {
+export function Arriving({
+  style,
+  children,
+}: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
   return (
     <Reanimated.View
       entering={sceneIn()}
       exiting={sceneOut()}
-      style={styles.flex}
+      style={[styles.flex, style]}
     >
       {children}
     </Reanimated.View>

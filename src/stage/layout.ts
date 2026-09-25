@@ -25,8 +25,9 @@ export const HERO_MINI = 0.34;
 export const COVERED = { scale: 0.94, opacity: 0.5 };
 
 /**
- * About how long the pane spring takes to come to rest. Taps wait this long
- * at most, and only while a pane is actually moving.
+ * About how long the pane spring takes to look settled, which is well before
+ * its rest threshold reports rest. The transition lock lasts this long, so
+ * taps wait this long at most, and only while a pane is actually moving.
  */
 export const PANE_SETTLE_MS = 340;
 

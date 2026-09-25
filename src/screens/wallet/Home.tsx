@@ -1,5 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
+import Reanimated from 'react-native-reanimated';
+import type { AnimatedStyle } from 'react-native-reanimated';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import { Button, Card, IconButton, StatusDot } from '../../components/ui';
 import { MASK, amountIn, colors, space, type as typography } from '../../theme';
@@ -85,6 +88,8 @@ export function HomeScreen({
   onActivity,
   onDetail,
   onToggleUnit,
+  heroStyle,
+  barStyle,
 }: {
   snapshot: WalletSnapshot;
   hidden?: boolean;
@@ -96,19 +101,25 @@ export function HomeScreen({
   onActivity: () => void;
   onDetail: (item: Activity) => void;
   onToggleUnit?: () => void;
+  /** On the canvas, shrinks the balance toward the mini strip. */
+  heroStyle?: StyleProp<AnimatedStyle<StyleProp<ViewStyle>>>;
+  /** On the canvas, fades the action row. */
+  barStyle?: StyleProp<AnimatedStyle<StyleProp<ViewStyle>>>;
 }) {
   // On the canvas, Home stays drawn while other scenes show, so its controls
   // only get their handlers while its pane is the one in use.
   const live = usePaneActive();
   return (
     <View style={styles.stack}>
-      <BalanceHero
-        snapshot={snapshot}
-        hidden={hidden}
-        unit={unit}
-        onToggleUnit={onToggleUnit || (() => {})}
-      />
-      <View style={styles.actions}>
+      <Reanimated.View style={[styles.hero, heroStyle]}>
+        <BalanceHero
+          snapshot={snapshot}
+          hidden={hidden}
+          unit={unit}
+          onToggleUnit={onToggleUnit || (() => {})}
+        />
+      </Reanimated.View>
+      <Reanimated.View style={[styles.actions, barStyle]}>
         <View style={styles.action}>
           <Button
             label="Send"
@@ -138,7 +149,7 @@ export function HomeScreen({
             onPress={live ? onScan : undefined}
           />
         ) : null}
-      </View>
+      </Reanimated.View>
       <View style={styles.sectionHeading}>
         <Text style={styles.sectionLabel}>Activity</Text>
         <Pressable
@@ -180,6 +191,8 @@ export function HomeScreen({
 
 const styles = StyleSheet.create({
   stack: { gap: space.lg },
+  // Scaled from its top edge, so the mini strip sits under the status row.
+  hero: { transformOrigin: 'top' },
   balanceBlock: { paddingTop: space.md, paddingBottom: space.xs },
   balanceTop: {
     flexDirection: 'row',

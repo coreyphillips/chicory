@@ -30,8 +30,12 @@ const FADE = {
   reduceMotion: ReduceMotion.Never,
 };
 
-/** Every value a pose sets, each settling on its own. */
-const VALUES = 4;
+/**
+ * How long a move holds the transition lock. The pane spring looks settled
+ * by PANE_SETTLE_MS, but its rest threshold only reports rest near 630ms,
+ * so the lock follows a clock of its own rather than the springs.
+ */
+const SETTLE = { duration: PANE_SETTLE_MS, easing: curves.linear };
 
 /**
  * Drives the canvas's panes toward `layout`, the pose of the scene it shows
@@ -45,8 +49,11 @@ const VALUES = 4;
  * aimed for again.
  *
  * While the panes move, the transition lock holds: taps are refused and
- * `blocking` is true. Under Reduce Motion nothing travels, so the panes are
- * simply where they belong, the fades take 160ms, and nothing is locked.
+ * `blocking` is true. It lifts once the panes look settled, PANE_SETTLE_MS
+ * after the move starts, timed on the UI thread alongside the springs. A
+ * move that interrupts another ends the earlier lock and holds its own. Under
+ * Reduce Motion nothing travels, so the panes are simply where they belong,
+ * the fades take 160ms, and nothing is locked.
  */
 export function usePaneMotion(
   height: number,
@@ -60,6 +67,7 @@ export function usePaneMotion(
   const hero = useSharedValue(layout.hero);
   const bar = useSharedValue(layout.bar);
   const cover = useSharedValue(layout.covered ? 1 : 0);
+  const settling = useSharedValue(0);
   const aimed = useRef(layout);
 
   const aim = useCallback(
@@ -74,24 +82,20 @@ export function usePaneMotion(
         cover.set(withTiming(covered, FADE));
         return;
       }
-      // The lock lifts once every value has settled or been cut short by the
-      // next move, which then holds a lock of its own.
       const end = begin(PANE_SETTLE_MS);
-      let moving = VALUES;
       const settled = () => {
-        moving -= 1;
-        if (moving === 0) end();
-      };
-      const done = () => {
         'worklet';
-        scheduleOnRN(settled);
+        scheduleOnRN(end);
       };
-      seam.set(withSpring(at[next.seam], springs.pane, done));
-      hero.set(withSpring(next.hero, springs.pane, done));
-      bar.set(withSpring(next.bar, springs.pane, done));
-      cover.set(withSpring(covered, springs.pane, done));
+      seam.set(withSpring(at[next.seam], springs.pane));
+      hero.set(withSpring(next.hero, springs.pane));
+      bar.set(withSpring(next.bar, springs.pane));
+      cover.set(withSpring(covered, springs.pane));
+      // Restarting the clock cuts the last one short, which ends its lock.
+      settling.set(0);
+      settling.set(withTiming(1, SETTLE, settled));
     },
-    [at, reduced, begin, seam, hero, bar, cover],
+    [at, reduced, begin, seam, hero, bar, cover, settling],
   );
 
   // A new canvas size moves the stops out from under the seam, which follows

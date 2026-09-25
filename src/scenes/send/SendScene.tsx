@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { copy } from '../../design/copy';
 import { SendScreen } from '../../screens/Send';
 import type { WalletAdapter } from '../../services/wallet';
@@ -7,6 +8,7 @@ import { STATUS_ROW } from '../../stage/layout';
 import { Arriving } from '../../stage/panes/Arriving';
 import { SceneSlot } from '../../stage/panes/SceneSlot';
 import { useStage } from '../../stage/StageContext';
+import { colors } from '../../theme';
 
 /**
  * Send, in the top slot under the status row. `prefill` is the request a
@@ -28,7 +30,7 @@ export function SendScene({
 }) {
   const { actions } = useStage();
   return (
-    <Arriving>
+    <Arriving style={styles.ground}>
       <SceneSlot label={copy.scene.send} offset={STATUS_ROW}>
         <SendScreen
           client={client}
@@ -43,3 +45,9 @@ export function SendScene({
     </Arriving>
   );
 }
+
+const styles = StyleSheet.create({
+  // The balance stays drawn under the slot as the mini strip. Until the
+  // scene leaves it a place (REDESIGN.md 7, T1), it draws its own ground.
+  ground: { backgroundColor: colors.background },
+});

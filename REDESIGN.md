@@ -89,7 +89,7 @@ This branch (`redesign`) is an experimental redesign of the Chicory app. It is n
 - **Seam stops.** `home` = `max(insetTop + 380, 0.5H)`, `compact` = `insetTop + 72` (activity, detail), `gone` = `H + 24` (send, receive).
 - **Panes animate transforms and opacity only**, never flex, height or width.
 - **Keyed children with `entering`/`exiting`** give "mount incoming first, unmount outgoing after the fade".
-- **Tap lock.** A transition lock blocks taps while a pane moves (about 340ms).
+- **Tap lock.** A transition lock blocks taps while a pane moves. It lifts when the panes look settled, `PANE_SETTLE_MS` (340ms) after the move starts, timed by a clock of its own on the UI thread: the pane spring's rest callback only arrives near 630ms. A safety timeout ends it regardless.
 - **Settings** slides in from the right over the canvas. The canvas scales to .94 and dims to .5.
 - **Scan** is an overlay. It is a disc that scales up from the scan button, with its content counter-scaled so it stays still. On Android the camera is a SurfaceView, which ignores clipping, alpha and transforms. So the camera mounts only after the reveal finishes, full-bleed, under a cover that then fades out.
   - The canvas draws it above everything while `overlay.name` is `scan`. The panes stay drawn beneath it, out of use.

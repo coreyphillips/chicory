@@ -1,16 +1,22 @@
 import React from 'react';
 import { AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
+import * as Reanimated from 'react-native-reanimated';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
-import { HomePane } from '../src/scenes/home/HomePane';
 import { BackupBanner } from '../src/scenes/shared/BackupBanner';
 import { ActivityScreen, HomeScreen } from '../src/screens/Wallet';
 import { SettingsScreen } from '../src/screens/Settings';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import type { Backup } from '../src/stage/Canvas';
-import { COVERED, HERO_MINI, SCENE_LAYOUT, stops } from '../src/stage/layout';
+import {
+  COVERED,
+  HERO_MINI,
+  PANE_SETTLE_MS,
+  SCENE_LAYOUT,
+  stops,
+} from '../src/stage/layout';
 import type { CanvasSceneName } from '../src/stage/layout';
 import { Pane } from '../src/stage/panes/Pane';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
@@ -121,9 +127,16 @@ function panes(tree: ReactTestRenderer) {
 const host = (node: ReactTestInstance) =>
   node.findAll(inner => typeof inner.type === 'string')[0];
 
-/** What the home pane draws, which grows and fades with the panes. */
-const homeContent = (tree: ReactTestRenderer) =>
-  host(tree.root.findByType(HomePane));
+/**
+ * The balance, which shrinks toward the mini strip with `hero`, and the
+ * action row under it, which fades with `bar`: the first two things Home
+ * stacks.
+ */
+function homeParts(tree: ReactTestRenderer) {
+  const stack = host(tree.root.findByType(HomeScreen));
+  const [hero, bar] = stack.children as ReactTestInstance[];
+  return { hero, bar };
+}
 
 /** Where each stop is for the height the canvas has. */
 const at = (height = Dimensions.get('window').height) =>
@@ -189,14 +202,19 @@ describe('the canvas', () => {
     const tree = await render(<OnCanvas />);
     const expectPose = (name: CanvasSceneName) => {
       const pose = SCENE_LAYOUT[name];
-      const home = homeContent(tree);
+      const { hero, bar } = homeParts(tree);
       expect(transformOf(panes(tree).sheet, 'translateY')).toBe(
         at()[pose.seam],
       );
-      expect(flat(home).opacity).toBe(pose.bar);
-      expect(transformOf(home, 'scale')).toBeCloseTo(
+      expect(transformOf(hero, 'scale')).toBeCloseTo(
         HERO_MINI + (1 - HERO_MINI) * pose.hero,
       );
+      expect(flat(bar).opacity).toBe(pose.bar);
+      // Each value moves only its own part: the mini strip never fades
+      // with the action row, and the row never shrinks with the balance.
+      expect(flat(hero).opacity).toBeUndefined();
+      expect(flat(bar).transform).toBeUndefined();
+      expect(flat(host(panes(tree).home)).opacity).toBeUndefined();
     };
     expectPose('home');
     const steps: [() => void, CanvasSceneName][] = [
@@ -229,6 +247,24 @@ describe('the canvas', () => {
     expect(passThrough(tree)).toBe(resting - 3);
     await settle();
     expect(passThrough(tree)).toBe(resting);
+    await act(async () => stage.actions.back());
+    expect(stage.state.scene.name).toBe('home');
+    await act(async () => tree.unmount());
+  });
+
+  test('the lock lifts when the panes look settled, not when the springs come to rest', async () => {
+    const springs = jest.spyOn(Reanimated, 'withSpring');
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    const tree = await render(<OnCanvas />);
+    act(() => stage.actions.openSend());
+    expect(springs).toHaveBeenCalled();
+    for (const [, , done] of springs.mock.calls) expect(done).toBeUndefined();
+    const clocks = timings.mock.calls.filter(
+      ([, config]) => config?.duration === PANE_SETTLE_MS,
+    );
+    expect(clocks).toHaveLength(1);
+    expect(clocks[0][2]).toEqual(expect.any(Function));
+    await settle();
     await act(async () => stage.actions.back());
     expect(stage.state.scene.name).toBe('home');
     await act(async () => tree.unmount());
