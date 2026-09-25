@@ -23,6 +23,7 @@ import {
   Note,
   Row,
   Section,
+  SettingsNetwork,
   Toggle,
   testNetwork,
 } from '../scenes/settings/ui';
@@ -463,6 +464,8 @@ type Part = (typeof ORDER)[number];
  * While the recovery phrase still has to be saved, its section leads the
  * page in honey. Once the hold confirms it, it slides back to its place and
  * the others close up around it, the same instance throughout.
+ *
+ * On a test network the page draws in slate wherever it would draw bloom.
  */
 export function SettingsScreen({
   snapshot,
@@ -610,16 +613,18 @@ export function SettingsScreen({
   };
 
   return (
-    <View style={styles.page}>
-      {order.map(part => parts[part])}
-      <Text style={styles.about}>
-        {engineVersion
-          ? `${words.about.app(APP_VERSION)} · ${words.about.engine(
-              engineVersion,
-            )}`
-          : words.about.app(APP_VERSION)}
-      </Text>
-    </View>
+    <SettingsNetwork network={snapshot.wallet.network}>
+      <View style={styles.page}>
+        {order.map(part => parts[part])}
+        <Text style={styles.about}>
+          {engineVersion
+            ? `${words.about.app(APP_VERSION)} · ${words.about.engine(
+                engineVersion,
+              )}`
+            : words.about.app(APP_VERSION)}
+        </Text>
+      </View>
+    </SettingsNetwork>
   );
 }
 

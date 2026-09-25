@@ -1,4 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { ComponentRef, PropsWithChildren, ReactNode } from 'react';
 import {
   AppState,
@@ -54,6 +60,43 @@ import { drawPlan } from './motion';
  * word.
  */
 
+/** The accent a settings surface draws in, and the soft fill behind it. */
+export interface Accent {
+  accent: string;
+  soft: string;
+}
+
+const BLOOM: Accent = { accent: palette.bloom, soft: palette.bloomSoft };
+const SLATE: Accent = { accent: palette.slate, soft: palette.slateSoft };
+
+/**
+ * Bloom, or slate in its place for a wallet on a test network (REDESIGN.md
+ * 3.1, and 6, Wallet health: slate replaces bloom everywhere), so the one
+ * page that keeps words never draws play money in the colour of real money.
+ */
+export const accentFor = (test: boolean): Accent => (test ? SLATE : BLOOM);
+
+/**
+ * Whether what is drawn here is for a test network. Outside a provider it is
+ * not, as for a setup surface with no wallet yet.
+ */
+const TestNetwork = createContext(false);
+
+/** Draws everything under it in the tone of `network` (`accentFor`). */
+export function SettingsNetwork({
+  network,
+  children,
+}: PropsWithChildren<{ network: string }>) {
+  return (
+    <TestNetwork.Provider value={testNetwork(network)}>
+      {children}
+    </TestNetwork.Provider>
+  );
+}
+
+/** The accent for whatever is drawn here: bloom, or slate on a test network. */
+export const useAccent = (): Accent => accentFor(useContext(TestNetwork));
+
 /**
  * The copy guard's marker (REDESIGN.md rule 2). Everything under it is a
  * settings-class surface whose words may stay on screen; the guard reads the
@@ -98,16 +141,18 @@ function useForeground(): boolean {
  * Something is being worked on: an orbit turning once every 1400ms, which
  * stands where "Loading..." would have. It turns only while the app is in
  * front, holds still under Reduce Motion, and is decoration unless labelled.
+ * It is drawn in the accent unless given a colour.
  */
 export function Working({
   size = 20,
-  color = palette.bloom,
+  color,
   accessibilityLabel,
 }: {
   size?: number;
   color?: string;
   accessibilityLabel?: string;
 }) {
+  const { accent } = useAccent();
   const { reduced } = useMotionPrefs();
   const front = useForeground();
   const turn = useSharedValue(0);
@@ -137,7 +182,7 @@ export function Working({
       importantForAccessibility={labelled ? 'yes' : 'no-hide-descendants'}
       style={[{ width: size, height: size }, spin]}
     >
-      <Glyph name="orbit" size={size} color={color} />
+      <Glyph name="orbit" size={size} color={color ?? accent} />
     </Reanimated.View>
   );
 }
@@ -341,6 +386,7 @@ export function Section({
 }>) {
   const honey = tone === 'honey';
   const heading = useFocus(focus);
+  const { accent } = useAccent();
   return (
     <Reanimated.View
       entering={stagger(Math.min(index, CASCADE))}
@@ -360,7 +406,7 @@ export function Section({
                 <Glyph
                   name={glyph}
                   size={18}
-                  color={honey ? palette.honey : palette.bloom}
+                  color={honey ? palette.honey : accent}
                 />
               </View>
             </View>
@@ -503,10 +549,10 @@ function useShowing(): number {
  * label's middle. The switch sits in a box of its own that the row centres,
  * and takes `alignSelf: 'center'` itself.
  *
- * The colours are set for each platform: on both the track is bloom when on
- * and husk when off, with a cream thumb; iOS fills the off track with its own
- * grey unless given a background, so it takes husk as one, and its thumb is
- * told its colour again on each showing (`thumbTint`).
+ * The colours are set for each platform: on both the track is the accent
+ * when on and husk when off, with a cream thumb; iOS fills the off track with
+ * its own grey unless given a background, so it takes husk as one, and its
+ * thumb is told its colour again on each showing (`thumbTint`).
  */
 export function Toggle({
   label,
@@ -522,6 +568,7 @@ export function Toggle({
   onValueChange: (next: boolean) => void | Promise<void>;
 }) {
   const live = usePaneActive();
+  const { accent } = useAccent();
   const epoch = useShowing();
   const ios = Platform.OS === 'ios';
   return (
@@ -533,7 +580,7 @@ export function Toggle({
           accessibilityLabel={accessibilityLabel}
           value={value}
           disabled={disabled || !live}
-          trackColor={{ true: palette.bloom, false: palette.husk }}
+          trackColor={{ true: accent, false: palette.husk }}
           thumbColor={ios ? thumbTint(epoch) : palette.cream}
           ios_backgroundColor={ios ? palette.husk : undefined}
           style={styles.switch}
@@ -553,8 +600,8 @@ export function Toggle({
 
 /**
  * A text field with its label above it, which is also its name for a screen
- * reader. Its edge lights in bloom while it has focus. `focus` lands a screen
- * reader on it without raising the keyboard.
+ * reader. Its edge lights in the accent while it has focus. `focus` lands a
+ * screen reader on it without raising the keyboard.
  */
 export function Field({
   label,
@@ -566,6 +613,7 @@ export function Field({
   ...props
 }: TextInputProps & { label: string; focus?: boolean }) {
   const live = usePaneActive();
+  const { accent } = useAccent();
   const [focused, setFocused] = useState(false);
   const target = useFocus<ComponentRef<typeof TextInput>>(focus);
   return (
@@ -575,7 +623,7 @@ export function Field({
         ref={target}
         accessibilityLabel={label}
         placeholderTextColor={palette.dust}
-        selectionColor={palette.bloom}
+        selectionColor={accent}
         autoCorrect={false}
         multiline={multiline}
         {...props}
@@ -591,7 +639,7 @@ export function Field({
         style={[
           styles.input,
           multiline && styles.multiline,
-          focused && styles.inputFocused,
+          focused && { borderColor: accent },
         ]}
       />
     </View>
@@ -599,8 +647,8 @@ export function Field({
 }
 
 /**
- * The page's buttons: `primary` in bloom for the one thing a section is for,
- * `quiet` for the rest, and `danger` in radish for what cannot be undone.
+ * The page's buttons: `primary` in the accent for the one thing a section is
+ * for, `quiet` for the rest, and `danger` in radish for what cannot be undone.
  * A press dips on the snap spring; `busy` turns the glyph into an orbit.
  * `focus` lands a screen reader on it.
  */
@@ -624,6 +672,7 @@ export function Action({
   accessibilityHint?: string;
 }) {
   const live = usePaneActive();
+  const { accent } = useAccent();
   const { reduced } = useMotionPrefs();
   const target = useFocus(focus);
   const scale = useSharedValue(1);
@@ -661,6 +710,7 @@ export function Action({
         }
         style={[
           styles.action,
+          tone === 'primary' && { backgroundColor: accent },
           tone === 'quiet' && styles.actionQuiet,
           tone === 'danger' && styles.actionDanger,
           inactive && styles.inactive,
@@ -678,8 +728,9 @@ export function Action({
 }
 
 /**
- * A lighter control, set in words: a way out, a change, a cancel. `focus`
- * lands a screen reader on it.
+ * A lighter control, set in words: a way out, a change, a cancel. Its `bloom`
+ * tone is the accent, so slate on a test network. `focus` lands a screen
+ * reader on it.
  */
 export function Link({
   label,
@@ -697,13 +748,14 @@ export function Link({
   focus?: boolean;
 }) {
   const live = usePaneActive();
+  const { accent } = useAccent();
   const target = useFocus(focus);
   const ink =
     tone === 'radish'
       ? palette.radish
       : tone === 'steam'
       ? palette.steam
-      : palette.bloom;
+      : accent;
   return (
     <Pressable
       ref={target}
@@ -807,17 +859,17 @@ export function NetworkChoice<T extends string>({
 
 type NoteTone = 'info' | 'pending' | 'success' | 'warning' | 'error';
 
-const NOTE: Record<
-  NoteTone,
-  { glyph: GlyphName; ink: string; fill: string; draw: boolean }
-> = {
+interface NoteLook {
+  glyph: GlyphName;
+  ink: string;
+  fill: string;
+  draw: boolean;
+}
+
+// Something in flight is drawn in the accent, so its ink and fill are the
+// accent's (`noteLook`).
+const NOTE: Record<Exclude<NoteTone, 'pending'>, NoteLook> = {
   info: { glyph: 'info', ink: palette.steam, fill: palette.mocha, draw: false },
-  pending: {
-    glyph: 'orbit',
-    ink: palette.bloom,
-    fill: palette.bloomSoft,
-    draw: false,
-  },
   success: {
     glyph: 'check',
     ink: palette.sage,
@@ -838,6 +890,14 @@ const NOTE: Record<
   },
 };
 
+/** How a note of `tone` is drawn, in `accent` when it is in flight. */
+export function noteLook(tone: NoteTone, { accent, soft }: Accent): NoteLook {
+  if (tone === 'pending') {
+    return { glyph: 'orbit', ink: accent, fill: soft, draw: false };
+  }
+  return NOTE[tone];
+}
+
 /**
  * A line that matters: a safety line in honey, an outcome, or an error in
  * radish. It rises into place, and an outcome's check or bang draws itself
@@ -856,7 +916,7 @@ export function Note({
   focus?: boolean;
   children: string;
 }) {
-  const look = NOTE[tone];
+  const look = noteLook(tone, useAccent());
   const shape = glyph ?? look.glyph;
   const target = useFocus(focus);
   const error = tone === 'error';
@@ -1073,13 +1133,11 @@ const styles = StyleSheet.create({
     color: palette.cream,
     fontSize: 16,
   },
-  inputFocused: { borderColor: palette.bloom },
   multiline: { minHeight: 96, textAlignVertical: 'top' },
 
   action: {
     minHeight: 52,
     borderRadius: radius.round,
-    backgroundColor: palette.bloom,
     paddingHorizontal: space.lg,
     paddingVertical: space.sm,
     flexDirection: 'row',

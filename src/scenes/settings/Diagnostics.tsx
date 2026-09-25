@@ -115,11 +115,7 @@ export function Diagnostics({
           <RecentErrors entries={errors} />
           {error ? <Note tone="error">{error}</Note> : null}
           {busy && !report ? (
-            <Working
-              size={24}
-              accessibilityLabel={words.loading}
-              color={palette.bloom}
-            />
+            <Working size={24} accessibilityLabel={words.loading} />
           ) : null}
           {report ? (
             <View style={styles.errors}>
