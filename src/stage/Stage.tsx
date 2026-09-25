@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Notice } from '../components/ui';
 import { RecoveryPhrase } from '../components/RecoveryPhrase';
 import { copy } from '../design/copy';
+import { WhisperProvider } from '../glyphs/Whisper';
 import { useStaleAfter } from '../services/clock';
 import { useEnter } from '../services/motion';
 import { STALE_AFTER_MS } from '../services/useWalletSession';
@@ -231,47 +232,51 @@ export function Stage({
         onCreated={wallet => session.selectWallet(wallet, true)}
       />
     ) : null;
+  // The whisper pill is drawn above every phase and the canvas alike, from
+  // the window's own origin, so it lands where the finger is.
   return (
-    <SafeAreaView
-      style={styles.root}
-      edges={['top', 'bottom', 'left', 'right']}
-    >
-      <StatusBar barStyle="light-content" />
-      <View style={styles.root}>
-        {phase.kind === 'wallet' ? (
-          content
-        ) : (
-          <View
-            style={styles.root}
-            importantForAccessibility={
-              creating ? 'no-hide-descendants' : 'auto'
-            }
-            accessibilityElementsHidden={!!creating}
-          >
-            <SceneSlot
-              refreshControl={
-                client && walletId && !closing && !switching ? (
-                  // The phase views show their own wait, so the pull only
-                  // starts a refresh.
-                  <RefreshControl
-                    refreshing={false}
-                    onRefresh={session.manualRefresh}
-                    tintColor={colors.primary}
-                    colors={[colors.primary]}
-                  />
-                ) : undefined
+    <WhisperProvider>
+      <SafeAreaView
+        style={styles.root}
+        edges={['top', 'bottom', 'left', 'right']}
+      >
+        <StatusBar barStyle="light-content" />
+        <View style={styles.root}>
+          {phase.kind === 'wallet' ? (
+            content
+          ) : (
+            <View
+              style={styles.root}
+              importantForAccessibility={
+                creating ? 'no-hide-descendants' : 'auto'
               }
+              accessibilityElementsHidden={!!creating}
             >
-              <Animated.View style={[enter, styles.stack]}>
-                {backup}
-                {content}
-              </Animated.View>
-            </SceneSlot>
-          </View>
-        )}
-        {creating}
-      </View>
-    </SafeAreaView>
+              <SceneSlot
+                refreshControl={
+                  client && walletId && !closing && !switching ? (
+                    // The phase views show their own wait, so the pull only
+                    // starts a refresh.
+                    <RefreshControl
+                      refreshing={false}
+                      onRefresh={session.manualRefresh}
+                      tintColor={colors.primary}
+                      colors={[colors.primary]}
+                    />
+                  ) : undefined
+                }
+              >
+                <Animated.View style={[enter, styles.stack]}>
+                  {backup}
+                  {content}
+                </Animated.View>
+              </SceneSlot>
+            </View>
+          )}
+          {creating}
+        </View>
+      </SafeAreaView>
+    </WhisperProvider>
   );
 }
 Stage.displayName = 'Stage';

@@ -98,6 +98,9 @@ export const copy = {
   },
 
   amount: {
+    /** How any amount is read out, whatever unit is on screen. */
+    spoken: (value: number) => sats(value),
+    hidden: 'Amount hidden',
     field: 'Amount in sats',
     preset: (value: number) => number(value),
     any: 'Any amount',
