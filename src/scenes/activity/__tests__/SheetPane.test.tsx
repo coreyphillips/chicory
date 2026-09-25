@@ -18,6 +18,7 @@ import { DemoWalletClient } from '@beignet/wallet-core';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
 import { haptics } from '../../../design/haptics';
+import { palette } from '../../../design/palette';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
 import type { Backup } from '../../../stage/Canvas';
 import { buildBeats, stops } from '../../../stage/layout';
@@ -35,6 +36,7 @@ import {
   snapshotOf,
 } from '../../../../test-support/fixtures';
 import {
+  drawnIn,
   field,
   meaning,
   press,
@@ -534,6 +536,26 @@ describe('the rows', () => {
     rowsOf(tree).forEach((row, index) =>
       expect(row.props.item).toBe(before[index]),
     );
+    await act(async () => tree.unmount());
+  });
+
+  test('in BTC a row keeps all eight decimals, as the hero, its trailing zeros in dust', async () => {
+    const received = activityOf('received', 'completed', { amountSats: 5_000 });
+    const tree = await render(
+      <ActivityRow item={received} onPress={jest.fn()} unit="btc" />,
+    );
+    // The amount's text, which holds its dust zeros and its unit.
+    const [figure] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.children.includes('+0.00005'),
+    );
+    expect(drawnIn(figure)).toBe('+0.00005000 BTC');
+    const dust = figure.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        StyleSheet.flatten(node.props.style)?.color === palette.dust,
+    );
+    expect(dust.map(node => node.children)).toEqual([['000']]);
     await act(async () => tree.unmount());
   });
 

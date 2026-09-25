@@ -1,6 +1,8 @@
 import type { Activity } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import type { GlyphName } from '../../design/glyphs';
+import { btc, number } from '../../theme';
+import type { Unit } from '../../theme';
 
 /**
  * What a payment's ring shows (REDESIGN.md 6, Activity row). Colour, the
@@ -169,6 +171,35 @@ export function amountVisual(item: Activity): AmountVisual {
     return { tone: 'steam', weight: '400', sign, open, struck: false };
   }
   return { tone: 'cream', weight: '400', sign, open, struck: false };
+}
+
+/** A BTC amount's decimals, all of them, as the hero draws it. */
+const BTC_DECIMALS = 8;
+
+/**
+ * An amount as a row or a line draws it, the way the Odometer draws the hero
+ * (REDESIGN.md 5, Odometer): sats grouped in threes, and BTC with all eight
+ * decimals, the zeros after the last significant one set apart as `dim` to
+ * be drawn in dust. So a row in BTC lines up with the hero above it. An
+ * amount with no significant decimal at all, a fee of nothing or a whole
+ * bitcoin, is drawn whole: a point with nothing after it reads as no number.
+ */
+export function figureOf(
+  sats: number,
+  unit: Unit,
+): { value: string; dim: string; suffix: string } {
+  if (unit === 'sats') return { value: number(sats), dim: '', suffix: 'sats' };
+  const text = btc(sats);
+  const [whole, fraction = ''] = text.split('.');
+  if (!/^\d+$/.test(whole)) return { value: text, dim: '', suffix: 'BTC' };
+  const decimals = fraction.padEnd(BTC_DECIMALS, '0');
+  const kept = decimals.replace(/0+$/, '');
+  if (!kept) return { value: `${whole}.${decimals}`, dim: '', suffix: 'BTC' };
+  return {
+    value: `${whole}.${kept}`,
+    dim: decimals.slice(kept.length),
+    suffix: 'BTC',
+  };
 }
 
 /** An expired row steps back, so the ones still in play lead. */

@@ -27,7 +27,6 @@ import { usePaneActive } from '../../stage/panes/Pane';
 import type { Rect } from '../../stage/scene';
 import {
   MASK,
-  amountIn,
   dateLabel,
   radius,
   space,
@@ -52,6 +51,7 @@ import {
   EXPIRED_OPACITY,
   RAIL_GLYPH,
   amountVisual,
+  figureOf,
   railOf,
   ringFlags,
   ringVisual,
@@ -161,7 +161,7 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   const status = activityStatus(item);
   const ring = ringVisual(item);
   const look = amountVisual(item);
-  const amount = amountIn(item.amountSats, unit);
+  const amount = figureOf(item.amountSats, unit);
   const label = hidden
     ? copy.activity.rowHidden(item.title, status)
     : look.open
@@ -217,6 +217,10 @@ export const ActivityRow = React.memo(function ActivityRowItem({
                   ]}
                 >
                   {hidden ? MASK : `${look.sign}${amount.value}`}
+                  {/* A BTC amount's trailing zeros, in dust, as the hero. */}
+                  {!hidden && amount.dim ? (
+                    <Text style={styles.dim}>{amount.dim}</Text>
+                  ) : null}
                   <Text style={styles.unit}> {amount.suffix}</Text>
                 </Text>
                 <Strike struck={look.struck} />
@@ -300,6 +304,7 @@ const styles = StyleSheet.create({
   middle: { flex: 1, gap: NOTE_GAP, justifyContent: 'center' },
   amount: { alignSelf: 'flex-start' },
   figure: { ...typography.row },
+  dim: { color: palette.dust },
   unit: { ...typography.meta, color: palette.steam, fontWeight: '400' },
   strike: {
     position: 'absolute',

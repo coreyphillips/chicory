@@ -18,6 +18,7 @@ import { announceSafety } from '../../motion/speech';
 import {
   RAIL_GLYPH,
   amountVisual,
+  figureOf,
   railOf,
   ringVisual,
 } from '../../scenes/activity/visual';
@@ -33,13 +34,7 @@ import {
   lineIn,
 } from '../../scenes/detail/motion';
 import type { WalletAdapter } from '../../services/wallet';
-import {
-  MASK,
-  amountIn,
-  dateLabel,
-  space,
-  type as typography,
-} from '../../theme';
+import { MASK, dateLabel, space, type as typography } from '../../theme';
 import type { Unit } from '../../theme';
 
 /**
@@ -96,7 +91,7 @@ export function DetailScreen({
   const [entering] = useState(() => headerIn(flight, item));
 
   const date = dateLabel(item.timestamp);
-  const fee = amountIn(item.feeSats, unit);
+  const fee = figureOf(item.feeSats, unit);
   const feeUnknown = item.feeKnown === false;
   const feeLabel = feeUnknown
     ? copy.detail.feeUnavailable
@@ -217,7 +212,16 @@ export function DetailScreen({
                 </Text>
               ) : null}
               <Text style={styles.value} maxFontSizeMultiplier={LINE_CAP}>
-                {hidden ? MASK : `${fee.value} ${fee.suffix}`}
+                {hidden ? (
+                  MASK
+                ) : fee.dim ? (
+                  <>
+                    {fee.value}
+                    <Text style={styles.dim}>{fee.dim}</Text> {fee.suffix}
+                  </>
+                ) : (
+                  `${fee.value} ${fee.suffix}`
+                )}
               </Text>
             </>
           )}
@@ -347,5 +351,6 @@ const styles = StyleSheet.create({
   },
   value: { ...typography.row, color: palette.cream },
   note: { flex: 1, color: palette.steam },
+  dim: { color: palette.dust },
   chips: { gap: space.xs },
 });

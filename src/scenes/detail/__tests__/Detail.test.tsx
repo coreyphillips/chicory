@@ -220,6 +220,25 @@ describe('the detail', () => {
     ]);
   });
 
+  test('in BTC its fee keeps all eight decimals, as the hero, the trailing zeros in dust', async () => {
+    const item = { ...EVERY['sent completed'], feeSats: 1_000 };
+    const tree = await render(<DetailScreen item={item} unit="btc" />);
+    const line = spoken(tree, 'Fee, 1,000 sats');
+    // Read in the order it is drawn, nested text and all.
+    const read = (node: ReactTestInstance): string =>
+      node.children
+        .map(child => (typeof child === 'string' ? child : read(child)))
+        .join('');
+    expect(read(line)).toBe('0.00001000 BTC');
+    const dust = line.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        StyleSheet.flatten(node.props.style)?.color === palette.dust,
+    );
+    expect(dust.map(node => node.children)).toEqual([['000']]);
+    await act(async () => tree.unmount());
+  });
+
   test('keeps a hidden balance hidden, in what it shows and what it says', async () => {
     const item = EVERY['sent completed'];
     const tree = await render(<DetailScreen item={item} hidden />);
