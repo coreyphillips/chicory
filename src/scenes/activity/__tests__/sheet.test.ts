@@ -94,8 +94,20 @@ describe('what moves with the sheet', () => {
 
   test('the list gives back the bar’s room at home and takes it as it opens', () => {
     expect(listShift(0)).toBe(-BAR_HEIGHT);
-    expect(listShift(0.8)).toBeCloseTo(-BAR_HEIGHT / 2);
+    expect(listShift(0.3)).toBe(-BAR_HEIGHT);
+    expect(listShift(0.5)).toBeCloseTo(-BAR_HEIGHT / 2);
+    expect(listShift(0.7)).toBeCloseTo(0);
     expect(listShift(1)).toBeCloseTo(0);
+  });
+
+  test('the rows make room before the bar fades in over them', () => {
+    // A day header sits at the top of the list: had the list still been
+    // up over the bar's place, the bar's glyphs would fade in over it.
+    for (let progress = 0; progress <= 1; progress += 0.01) {
+      if (filterFor(progress) > 0) {
+        expect(listShift(progress)).toBeGreaterThanOrEqual(-BAR_HEIGHT / 4);
+      }
+    }
   });
 });
 
