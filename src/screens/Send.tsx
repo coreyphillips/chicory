@@ -6,7 +6,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import type { Ref } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Reanimated, {
   useAnimatedStyle,
@@ -31,6 +31,7 @@ import type { GlyphName } from '../design/glyphs';
 import { haptics } from '../design/haptics';
 import { gradients, palette } from '../design/palette';
 import { CopyChip } from '../glyphs/CopyChip';
+import { sceneIn, sceneOut } from '../motion/presets';
 import { durations } from '../motion/tokens';
 import { AmountReadout } from '../scenes/keypad/AmountReadout';
 import { digitsOnly, grouped } from '../scenes/keypad/keys';
@@ -116,7 +117,9 @@ function FailedTint() {
  * well and the amount on the keypad; review lays out the sum and holds the
  * payment behind a 700ms hold inside the quote's countdown; the result is a
  * mark that says how it went. A request whose earlier payment is pending or
- * unknown never reaches a review: it lands on the held ring (rule 6).
+ * unknown never reaches a review: it lands on the held ring (rule 6). The
+ * request holds its place from step to step while what is under it
+ * crossfades, so each step blends into the next rather than replacing it.
  *
  * The screen says nothing in words. Each state is a glyph, a ring, a colour
  * and a motion, and its words are what a screen reader hears and what a long
@@ -470,22 +473,20 @@ export function SendScreen({
     return <Scanner onDetected={accept} onCancel={() => setScanning(false)} />;
   }
 
-  // The request as a chip, which past compose can only be opened to edit.
-  const chip = (onExpand?: () => void) => (
-    <RequestEntry
-      accessibilityLabel={copy.send.request}
-      value={request}
-      collapsed
-      onExpand={onExpand}
-      fixed={fixedSats !== null}
-    />
-  );
-
   function typed(text: string) {
     setRequest(text);
     setCollapsed(false);
     setFailure(null);
   }
+
+  const step = result
+    ? 'result'
+    : held
+    ? 'held'
+    : review
+    ? 'review'
+    : 'compose';
+  let content: ReactNode;
 
   if (result) {
     const visual = resultVisual(result.status);
@@ -499,8 +500,8 @@ export function SendScreen({
       ) ?? null;
     const failed = result.status === 'failed';
     const uncertain = result.status === 'uncertain';
-    return (
-      <View style={styles.screen} onTouchStart={() => setStayed(true)}>
+    content = (
+      <>
         {failed ? <FailedTint /> : null}
         <View style={styles.body}>
           <ResultMark
@@ -565,17 +566,13 @@ export function SendScreen({
             onPress={live ? onActivity : undefined}
           />
         </View>
-      </View>
+      </>
     );
-  }
-
-  if (held) {
+  } else if (held) {
     const item = held.item;
     const shown = item?.amountSats ?? fixedSats;
-    return (
-      <View style={styles.screen}>
-        {/* The chip opens to take another request; this one stays held. */}
-        {chip(() => setCollapsed(false))}
+    content = (
+      <>
         <View style={styles.body}>
           <ResultMark
             visual={resultVisual('uncertain')}
@@ -602,14 +599,11 @@ export function SendScreen({
             onPress={live ? onActivity : undefined}
           />
         </View>
-      </View>
+      </>
     );
-  }
-
-  if (review) {
-    return (
-      <View style={styles.screen}>
-        {chip(busy ? undefined : edit)}
+  } else if (review) {
+    content = (
+      <>
         <View style={styles.body}>
           <Amount sats={review.amountSats} />
           {review.description ? (
@@ -644,86 +638,114 @@ export function SendScreen({
             {failure ? <FailureMark failure={failure} /> : null}
           </View>
         </View>
-      </View>
+      </>
+    );
+  } else {
+    const amountFailure = failure?.target === 'amount' ? failure : null;
+    const shownAmount = fixedSats === null ? amount : String(fixedSats);
+    const tone: AmountTone = amountFailure
+      ? amountFailure.tone === 'honey'
+        ? 'over-spendable'
+        : 'over-total'
+      : amountTone(Number(shownAmount) || 0, balance);
+    const hint = [
+      fixedSats === null ? null : copy.amount.fixed,
+      TONE_WORDS[tone],
+      amountFailure?.message,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    content = (
+      <>
+        <AmountReadout
+          accessibilityLabel={copy.amount.field}
+          value={grouped(shownAmount)}
+          onChangeText={
+            live
+              ? text => {
+                  setAmount(digitsOnly(text));
+                  if (amountFailure) setFailure(null);
+                }
+              : undefined
+          }
+          hint={hint || undefined}
+          editable={fixedSats === null}
+          busy={busy}
+          tone={tone}
+        />
+        <View style={styles.controls}>
+          <View style={styles.side} />
+          <CircleControl
+            accessibilityLabel={copy.send.review}
+            accessibilityHint={
+              disabled
+                ? copy.send.stale
+                : busy
+                ? copy.send.preparing
+                : undefined
+            }
+            onPress={
+              !live || busy
+                ? undefined
+                : disabled
+                ? onRefresh
+                : request.trim()
+                ? prepare
+                : undefined
+            }
+            busy={busy}
+            stale={disabled}
+          />
+          <View style={styles.side}>
+            {failure && failure.target !== 'request' ? (
+              <FailureMark failure={failure} />
+            ) : null}
+          </View>
+        </View>
+      </>
     );
   }
 
-  const amountFailure = failure?.target === 'amount' ? failure : null;
-  const shownAmount = fixedSats === null ? amount : String(fixedSats);
-  const tone: AmountTone = amountFailure
-    ? amountFailure.tone === 'honey'
-      ? 'over-spendable'
-      : 'over-total'
-    : amountTone(Number(shownAmount) || 0, balance);
-  const hint = [
-    fixedSats === null ? null : copy.amount.fixed,
-    TONE_WORDS[tone],
-    amountFailure?.message,
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const composing = step === 'compose';
   return (
     <View style={styles.screen}>
-      <RequestEntry
-        accessibilityLabel={copy.send.request}
-        value={request}
-        onChangeText={live ? typed : undefined}
-        collapsed={collapsed}
-        onExpand={busy ? undefined : () => setCollapsed(false)}
-        onCollapse={() => setCollapsed(request.trim() !== '')}
-        fixed={fixedSats !== null}
-        refused={failure?.target === 'request' ? failure : null}
-        busy={busy}
-        onPaste={paste}
-        onScan={scan}
-      />
-      <AmountReadout
-        accessibilityLabel={copy.amount.field}
-        value={grouped(shownAmount)}
-        onChangeText={
-          live
-            ? text => {
-                setAmount(digitsOnly(text));
-                if (amountFailure) setFailure(null);
-              }
-            : undefined
-        }
-        hint={hint || undefined}
-        editable={fixedSats === null}
-        busy={busy}
-        tone={tone}
-      />
-      <View style={styles.controls}>
-        <View style={styles.side} />
-        <CircleControl
-          accessibilityLabel={copy.send.review}
-          accessibilityHint={
-            disabled ? copy.send.stale : busy ? copy.send.preparing : undefined
+      {/* The request stays in place from step to step, a well while it is
+          composed and a chip after, so only what changes crossfades. A
+          chip past compose opens back to compose: from a review to edit
+          the payment, from the held ring to take another request. */}
+      {result ? null : (
+        <RequestEntry
+          accessibilityLabel={copy.send.request}
+          value={request}
+          onChangeText={composing && live ? typed : undefined}
+          collapsed={!composing || collapsed}
+          onExpand={
+            busy ? undefined : review ? edit : () => setCollapsed(false)
           }
-          onPress={
-            !live || busy
-              ? undefined
-              : disabled
-              ? onRefresh
-              : request.trim()
-              ? prepare
-              : undefined
-          }
+          onCollapse={() => setCollapsed(request.trim() !== '')}
+          fixed={fixedSats !== null}
+          refused={composing && failure?.target === 'request' ? failure : null}
           busy={busy}
-          stale={disabled}
+          onPaste={composing ? paste : undefined}
+          onScan={composing ? scan : undefined}
         />
-        <View style={styles.side}>
-          {failure && failure.target !== 'request' ? (
-            <FailureMark failure={failure} />
-          ) : null}
-        </View>
-      </View>
+      )}
+      <Reanimated.View
+        key={step}
+        entering={sceneIn()}
+        exiting={sceneOut()}
+        onTouchStart={result ? () => setStayed(true) : undefined}
+        style={styles.step}
+      >
+        {content}
+      </Reanimated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, gap: space.lg },
+  step: { flexGrow: 1, gap: space.lg },
   body: {
     flexGrow: 1,
     alignItems: 'center',
