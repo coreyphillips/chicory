@@ -5,17 +5,26 @@ import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import Clipboard from '@react-native-clipboard/clipboard';
 import HapticFeedback from 'react-native-haptic-feedback';
+import { Path } from 'react-native-svg';
 import { parsePayment } from '@beignet/wallet-core';
+import type { SendResult, SendReview } from '@beignet/wallet-core';
 import { announce } from '../../../design/announce';
 import { copy } from '../../../design/copy';
+import { GLYPHS } from '../../../design/glyphs';
 import { SendScreen } from '../../../screens/Send';
 import {
   clearDiagnostics,
   recentDiagnostics,
 } from '../../../services/diagnosticLog';
 import type { WalletAdapter } from '../../../services/wallet';
-import { clearHeldRequests } from '../../../stage/heldRequests';
-import { alerts, field, press } from '../../../../test-support/query';
+import { clearHeldRequests, holdRequest } from '../../../stage/heldRequests';
+import {
+  activate,
+  alerts,
+  field,
+  find,
+  press,
+} from '../../../../test-support/query';
 
 jest.mock('../../../design/announce', () => ({ announce: jest.fn() }));
 
@@ -23,7 +32,8 @@ jest.mock('../../../design/announce', () => ({ announce: jest.fn() }));
  * A request as it enters Send (REDESIGN.md 6, Engine errors): one the parser
  * refuses is refused as it arrives, in the well with a cross, and never
  * takes the accepted chip first, so no amount is keyed for a request that
- * cannot be paid.
+ * cannot be paid. Past a payment, the way to the history is never the orbit
+ * that says money is moving.
  */
 const ADDRESS = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
 const LNURL =
@@ -40,6 +50,19 @@ const said = jest.mocked(announce);
 const felt = () =>
   jest.mocked(HapticFeedback.trigger).mock.calls.map(([kind]) => kind);
 const logged = () => recentDiagnostics().map(entry => entry.code);
+
+const quote: SendReview = {
+  id: 'review-entry',
+  destination: 'recipient',
+  description: '',
+  amountSats: 4_200,
+  feeSats: 20,
+  feeLabel: 'Maximum fee',
+  totalSats: 4_220,
+  route: 'bitcoin',
+  expiresAt: Date.now() + 600_000,
+  warnings: [],
+};
 
 type Props = Partial<React.ComponentProps<typeof SendScreen>>;
 
@@ -138,6 +161,49 @@ describe('a request the parser reads', () => {
     );
     await leave(tree);
     expect(chipped(tree)).toBe(true);
+    await act(async () => tree.unmount());
+  });
+});
+
+/** The paths the control labelled `label` draws. */
+function drawnBy(tree: ReactTestRenderer, label: string): string[] {
+  const control = find(tree, label);
+  if (!control) throw new Error(`No control labelled "${label}".`);
+  return control.findAllByType(Path).map(path => path.props.d);
+}
+
+describe('the way to the history', () => {
+  const ORBIT = GLYPHS.orbit.map(part => part.d);
+
+  test('under a payment that is done is not the orbit of money moving', async () => {
+    const sent: SendResult = {
+      id: 'p-entry',
+      status: 'completed',
+      amountSats: 4_200,
+      feeSats: 0,
+      txid: 'a'.repeat(64),
+      message: 'Sent.',
+    };
+    const tree = await draw(
+      {
+        prepareSend: jest.fn().mockResolvedValue(quote),
+        send: jest.fn().mockResolvedValue(sent),
+      },
+      { initialRequest: ADDRESS },
+    );
+    await press(tree, copy.send.review);
+    await activate(tree, copy.send.sendSats(4_200));
+    const glyph = drawnBy(tree, copy.send.viewActivity);
+    expect(glyph).not.toEqual([]);
+    expect(glyph).not.toEqual(ORBIT);
+    await act(async () => tree.unmount());
+  });
+
+  test('under the held ring is not the orbit either', async () => {
+    const request = `bitcoin:${ADDRESS}?label=entry-held`;
+    holdRequest(request, { status: 'uncertain' });
+    const tree = await draw({}, { initialRequest: request });
+    expect(drawnBy(tree, copy.send.viewActivity)).not.toEqual(ORBIT);
     await act(async () => tree.unmount());
   });
 });

@@ -88,6 +88,13 @@ const shownIn = (sats: number, unit: Unit) => {
   return `${value} ${suffix}`;
 };
 
+/**
+ * The control under a result that opens the history. An orbit there would
+ * read as money still moving, under a payment that is done or held, so it
+ * is `restore`: an arrow turning back round a list, the history's shape.
+ */
+const ACTIVITY_GLYPH: GlyphName = 'restore';
+
 /** A quote this close to running out is said aloud once. */
 const LATE_MS = 10_000;
 
@@ -741,7 +748,7 @@ export function SendScreen({
         </View>
         <View style={[styles.controls, styles.centred]}>
           <GlyphButton
-            glyph="orbit"
+            glyph={ACTIVITY_GLYPH}
             accessibilityLabel={copy.send.viewActivity}
             onPress={live ? onActivity : undefined}
           />
@@ -782,7 +789,7 @@ export function SendScreen({
         </View>
         <View style={[styles.controls, styles.centred]}>
           <GlyphButton
-            glyph="orbit"
+            glyph={ACTIVITY_GLYPH}
             accessibilityLabel={copy.send.viewActivity}
             onPress={live ? onActivity : undefined}
           />
