@@ -10,7 +10,8 @@
  * the camera. It runs over fake data and a wallet that answers at once,
  * holds each state for DWELL_MS once reached, and never opens a vault,
  * starts the engine or reaches the secure store or the clipboard
- * (gallery/sealed.ts).
+ * (gallery/sealed.ts). A state reached by steps takes as long as the phone
+ * does: each step waits for its control before it acts (gallery/drive.ts).
  *
  * The number in the corner is the state's index. Each state is logged as it
  * comes up, as `GALLERY <index> <name>`, so the last line before a crash
@@ -28,7 +29,7 @@ import { ToastProvider } from '../src/components/Toast';
 import { wakeAmbient } from '../src/motion/ambient';
 import { clearHeldRequests } from '../src/stage/heldRequests';
 import { colors } from '../src/theme';
-import { Probe, driver, report } from './gallery/drive';
+import { Probe, perform, report } from './gallery/drive';
 import { GLYPHS } from './gallery/glyphs';
 import { PAYMENTS } from './gallery/payments';
 import { SCENES } from './gallery/scenes';
@@ -36,8 +37,6 @@ import type { Take } from './gallery/shots';
 
 /** How long a state holds once its steps have brought it about. */
 export const DWELL_MS = 1200;
-/** The time between the steps that bring a state about. */
-export const STEP_MS = 150;
 
 export const SHOTS = [...GLYPHS, ...SCENES, ...PAYMENTS];
 
@@ -63,19 +62,11 @@ export function Gallery() {
     wakeAmbient();
     const take = shot.make();
     setDrawn(last => ({ take, name: shot.name, key: (last?.key ?? 0) + 1 }));
-    const drive = driver(probe, shot.name);
-    const steps = take.steps ?? [];
-    const timers = steps.map((step, at) =>
-      setTimeout(() => step(drive), STEP_MS * (at + 1)),
-    );
-    timers.push(
-      setTimeout(() => {
-        const last = index === SHOTS.length - 1;
-        if (last) console.log('GALLERY COMPLETE');
-        setCursor({ index: last ? 0 : index + 1, lap: last ? lap + 1 : lap });
-      }, STEP_MS * steps.length + DWELL_MS),
-    );
-    return () => timers.forEach(clearTimeout);
+    return perform(probe, shot.name, take.steps ?? [], DWELL_MS, () => {
+      const last = index === SHOTS.length - 1;
+      if (last) console.log('GALLERY COMPLETE');
+      setCursor({ index: last ? 0 : index + 1, lap: last ? lap + 1 : lap });
+    });
   }, [cursor]);
 
   return (

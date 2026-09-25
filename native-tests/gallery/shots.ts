@@ -2,7 +2,11 @@ import { createElement, useSyncExternalStore } from 'react';
 import type { ReactElement } from 'react';
 import type { Drive } from './drive';
 
-/** One thing done to a state on the way to what it shows. */
+/**
+ * One thing done to a state on the way to what it shows. A step reaches for
+ * one control at most, and is run again until that control is there to use
+ * (drive.ts, `perform`), so it does nothing else before it reaches.
+ */
 export type Step = (drive: Drive) => void;
 
 /** Taps the control labelled `label`. */
