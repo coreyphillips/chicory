@@ -24,7 +24,7 @@ import type { OdometerVariant } from '../src/glyphs/Odometer';
 import { PulseDot } from '../src/glyphs/PulseDot';
 import { StatusRing, ringColor } from '../src/glyphs/StatusRing';
 import type { RingVisual } from '../src/glyphs/StatusRing';
-import { Vessel } from '../src/glyphs/Vessel';
+import { Vessel, WAIT_WORDS } from '../src/glyphs/Vessel';
 import { Whisper, WhisperProvider } from '../src/glyphs/Whisper';
 import { GLYPHS } from '../src/design/glyphs';
 import { palette } from '../src/design/palette';
@@ -32,7 +32,7 @@ import * as loops from '../src/motion/loops';
 import { Pane } from '../src/stage/panes/Pane';
 import { MASK } from '../src/theme';
 import { copyViolations } from '../test-support/copyGuard';
-import { a11yText, visibleText } from '../test-support/query';
+import { a11yText, visibleText, whispers } from '../test-support/query';
 
 /**
  * The glyphs as drawn (REDESIGN.md 5 and 8). Under Jest every animation
@@ -732,6 +732,86 @@ describe('Vessel', () => {
       expect(prose(tree)).toEqual([]);
     },
   );
+
+  const spliced = (state: 'conflicted' | 'reverted'): Lfbw => ({
+    enabled: true,
+    lastSplice: { state, spliceTxid: null, conflictTxid: null, at: 1 },
+  });
+  const WAITS: Array<[string, Lfbw | undefined, string, boolean]> = [
+    ['plain glass', undefined, WAIT_WORDS.arriving, false],
+    [
+      'below the floor',
+      decided('wait', 'below-floor'),
+      WAIT_WORDS.belowFloor,
+      false,
+    ],
+    ['moving in', decided('splice-in'), WAIT_WORDS.moving, true],
+    ['the fee wait', decided('wait', 'fee-too-high'), WAIT_WORDS.feeWait, true],
+    ['a failure', decided('failed'), WAIT_WORDS.failed, true],
+    [
+      'confirming',
+      decided('wait', 'channel-pending'),
+      WAIT_WORDS.confirming,
+      true,
+    ],
+    ['a conflicted splice', spliced('conflicted'), WAIT_WORDS.conflicted, true],
+    ['a reverted splice', spliced('reverted'), WAIT_WORDS.reverted, true],
+    [
+      'unpaired funding',
+      { enabled: true, unpairedFunding: { at: 1 } },
+      WAIT_WORDS.unpaired,
+      true,
+    ],
+  ];
+
+  test.each(WAITS)(
+    '%s names its wait in the value, and its glyph whispers it',
+    async (_, lfbw, words, glyphed) => {
+      const tree = await render(
+        <Vessel
+          availableSats={250_000}
+          pendingSats={11_500}
+          lfbw={lfbw}
+          unit="sats"
+        />,
+      );
+      const root = tree.root.findByProps({ accessible: true });
+      // The label keeps the split; the value says why the money waits.
+      expect(root.props.accessibilityLabel).toBe(
+        '250,000 sats ready to send, 11,500 sats arriving',
+      );
+      expect(root.props.accessibilityValue).toEqual({ text: words });
+      expect(whispers(tree)).toEqual(
+        glyphed ? [{ label: words, on: true }] : [],
+      );
+      expect(prose(tree)).toEqual([]);
+    },
+  );
+
+  test('each wait has words of its own', () => {
+    const all = Object.values(WAIT_WORDS);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  test('nothing waiting, or a hidden balance, names no wait', async () => {
+    const settled = await render(
+      <Vessel availableSats={250_000} pendingSats={0} unit="sats" />,
+    );
+    const hidden = await render(
+      <Vessel
+        availableSats={250_000}
+        pendingSats={11_500}
+        lfbw={decided('failed')}
+        unit="sats"
+        masked
+      />,
+    );
+    for (const tree of [settled, hidden]) {
+      const root = tree.root.findByProps({ accessible: true });
+      expect(root.props.accessibilityValue).toBeUndefined();
+      expect(whispers(tree)).toEqual([]);
+    }
+  });
 
   test('a failure wears a radish retry ring', async () => {
     const tree = await render(

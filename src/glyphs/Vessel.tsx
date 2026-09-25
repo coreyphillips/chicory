@@ -38,6 +38,7 @@ import type { VesselVisual } from '../scenes/home/visual';
 import { usePaneActive } from '../stage/panes/Pane';
 import { amountIn, radius, space, type as typography } from '../theme';
 import type { Unit } from '../theme';
+import { Whisper } from './Whisper';
 
 /**
  * The pill under the hero: what can be spent now, solid, beside what is on
@@ -53,6 +54,10 @@ import type { Unit } from '../theme';
  *
  * `stale` dims it with the hero. A hidden balance hides the split too, since
  * the proportion alone says something.
+ *
+ * Why the money waits is said as well as drawn: the label reads the split,
+ * the value names the wait, and a long press on the glyph whispers it
+ * (REDESIGN.md rule 3).
  */
 export interface VesselProps {
   availableSats: number;
@@ -71,6 +76,51 @@ const FILLS: Record<VesselVisual['fill'], string> = {
   radish: alpha(palette.radish, 0.35),
   sage: palette.sageWash,
 };
+
+/**
+ * Why the money waits, in words, after the engine's own notes on the
+ * wallet's funding. Figures are left to the label.
+ */
+export const WAIT_WORDS = {
+  arriving: 'On its way.',
+  belowFloor:
+    'Below the channel floor. It moves into the channel once more arrives.',
+  moving: 'Moving into the channel now.',
+  feeWait: 'Waiting for a lower network fee to move it into the channel.',
+  failed: 'Moving it into the channel failed. Retrying.',
+  confirming: 'It moves into the channel once the current transfer confirms.',
+  conflicted:
+    "A payer's funding was spent elsewhere. Your balance is being restored. Nothing of yours is lost.",
+  reverted:
+    "Your balance was restored after a payer's funding was spent elsewhere. Nothing of yours was lost.",
+  unpaired: "Moving. A payer's transfer locks after three confirmations.",
+};
+
+/**
+ * What the vessel's look says, in words: each glyph and glass names its
+ * wait, and plain glass is money on its way. Nothing while everything is
+ * spendable.
+ */
+export function vesselWords(visual: VesselVisual): string | null {
+  switch (visual.glyph) {
+    case 'refresh':
+      return WAIT_WORDS.failed;
+    case 'rewind':
+      return visual.tone === 'sage'
+        ? WAIT_WORDS.reverted
+        : WAIT_WORDS.conflicted;
+    case 'gauge':
+      return WAIT_WORDS.feeWait;
+    case 'inflow':
+      return WAIT_WORDS.unpaired;
+    case 'clock':
+      return WAIT_WORDS.confirming;
+    case 'sprout':
+      return WAIT_WORDS.moving;
+  }
+  if (visual.fill === 'seeds') return WAIT_WORDS.belowFloor;
+  return visual.weight === 'swollen' ? WAIT_WORDS.arriving : null;
+}
 
 const TONES: Record<VesselVisual['tone'], string> = {
   bloom: palette.bloom,
@@ -561,6 +611,8 @@ export function Vessel({
     [],
   );
   const glyph = visual.glyph && !masked && !opened ? visual.glyph : null;
+  // A hidden balance hides the wait with the split.
+  const words = masked ? null : vesselWords(visual);
   const tone = TONES[visual.tone];
   const available = amountIn(availableSats, unit);
   const arriving = amountIn(pendingSats, unit);
@@ -572,6 +624,7 @@ export function Vessel({
           ? copy.home.balanceHidden
           : copy.home.split(availableSats, pendingSats)
       }
+      accessibilityValue={words ? { text: words } : undefined}
       hitSlop={REACH}
       onLayout={onLayout}
       onStartShouldSetResponder={tappable ? () => true : undefined}
@@ -640,19 +693,23 @@ export function Vessel({
             exiting={GLYPH_OUT}
             style={[styles.glyph, dimStyle]}
           >
-            <View
-              style={
-                visual.retry ? [styles.retry, { borderColor: tone }] : undefined
-              }
-            >
-              <WaitGlyph
-                name={glyph}
-                color={tone}
-                retry={visual.retry}
-                awake={awake}
-                reduced={reduced}
-              />
-            </View>
+            <Whisper label={words ?? ''} enabled={!!words}>
+              <View
+                style={
+                  visual.retry
+                    ? [styles.retry, { borderColor: tone }]
+                    : undefined
+                }
+              >
+                <WaitGlyph
+                  name={glyph}
+                  color={tone}
+                  retry={visual.retry}
+                  awake={awake}
+                  reduced={reduced}
+                />
+              </View>
+            </Whisper>
           </Reanimated.View>
         ) : null}
       </LayoutAnimationConfig>
