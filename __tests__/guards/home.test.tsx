@@ -25,7 +25,7 @@ import { Bloom, PETALS, pulledPetal } from '../../src/glyphs/Bloom';
 import { Odometer } from '../../src/glyphs/Odometer';
 import { ActionCircle } from '../../src/scenes/home/ActionCircle';
 import { Backdrop, glowBleed } from '../../src/scenes/home/Backdrop';
-import { HomePane } from '../../src/scenes/home/HomePane';
+import { HomePane, LIVE_OVERDUE_MS } from '../../src/scenes/home/HomePane';
 import {
   LAUNCH_DROP,
   MINI_IN_ROW,
@@ -49,6 +49,7 @@ import {
 } from '../../src/scenes/home/visual';
 import type { HealthInput } from '../../src/scenes/home/visual';
 import { HomeScreen } from '../../src/screens/Wallet';
+import { FOCUS_SETTLE_MS } from '../../src/motion/speech';
 import {
   clearDiagnostics,
   recentDiagnostics,
@@ -1015,7 +1016,7 @@ describe('safety states', () => {
       .mock.calls.filter(([, options]) => options?.queue === false)
       .map(([text]) => text);
 
-  test('each is felt, spoken assertively and logged as it begins', async () => {
+  test('each is felt and logged as it begins, and spoken assertively once, in order', async () => {
     jest.useFakeTimers();
     // Past the window in which a message already spoken is not repeated.
     jest.advanceTimersByTime(2_001);
@@ -1034,13 +1035,61 @@ describe('safety states', () => {
       copy.health.backupPending,
       copy.health.testNetwork('testnet'),
     ];
-    expect(assertive()).toEqual(expect.arrayContaining(said));
     expect(recentDiagnostics().map(entry => entry.message)).toEqual(
       expect.arrayContaining(said),
     );
     expect(warned).toHaveBeenCalledTimes(2);
+    // Said once the screen has settled, as one message, so neither cuts
+    // the other short: the old balance first, the test network last.
+    expect(assertive()).toEqual([]);
+    await act(async () => jest.advanceTimersByTime(FOCUS_SETTLE_MS + 100));
+    expect(assertive()).toEqual([said.join(' ')]);
     await act(async () => tree.unmount());
     jest.useRealTimers();
+  });
+
+  test('a state that ends before it is heard is not said', async () => {
+    jest.useFakeTimers();
+    jest.advanceTimersByTime(2_001);
+    jest
+      .mocked(AccessibilityInfo.announceForAccessibilityWithOptions)
+      .mockClear();
+    const snapshot = snapshotOf({ wallet: MAINNET });
+    const tree = await draw({ snapshot, stale: true });
+    await act(async () =>
+      tree.update(<HomeRegions snapshot={snapshot} stale={false} />),
+    );
+    await act(async () => jest.advanceTimersByTime(FOCUS_SETTLE_MS + 100));
+    expect(assertive()).toEqual([]);
+    await act(async () => tree.unmount());
+    jest.useRealTimers();
+  });
+
+  test('while Send or Receive is open an old balance is theirs to warn about', async () => {
+    const warned = jest.spyOn(haptics, 'warning');
+    const snapshot = snapshotOf({ wallet: MAINNET });
+    const live = session();
+    const tree = await draw({ snapshot, session: live });
+    for (const open of [
+      () => stage.actions.openSend(),
+      () => stage.actions.openReceive(),
+    ]) {
+      await act(async () => open());
+      await act(async () =>
+        tree.update(<HomeRegions snapshot={snapshot} session={live} stale />),
+      );
+      expect(warned).not.toHaveBeenCalled();
+      await act(async () =>
+        tree.update(<HomeRegions snapshot={snapshot} session={live} />),
+      );
+      await act(async () => stage.actions.back());
+    }
+    // Home is in front again, and its balance is old: it warns.
+    await act(async () =>
+      tree.update(<HomeRegions snapshot={snapshot} session={live} stale />),
+    );
+    expect(warned).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
   });
 
   test('the stage never draws a fresh read as stale, and trips once it goes old', async () => {
@@ -1095,7 +1144,29 @@ describe('safety states', () => {
     jest.useRealTimers();
   });
 
-  test('a cached launch is not warned about, nor is the read that ends it', async () => {
+  test('a cached launch is warned about once its live figures are overdue', async () => {
+    jest.useFakeTimers();
+    const warned = jest.spyOn(haptics, 'warning');
+    const cached = {
+      ...snapshotOf({ wallet: MAINNET }),
+      updatedAt: Date.now() - 600_000,
+    };
+    const connecting = session({ connecting: true });
+    const tree = await draw({
+      snapshot: cached,
+      stale: true,
+      session: connecting,
+    });
+    await act(async () => jest.advanceTimersByTime(LIVE_OVERDUE_MS - 1));
+    expect(warned).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(warned).toHaveBeenCalledTimes(1);
+    expect(recentDiagnostics().at(-1)?.message).toBe(copy.health.stale);
+    await act(async () => tree.unmount());
+    jest.useRealTimers();
+  });
+
+  test('a cached launch is not warned about while its live figures are due, nor is the read that ends it', async () => {
     const warned = jest.spyOn(haptics, 'warning');
     const cached = {
       ...snapshotOf({ wallet: MAINNET }),

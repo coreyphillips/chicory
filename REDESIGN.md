@@ -532,7 +532,7 @@ A cocoa pill anchored above its source (see rule 3).
 | fresh               | The PulseDot is sage and pings on each poll.                                                                                                                                                      |
 | reconnecting        | The PulseDot is honey and pulses.                                                                                                                                                                 |
 | stale (45s or more) | The hero goes steam with the shimmer wave; the glow drops to .25; the actions turn dust and scale to .94. Tapping one shakes it, fires a warning haptic, and starts a manual refresh.             |
-| cached launch       | The stale look plus a ratcheting mark. The first live read re-saturates it and fires a sage ping.                                                                                                 |
+| cached launch       | The stale look plus a ratcheting mark. The first live read re-saturates it and fires a sage ping. Its warning waits for that read: once it is 15s overdue, the stale signal plays.                |
 | setup pending       | Petals open to q .6 and the center breathes.                                                                                                                                                      |
 | setup ready         | Petals open fully.                                                                                                                                                                                |
 | setup failed        | Petals droop, with a honey pip.                                                                                                                                                                   |
@@ -717,7 +717,8 @@ Release on velocity over 800pt/s, or past 40% going up or 25% going down. Rubber
 
 - **Controls.** Every glyph control sets a role, a label, and its disabled, busy or selected state. Decorative SVG is hidden.
 - **Announcements.** A single `announce(text, {assertive})` helper.
-  - The safety states announce assertively.
+  - The safety states announce assertively, through `announceSafety(message, kind)` in `src/motion/speech.ts`. It waits until no transition runs, no focus move is pending and the last one has had 400ms to land, so the canvas's focus move never cuts a message short. States that begin together are said as one message, in the order held payment, stale balance, expired, reused address, backup, test network. A state that ends before it is heard is not said. The haptic and the diagnostic log entry are not delayed.
+  - Only the scene in front announces a stale balance: Home stays quiet while Send or Receive is open.
   - Identical messages within 2s are dropped.
 - **Focus.** After each transition, focus moves to the new primary element.
 - **Home focus order:** mark, hero, vessel, Send, Scan, Receive, cog, sheet.
@@ -805,7 +806,8 @@ Shared by every glyph and scene, in `src/motion` (tokens and presets aside):
 - **`loops.ts`.** `useLoop(period, running)` is the one loop clock: it counts a cycle every `period` ms and eases to the nearest whole cycle when it stops, and it rests wherever nobody would see it move (the app in the background, its pane out of use, Reduce Motion). A loop that turns reads `fract(clock)`; one that goes out and back, a breath or a pulse, reads `wave(clock)`, so a whole breath is one period. `useAwake()` is whether a loop here would be seen.
 - **`springMath.ts`.** `springStep`, `kickVelocity` and `kick`, for poses computed from a clock on the UI thread and for pops that start from rest.
 - **`effects.ts`.** `useShake()` (a shake, or a 400ms radish tint under Reduce Motion), `popIn(from?)` and `dissolve()` for something that arrives or is let go of as a whole.
-- **`focus.ts`.** `useFocus(on)` and `focusOn(node)` (10.1, Focus).
+- **`focus.ts`.** `useFocus(on)`, `focusOn(node)` and `focusAfterTransition(target)`, which counts the move as pending until it is made (10.1, Focus).
+- **`speech.ts`.** `announceSafety(message, kind)`, which holds a safety message until focus has landed (9, Announcements).
 - `mixHex(from, to, t)` and `alpha(hex, a)` are colour helpers in `src/design/palette.ts`.
 
 ## 11. Track ownership

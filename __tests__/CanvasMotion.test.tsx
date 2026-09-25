@@ -16,6 +16,7 @@ import { BackupBanner } from '../src/scenes/shared/BackupBanner';
 import { ActivityScreen, HomeScreen } from '../src/screens/Wallet';
 import { SettingsScreen } from '../src/screens/Settings';
 import { copy } from '../src/design/copy';
+import { FOCUS_SETTLE_MS } from '../src/motion/speech';
 import { FILTERS } from '../src/scenes/activity/model';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import type { Backup } from '../src/stage/Canvas';
@@ -636,6 +637,43 @@ describe('the canvas', () => {
     expect(landed().slice(before)).not.toContain(balance);
     expect(await go(() => stage.dispatch({ type: 'back' }))).toBe(balance);
     await act(async () => tree.unmount());
+  });
+
+  test('what the wallet opens with is said once focus has landed, not cut short by it', async () => {
+    jest.useFakeTimers();
+    // Past the window in which a message already spoken is not repeated.
+    jest.advanceTimersByTime(2_001);
+    const sent = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent');
+    const said = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    sent.mockClear();
+    said.mockClear();
+    const backup: Backup = {
+      pending: true,
+      loadPhrase: jest.fn(),
+      onSaved: jest.fn(),
+    };
+    const tree = await render(<OnCanvas backup={backup} />);
+    await act(async () => jest.advanceTimersByTime(FOCUS_SETTLE_MS + 500));
+    const assertive = said.mock.calls.filter(
+      ([, options]) => options?.queue === false,
+    );
+    // A regtest wallet with its phrase still to save: both, as one message,
+    // the backup first, and only after focus moved to the balance.
+    expect(assertive.map(([text]) => text)).toEqual([
+      [copy.health.backupPending, copy.health.testNetwork('regtest')].join(' '),
+    ]);
+    const focused = sent.mock.calls.findIndex(([, kind]) => kind === 'focus');
+    expect(focused).toBeGreaterThanOrEqual(0);
+    const spoken = said.mock.calls.findIndex(
+      ([, options]) => options?.queue === false,
+    );
+    expect(sent.mock.invocationCallOrder[focused]).toBeLessThan(
+      said.mock.invocationCallOrder[spoken],
+    );
+    await act(async () => tree.unmount());
+    jest.useRealTimers();
   });
 
   test('under Reduce Motion the panes jump, nothing waits, and Settings only dims', async () => {
