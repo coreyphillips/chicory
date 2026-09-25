@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Ref } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { HostInstance } from 'react-native';
@@ -106,6 +106,15 @@ export function OfflineWallet({
   useEffect(() => {
     if (error) haptics.warning();
   }, [error]);
+  // A retry asked for here that ends with the connection still down is felt
+  // as a refusal. The app's own retries stay quiet. One that succeeds leaves
+  // this phase for the wallet, whose first live read is felt there.
+  const retried = useRef(false);
+  useEffect(() => {
+    if (busy || !retried.current) return;
+    retried.current = false;
+    if (error) haptics.error();
+  }, [busy, error]);
 
   return (
     <PhaseRoot>
@@ -149,7 +158,10 @@ export function OfflineWallet({
           size={SIZES.retry}
           label={copy.phase.retryConnection}
           busy={busy}
-          onPress={onRetryConnection}
+          onPress={() => {
+            retried.current = true;
+            onRetryConnection();
+          }}
         />
         <GlyphButton
           glyph={panel ? 'close' : 'cog'}

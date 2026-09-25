@@ -30,6 +30,7 @@ import { riseIn, sceneOut } from '../../motion/presets';
 import { curves, durations, overlap, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { motionReduced } from '../../services/motion';
+import { errorMessage } from '../../services/useWalletSession';
 import { HIT_SLOP, radius, space } from '../../theme';
 
 /**
@@ -80,6 +81,19 @@ export function useArrivalFocus(): RefObject<HostInstance | null> {
     [],
   );
   return ref;
+}
+
+/**
+ * Ends an open or a choice the person asked for: a failure is felt as a
+ * refusal, an error haptic, and its reason goes to `report`, which puts it
+ * where the phase shows it. Failures the app meets on its own stay quiet;
+ * the pip holding the reason is enough for those.
+ */
+export function refused(report?: (reason: string) => void) {
+  return (e: unknown) => {
+    haptics.error();
+    report?.(errorMessage(e));
+  };
 }
 
 /**

@@ -668,6 +668,51 @@ describe('phase behaviour', () => {
     await act(async () => tree.unmount());
   });
 
+  test('an open that was asked for and failed is felt, and says why', async () => {
+    const setError = jest.fn();
+    const tree = await saved({
+      openWallet: jest.fn(async () => {
+        throw new Error('Electrum is offline.');
+      }),
+      setError,
+    });
+    await press(tree, copy.phase.openDevice);
+    expect(haptic).toHaveBeenCalledWith('notificationError', expect.anything());
+    expect(setError).toHaveBeenCalledWith('Electrum is offline.');
+    await act(async () => tree.unmount());
+  });
+
+  test('a wallet that would not open from the picker is felt', async () => {
+    const tree = await picker({
+      selectWallet: jest.fn(async () => {
+        throw new Error('The wallet did not start.');
+      }),
+    });
+    await press(tree, 'Open Everyday');
+    expect(haptic).toHaveBeenCalledWith('notificationError', expect.anything());
+    await act(async () => tree.unmount());
+  });
+
+  test('offline feels a retry it asked for fail, and not the ones the app runs', async () => {
+    const error = 'Electrum is offline.';
+    const tree = await offline({ error });
+    const retry = (busy: boolean) =>
+      act(async () => tree.update(offlineWallet({ error, busy })));
+    const refused = () =>
+      haptic.mock.calls.filter(([kind]) => kind === 'notificationError');
+    // The app retrying on its own.
+    await retry(true);
+    await retry(false);
+    expect(refused()).toHaveLength(0);
+    // A retry asked for, which ends still offline.
+    await press(tree, copy.phase.retryConnection);
+    await retry(true);
+    expect(refused()).toHaveLength(0);
+    await retry(false);
+    expect(refused()).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
   describe('focus lands on what each phase is about', () => {
     const focused = jest.mocked(AccessibilityInfo.sendAccessibilityEvent);
     /** What each focus went to, by the label a screen reader reads there. */

@@ -22,6 +22,7 @@ import {
   GlyphButton,
   nameStyle,
   PhaseRoot,
+  refused,
   SetupPanel,
   StatusPip,
   useArrivalFocus,
@@ -80,7 +81,8 @@ export function Picker({
   const open = useCallback(
     (wallet: WalletRecord) => {
       setChosen(wallet.id);
-      selectWallet(wallet).catch(() => {});
+      // The reason reaches the pip through the session's own error.
+      selectWallet(wallet).catch(refused());
     },
     [selectWallet],
   );

@@ -5,7 +5,6 @@ import { LinkButton } from '../../components/ui';
 import { copy } from '../../design/copy';
 import { Bloom } from '../../glyphs/Bloom';
 import { NetworkSettings } from '../../screens/NetworkSettings';
-import { errorMessage } from '../../services/useWalletSession';
 import type { useWalletSession } from '../../services/useWalletSession';
 import { usePhaseBack } from '../../stage/StageContext';
 import { space } from '../../theme';
@@ -13,6 +12,7 @@ import {
   GlyphButton,
   nameStyle,
   PhaseRoot,
+  refused,
   SetupPanel,
   StatusPip,
   useArrivalFocus,
@@ -102,7 +102,7 @@ export function Saved({
           label={copy.phase.openDevice}
           busy={connecting}
           onPress={() => {
-            openWallet().catch(e => setError(errorMessage(e)));
+            openWallet().catch(refused(setError));
           }}
         />
         <GlyphButton

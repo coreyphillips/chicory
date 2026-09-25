@@ -8,13 +8,13 @@ import type { BloomEvent } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
 import { riseIn, sceneOut } from '../../motion/presets';
 import { DeviceSetup } from '../../screens/DeviceSetup';
-import { errorMessage } from '../../services/useWalletSession';
 import type { useWalletSession } from '../../services/useWalletSession';
 import { usePhaseBack } from '../../stage/StageContext';
 import { space } from '../../theme';
 import {
   GlyphButton,
   PhaseRoot,
+  refused,
   SetupPanel,
   StatusPip,
   useArrivalFocus,
@@ -170,7 +170,7 @@ export function Welcome({
             onPress={() => {
               openWallet({ restore: true })
                 .then(() => onCreateWallet(true))
-                .catch(e => setError(errorMessage(e)));
+                .catch(refused(setError));
             }}
           />
           <GlyphButton
@@ -179,7 +179,7 @@ export function Welcome({
             size={SIZES.primary}
             label={look.primary.label}
             onPress={() => {
-              openWallet().catch(e => setError(errorMessage(e)));
+              openWallet().catch(refused(setError));
             }}
           />
           <GlyphButton
