@@ -10,6 +10,7 @@ import { palette } from '../../design/palette';
 import { dissolve, popIn, useShake } from '../../motion/effects';
 import { useLoop, wave } from '../../motion/loops';
 import { durations } from '../../motion/tokens';
+import { WELL } from '../../stage/layout';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { radius, space, type as typography } from '../../theme';
 import { FailureMark } from './FailureMark';
@@ -42,9 +43,6 @@ export interface RequestEntryProps {
   onPaste?: () => Promise<boolean>;
   onScan?: (origin: Origin | null) => void;
 }
-
-/** The well's height while it waits for a request. */
-export const WELL = 72;
 
 /**
  * The payment request (REDESIGN.md 6, Send): a well to paste, scan or type

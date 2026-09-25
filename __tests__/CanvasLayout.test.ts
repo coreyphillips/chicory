@@ -11,7 +11,7 @@ import {
   stops,
   veilOpacity,
 } from '../src/stage/layout';
-import { WELL as SEND_WELL } from '../src/scenes/send/RequestEntry';
+import { fs, path, ROOT } from '../test-support/node';
 import type { Scene } from '../src/stage/scene';
 
 /**
@@ -164,7 +164,15 @@ test('the Reduce Motion crossfade hides the jump at its middle', () => {
 
 test('a code read from home lands in the middle of Send’s well', () => {
   // The canvas keeps the measure the scan overlay aims for, so the overlay
-  // never reaches into a scene's module for it; Send's well is that tall.
-  expect(WELL).toBe(SEND_WELL);
+  // never reaches into a scene's module for it, and Send's well takes its
+  // height from the same place rather than keeping a copy that could drift.
+  const entry = fs.readFileSync(
+    path.join(ROOT, 'src/scenes/send/RequestEntry.tsx'),
+    'utf8',
+  );
+  expect(entry).toMatch(
+    /import \{[^}]*\bWELL\b[^}]*\} from '\.\.\/\.\.\/stage\/layout';/,
+  );
+  expect(entry).not.toMatch(/\bconst WELL\b/);
   expect(WELL_DROP).toBe(MINI_STRIP + SLOT_PADDING.top + WELL / 2);
 });
