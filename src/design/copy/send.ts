@@ -1,27 +1,52 @@
 import { sats } from './shared';
 
-/** Send: the request, the review, the hold and the results. */
+/**
+ * Send: the request, the review, the hold and the results. None of it is
+ * drawn: it is what the glyphs, rings and lines say to a screen reader and
+ * through Whisper.
+ */
 export const send = {
   request: 'Payment request or address',
+  requestHint: 'Opens the request to change it.',
   paste: 'Paste from clipboard',
+  pasted: 'Request pasted',
+  clipboardEmpty: 'The clipboard is empty.',
   scan: 'Scan a payment request',
   review: 'Review payment',
+  preparing: 'Preparing the payment.',
   sendSats: (value: number) => `Send ${sats(value)}`,
   holdHint: 'Hold to send.',
+  quoteExpires: (seconds: number) => `Fee quote expires in ${seconds}s`,
   refreshQuote: 'Refresh quote',
+  quoteExpired: 'Quote expired. Review again.',
   edit: 'Edit payment',
-  expectedFee: 'Expected routing fee',
-  totalAtMost: 'Total, at most',
   stale: 'Balance not confirmed recently. Refresh before sending.',
+  // The review's lines: the rail, the fee on top, what it should cost, and
+  // the most it can.
+  lightning: 'Lightning',
+  bitcoin: 'Bitcoin',
+  directFunding: 'Direct funding',
+  fee: 'Fee',
+  expectedFee: 'Expected routing fee',
+  about: (value: number) => `about ${sats(value)}`,
+  totalAtMost: 'Total, at most',
+  totalWithFee: 'Total including fee',
   // Results.
   sent: 'Sent.',
   onItsWay: 'Payment on its way.',
   unknown: 'Result unknown.',
   failed: 'Payment failed.',
+  retry: 'Returns to the payment, with the request kept.',
   checkActivity: 'Check Activity before paying this request again.',
   held: 'This request has a payment whose outcome is not known yet. It cannot be paid again until that resolves.',
   heldAnnouncement:
     'Payment status unknown. Do not pay again until this is resolved.',
+  showPayment: 'Shows the payment in Activity.',
+  feePaid: 'Fee paid',
+  reviewedFee: 'Reviewed fee',
+  feeUnavailable: 'Unavailable',
+  reference: 'Reference',
+  viewActivity: 'View activity',
 };
 
 /**

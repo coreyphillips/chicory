@@ -44,8 +44,11 @@ export interface AmountReadoutProps {
   accessibilityLabel: string;
   /** The amount as shown, with or without its separators. */
   value: string;
-  /** Called with the digits after each key, as a text field reports text. */
-  onChangeText: (text: string) => void;
+  /**
+   * Called with the digits after each key, as a text field reports text.
+   * Without it, as in a pane out of use, the keys take no touches.
+   */
+  onChangeText?: (text: string) => void;
   /** What a screen reader hears in place of an amount while there is none. */
   placeholder?: string;
   /** What a screen reader hears after the amount. */
@@ -121,14 +124,14 @@ export function AmountReadout({
       if (next === now.digits) return;
       // Two keys in one frame each build on the one before.
       now.digits = next;
-      now.onChangeText(next);
+      now.onChangeText?.(next);
     },
     [flash, shake],
   );
   const onClear = useCallback(() => {
     haptics.rigid();
     latest.current.digits = '';
-    latest.current.onChangeText('');
+    latest.current.onChangeText?.('');
   }, []);
 
   // Going over what it can ever be is felt once, as it happens.
@@ -206,7 +209,11 @@ export function AmountReadout({
       </Reanimated.View>
       {children}
       {editable ? (
-        <Keypad onKey={onKey} onClear={onClear} disabled={busy} />
+        <Keypad
+          onKey={onKey}
+          onClear={onClear}
+          disabled={busy || !onChangeText}
+        />
       ) : null}
     </>
   );

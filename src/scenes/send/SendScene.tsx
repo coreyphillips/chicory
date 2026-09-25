@@ -1,51 +1,113 @@
-import React from 'react';
-import { StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { copy } from '../../design/copy';
+import { palette } from '../../design/palette';
 import { SendScreen } from '../../screens/Send';
+import type { SendHandle } from '../../screens/Send';
 import type { RegionProps } from '../../stage/Canvas';
 import { STATUS_ROW } from '../../stage/layout';
 import { Arriving } from '../../stage/panes/Arriving';
+import { usePaneActive } from '../../stage/panes/Pane';
 import { SceneSlot } from '../../stage/panes/SceneSlot';
-import { useStage } from '../../stage/StageContext';
-import { colors } from '../../theme';
+import {
+  useIsCurrentScene,
+  useSceneBack,
+  useStage,
+} from '../../stage/StageContext';
+import { useScanReceiver } from '../../stage/useScanReceiver';
+import { radius } from '../../theme';
+import type { Origin } from './RequestEntry';
 
 /**
- * Send, in the top slot under the status row. `prefill` is the request a
- * scanned code or a tapped link brought with the scene, never sent without a
- * review.
+ * The band under the status row where the balance sits as the mini strip
+ * while Send is open (REDESIGN.md 7, T1). Send draws nothing in it.
+ */
+const MINI_STRIP = 44;
+
+/**
+ * Send, in the top slot under the status row and the mini strip. `prefill`
+ * is the request a scanned code or a tapped link brought with the scene,
+ * never sent without a review.
  *
- * `sceneKey` is the key of the scene this Send is. A scan receiver takes
- * `useIsCurrentScene(sceneKey)` as its `active`, so it stays registered while
- * the scan overlay covers this Send (REDESIGN.md 2.3).
+ * `sceneKey` is the key of the scene this Send is. A scan started from this
+ * Send delivers its code here: the receiver is armed by this Send's own scan
+ * button and stays registered, through `useIsCurrentScene(sceneKey)`, while
+ * the overlay covers the pane (REDESIGN.md 2.3). Android back steps from the
+ * review to compose before the stage closes the scene.
  */
 export function SendScene({
   prefill,
   client,
+  snapshot,
   stale,
   session,
+  sceneKey,
 }: RegionProps & {
   sceneKey: number;
   prefill: string;
 }) {
-  const { actions } = useStage();
+  const { actions, state } = useStage();
+  const insets = useSafeAreaInsets();
+  const screen = useRef<SendHandle>(null);
+  const current = useIsCurrentScene(sceneKey);
+
+  // Armed from the scan button until the overlay it opened closes, so only
+  // a scan this Send asked for fills in its request.
+  const [armed, setArmed] = useState(false);
+  const scanOpen = state.overlay?.name === 'scan';
+  useEffect(() => {
+    if (armed && !scanOpen) setArmed(false);
+  }, [armed, scanOpen]);
+  const scan = useCallback(
+    (origin: Origin | null) => {
+      setArmed(true);
+      actions.openScan(origin ?? undefined);
+    },
+    [actions],
+  );
+  useScanReceiver(
+    useCallback((code: string) => screen.current?.receive(code), []),
+    current && armed,
+  );
+  useSceneBack(() => screen.current?.back() ?? false, usePaneActive());
+
   return (
-    <Arriving style={styles.ground}>
-      <SceneSlot label={copy.scene.send} offset={STATUS_ROW}>
-        <SendScreen
-          client={client}
-          initialRequest={prefill}
-          disabled={stale}
-          onActivity={actions.openActivity}
-          onRefresh={session.refresh}
-          onBusy={actions.setBusy}
-        />
-      </SceneSlot>
+    <Arriving>
+      <View style={styles.mini} />
+      <View style={styles.ground}>
+        <SceneSlot label={copy.scene.send} offset={STATUS_ROW + MINI_STRIP}>
+          <View style={[styles.fill, { paddingBottom: insets.bottom }]}>
+            <SendScreen
+              ref={screen}
+              client={client}
+              initialRequest={prefill}
+              disabled={stale}
+              balance={snapshot.balance}
+              activity={snapshot.activity}
+              onActivity={actions.openActivity}
+              onRefresh={session.refresh}
+              onBusy={actions.setBusy}
+              onScan={scan}
+              onDetail={actions.openDetail}
+              onDone={actions.home}
+            />
+          </View>
+        </SceneSlot>
+      </View>
     </Arriving>
   );
 }
 
 const styles = StyleSheet.create({
-  // The balance stays drawn under the slot as the mini strip. Until the
-  // scene leaves it a place (REDESIGN.md 7, T1), it draws its own ground.
-  ground: { backgroundColor: colors.background },
+  mini: { height: MINI_STRIP },
+  // Home stays drawn beneath, so below the mini strip Send lays a ground of
+  // its own, rising like a pane.
+  ground: {
+    flex: 1,
+    backgroundColor: palette.roast,
+    borderTopLeftRadius: radius.pane,
+    borderTopRightRadius: radius.pane,
+  },
+  fill: { flex: 1 },
 });

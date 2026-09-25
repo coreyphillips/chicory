@@ -1,60 +1,119 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import React, {
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import type { Ref } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import Clipboard from '@react-native-clipboard/clipboard';
-import { parsePayment, parseSats } from '@beignet/wallet-core';
-import type { SendResult, SendReview } from '@beignet/wallet-core';
-import {
-  Body,
-  Button,
-  Card,
-  Field,
-  Icon,
-  Notice,
-  Row,
-  Title,
-} from '../components/ui';
-import { AmountField } from '../components/AmountField';
-import { useToast } from '../components/Toast';
+import { parseSats } from '@beignet/wallet-core';
+import type {
+  Activity,
+  SendResult,
+  SendReview,
+  WalletSnapshot,
+} from '@beignet/wallet-core';
 import { Scanner } from '../components/Scanner';
-import { useNow } from '../services/clock';
-import { errorMessage as message } from '../services/useWalletSession';
-import { haptic } from '../services/haptics';
-import { useEnter } from '../services/motion';
+import { announce } from '../design/announce';
+import { copy } from '../design/copy';
+import { Glyph } from '../design/glyphs';
+import type { GlyphName } from '../design/glyphs';
+import { haptics } from '../design/haptics';
+import { gradients, palette } from '../design/palette';
+import { CopyChip } from '../glyphs/CopyChip';
+import { ExpiryRing } from '../glyphs/ExpiryRing';
+import { HoldButton } from '../glyphs/HoldButton';
+import { durations } from '../motion/tokens';
+import { AmountReadout } from '../scenes/keypad/AmountReadout';
+import { digitsOnly, grouped } from '../scenes/keypad/keys';
+import type { AmountTone } from '../scenes/keypad/keys';
+import { Amount } from '../scenes/send/Amount';
+import { CONTROL, CircleControl, QuoteRefresh } from '../scenes/send/Controls';
+import { FailureMark } from '../scenes/send/FailureMark';
+import { GlyphButton } from '../scenes/send/GlyphButton';
 import {
-  colors,
-  compact,
-  number,
-  radius,
-  space,
-  statusLabel,
-  type as typography,
-} from '../theme';
+  HOME_AFTER_MS,
+  amountTone,
+  errorCode,
+  fixedAmount,
+  isUncertain,
+  resultVisual,
+  reviewRail,
+  sendFailure,
+} from '../scenes/send/model';
+import type { Failure } from '../scenes/send/model';
+import { RequestEntry } from '../scenes/send/RequestEntry';
+import type { Origin } from '../scenes/send/RequestEntry';
+import { ResultMark } from '../scenes/send/ResultMark';
+import { ReviewLines } from '../scenes/send/ReviewLines';
+import { recordDiagnostic } from '../services/diagnosticLog';
+import { errorMessage } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
+import { heldRequest, holdRequest } from '../stage/heldRequests';
+import { usePaneActive } from '../stage/panes/Pane';
+import { space, statusLabel, type as typography } from '../theme';
 
-/**
- * The amount a payment request fixes, or null when it leaves it to the payer.
- * The same precedence prepareSend applies: the request's own amount, else the
- * amount of the Lightning invoice a Bitcoin link carries.
- */
-function fixedAmount(request: string): number | null {
-  let parsed;
-  try {
-    parsed = parsePayment(request.trim());
-  } catch {
-    return null;
-  }
-  const sats =
-    parsed.kind === 'bolt11' || parsed.kind === 'bolt12'
-      ? parsed.amountSats
-      : parsed.kind === 'onchain'
-      ? parsed.amountSats ??
-        (parsed.lightning && 'amountSats' in parsed.lightning
-          ? parsed.lightning.amountSats
-          : null)
-      : null;
-  return typeof sats === 'number' && sats > 0 ? sats : null;
+/** What a Send on the canvas asks of the screen inside it. */
+export interface SendHandle {
+  /** Android back: a step back inside Send, or false for the stage's own. */
+  back: () => boolean;
+  /** A code the scan overlay read for this Send. */
+  receive: (code: string) => void;
 }
 
+/** The ring round the hold, at r+8 from the control (REDESIGN.md 5). */
+const EXPIRY = CONTROL + 16;
+/** A quote this close to running out is said aloud once. */
+const LATE_MS = 10_000;
+
+const TONE_WORDS: Record<AmountTone, string | null> = {
+  plain: null,
+  'over-spendable': copy.amount.overSpendable,
+  'over-total': copy.amount.overTotal,
+};
+
+/** The radish wash a failed payment tints the scene with for a moment. */
+function FailedTint() {
+  const { opacity, hold } = gradients.G3.radish;
+  const shown = useSharedValue(0);
+  useEffect(() => {
+    shown.set(
+      withSequence(
+        withTiming(opacity, { duration: durations.exit }),
+        withDelay(hold, withTiming(0, { duration: durations.celebrate })),
+      ),
+    );
+  }, [opacity, hold, shown]);
+  const style = useAnimatedStyle(() => ({ opacity: shown.get() }));
+  return <Reanimated.View pointerEvents="none" style={[styles.tint, style]} />;
+}
+
+/**
+ * Paying a request (REDESIGN.md 6, Send). Compose takes the request in a
+ * well and the amount on the keypad; review lays out the sum and holds the
+ * payment behind a 700ms hold inside the quote's countdown; the result is a
+ * mark that says how it went. A request whose earlier payment is pending or
+ * unknown never reaches a review: it lands on the held ring (rule 6).
+ *
+ * The screen says nothing in words. Each state is a glyph, a ring, a colour
+ * and a motion, and its words are what a screen reader hears and what a long
+ * press shows.
+ *
+ * On the canvas, `onScan` opens the scan overlay and the Send scene hands the
+ * code back through `receive`. Rendered on its own, with no `onScan`, the
+ * camera opens inside it instead. `onDone` takes a completed payment home
+ * once it has been seen, and `onDetail` opens the payment a held request is
+ * waiting on.
+ */
 export function SendScreen({
   client,
   initialRequest = '',
@@ -63,6 +122,12 @@ export function SendScreen({
   onRefresh,
   onBusy,
   initialScanning = false,
+  balance,
+  activity,
+  onScan,
+  onDetail,
+  onDone,
+  ref,
 }: {
   client: WalletAdapter;
   /** Prefilled by a scanned code or a bitcoin:/lightning: link. Never auto-sent. */
@@ -72,323 +137,572 @@ export function SendScreen({
   onActivity: () => void;
   onRefresh: () => void;
   onBusy: (busy: boolean) => void;
-  /** Open straight onto the camera, as the home screen's scan button does. */
+  /** Open straight onto the camera, when rendered without the overlay. */
   initialScanning?: boolean;
+  /** What the amount is measured against. */
+  balance?: WalletSnapshot['balance'];
+  /** The history, which holds a request whose payment is still open. */
+  activity?: Activity[];
+  onScan?: (origin: Origin | null) => void;
+  onDetail?: (item: Activity) => void;
+  onDone?: () => void;
+  ref?: Ref<SendHandle>;
 }) {
+  const live = usePaneActive();
   const [request, setRequest] = useState(initialRequest);
-  // The camera is a view inside this screen, not a separate sheet, so a typed
+  // A request that arrived whole shows as a chip; one being typed as text.
+  const [collapsed, setCollapsed] = useState(initialRequest !== '');
+  // Without the overlay, the camera is a view inside this screen, so a typed
   // request or amount survives a scan that is cancelled or replaces it.
   const [scanning, setScanning] = useState(initialScanning);
   const [amount, setAmount] = useState('');
-  // A request that names its amount sets the field and locks it, so the
-  // amount cannot be changed by accident. What was typed stays for a request
-  // that names none.
-  const fixedSats = useMemo(() => fixedAmount(request), [request]);
   const [review, setReview] = useState<SendReview | null>(null);
+  const [reviewedAt, setReviewedAt] = useState(0);
+  const [expired, setExpired] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
+  const [rail, setRail] = useState<GlyphName>('bolt');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const toast = useToast();
+  const [failure, setFailure] = useState<Failure | null>(null);
+  // A completed payment goes home on its own unless the screen is touched.
+  const [stayed, setStayed] = useState(false);
+  // A request that names its amount sets it and locks it, so the amount
+  // cannot be changed by accident. What was typed stays for a request that
+  // names none.
+  const fixedSats = useMemo(() => fixedAmount(request), [request]);
+  // Read afresh on every render: the held set changes outside React, and
+  // every change to it comes with a render of its own.
+  const held = review || result ? null : heldRequest(request, activity);
+
   useEffect(() => {
-    if (initialRequest) setRequest(initialRequest);
+    if (!initialRequest) return;
+    setRequest(initialRequest);
+    setCollapsed(true);
   }, [initialRequest]);
   useEffect(() => {
     onBusy(busy);
     return () => onBusy(false);
   }, [busy, onBusy]);
+
+  // A quote runs out on its own clock. It is said aloud once as it gets
+  // close, and felt when it goes.
+  useEffect(() => {
+    if (!review || expired) return;
+    const left = review.expiresAt - Date.now();
+    const timers = [
+      setTimeout(() => {
+        setExpired(true);
+        haptics.warning();
+        announce(copy.send.quoteExpired);
+      }, Math.max(0, left)),
+    ];
+    if (left > LATE_MS) {
+      timers.push(
+        setTimeout(
+          () => announce(copy.send.quoteExpires(LATE_MS / 1000)),
+          left - LATE_MS,
+        ),
+      );
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [review, expired]);
+
+  // Landing on the held ring is felt, said and logged, once for each time.
+  const heldFor = held ? request.trim() : '';
+  useEffect(() => {
+    if (!heldFor) return;
+    haptics.held();
+    announce(copy.send.heldAnnouncement, { assertive: true });
+    recordDiagnostic({ phase: 'ui', code: 'HELD', message: copy.send.held });
+  }, [heldFor]);
+
+  useEffect(() => {
+    if (result?.status !== 'completed' || !onDone || stayed) return;
+    const timer = setTimeout(onDone, HOME_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [result, onDone, stayed]);
+
   const sending = useRef(false);
-  // Only a review has a deadline to count down. Without one there is nothing
-  // on this screen that changes with the clock, and ticking anyway re-rendered
-  // the whole compose form once a second while someone was typing into it.
-  const now = useNow(1000, review !== null);
-  const expired = review !== null && now >= review.expiresAt;
-  const step = result ? 'result' : review ? 'review' : 'compose';
-  const enter = useEnter(step);
+
+  function accept(code: string) {
+    setRequest(code);
+    setCollapsed(true);
+    setFailure(null);
+    setScanning(false);
+  }
+
+  function fail(error: unknown) {
+    const message = errorMessage(error);
+    const next = sendFailure(error, {
+      message,
+      amountSats: fixedSats ?? (amount ? Number(amount) : null),
+      balance,
+    });
+    haptics[next.haptic]();
+    announce(message, { assertive: true });
+    recordDiagnostic({ phase: 'ui', code: next.code || undefined, message });
+    if (next.target === 'request') setCollapsed(false);
+    setFailure(next);
+  }
+
+  function settle(outcome: SendResult, code?: string) {
+    holdRequest(request, outcome);
+    setResult(outcome);
+    setReview(null);
+    onRefresh();
+    switch (outcome.status) {
+      case 'completed':
+        haptics.success();
+        announce(copy.send.sent);
+        break;
+      case 'pending':
+        haptics.soft();
+        announce(copy.send.onItsWay);
+        break;
+      case 'uncertain':
+        haptics.held();
+        announce(copy.send.heldAnnouncement, { assertive: true });
+        recordDiagnostic({
+          phase: 'ui',
+          code: code || 'UNCERTAIN',
+          message: outcome.message,
+        });
+        break;
+      case 'failed':
+        haptics.error();
+        announce(`${copy.send.failed} ${outcome.message}`, {
+          assertive: true,
+        });
+        recordDiagnostic({
+          phase: 'ui',
+          code: code || 'FAILED',
+          message: outcome.message,
+        });
+        break;
+    }
+  }
 
   async function prepare() {
-    if (sending.current) {
-      return;
-    }
+    if (sending.current) return;
     sending.current = true;
     setBusy(true);
-    setError('');
+    setFailure(null);
     try {
-      setReview(
-        await client.prepareSend({
-          request: request.trim(),
-          amountSats:
-            fixedSats === null && amount.trim() ? parseSats(amount) : undefined,
-        }),
-      );
+      const next = await client.prepareSend({
+        request: request.trim(),
+        amountSats:
+          fixedSats === null && amount.trim() ? parseSats(amount) : undefined,
+      });
+      setReview(next);
+      setReviewedAt(Date.now());
+      setExpired(next.expiresAt <= Date.now());
+      setCollapsed(true);
     } catch (e) {
-      haptic('error');
-      setError(message(e));
-    } finally {
-      sending.current = false;
-      setBusy(false);
-    }
-  }
-  async function pay() {
-    if (!review || sending.current || expired) {
-      return;
-    }
-    sending.current = true;
-    setBusy(true);
-    setError('');
-    try {
-      const outcome = await client.send(review);
-      haptic(outcome.status === 'completed' ? 'success' : 'warning');
-      setResult(outcome);
-      setReview(null);
-      onRefresh();
-    } catch (e) {
-      haptic('error');
-      setError(message(e));
-      setReview(null);
+      if (isUncertain(e)) {
+        // The engine has this payment in flight already: hold the request.
+        holdRequest(request, { status: 'uncertain' });
+        recordDiagnostic({
+          phase: 'ui',
+          code: errorCode(e),
+          message: errorMessage(e),
+        });
+      } else {
+        fail(e);
+      }
     } finally {
       sending.current = false;
       setBusy(false);
     }
   }
 
+  async function pay() {
+    if (!review || sending.current || expired) return;
+    sending.current = true;
+    setBusy(true);
+    setFailure(null);
+    setRail(reviewRail(review).glyph);
+    try {
+      settle(await client.send(review));
+    } catch (e) {
+      if (isUncertain(e)) {
+        // The payment may have gone out. It is never an error to retry.
+        settle(
+          {
+            id: review.id,
+            status: 'uncertain',
+            amountSats: review.amountSats,
+            feeSats: review.feeSats,
+            feeEstimated: true,
+            message: errorMessage(e),
+          },
+          errorCode(e),
+        );
+      } else if (errorCode(e) === 'QUOTE_EXPIRED') {
+        setExpired(true);
+        fail(e);
+      } else {
+        setReview(null);
+        fail(e);
+      }
+    } finally {
+      sending.current = false;
+      setBusy(false);
+    }
+  }
+
+  /** Back to compose from the review, keeping the request and amount. */
+  function edit() {
+    setReview(null);
+    setExpired(false);
+    setFailure(null);
+  }
+
+  function refreshQuote() {
+    edit();
+    prepare();
+  }
+
+  /** A failed payment tapped: back to compose with the request kept. */
+  function retry() {
+    setResult(null);
+    setFailure(null);
+  }
+
+  async function paste(): Promise<boolean> {
+    try {
+      const pasted = (await Clipboard.getString())?.trim();
+      if (!pasted) {
+        haptics.error();
+        announce(copy.send.clipboardEmpty);
+        return false;
+      }
+      accept(pasted);
+      announce(copy.send.pasted);
+      return true;
+    } catch (e) {
+      fail(e);
+      return false;
+    }
+  }
+
+  function scan(origin: Origin | null) {
+    if (onScan) onScan(origin);
+    else setScanning(true);
+  }
+
+  useImperativeHandle(ref, () => ({
+    back: () => {
+      if (busy) return false;
+      if (review) {
+        edit();
+        return true;
+      }
+      if (result?.status === 'failed') {
+        retry();
+        return true;
+      }
+      return false;
+    },
+    receive: accept,
+  }));
+
   if (scanning) {
-    return (
-      <Scanner
-        onDetected={value => {
-          setRequest(value);
-          setError('');
-          setScanning(false);
-        }}
-        onCancel={() => setScanning(false)}
-      />
-    );
+    return <Scanner onDetected={accept} onCancel={() => setScanning(false)} />;
+  }
+
+  // The request as a chip, which past compose can only be opened to edit.
+  const chip = (onExpand?: () => void) => (
+    <RequestEntry
+      accessibilityLabel={copy.send.request}
+      value={request}
+      collapsed
+      onExpand={onExpand}
+      fixed={fixedSats !== null}
+    />
+  );
+
+  function typed(text: string) {
+    setRequest(text);
+    setCollapsed(false);
+    setFailure(null);
   }
 
   if (result) {
-    const completed = result.status === 'completed';
+    const visual = resultVisual(result.status);
+    const reference = result.txid || result.paymentHash;
+    const item =
+      activity?.find(
+        payment =>
+          (!!result.paymentHash &&
+            payment.paymentHash === result.paymentHash) ||
+          (!!result.txid && payment.txid === result.txid),
+      ) ?? null;
+    const failed = result.status === 'failed';
+    const uncertain = result.status === 'uncertain';
     return (
-      <Animated.View style={[styles.stack, enter]}>
-        <View style={styles.resultStage}>
-          <View style={[styles.resultIcon, completed && styles.resultSuccess]}>
-            <Icon
-              name={completed ? 'check' : 'clock'}
-              color={completed ? colors.ink : colors.primary}
-              size={32}
-            />
-          </View>
-        </View>
-        <Title>
-          {completed
-            ? 'Sent.'
-            : result.status === 'uncertain'
-            ? 'Result unknown.'
-            : result.status === 'failed'
-            ? 'Payment failed.'
-            : 'Payment on its way.'}
-        </Title>
-        <Text style={styles.amount}>
-          {number(result.amountSats)} <Text style={styles.unit}>sats</Text>
-        </Text>
-        <Notice
-          kind={completed ? 'success' : 'info'}
-          icon={completed ? 'check' : 'info'}
-        >
-          {result.message}
-        </Notice>
-        {result.status === 'uncertain' ? (
-          <Body>Check Activity before paying this request again.</Body>
-        ) : null}
-        <Card>
-          <Row label="Status" value={statusLabel(result.status)} />
-          <Row
-            label={result.feeEstimated ? 'Reviewed fee' : 'Fee paid'}
-            value={
-              result.feeKnown === false
-                ? 'Unavailable'
-                : `${number(result.feeSats)} sats`
+      <View style={styles.screen} onTouchStart={() => setStayed(true)}>
+        {failed ? <FailedTint /> : null}
+        <View style={styles.body}>
+          <ResultMark
+            visual={visual}
+            accessibilityLabel={visual.title}
+            accessibilityValue={statusLabel(result.status)}
+            accessibilityHint={[
+              result.message,
+              uncertain ? copy.send.checkActivity : null,
+              failed ? copy.send.retry : null,
+              uncertain && item && onDetail ? copy.send.showPayment : null,
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            onPress={
+              !live
+                ? undefined
+                : failed
+                ? retry
+                : uncertain && item && onDetail
+                ? () => onDetail(item)
+                : undefined
             }
           />
-          {result.txid || result.paymentHash ? (
-            <Row
-              label="Reference"
-              value={compact(result.txid || result.paymentHash || '')}
-              mono
-            />
+          <Amount
+            sats={result.amountSats}
+            color={uncertain ? palette.honey : palette.cream}
+          />
+          <View
+            accessible
+            accessibilityLabel={
+              result.feeEstimated ? copy.send.reviewedFee : copy.send.feePaid
+            }
+            accessibilityValue={{
+              text:
+                result.feeKnown === false
+                  ? copy.send.feeUnavailable
+                  : copy.amount.spoken(result.feeSats),
+            }}
+            style={styles.fee}
+          >
+            <Glyph name={rail} size={16} color={palette.steam} />
+            <Text style={styles.feeText}>
+              {result.feeEstimated ? '+ ≈' : '+'}
+            </Text>
+            {result.feeKnown === false ? (
+              <Glyph name="question" size={16} color={palette.steam} />
+            ) : (
+              <Text style={styles.feeText}>
+                {copy.amount.spoken(result.feeSats)}
+              </Text>
+            )}
+          </View>
+          {reference ? (
+            <CopyChip label={copy.send.reference} value={reference} />
           ) : null}
-        </Card>
-        <Button label="View activity" onPress={onActivity} />
-      </Animated.View>
+        </View>
+        <View style={styles.controls}>
+          <GlyphButton
+            glyph="orbit"
+            accessibilityLabel={copy.send.viewActivity}
+            onPress={live ? onActivity : undefined}
+          />
+        </View>
+      </View>
     );
   }
 
-  return (
-    <Animated.View style={[styles.stack, enter]}>
-      <Title>{review ? 'Review' : 'Send'}</Title>
-      {error ? (
-        <Notice kind="error" icon="alert">
-          {error}
-        </Notice>
-      ) : null}
-      {disabled && !review ? (
-        <Notice kind="warning" icon="clock">
-          Balance not confirmed recently. Refresh before sending.
-        </Notice>
-      ) : null}
-      {review ? (
-        <>
-          <Text style={styles.amount}>
-            {number(review.amountSats)} <Text style={styles.unit}>sats</Text>
-          </Text>
-          <Card>
-            <Row label="To" value={compact(review.destination)} mono />
-            {review.method === 'direct-funding' ? (
-              <Row label="Method" value="Direct funding" />
-            ) : null}
-            {review.description ? (
-              <Row label="For" value={review.description} />
-            ) : null}
-            {review.estimatedFeeSats != null ? (
-              <Row
-                label="Expected routing fee"
-                value={`about ${number(review.estimatedFeeSats)} sats`}
-              />
-            ) : null}
-            <Row
-              label={review.feeLabel || 'Fee'}
-              value={`${number(review.feeSats)} sats`}
-            />
-            <Row
-              label={
-                review.estimatedFeeSats != null
-                  ? 'Total, at most'
-                  : 'Total including fee'
-              }
-              value={`${number(review.totalSats)} sats`}
-            />
-          </Card>
-          {review.warnings.map((warning, i) => (
-            <Notice key={i} icon="info">
-              {warning}
-            </Notice>
-          ))}
-          <Text style={styles.countdown}>
-            {expired
-              ? 'Quote expired. Review again.'
-              : `Fee quote expires in ${Math.max(
-                  0,
-                  Math.ceil((review.expiresAt - now) / 1000),
-                )}s`}
-          </Text>
-          <Button
-            label={`Send ${number(review.amountSats)} sats`}
-            icon="arrowUp"
-            onPress={pay}
-            busy={busy}
-            disabled={expired}
-          />
-          <Button
-            label={expired ? 'Refresh quote' : 'Edit payment'}
-            secondary
-            onPress={() => {
-              setReview(null);
-              setError('');
-              // A fresh quote for the same request, without retyping it.
-              if (expired) prepare();
-            }}
-            disabled={busy}
-          />
-        </>
-      ) : (
-        <>
-          <Field
-            label="Payment request or address"
-            placeholder="Paste a request here"
-            value={request}
-            onChangeText={setRequest}
-            autoCapitalize="none"
-            multiline
-            editable={!busy}
-          />
-          <View style={styles.entryActions}>
-            <View style={styles.entryAction}>
-              <Button
-                secondary
-                icon="copy"
-                label="Paste"
-                disabled={busy}
-                accessibilityLabel="Paste from clipboard"
-                onPress={() => {
-                  Clipboard.getString()
-                    .then(value => {
-                      const pasted = value?.trim();
-                      if (!pasted) {
-                        toast('The clipboard is empty.', 'error');
-                        return;
-                      }
-                      setRequest(pasted);
-                      toast('Request pasted', 'success', 'copy');
-                    })
-                    .catch(e => setError(message(e)));
-                }}
-              />
-            </View>
-            <View style={styles.entryAction}>
-              <Button
-                secondary
-                icon="scan"
-                label="Scan"
-                disabled={busy}
-                accessibilityLabel="Scan a payment request"
-                onPress={() => setScanning(true)}
-              />
-            </View>
-          </View>
-          <AmountField
-            label="Amount in sats"
-            value={fixedSats === null ? amount : String(fixedSats)}
-            onChangeText={setAmount}
-            placeholder="0"
-            editable={!busy && fixedSats === null}
-            hint={
-              fixedSats === null ? undefined : 'Set by the payment request.'
+  if (held) {
+    const item = held.item;
+    const shown = item?.amountSats ?? fixedSats;
+    return (
+      <View style={styles.screen}>
+        {chip()}
+        <View style={styles.body}>
+          <ResultMark
+            visual={resultVisual('uncertain')}
+            accessibilityLabel={
+              held.status === 'pending' ? copy.send.onItsWay : copy.send.unknown
+            }
+            accessibilityValue={statusLabel(held.status)}
+            accessibilityHint={[
+              copy.send.held,
+              item && onDetail ? copy.send.showPayment : null,
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            onPress={
+              live && item && onDetail ? () => onDetail(item) : undefined
             }
           />
-          <Button
-            label="Review payment"
-            icon="arrowUp"
-            onPress={prepare}
-            busy={busy}
-            disabled={!request.trim() || disabled}
+          {shown ? <Amount sats={shown} color={palette.honey} /> : null}
+        </View>
+        <View style={styles.controls}>
+          <GlyphButton
+            glyph="orbit"
+            accessibilityLabel={copy.send.viewActivity}
+            onPress={live ? onActivity : undefined}
           />
-        </>
-      )}
-    </Animated.View>
+        </View>
+      </View>
+    );
+  }
+
+  if (review) {
+    const label = copy.send.sendSats(review.amountSats);
+    return (
+      <View style={styles.screen}>
+        {chip(busy ? undefined : edit)}
+        <View style={styles.body}>
+          <Amount sats={review.amountSats} />
+          {review.description ? (
+            <Text style={styles.note} numberOfLines={2}>
+              {review.description}
+            </Text>
+          ) : null}
+          <ReviewLines review={review} />
+        </View>
+        <View style={styles.controls}>
+          <View style={styles.side}>
+            <GlyphButton
+              glyph="pencil"
+              accessibilityLabel={copy.send.edit}
+              onPress={live && !busy ? edit : undefined}
+              disabled={busy}
+            />
+          </View>
+          {expired ? (
+            <QuoteRefresh
+              onPress={live && !busy ? refreshQuote : undefined}
+              busy={busy}
+            />
+          ) : disabled ? (
+            <CircleControl
+              accessibilityLabel={label}
+              accessibilityHint={copy.send.stale}
+              onPress={live ? onRefresh : undefined}
+              stale
+            />
+          ) : (
+            <View style={styles.commit}>
+              <ExpiryRing
+                size={EXPIRY}
+                expiresAt={review.expiresAt}
+                createdAt={reviewedAt}
+              />
+              <View style={styles.hold}>
+                <HoldButton
+                  accessibilityLabel={label}
+                  onCommit={pay}
+                  warning={review.warnings.length > 0}
+                  busy={busy}
+                />
+              </View>
+            </View>
+          )}
+          <View style={styles.side}>
+            {failure ? <FailureMark failure={failure} /> : null}
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  const amountFailure = failure?.target === 'amount' ? failure : null;
+  const shownAmount = fixedSats === null ? amount : String(fixedSats);
+  const tone: AmountTone = amountFailure
+    ? amountFailure.tone === 'honey'
+      ? 'over-spendable'
+      : 'over-total'
+    : amountTone(Number(shownAmount) || 0, balance);
+  const hint = [
+    fixedSats === null ? null : copy.amount.fixed,
+    TONE_WORDS[tone],
+    amountFailure?.message,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return (
+    <View style={styles.screen}>
+      <RequestEntry
+        accessibilityLabel={copy.send.request}
+        value={request}
+        onChangeText={live ? typed : undefined}
+        collapsed={collapsed}
+        onExpand={busy ? undefined : () => setCollapsed(false)}
+        onCollapse={() => setCollapsed(request.trim() !== '')}
+        fixed={fixedSats !== null}
+        refused={failure?.target === 'request' ? failure : null}
+        busy={busy}
+        onPaste={paste}
+        onScan={scan}
+      />
+      <AmountReadout
+        accessibilityLabel={copy.amount.field}
+        value={grouped(shownAmount)}
+        onChangeText={
+          live
+            ? text => {
+                setAmount(digitsOnly(text));
+                if (amountFailure) setFailure(null);
+              }
+            : undefined
+        }
+        hint={hint || undefined}
+        editable={fixedSats === null}
+        busy={busy}
+        tone={tone}
+      />
+      <View style={styles.controls}>
+        <View style={styles.side} />
+        <CircleControl
+          accessibilityLabel={copy.send.review}
+          accessibilityHint={
+            disabled ? copy.send.stale : busy ? copy.send.preparing : undefined
+          }
+          onPress={
+            !live || busy
+              ? undefined
+              : disabled
+              ? onRefresh
+              : request.trim()
+              ? prepare
+              : undefined
+          }
+          busy={busy}
+          stale={disabled}
+        />
+        <View style={styles.side}>
+          {failure && failure.target !== 'request' ? (
+            <FailureMark failure={failure} />
+          ) : null}
+        </View>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  stack: { gap: space.lg },
-  amount: {
-    ...typography.amount,
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
+  screen: { flex: 1, gap: space.lg },
+  body: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.md,
+    paddingVertical: space.lg,
   },
-  unit: { ...typography.caption, fontSize: 16, color: colors.muted },
-  countdown: {
-    ...typography.caption,
-    color: colors.muted,
-    textAlign: 'center',
+  note: { ...typography.row, color: palette.steam, textAlign: 'center' },
+  controls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: space.xs,
   },
-  entryActions: { flexDirection: 'row', gap: space.xs },
-  entryAction: { flex: 1 },
-  resultStage: { alignItems: 'flex-start', justifyContent: 'center' },
-  resultIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: radius.xl,
-    backgroundColor: colors.raised,
+  side: { width: 56, alignItems: 'center' },
+  commit: {
+    width: EXPIRY,
+    height: EXPIRY,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  resultSuccess: { backgroundColor: colors.mint },
+  hold: { position: 'absolute' },
+  fee: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  feeText: { ...typography.line, color: palette.steam },
+  tint: { ...StyleSheet.absoluteFill, backgroundColor: palette.radish },
 });
