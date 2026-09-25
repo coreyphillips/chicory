@@ -322,12 +322,12 @@ describe('Send and Receive open from their circle', () => {
       return <LaunchProvider value={launch}>{children}</LaunchProvider>;
     }
     const noop = () => {};
-    const client = {} as never;
+    const none = {} as never;
     for (const [label, scene] of [
       [
         copy.send.review,
         <SendScreen
-          client={client}
+          client={none}
           onActivity={noop}
           onRefresh={noop}
           onBusy={noop}
@@ -336,7 +336,7 @@ describe('Send and Receive open from their circle', () => {
       [
         copy.receive.continue,
         <ReceiveScreen
-          client={client}
+          client={none}
           receivableSats={10_000}
           onActivity={noop}
           onBusy={noop}

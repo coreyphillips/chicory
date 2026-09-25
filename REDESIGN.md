@@ -29,7 +29,7 @@ This branch (`redesign`) is an experimental redesign of the Chicory app. It is n
    - encoded three ways: color, a distinct glyph or ring shape, and motion, with a haptic when it starts;
    - enforced by behavior, so the risky action is removed or blocked;
    - announced to screen readers assertively;
-   - logged with its full engine message to the diagnostic log.
+   - logged with its full engine message to the diagnostic log, under its code (`SAFETY_CODE` in `src/motion/speech.ts`: HELD, or UNCERTAIN where Send knows the outcome is unknown; STALE; EXPIRED, or QUOTE_EXPIRED for a quote; AMBIGUOUS_RECEIVE_ADDRESS; BACKUP_PENDING; TEST_NETWORK). Settings > Diagnostics colours an entry by its code alone, never by its words: slate for a test network, honey for the other safety states, radish for a failure.
 5. **Hold to send.** A payment is committed with a 700ms hold (1000ms when engine warnings exist). Screen readers use a single `activate` action.
 6. **Held requests.** A request whose earlier payment is still pending or uncertain cannot be paid again. It lands on the held ring instead of a review.
 7. **Haptics are not motion.** Reduce Motion does not switch haptics off. Settings > Haptics does. It is a Keychain preference `com.beignet.wallet.haptics`, on by default.
@@ -219,7 +219,7 @@ G3 tints:
 
 - The spacing scale is unchanged: 4, 8, 12, 16, 20, 24, 32, 44. The page edge is 24.
 - Radius: sm 10, md 14, lg 20, qr 24, pane 28, round 999.
-- The minimum touch target is 48.
+- The minimum touch target is 48 (`MIN_TARGET` in `src/theme.ts`), a control's frame and its hitSlop together. An icon button (`IconButton`) is a 48pt frame. A chip keeps its 38pt pill and reaches 48 up and down through its hitSlop (`CHIP_SLOP`), and is at least 48 wide, so it never reaches sideways into the chip beside it. The corner control is a 48pt target (10.1).
 
 ### 3.5 Motion
 
@@ -405,7 +405,8 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
   - u = 10^k
   - whole = floor(v / u)
   - rem = v - whole × u
-  - pos = whole % 10 + rem when k is 0. Otherwise pos = whole % 10 + smoothstep(clamp((rem - .9u) / (.1u), 0, 1)).
+  - pos = whole % 10 + rem when k is 0. Otherwise pos = whole % 10 + smoothstep(clamp(rem - (u - 1), 0, 1)).
+  - So a place turns only while the ones roll from 9 to 0, in step with every place between, as a mechanical counter carries: a figure mid-roll reads the amount it has reached or the next one up, and 59,877 never reads 69,877.
   - translateY = -pos × cell height.
   - A rolling column is two layers, its even rows and its odd rows, since a cell shows at most one row of each. Each layer fades by its one row in view, 1 - smoothstep(|row - pos|), so a digit fades as it slides over the cell's edge and the two in view always add to one. A scramble lands on whole rows, so each jump shows one digit whole.
 - **Unit swap.** The outgoing cells lift and fade (140ms, 12ms apart). The incoming cells rise with the snap spring.
@@ -463,6 +464,8 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 - **Tap.** A tick, then `copy` morphs into a sage check while a cream wash sweeps across (180ms in, 700ms hold, 600ms out). Screen readers hear "{Label} copied".
 - **Long press.** Expands to show the full value.
 - **Record.** A chip that is not `copyable` shows its value in steam and copies nothing; a screen reader hears its label and the value. A payment's detail draws its request string as a chip (`qr`, or `bolt` for an old Lightning invoice), which copies while the request can be paid and is only the record once it cannot.
+- **Kind glyphs.** The request string's chip is the one that carries its kind inside it. A payment's detail leads every other chip with a glyph for what it holds, outside the chip as its lines do (`hash` for the reference, `chain` for the transaction, `bolt` for the payment hash, `pin` for the address), and the chip keeps `copy`, so what shows a value copies is always the same glyph.
+- **Shape.** A pill round its value and glyph, at least 48pt tall and rounded by half that, which hugs its value wherever it sits rather than stretching across its row.
 
 ### HoldButton
 
@@ -470,6 +473,7 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 - **Press in.** Scales to .94. The fill runs over 700ms on `bezier(.35,0,.25,1)`, with ramp haptics.
 - **Complete.** A thud, a cream flash, a pop to 1.06, then the arrow launches and 12 petal sparks burst.
 - **Released early.** The fill drains with the snap spring.
+- **Timing.** The hold is a long press the gesture handler times on the UI thread, where the fill runs (`useLongPressGesture` with worklet callbacks, handing back with `scheduleOnRN`): the complete plays as the ring fills however busy the JavaScript thread is, and a finger lifted after that cannot take it back. Tests read its duration with `holdMs(tree, label)` in `test-support/query`.
 - **With warnings.** The fill is honey and takes 1000ms.
 - **Accessibility.** An `activate` action sends immediately. VoiceOver's double tap reaches it as an accessibility tap, which commits the same way, since iOS lists `activate` only among the custom actions. One action pays, so the hold's value says everything a sighted payer sees before holding (on a review: the total, the fee cap, the expected fee and every engine warning), and a screen reader is never moved onto the hold itself.
 
@@ -485,6 +489,7 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 - **Modules.** Built with `require('qrcode').create(uri, {errorCorrectionLevel: 'M'}).modules`, split into 5 bands by distance from the center, plus the finder squares.
 - **Fit.** The modules fill the card but for a quiet zone of four modules, a little more on the densest codes so the card's rounded corner stays a module clear of each finder (`qrGrid`). Every module edge falls on a whole pixel, so bands meet without a seam and a dense unified request still scans, inline and lifted alike.
 - **Reveal.** The card scales .92 to 1. Starting at t80, band k enters at 40k ms. The finder squares pop last.
+- **Worked out after the card.** A dense request's modules and bands take a frame or more to work out, so they are worked out once the card has first drawn (`useQrDrawing`), in one pass over the grid, rather than in the render that changes the step: the step switches and the card arrives first. A card that waited for its drawing gives up only the t80 lead-in (`bloomMotion`), never the bands' stagger.
 - **Dissolve.**
   - Expired: outer bands go first.
   - Paid: inner bands go first, imploding to .2 over 420ms.
@@ -500,6 +505,10 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 | 600       | the check draws (420ms)                   |
 | 700       | the petal burst (800ms) and the sage tint |
 
+The ring's husk track fades in only once the code's cream card has gone (`QR_CARD_GONE`, over 220ms), so no dark ring cuts across the code as it implodes; the sage arc draws over the cream from 120.
+
+Under the done mark the way to the payment list is the history glyph (`HISTORY_GLYPH`, `restore`), as under Send's results (6, Send).
+
 On-chain but not yet confirmed: the sequence stops at a sage orbit.
 
 On the canvas a payment that completes is felt once, by the canvas's `useIncoming` as the wallet reads it, so Receive plays neither the incoming haptic nor a success for it. Receive plays the incoming haptic itself only for money it sees before the wallet's history shows it arrived: on chain but unconfirmed, or part of what was asked.
@@ -511,14 +520,15 @@ On the canvas a payment that completes is felt once, by the canvas's `useIncomin
 - **Digits.** A new digit rises 12pt as it enters. A removed digit drops 8pt as it leaves.
 - **Clear.** Long-pressing backspace for 450ms clears the amount, with a rigid haptic. A screen reader has it as backspace's `longpress` action, labelled `copy.keypad.clear` ("Clear the amount").
 - **Limits.**
-  - Over what can be spent now, but within the total: honey.
-  - Over the total, or over the offline cap: radish, and it shakes once.
+  - Over what can be spent now, but covered by money on its way: honey, with a `clock`.
+  - Over what can be spent now with nothing arriving that would cover it (the gap is the channel reserve, say), over the total, or over the offline cap: radish, and it shakes once. A screen reader hears how much can be sent now, or that the wallet holds less.
   - More than 16 digits: the key is refused. The amount flashes radish and shakes, with a rigid haptic, and a screen reader hears `copy.keypad.refused`.
 
 ### Scan reveal
 
-- **Disc.** Its diameter is 2 × the distance from the button to the farthest corner, and it scales up from the button size with the pane spring.
-- **Reticle.** Four 28pt corners fly in, 40ms apart.
+- **Disc.** Its diameter is 2 × the distance from the button to the farthest corner, and it scales up from the button size with the pane spring. The spring, and the clock that mounts the camera once the disc looks open, run on the steady clock (3.5), so the slow frame that mounts the overlay holds the reveal back rather than skipping it.
+- **Reticle.** Four 28pt corners fly in, 40ms apart, on the steady clock too.
+- **Test network.** The ground and the camera's cover are slate's night in place of bloom's, and a slate `flask` sits at the page edge in the status row's band, which the scan covers (rule 4). The canvas passes the wallet's network, and so does a Send that draws its camera itself.
 - **Valid code.** The corners snap to .85 and turn sage.
 - **Invalid code.** A radish flash and a shake, and scanning continues.
 - **Denied or no camera.** `cameraOff`, `clipboard`, and on denial a `cog` that opens OS settings.
@@ -548,20 +558,20 @@ A cocoa pill anchored above its source (see rule 3), kept inside the page edge (
 
 ### Wallet health
 
-| State               | Visual                                                                                                                                                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| fresh               | The PulseDot is sage and pings on each poll.                                                                                                                                                      |
-| reconnecting        | The PulseDot is honey and pulses.                                                                                                                                                                 |
-| stale (45s or more) | The hero goes steam with the shimmer wave; the glow drops to .25; the actions turn dust and scale to .94. Tapping one shakes it, fires a warning haptic, and starts a manual refresh.             |
-| cached launch       | The stale look plus a ratcheting mark. The first live read re-saturates it and fires a sage ping. Its warning waits for that read: once it is 15s overdue, the stale signal plays.                |
-| setup pending       | Petals open to q .6 and the center breathes.                                                                                                                                                      |
-| setup ready         | Petals open fully.                                                                                                                                                                                |
-| setup failed        | Petals droop, with a honey pip.                                                                                                                                                                   |
-| refresh failed      | The PulseDot is hollow radish.                                                                                                                                                                    |
-| manual refresh      | The mark ratchets. Pulling down on the top pane opens the petals as you pull: Home's own pan writes `pull`, and the mark folds, then opens a petal each twelfth of the way, whole at the trigger. |
-| hidden              | 6-dot masks everywhere, toggled by long-pressing the hero. A payment's review is the one exception: it always shows its amounts, since it is where the payment is checked before it is sent.      |
-| unit                | Tapping the hero rolls between sats and BTC.                                                                                                                                                      |
-| test network        | Slate replaces bloom everywhere, with a `flask` micro-glyph.                                                                                                                                      |
+| State               | Visual                                                                                                                                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| fresh               | The PulseDot is sage and pings on each poll.                                                                                                                                                                                          |
+| reconnecting        | The PulseDot is honey and pulses.                                                                                                                                                                                                     |
+| stale (45s or more) | The hero goes steam with the shimmer wave; the glow drops to .25; the actions turn dust and scale to .94. Tapping one shakes it, fires a warning haptic, and starts a manual refresh.                                                 |
+| cached launch       | The stale look plus a ratcheting mark. The first live read re-saturates it and fires a sage ping. Its warning waits for that read: once it is 15s overdue, the stale signal plays.                                                    |
+| setup pending       | Petals open to q .6 and the center breathes.                                                                                                                                                                                          |
+| setup ready         | Petals open fully.                                                                                                                                                                                                                    |
+| setup failed        | Petals droop, with a honey pip.                                                                                                                                                                                                       |
+| refresh failed      | The PulseDot is hollow radish.                                                                                                                                                                                                        |
+| manual refresh      | The mark ratchets. Pulling down on the top pane opens the petals as you pull: Home's own pan writes `pull`, and the mark folds, then opens a petal each twelfth of the way, whole at the trigger.                                     |
+| hidden              | 6-dot masks everywhere, toggled by long-pressing the hero. A payment's review is the one exception: it always shows its amounts, since it is where the payment is checked before it is sent.                                          |
+| unit                | Tapping the hero rolls between sats and BTC.                                                                                                                                                                                          |
+| test network        | Slate replaces bloom everywhere, with a `flask` micro-glyph. An old balance on a test network keeps the mark's slate outline, where on mainnet the mark goes dormant; the hero, the actions and the dot still say the balance is old. |
 
 ### Activity row (64pt)
 
@@ -580,6 +590,7 @@ A cocoa pill anchored above its source (see rule 3), kept inside the page edge (
   - request: steam, with the infinity glyph when the amount is open
   - transfer: cream, no sign
   - failed or expired: dust, struck through
+  - In BTC a row, and a detail's lines, draw all eight decimals as the hero does, the zeros after the last significant one in dust, and all eight for no amount or a whole bitcoin (`figureOf`).
 - **Rings.**
 
   | State              | Ring                                                                 |
@@ -604,22 +615,22 @@ A cocoa pill anchored above its source (see rule 3), kept inside the page edge (
 
 ### Send
 
-| State                   | Visual                                                                                                                                                         |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| compose                 | A request well with 44pt `clipboard` and `scan` buttons and a breathing dashed border.                                                                         |
-| accepted                | The well collapses into a chip: rail glyph, shortened destination, and `lock` if the amount is fixed.                                                          |
-| fixed amount            | The keypad drops away and a `lock` sits beside the amount.                                                                                                     |
-| amount entry            | The keypad. Honey plus `clock` when over what can be spent but within the total; radish when over the total.                                                   |
-| preparing               | The control orbits.                                                                                                                                            |
-| review                  | The chip, the amount at 48pt, then the lines `rail + <= fee`, `~ expected`, `= total`. The HoldButton sits inside the ExpiryRing. Warnings show as honey pips. |
-| expired                 | The ring retracts and `refresh` appears (warning haptic).                                                                                                      |
-| sending                 | The arrow launches and an orbit starts.                                                                                                                        |
-| completed               | A 120pt cream disc with an ink check. Returns home after 2200ms, unless a screen reader is running or the result is touched or takes focus.                    |
-| pending                 | An orbit.                                                                                                                                                      |
-| uncertain               | A 120pt honey ring, steady, with a halo and `pause`. No resend. Assertive announcement. `held` haptic.                                                         |
-| held request re-entered | Goes straight to the held ring.                                                                                                                                |
-| failed                  | A radish `bang`, a shake, and the tint.                                                                                                                        |
-| stale                   | The control is dust; a tap shakes it and refreshes.                                                                                                            |
+| State                   | Visual                                                                                                                                                                                                                                                                                               |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| compose                 | A request well with 44pt `clipboard` and `scan` buttons and a breathing dashed border. A request is read as it is pasted, scanned, linked or typed and left: one the parser refuses never becomes a chip, and stays in the well with its `cross`, felt, said and logged.                             |
+| accepted                | The well collapses into a chip: rail glyph, shortened destination, and `lock` if the amount is fixed.                                                                                                                                                                                                |
+| fixed amount            | The keypad drops away and a `lock` sits beside the amount.                                                                                                                                                                                                                                           |
+| amount entry            | The keypad. Honey plus `clock` when over what can be spent now but covered by money on its way; radish otherwise, the channel reserve or the total being past reach.                                                                                                                                 |
+| preparing               | The control orbits.                                                                                                                                                                                                                                                                                  |
+| review                  | The chip, the amount at 48pt, then the lines `rail + <= fee`, `~ expected`, `= total`. The HoldButton sits inside the ExpiryRing. Warnings show as honey pips.                                                                                                                                       |
+| expired                 | The ring retracts and `refresh` appears (warning haptic).                                                                                                                                                                                                                                            |
+| sending                 | The arrow launches and an orbit starts.                                                                                                                                                                                                                                                              |
+| completed               | A 120pt cream disc with an ink check. Returns home after 2200ms, unless a screen reader is running or the result is touched or takes focus. The way to the payment list under it, and under the held ring, is the history glyph (`HISTORY_GLYPH`, `restore`), never the orbit of money still moving. |
+| pending                 | An orbit.                                                                                                                                                                                                                                                                                            |
+| uncertain               | A 120pt honey ring, steady, with a halo and `pause`. No resend. Assertive announcement. `held` haptic.                                                                                                                                                                                               |
+| held request re-entered | Goes straight to the held ring.                                                                                                                                                                                                                                                                      |
+| failed                  | A radish `bang`, a shake, and the tint.                                                                                                                                                                                                                                                              |
+| stale                   | The control is dust; a tap shakes it and refreshes.                                                                                                                                                                                                                                                  |
 
 ### Receive
 
@@ -638,32 +649,35 @@ A cocoa pill anchored above its source (see rule 3), kept inside the page edge (
 | partial              | A split ring showing received over requested, and `plus` with the remainder.                                                        |
 | completed            | The full celebration.                                                                                                               |
 
+**The amount step.** `pencil` (a note) and `moon` (offline, when offered) sit either side of the amount's cue, then the amount and its presets. Continue is pinned at the bottom of the step, above the bottom inset, with a refusal's pip beside it as Send has it, so a refusal is never pushed off screen. In the scene the step measures its slot (`ReceiveHost.room`) and fits it: what is entered scrolls on a short phone, and the way on stays in view.
+
 On a test network Receive draws slate wherever it would draw bloom (`scenes/receive/tone.ts`): its glyphs, the busy orbit, the halo, the offline switch, the primary controls and the burst petals, and `ReceiveRequestDetails` does the same for the request a payment's detail keeps when it is given `test`. The quote's and the request's expiry rings take the test network too, so their calm stroke is slate.
 
 ### Backup and setup
 
 - **Backup pending.** A honey halo on the mark and a shield tile in the shelf. It cannot be dismissed, and tapping it opens Settings > Recovery phrase.
+- **Test network.** The setup surfaces draw in slate where they would draw bloom on a test network, as Settings does (`SettingsNetwork`): the new wallet sheet by the network it makes the wallet on, a phase's `SetupPanel` by the active profile's network (the wallet's, offline), and `BackupPanel` by the wallet's.
 - **Backup pending over a shell phase.** Loading, offline and the picker have no mark and no Settings, so the stage draws the same shield tile at the top of the phase, with no words. Tapping it opens the recovery phrase in a setup surface of its own (`stage/layers/BackupPanel`), drawn in place of the phase. It stays open across a change of phase, the wallet opening included, so a phrase being written down is never taken away. Its close control and Android back let it go, and saving the phrase ends the backup, which closes it.
-- **Reveal (Settings).** A biometric prompt, then the words rise in order.
+- **Reveal (Settings).** With the app lock on, a biometric prompt (`requireUnlock`), then the words rise in order. With the lock off the deliberate reveal is the only gate: the prompt reads the lock's own Keychain item, which exists only while the lock is on, and rule 8 keeps the lock and its Keychain items as they are.
 - **Confirming saved.** A 900ms hold that turns honey to sage. The halo then shrinks into the mark.
 - **Restore entry.** Each word lights a petal. From word 13 a second ring lights. More than 24 words turns it radish and shakes. At 12 or 24 the center pops and the control enables.
 
 ### Engine errors
 
-| Code                                    | Visual                                                                                                                                                                                    |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| INSUFFICIENT_FUNDS, amount within total | honey, with a `clock` on the amount and beside the control. The vessel is out of sight while Send is open, and the state ends as Send closes, so the clock stands in for a vessel marker. |
-| INSUFFICIENT_FUNDS, amount over total   | radish and a shake                                                                                                                                                                        |
-| parse and refused inputs                | the chip dissolves with a `cross`                                                                                                                                                         |
-| PRIMARY_DOWN                            | honey `unplug`                                                                                                                                                                            |
-| NO_ROUTE                                | `bolt` plus `cross`                                                                                                                                                                       |
-| FUNDING_UNCONFIRMED                     | `chain` plus `clock`                                                                                                                                                                      |
-| AMOUNT_REQUIRED                         | the infinity glyph shakes to 0                                                                                                                                                            |
-| RECEIVE_UNAVAILABLE                     | the moon shakes off                                                                                                                                                                       |
-| QUOTE_EXPIRED                           | `refresh`                                                                                                                                                                                 |
-| AMBIGUOUS_RECEIVE_ADDRESS               | twin                                                                                                                                                                                      |
-| INVALID_MNEMONIC                        | wilt                                                                                                                                                                                      |
-| anything unmapped                       | a radish `bang`, a shake and an error haptic (user-initiated only). The full message goes to `recordDiagnostic` and is announced and readable through Whisper and Settings > Diagnostics. |
+| Code                                              | Visual                                                                                                                                                                                                            |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| INSUFFICIENT_FUNDS, arriving money would cover it | honey, with a `clock` on the amount and beside the control. The vessel is out of sight while Send is open, and the state ends as Send closes, so the clock stands in for a vessel marker.                         |
+| INSUFFICIENT_FUNDS, otherwise                     | radish and a shake                                                                                                                                                                                                |
+| parse and refused inputs                          | refused as the request is entered, so the chip is never shown: the request stays in the well and the `cross` draws there. A refusal only the engine makes dissolves the chip back into the well with its `cross`. |
+| PRIMARY_DOWN                                      | honey `unplug`                                                                                                                                                                                                    |
+| NO_ROUTE                                          | `bolt` plus `cross`                                                                                                                                                                                               |
+| FUNDING_UNCONFIRMED                               | `chain` plus `clock`                                                                                                                                                                                              |
+| AMOUNT_REQUIRED                                   | the infinity glyph shakes to 0                                                                                                                                                                                    |
+| RECEIVE_UNAVAILABLE                               | the moon shakes off                                                                                                                                                                                               |
+| QUOTE_EXPIRED                                     | `refresh`                                                                                                                                                                                                         |
+| AMBIGUOUS_RECEIVE_ADDRESS                         | twin                                                                                                                                                                                                              |
+| INVALID_MNEMONIC                                  | wilt                                                                                                                                                                                                              |
+| anything unmapped                                 | a radish `bang`, a shake and an error haptic (user-initiated only). The full message goes to `recordDiagnostic` and is announced and readable through Whisper and Settings > Diagnostics.                         |
 
 ## 7. Choreography (ms from the tap)
 
@@ -682,7 +696,7 @@ On a test network Receive draws slate wherever it would draw bloom (`scenes/rece
 
 Going back reverses it: content exits in 140ms, the springs reverse, and rows re-enter 25ms apart.
 
-The tapped circle is one element with the scene's control: it lands on the slot's bottom centre (`launchLanding` in `stage/layout`), or on the control itself once the scene measures it (`useLaunchLanding` in `stage/panes/Launch`), whole all the way, and only then fades under it (`handover`). Coming back it comes up again as the scene's content leaves. The strip draws the balance again at a size of its own (the `line` figures), crossfading with the hero over the last .15 of the way (`stripOpacity`), so its unit reads at 15pt rather than at a third of it.
+The tapped circle is one element with the scene's control: it lands on the slot's bottom centre (`launchLanding` in `stage/layout`), or on the control itself once the scene measures it (`useLaunchLanding` in `stage/panes/Launch`), whole all the way, and only then fades under it (`handover`). Send's review control and Receive's Continue are each held in a view that measures them, so the circle lands where the device draws them. Coming back it comes up again as the scene's content leaves. The strip draws the balance again at a size of its own (the `line` figures), crossfading with the hero over the last .15 of the way (`stripOpacity`), so its unit reads at 15pt rather than at a third of it.
 
 **T3, Scan.** The disc reveal. On detection the circle collapses into the send well.
 
@@ -795,7 +809,7 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
 - **Regions.** The canvas places the regions, activates the panes and runs the motion; what each region draws lives with its scene under `src/scenes`. Every region takes the same `RegionProps` from `stage/Canvas`, whole: `snapshot`, `client`, `session` (the `CanvasSession`), `view` (the `CanvasView`, with `hidden`, `setHidden`, `unit` and `setUnit`), `stale`, `backup` and `arrived` (a count that goes up with each read that brought money in; the canvas calls `useIncoming` once, so every region keys its flash, burst or roll on the same arrival and the incoming haptic plays once; Receive, which watches its request itself, leaves a completed payment's haptic to it). It adds only what is its own, reads the stage actions from `useStage()`, and computes the rest itself, so a region that needs more of these never needs the canvas changed. In the top pane's order:
   - `scenes/home/Backdrop` (the ground, drawn first, behind everything and full bleed, under the status bar too; it draws the 3.2 gradients and the G3 tints from `snapshot`, `stale`, `backup`, `session` and `arrived`, and the tints the scenes ask for through the tint channel below);
   - `scenes/home/StatusRow` (`shown`; the mark and the connection at the left, the mark's value saying a failed refresh with its reason, and at home the backup's shield tile), `scenes/home/HomePane` (`home`; `hero` scales the balance, `bar` fades only the action row's circles, each on its own);
-  - `panes/CornerControl`, which the canvas draws itself after Home, at the top right inside the top inset, so a screen reader reaches it in the home order (9). It is a 48pt target (`CORNER_TARGET`) around its glyph, hung `CORNER_REACH` nearer the edge so the glyph stays where the page edge puts it. The status row leaves it `CORNER_ROOM`. The cog and the close are keyed apart, so the cog spins out as the close spins in (`spinOut`, `spinIn`; T1), and the canvas's cog turns `COG_TURN` (120 degrees) with `cover` (T6);
+  - `panes/CornerControl`, which the canvas draws itself after Home, at the top right inside the top inset, so a screen reader reaches it in the home order (9). It is a 48pt target (`CORNER_TARGET`) around its glyph, hung `CORNER_REACH` nearer the edge so the glyph stays where the page edge puts it. The status row leaves it `CORNER_ROOM`. Settings' bar and the new wallet sheet's header hang their close `CORNER_REACH` nearer the edge too, so it sits where the cog it replaces sat. The cog and the close are keyed apart, so the cog spins out as the close spins in (`spinOut`, `spinIn`; T1), and the canvas's cog turns `COG_TURN` (120 degrees) with `cover` (T6);
   - `scenes/send/SendScene` (`sceneKey`, `prefill`) and `scenes/receive/ReceiveScene` (`sceneKey`), in the top slot, arriving through `panes/Arriving`;
   - `scenes/activity/SheetPane` (`shown`; the grip at home, the one Activity list);
   - `scenes/detail/DetailLayer` (`item`, `from`; the `DetailCard` in the slot at the compact stop);
@@ -819,7 +833,7 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
 | `glyphs/ExpiryRing`       | `size`, `expiresAt`, `createdAt?`, `shape?` `'circle' \| 'rect'`, `width?`, `height?`, `radius?`, `lateAt?`, `onExpired?`, `test?`                                                                                                                                                                                         | Decoration. Honey at 10s or less, or from `lateAt` when that is sooner (a request's frame passes its last tenth or minute); `onExpired` fires once. It draws no refresh: the owner's control turns to refresh at zero. With `test` its calm stroke is slate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `glyphs/QrBloom`          | `value`, `size`, `state` `'shown' \| 'expired' \| 'paid' \| 'scattered'`, `onPress?`, `onLongPress?`, `accessibilityLabel`, `ref?`                                                                                                                                                                                         | Ink on cream. `size` is the card's side, quiet zone included. Only `shown` draws a scannable code or takes a press. `ref` is the code, which Receive sends a screen reader back to as a lifted code is set down.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `glyphs/Whisper`          | `WhisperProvider`; `Whisper({ label, enabled?, style?, children })`                                                                                                                                                                                                                                                        | The provider sits at the Stage root. A 400ms long press on a `Whisper` shows `label` in the pill for 2400ms with a `tick`; outside a provider it only renders its children. `enabled` false keeps its place and turns only the press off, for a control that whispers while disabled; `style` lays out the place that is held.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `stage/layers/ScanReveal` | `origin` (`{ x, y }` or null), `target` `'home' \| 'send'`, `onDetected`, `onCancel`                                                                                                                                                                                                                                       | For the scan overlay. The placeholder is the existing `Scanner`, full screen.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `stage/layers/ScanReveal` | `origin` (`{ x, y }` or null), `target` `'home' \| 'send'`, `onDetected`, `onCancel`, `test?`                                                                                                                                                                                                                              | For the scan overlay. The placeholder is the existing `Scanner`, full screen. With `test` (a test network, which the canvas passes from the wallet) the ground and the camera's cover are slate's night, and the flask shows; it defaults to false, so mainnet never takes the test look.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `stage/layers/DetailCard` | `item`, `from` (`Rect` or null), `children`                                                                                                                                                                                                                                                                                | The canvas places it at the compact stop and keys it by scene; `children` are laid out from its top. Without `from` it fades.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 The Bloom also takes props its row leaves out:
@@ -832,7 +846,7 @@ The Bloom also takes props its row leaves out:
 The amount keypad (`src/scenes/keypad`) replaces the system keyboard for amounts in Send and Receive. The suites drive it only through `test-support/keypad.ts` (`enterAmount`, `amountValue`), so its labels are a contract, kept in `copy.keypad` (`src/design/copy/send.ts`):
 
 - **Container.** One view labelled `copy.keypad.label`, "Amount keypad". Its presence is how `enterAmount` knows a keypad is drawn; without one it types into the `AmountField` instead.
-- **Digit keys.** Each is a button labelled with its digit alone, `copy.keypad.digits[d]`, "0" to "9".
+- **Digit keys.** Each is a button labelled with its digit alone, `copy.keypad.digits[d]`, "0" to "9". While the amount is blank, zero and backspace change nothing, so they are dimmed and disabled, and a screen reader hears so.
 - **Backspace.** A button labelled `copy.keypad.backspace`, "Delete last digit", with the hint `copy.keypad.backspaceHint`. `enterAmount` presses it until the amount reads empty, at most 16 times.
 - **The amount.** Stays labelled `copy.amount.field`, "Amount in sats", and carries its digits in `accessibilityValue.text` (for example "4,200 sats"). An amount showing only zeros counts as empty. The label is only ever spoken, never drawn.
 - **`AmountField` extras.** `empty` stands in the amount while it has no digits, in place of the dust 0 (Receive's infinity, or its dust 0 with a blinking caret). `tone` (`'honey' | 'radish' | 'dust'`) holds it against a limit: honey with a `clock` over what can be spent now, radish with a `bang` and one shake past what it can ever be, dust with a `sprout` under the least it can be. Each change of `shake` shakes it once more. Its keys take touches only while its pane is in use.
