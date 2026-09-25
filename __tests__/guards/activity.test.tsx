@@ -1,12 +1,13 @@
 import React from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSharedValue } from 'react-native-reanimated';
-import type { Activity } from '@beignet/wallet-core';
+import type { Activity, WalletRecord } from '@beignet/wallet-core';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import { FILTERS, timeLabel } from '../../src/scenes/activity/model';
 import { SheetPane } from '../../src/scenes/activity/SheetPane';
 import { ActivityScreen } from '../../src/screens/wallet/Activity';
 import { useCanvasView } from '../../src/stage/Canvas';
+import type { Backup } from '../../src/stage/Canvas';
 import { SCENE_LAYOUT, stops } from '../../src/stage/layout';
 import type { CanvasSceneName } from '../../src/stage/layout';
 import { PanesProvider } from '../../src/stage/panes/Pane';
@@ -22,14 +23,24 @@ import type { GuardedState } from '../../test-support/guard';
 
 /**
  * Activity under the copy guard (REDESIGN.md rule 1) and the accessibility
- * check (section 9): the list, its rows in every ring state, the attention
- * shelf, the filters and search, and the empty list. The activity and detail
- * track adds each state it redraws, drawn from test-support/fixtures.ts with
- * `guardData` as its data.
+ * check (section 9): the list, its rows in every ring state on a test
+ * network and on mainnet, shown and hidden, the attention shelf with a
+ * recovery phrase still to save pinned first, the filters and search, and
+ * the empty list. The activity and detail track adds each state it redraws,
+ * drawn from test-support/fixtures.ts with `guardData` as its data.
  */
 const EVERY = everyActivity();
 const ALL_ROWS = Object.values(EVERY);
 const noop = () => {};
+
+/** The fixture wallet is on regtest; this one is not. */
+const MAINNET = { network: 'mainnet' } as const;
+
+const pendingBackup = (): Backup => ({
+  pending: true,
+  loadPhrase: jest.fn(),
+  onSaved: jest.fn(),
+});
 
 /** A row's time of day, which the rows show under their day header. */
 const times = (activity: Activity[]) =>
@@ -45,9 +56,10 @@ function list(
     hidden?: boolean;
     unit?: Unit;
     refreshError?: string;
+    wallet?: Partial<WalletRecord>;
   } = {},
 ): GuardedState {
-  const snapshot = snapshotOf({ activity });
+  const snapshot = snapshotOf({ activity, wallet: props.wallet });
   return {
     name,
     render: () =>
@@ -71,16 +83,26 @@ function list(
   };
 }
 
+interface Sheet {
+  /** What the wallet looks like, over the fixture's. */
+  wallet?: Partial<WalletRecord>;
+  hidden?: boolean;
+  backup?: Backup | null;
+}
+
 /** The sheet as the canvas holds it, resting on the stop `shown` gives it. */
 function OnSheet({
   shown,
   activity,
-}: {
+  wallet,
+  hidden = false,
+  backup = null,
+}: Sheet & {
   shown: CanvasSceneName;
   activity: Activity[];
 }) {
   const stage = useStageStore();
-  const view = useCanvasView();
+  const view = { ...useCanvasView(), hidden };
   const at = stops(800, { top: 0 });
   const pose = SCENE_LAYOUT[shown];
   const panes = {
@@ -98,7 +120,7 @@ function OnSheet({
         <PanesProvider value={panes}>
           <SheetPane
             shown={shown}
-            snapshot={snapshotOf({ activity })}
+            snapshot={snapshotOf({ activity, wallet })}
             client={new DemoWalletClient()}
             session={{
               error: '',
@@ -114,7 +136,7 @@ function OnSheet({
             }}
             view={view}
             stale={false}
-            backup={null}
+            backup={backup}
             arrived={0}
           />
         </PanesProvider>
@@ -127,11 +149,16 @@ function sheet(
   name: string,
   shown: CanvasSceneName,
   activity: Activity[],
+  props: Sheet = {},
 ): GuardedState {
   return {
     name,
-    render: () => mount(<OnSheet shown={shown} activity={activity} />),
-    data: guardData(snapshotOf({ activity }), times(activity)),
+    render: () =>
+      mount(<OnSheet shown={shown} activity={activity} {...props} />),
+    data: guardData(
+      snapshotOf({ activity, wallet: props.wallet }),
+      times(activity),
+    ),
   };
 }
 
@@ -141,6 +168,13 @@ const GUARDED: GuardedState[] = [
   ...Object.entries(EVERY).map(([name, item]) =>
     list(`row, hidden: ${name}`, [item], { hidden: true }),
   ),
+  ...Object.entries(EVERY).map(([name, item]) =>
+    list(`row on mainnet: ${name}`, [item], { wallet: MAINNET }),
+  ),
+  list('every ring, hidden, on mainnet', ALL_ROWS, {
+    hidden: true,
+    wallet: MAINNET,
+  }),
   list('rows in BTC', ALL_ROWS.slice(0, 10), { unit: 'btc' }),
   list('the attention band', [
     EVERY['sent completed'],
@@ -164,6 +198,36 @@ const GUARDED: GuardedState[] = [
   sheet('the sheet opened', 'activity', ALL_ROWS.slice(0, 6)),
   sheet('the sheet under a detail', 'detail', ALL_ROWS.slice(0, 6)),
   sheet('the sheet empty at home', 'home', []),
+  sheet('the sheet opened, every ring', 'activity', ALL_ROWS),
+  sheet('the sheet opened, every ring on mainnet', 'activity', ALL_ROWS, {
+    wallet: MAINNET,
+  }),
+  sheet('the sheet opened, hidden', 'activity', ALL_ROWS, { hidden: true }),
+  // A recovery phrase still to save: pinned first on the open list as the
+  // shield, and left to the status row at home.
+  sheet('a backup to save, the sheet opened', 'activity', ALL_ROWS, {
+    backup: pendingBackup(),
+  }),
+  sheet(
+    'a backup to save, the sheet opened with payments that need attention',
+    'activity',
+    [EVERY['sent uncertain'], EVERY['request partly paid']],
+    { backup: pendingBackup() },
+  ),
+  sheet('a backup to save, the sheet opened empty', 'activity', [], {
+    backup: pendingBackup(),
+  }),
+  sheet('a backup to save, hidden, on mainnet', 'activity', ALL_ROWS, {
+    backup: pendingBackup(),
+    hidden: true,
+    wallet: MAINNET,
+  }),
+  sheet('a backup to save, the sheet at home', 'home', ALL_ROWS.slice(0, 6), {
+    backup: pendingBackup(),
+  }),
+  sheet('a backup to save, under a detail', 'detail', ALL_ROWS.slice(0, 6), {
+    backup: pendingBackup(),
+  }),
 ];
 
 guard('activity', GUARDED);

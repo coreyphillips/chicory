@@ -723,7 +723,7 @@ test('erasing the wallet closes the engine, removes storage and returns to a fre
   });
 });
 
-test('a pending backup reminder sits above Activity rather than replacing it', async () => {
+test('a pending backup is a shield pinned above Activity, and opens Settings', async () => {
   records.set(
     SESSION,
     JSON.stringify({
@@ -766,14 +766,19 @@ test('a pending backup reminder sits above Activity rather than replacing it', a
   await act(async () => {
     label(tree, 'Activity').props.onPress();
   });
-  expect(text(tree)).toContain('Save your recovery phrase.');
-  // The phrase's own section carries the safety line, so it is drawn once.
-  expect(
-    visibleText(tree).filter(line => line === 'Save your recovery phrase.'),
-  ).toHaveLength(1);
   // Activity has no title on screen; the stage says it is showing.
   expect(activeScene(tree)).toBe('activity');
   expect(tree.root.findAllByType(FlatList)).toHaveLength(1);
+  // The list keeps the shield, which says what it is only to a screen
+  // reader; the phrase and its words stay in Settings.
+  expect(label(tree, 'Save your recovery phrase.')).toBeDefined();
+  expect(label(tree, 'Reveal recovery phrase')).toBeUndefined();
+  expect(visibleText(tree)).not.toContain('Save your recovery phrase.');
+  await act(async () => {
+    label(tree, 'Save your recovery phrase.').props.onPress();
+  });
+  expect(activeScene(tree)).toBe('settings');
+  expect(label(tree, 'Reveal recovery phrase')).toBeDefined();
   await act(async () => {
     tree.unmount();
   });
