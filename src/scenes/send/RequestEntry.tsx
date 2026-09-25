@@ -155,8 +155,9 @@ function Well({
   busy: boolean;
   live: boolean;
 }) {
-  // The dashed edge breathes only while the well waits for something.
-  const breath = useLoop(durations.breathe, !value && !refused, {
+  // The dashed edge breathes only while the well waits for something, in
+  // and out once each 4200ms.
+  const breath = useLoop(durations.breathe / 2, !value && !refused, {
     mirror: true,
   });
   const edge = useAnimatedStyle(() => ({ opacity: 0.4 + 0.6 * breath.get() }));

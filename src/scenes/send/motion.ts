@@ -43,7 +43,8 @@ function useForeground(): boolean {
  * The loop rests at 0 while the app is in the background, while its pane is
  * out of use, and under Reduce Motion, where a loop becomes a still state
  * (REDESIGN.md 8). It is cancelled when it stops and when it unmounts.
- * `mirror` runs it back down each other cycle, for a breath or a pulse.
+ * `mirror` runs it back down each other `period`, on the sine curve, for a
+ * breath or a pulse: a whole breath is then two periods.
  */
 export function useLoop(
   period: number,

@@ -497,7 +497,7 @@ export function SendScreen({
             <CopyChip label={copy.send.reference} value={reference} />
           ) : null}
         </View>
-        <View style={styles.controls}>
+        <View style={[styles.controls, styles.centred]}>
           <GlyphButton
             glyph="orbit"
             accessibilityLabel={copy.send.viewActivity}
@@ -533,7 +533,7 @@ export function SendScreen({
           />
           {shown ? <Amount sats={shown} color={palette.honey} /> : null}
         </View>
-        <View style={styles.controls}>
+        <View style={[styles.controls, styles.centred]}>
           <GlyphButton
             glyph="orbit"
             accessibilityLabel={copy.send.viewActivity}
@@ -694,6 +694,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingTop: space.xs,
   },
+  centred: { justifyContent: 'center' },
   side: { width: 56, alignItems: 'center' },
   commit: {
     width: EXPIRY,

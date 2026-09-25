@@ -64,7 +64,8 @@ function Moving() {
  * Nothing about it moves toward done, because nothing is known to be.
  */
 function Held() {
-  const halo = useLoop(durations.halo, true, { mirror: true });
+  // Out and back once each 1600ms.
+  const halo = useLoop(durations.halo / 2, true, { mirror: true });
   const haloStyle = useAnimatedStyle(() => ({
     opacity: 0.15 + 0.35 * halo.get(),
     transform: [{ scale: 1.04 + 0.08 * halo.get() }],
