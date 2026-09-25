@@ -9,7 +9,7 @@ import type { EntryExitAnimationFunction } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
-import { QR_QUIET, QrBloom } from '../../glyphs/QrBloom';
+import { QrBloom } from '../../glyphs/QrBloom';
 import { useFocus } from '../../motion/focus';
 import { curves, durations, springs } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
@@ -111,7 +111,7 @@ export function LiftedQr({
       >
         <QrBloom
           value={value}
-          size={side - QR_QUIET * 2}
+          size={side}
           state="shown"
           accessibilityLabel={copy.receive.qr}
         />

@@ -524,7 +524,7 @@ const GUARDED: GuardedState[] = [
   // A request as a payment's detail keeps it.
   detail('a detail, awaiting payment', payments['request pending']),
   detail('a detail, copied', payments['request pending'], [
-    tap(copy.receive.copyOriginal),
+    tap(copy.receive.copyValue(copy.receive.original)),
   ]),
   detail('a detail, for any amount', payments['request for any amount']),
   detail('a detail, offline', payments['request offline']),
@@ -561,7 +561,10 @@ const GUARDED: GuardedState[] = [
     'a detail, linked',
     payments['legacy invoice, expired'],
     [tap(copy.receive.linkOriginal), original, tap(copy.receive.link)],
-    { answer: jest.fn().mockResolvedValue(ORIGINAL), shows: [ORIGINAL.uri] },
+    {
+      answer: jest.fn().mockResolvedValue(ORIGINAL),
+      shows: [chipText(ORIGINAL.uri), chipText(ORIGINAL.uri, true)],
+    },
   ),
 
   // Copying.

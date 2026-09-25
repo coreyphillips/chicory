@@ -9,8 +9,10 @@ import type { ReactNode } from 'react';
 import { RefreshControl, StatusBar, StyleSheet, View } from 'react-native';
 import Reanimated, { LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../design/copy';
 import { WhisperProvider } from '../glyphs/Whisper';
+import { wakeAmbient, wakeOnTouch } from '../motion/ambient';
 import { slideIn, slideOut } from '../motion/presets';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { useStaleAfter } from '../services/clock';
@@ -119,6 +121,16 @@ export function Stage({
   const closeBackup = useCallback(() => setRevealing(false), []);
   const { reduced } = useMotionPrefs();
   const awake = useAppActive();
+
+  // Decoration wakes with anything worth seeing (REDESIGN.md 3.5): a touch
+  // anywhere under the root view, which carries `wakeOnTouch`, the app
+  // coming to the front, a new phase or scene, the balance going stale or
+  // fresh, and a read that changed what the wallet shows. A read alone does
+  // not: one lands every 12 seconds, and decoration would never rest.
+  const shows = useMemo(() => (snapshot ? shownBy(snapshot) : ''), [snapshot]);
+  useEffect(() => {
+    wakeAmbient();
+  }, [awake, phase.kind, state.scene, state.overlay, stale, shows]);
 
   let content: ReactNode = null;
   switch (phase.kind) {
@@ -263,7 +275,7 @@ export function Stage({
   return (
     <WhisperProvider>
       <StatusBar barStyle="light-content" />
-      <View style={styles.root}>
+      <View style={styles.root} {...wakeOnTouch}>
         {locked ? null : (
           <LayoutAnimationConfig skipExiting>
             <View style={styles.root}>
@@ -353,6 +365,28 @@ export function Stage({
   );
 }
 Stage.displayName = 'Stage';
+
+/**
+ * What a wallet read shows, as a key that changes only when something drawn
+ * from it would: the balances, the connection, the wallet's setup and each
+ * payment's state. When it was read is left out.
+ */
+export function shownBy(snapshot: WalletSnapshot): string {
+  const { balance, primary, wallet, activity } = snapshot;
+  return JSON.stringify([
+    balance.availableSats,
+    balance.pendingSats,
+    primary.connected,
+    wallet.lfbw ?? null,
+    activity.map(item => [
+      item.id,
+      item.status,
+      item.receiveStatus?.phase,
+      item.receiveStatus?.receivedSats,
+      item.receiveStatus?.confirmedSats,
+    ]),
+  ]);
+}
 
 /**
  * Whether the balance read at `updatedAt` is too old to spend against

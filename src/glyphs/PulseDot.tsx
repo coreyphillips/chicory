@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Reanimated, {
   FadeIn,
@@ -13,6 +13,7 @@ import Reanimated, {
 import type { EntryExitAnimationFunction } from 'react-native-reanimated';
 import { copy } from '../design/copy';
 import { palette } from '../design/palette';
+import { useAmbientRest } from '../motion/ambient';
 import { useAwake, useLoop } from '../motion/loops';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
@@ -23,7 +24,9 @@ import { useMotionPrefs } from '../motion/useMotionPrefs';
  * pinging with each poll that succeeds; honey while reconnecting, breathing
  * out and in; a hollow radish ring when the last refresh failed; and gone,
  * shrinking to nothing, when hidden. It comes back with a ping. A new
- * `pingKey` is a poll that succeeded.
+ * `pingKey` is a poll that succeeded. The pings only decorate, so a poll
+ * lands without one while the ambient clock rests (REDESIGN.md 3.5); the
+ * reconnecting pulse says something is under way, and keeps breathing.
  *
  * Under Reduce Motion reconnecting is a still, hollow honey ring and a ping
  * only fades.
@@ -106,10 +109,15 @@ function Dot({
   const awake = useAwake();
   const live = state === 'live';
 
-  // Every successful poll, and every return to live, sends out a ring.
+  // Every successful poll, and every return to live, sends out a ring,
+  // unless decoration is resting. Waking is neither, so it sends none.
+  const resting = useAmbientRest();
+  const seen = useRef<{ key?: number; live: boolean } | null>(null);
   const ping = useSharedValue(1);
   useEffect(() => {
-    if (!live) return;
+    const was = seen.current;
+    seen.current = { key: pingKey, live };
+    if (!live || resting || (was?.live && was.key === pingKey)) return;
     cancelAnimation(ping);
     ping.set(0);
     ping.set(
@@ -119,7 +127,7 @@ function Dot({
         reduceMotion: ReduceMotion.Never,
       }),
     );
-  }, [ping, live, pingKey, reduced]);
+  }, [ping, live, pingKey, reduced, resting]);
   const pulse = useLoop(
     durations.pulse,
     state === 'reconnecting' && awake && !reduced,

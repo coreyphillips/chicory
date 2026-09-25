@@ -6,7 +6,12 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import {
+  PixelRatio,
+  StyleSheet,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import type { TextStyle } from 'react-native';
 import Reanimated, {
   FadeIn,
@@ -40,6 +45,10 @@ import type { Unit } from '../theme';
  * of "0..9,0" that rolls to the digit's position, keyed by its place value so
  * a digit keeps its column as the amount grows. BTC always shows all eight
  * decimals, with the zeros after the last significant one in dust.
+ *
+ * A cell is exactly one line of its figures tall, and a rolling digit fades
+ * as it slides over the cell's edge, so no part of a neighbouring digit shows
+ * above or below it mid-roll.
  *
  * One shared value in sats drives every column on the UI thread, so a roll
  * costs no renders past its first and last. At rest each cell is a single
@@ -125,6 +134,28 @@ export function digitPosition(v: number, k: number): number {
 function carryOf(v: number, k: number): number {
   'worklet';
   return digitPosition(v, k) - (Math.floor(v / 10 ** k) % 10);
+}
+
+/**
+ * How much of a rolling column's row `i` shows when the column stands at
+ * `pos`: all of it where it fills the cell, less as it slides over the
+ * cell's edge, and none once it is a whole row out. The two rows in view
+ * always add to one, so a roll crossfades its digits as it slides them.
+ */
+export function rowFade(i: number, pos: number): number {
+  'worklet';
+  return 1 - smoothstep(Math.min(1, Math.abs(i - pos)));
+}
+
+/**
+ * Which of a column's even rows (`parity` 0) or odd rows (1) is in view at
+ * `pos`. A cell shows at most two rows, one of each, so a column drawn as
+ * two layers, one for each parity, can fade each by its one row in view.
+ */
+export function rowInView(pos: number, parity: number): number {
+  'worklet';
+  const top = Math.floor(pos);
+  return top % 2 === parity ? top : top + 1;
 }
 
 /** A column position folded back into its ten digits. */
@@ -264,6 +295,19 @@ export function heroSize(
     return (figures * figure + marks * MARK_EM * size + unit) * scale <= room;
   };
   return HERO_SIZES.find(fits) ?? HERO_SIZES[HERO_SIZES.length - 1];
+}
+
+/**
+ * A cell's height: one line box of its figures, in whole pixels rounded up
+ * as Android sets a line with a line height, so a column's rows step by
+ * exactly what the cell shows and nothing of the next row is in it.
+ */
+export function cellHeight(
+  lineHeight: number,
+  scale: number,
+  ratio: number,
+): number {
+  return Math.ceil(lineHeight * scale * ratio - 1e-6) / ratio;
 }
 
 /** The hero's tracking, which tightens with its size. */
@@ -544,13 +588,20 @@ function useShimmer(shimmer: SharedValue<number>, index: number) {
   );
 }
 
-const Column = memo(function DigitColumn({
+/**
+ * A column's rows of one parity, even (0) or odd (1), with a gap where each
+ * row of the other parity sits, rolled to where the column stands and faded
+ * by its one row in view.
+ */
+const ColumnRows = memo(function DigitColumnRows({
+  parity,
   place,
   digit,
   dim,
   motion,
   rig,
 }: {
+  parity: number;
   place: number;
   digit: number;
   dim: boolean;
@@ -563,22 +614,48 @@ const Column = memo(function DigitColumn({
       motion === 'roll'
         ? rollPosition(v.get(), place, roll.get())
         : scrambleDigit(digit, place, s.get(), motion === 'unscramble');
-    return { transform: [{ translateY: -pos * height }] };
-  }, [motion, place, digit, height]);
+    return {
+      opacity: rowFade(rowInView(pos, parity), pos),
+      transform: [{ translateY: -pos * height }],
+    };
+  }, [parity, motion, place, digit, height]);
   return (
-    <Reanimated.View style={style}>
-      {COLUMN.map((d, i) => (
-        <Reanimated.Text
-          key={i}
-          style={[...rig.text, { height }, dim ? styles.dim : rig.ink]}
-          maxFontSizeMultiplier={rig.maxScale}
-        >
-          {d}
-        </Reanimated.Text>
-      ))}
+    <Reanimated.View style={[parity ? styles.over : undefined, style]}>
+      {COLUMN.map((d, i) =>
+        i % 2 === parity ? (
+          <Reanimated.Text
+            key={i}
+            style={[...rig.text, { height }, dim ? styles.dim : rig.ink]}
+            maxFontSizeMultiplier={rig.maxScale}
+          >
+            {d}
+          </Reanimated.Text>
+        ) : (
+          <View key={i} style={{ height }} />
+        ),
+      )}
     </Reanimated.View>
   );
 });
+
+/**
+ * A digit's column while it moves: the even rows in the cell's flow, which
+ * size it, and the odd rows over them.
+ */
+function Column(props: {
+  place: number;
+  digit: number;
+  dim: boolean;
+  motion: Motion;
+  rig: Rig;
+}) {
+  return (
+    <>
+      <ColumnRows parity={0} {...props} />
+      <ColumnRows parity={1} {...props} />
+    </>
+  );
+}
 
 const DigitCell = memo(function OdometerDigit({
   place,
@@ -605,7 +682,11 @@ const DigitCell = memo(function OdometerDigit({
     >
       {motion === 'still' ? (
         <Reanimated.Text
-          style={[...rig.text, dim ? styles.dim : rig.ink]}
+          style={[
+            ...rig.text,
+            { height: rig.height },
+            dim ? styles.dim : rig.ink,
+          ]}
           maxFontSizeMultiplier={rig.maxScale}
         >
           {digit}
@@ -830,8 +911,10 @@ export function Odometer({
       s,
       shimmer,
       ink,
-      text: received ? [base, styles.received] : [base],
-      height: (base.lineHeight ?? 0) * scale,
+      text: received
+        ? [base, styles.figure, styles.received]
+        : [base, styles.figure],
+      height: cellHeight(base.lineHeight ?? 0, scale, PixelRatio.get()),
       markWidth: MARK_EM * (base.fontSize ?? 0) * scale,
       maxScale,
       reduced,
@@ -917,6 +1000,10 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
   cells: { flexDirection: 'row' },
   cell: { overflow: 'hidden' },
+  // A figure's line box and nothing more: no font padding over it on
+  // Android, and its glyphs in the middle of it.
+  figure: { includeFontPadding: false, textAlignVertical: 'center' },
+  over: { position: 'absolute', top: 0, left: 0, right: 0 },
   mark: { textAlign: 'center' },
   received: { fontWeight: '600' },
   dim: { color: palette.dust },

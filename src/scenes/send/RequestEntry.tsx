@@ -162,8 +162,8 @@ function Well({
   live: boolean;
 }) {
   // The dashed edge breathes only while the well waits for something, in
-  // and out once each 4200ms.
-  const breath = useLoop(durations.breathe, !value && !refused);
+  // and out once each 4200ms, and rests with the ambient clock.
+  const breath = useLoop(durations.breathe, !value && !refused, true);
   const bloom = useBloom();
   const edge = useAnimatedStyle(() => ({
     opacity: 0.4 + 0.6 * wave(breath.get()),

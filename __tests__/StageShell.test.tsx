@@ -8,6 +8,8 @@ import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import { RecoveryPhrase } from '../src/components/RecoveryPhrase';
 import { copy } from '../src/design/copy';
+import * as ambient from '../src/motion/ambient';
+import { wakeOnTouch } from '../src/motion/ambient';
 import { palette } from '../src/design/palette';
 import { LockScreen } from '../src/scenes/phases/Locked';
 import { SETTINGS_SURFACE } from '../src/scenes/settings/ui';
@@ -278,6 +280,54 @@ describe('a recovery phrase still to save, over a shell phase', () => {
     );
     expect(tree.root.findAllByType(BackupPanel)).toHaveLength(0);
     expect(find(tree, copy.health.backupPending)).toBeUndefined();
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('decoration', () => {
+  test('any touch under the root wakes it, and the root never takes the touch', async () => {
+    const tree = await mount(<Staged phase={LOADING} session={sessionOf()} />);
+    const roots = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.onStartShouldSetResponderCapture ===
+          wakeOnTouch.onStartShouldSetResponderCapture,
+    );
+    expect(roots).toHaveLength(1);
+    // Outermost: everything the stage draws, the lock included, is under it.
+    expect(roots[0].findAllByType(SceneSlot).length).toBeGreaterThan(0);
+    expect(roots[0].props.onMoveShouldSetResponderCapture).toBe(
+      wakeOnTouch.onMoveShouldSetResponderCapture,
+    );
+    await act(async () =>
+      tree.update(<Staged phase={LOCKED} session={sessionOf()} />),
+    );
+    expect(
+      tree.root
+        .findAll(
+          node =>
+            typeof node.type === 'string' &&
+            node.props.onStartShouldSetResponderCapture ===
+              wakeOnTouch.onStartShouldSetResponderCapture,
+        )[0]
+        .findAllByType(LockScreen),
+    ).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('a new phase wakes it, as a render that changes nothing does not', async () => {
+    const woken = jest.spyOn(ambient, 'wakeAmbient');
+    const session = sessionOf();
+    const tree = await mount(<Staged phase={LOADING} session={session} />);
+    woken.mockClear();
+    await act(async () =>
+      tree.update(<Staged phase={LOADING} session={session} />),
+    );
+    expect(woken).not.toHaveBeenCalled();
+    await act(async () =>
+      tree.update(<Staged phase={OFFLINE} session={session} />),
+    );
+    expect(woken).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
   });
 });

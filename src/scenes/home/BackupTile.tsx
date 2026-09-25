@@ -11,6 +11,7 @@ import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
+import { useAmbientRest } from '../../motion/ambient';
 import { riseIn, sceneOut } from '../../motion/presets';
 import { curves, durations } from '../../motion/tokens';
 import { HIT_SLOP, radius, space } from '../../theme';
@@ -21,7 +22,8 @@ import { HIT_SLOP, radius, space } from '../../theme';
  * phrase is saved, and a tap opens Settings, where the phrase is revealed.
  * Over a shell phase, which has no Settings, it opens the phrase's own setup
  * surface instead, and `hint` says so. The shield's stroke blinks every
- * 1600ms while `running`.
+ * 1600ms while `running`, and holds whole while decoration rests
+ * (REDESIGN.md 3.5): the tile says the phrase is still to save without it.
  */
 export function BackupTile({
   running,
@@ -34,8 +36,10 @@ export function BackupTile({
   hint?: string;
 }) {
   const blink = useSharedValue(1);
+  const resting = useAmbientRest();
+  const blinking = running && !resting;
   useEffect(() => {
-    if (!running) {
+    if (!blinking) {
       blink.set(withTiming(1, { duration: durations.tick }));
       return;
     }
@@ -50,7 +54,7 @@ export function BackupTile({
       ),
     );
     return () => cancelAnimation(blink);
-  }, [running, blink]);
+  }, [blinking, blink]);
   const shield = useAnimatedStyle(() => ({ opacity: blink.get() }));
   return (
     <Reanimated.View entering={riseIn()} exiting={sceneOut()}>

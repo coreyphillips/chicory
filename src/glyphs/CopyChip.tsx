@@ -32,12 +32,16 @@ import { radius, space, type as typography } from '../theme';
  * is: no toast.
  *
  * `label` names the value, as in "Transaction", and `glyph` swaps the copy
- * glyph for one that says what the value is.
+ * glyph for one that says what the value is. A chip that is not `copyable`
+ * only shows its value, in steam, as the record of something that must not
+ * be paid again, such as a request that expired; a long press still shows
+ * all of it, and a screen reader hears the label and the value.
  */
 export interface CopyChipProps {
   label: string;
   value: string;
   glyph?: GlyphName;
+  copyable?: boolean;
 }
 
 /** Characters kept at each end of a shortened value. */
@@ -164,7 +168,12 @@ export function CopiedGlyph({
   );
 }
 
-export function CopyChip({ label, value, glyph = 'copy' }: CopyChipProps) {
+export function CopyChip({
+  label,
+  value,
+  glyph = 'copy',
+  copyable = true,
+}: CopyChipProps) {
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
   const [expanded, setExpanded] = useState(false);
@@ -202,11 +211,11 @@ export function CopyChip({ label, value, glyph = 'copy' }: CopyChipProps) {
   return (
     <Reanimated.View layout={smooth()}>
       <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={copy.receive.copyValue(label)}
+        accessibilityRole={copyable ? 'button' : 'text'}
+        accessibilityLabel={copyable ? copy.receive.copyValue(label) : label}
         accessibilityValue={{ text: value }}
         onPress={
-          live
+          live && copyable
             ? () => {
                 haptics.tick();
                 Clipboard.setString(value);
@@ -223,7 +232,7 @@ export function CopyChip({ label, value, glyph = 'copy' }: CopyChipProps) {
           style={[styles.wash, washStyle]}
         />
         <Text
-          style={styles.value}
+          style={[styles.value, !copyable && styles.kept]}
           numberOfLines={expanded ? undefined : 1}
           maxFontSizeMultiplier={1.4}
         >
@@ -232,7 +241,7 @@ export function CopyChip({ label, value, glyph = 'copy' }: CopyChipProps) {
         <CopiedGlyph
           name={glyph}
           size={GLYPH}
-          color={palette.steam}
+          color={copyable ? palette.steam : palette.dust}
           copies={copies}
         />
       </Pressable>
@@ -258,5 +267,6 @@ const styles = StyleSheet.create({
     transformOrigin: 'left',
   },
   value: { ...typography.mono, flexShrink: 1, color: palette.cream },
+  kept: { color: palette.steam },
   check: { ...StyleSheet.absoluteFill },
 });
