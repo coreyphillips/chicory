@@ -44,10 +44,51 @@ describe('digitPosition', () => {
     expect(late).toBeLessThan(1);
   });
 
-  test('the hundreds carry over the last ten sats before they change', () => {
+  test('a higher place turns only while the ones roll from 9 to 0', () => {
+    // The hundreds hold through the tens' last tenth, which is not a carry.
     expect(digitPosition(1289.9, 2)).toBe(2);
-    expect(digitPosition(1295, 2)).toBeCloseTo(2.5);
+    expect(digitPosition(1295, 2)).toBe(2);
+    expect(digitPosition(1299, 2)).toBe(2);
+    // Halfway through the last sat, the tens and the hundreds are halfway
+    // over together, as the ones are.
+    expect(digitPosition(1299.5, 1)).toBeCloseTo(9.5);
+    expect(digitPosition(1299.5, 2)).toBeCloseTo(2.5);
     expect(digitPosition(1300, 2)).toBe(3);
+    // The ten-thousands wait for 59,999, not for 59,000.
+    expect(digitPosition(59_000, 4)).toBe(5);
+    expect(digitPosition(59_877, 4)).toBe(5);
+    expect(digitPosition(59_999, 4)).toBe(5);
+    expect(digitPosition(59_999.5, 4)).toBeCloseTo(5.5);
+  });
+
+  /**
+   * What the columns read at `v`: each shows the digit nearest where it has
+   * rolled to, the one that fills most of its cell.
+   */
+  const reading = (v: number, places: number) => {
+    let read = 0;
+    for (let k = 0; k < places; k++) {
+      read += (Math.round(digitPosition(v, k)) % 10) * 10 ** k;
+    }
+    return read;
+  };
+
+  test('a figure mid-roll never reads more than the amount has reached', () => {
+    // A 5,000 sat receipt counting up, and a balance rolling past 60,000.
+    expect(reading(4_987, 5)).toBe(4_987);
+    expect(reading(59_877, 6)).toBe(59_877);
+    for (const [from, to] of [
+      [0, 5_000],
+      [54_230, 60_054],
+      [99_950, 100_020],
+    ]) {
+      for (let v = from; v <= to; v += 0.37) {
+        const read = reading(v, 7);
+        // Past the halfway of a sat it reads the next one up, and no more.
+        expect(read).toBeGreaterThanOrEqual(Math.floor(v));
+        expect(read).toBeLessThanOrEqual(Math.ceil(v));
+      }
+    }
   });
 
   test('a nine rolls on to the trailing zero, then wraps to the top', () => {

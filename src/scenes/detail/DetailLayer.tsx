@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef } from 'react';
-import { View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, useWindowDimensions } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Activity } from '@beignet/wallet-core';
@@ -41,16 +41,21 @@ export function DetailLayer({
 }) {
   const { state, actions } = useStage();
   const panes = usePanes();
-  const { top, bottom, left } = useSafeAreaInsets();
+  const { top, bottom, left, right } = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const below = state.stack[state.stack.length - 1]?.name;
   const returns = below === 'activity';
   const back = useSharedValue<Rect | null>(returns ? from : null);
   // The canvas keeps this slot at the compact stop, and narrows the canvas
-  // only for a side cutout, which is where the card comes to rest.
-  const flight = useMemo(
-    () => (from ? { from, card: { x: left, y: panes.stops.compact } } : null),
-    [from, left, panes.stops.compact],
-  );
+  // only for a side cutout, which is where the card comes to rest. Read
+  // once, as the card opens: it grows from here and folds back from here.
+  const [card] = useState(() => ({
+    x: left,
+    y: panes.stops.compact,
+    width: width - left - right,
+  }));
+  const place = useMemo(() => ({ card, back }), [card, back]);
+  const flight = useMemo(() => (from ? { from, card } : null), [from, card]);
 
   const opened = useRef(snapshot.activity);
   useEffect(() => {
@@ -67,7 +72,7 @@ export function DetailLayer({
   }, [returns, snapshot.activity, item.id, back]);
 
   return (
-    <DetailReturn value={back}>
+    <DetailReturn value={place}>
       <DetailFlight value={flight}>
         <DetailCard item={item} from={from}>
           <SceneSlot

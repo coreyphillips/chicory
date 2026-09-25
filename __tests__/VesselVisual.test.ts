@@ -1,5 +1,5 @@
 import type { WalletRecord } from '@beignet/wallet-core';
-import { vesselVisual } from '../src/scenes/home/visual';
+import { CHANNEL_FLOOR_SATS, vesselVisual } from '../src/scenes/home/visual';
 import type { VesselVisual } from '../src/scenes/home/visual';
 
 /**
@@ -55,11 +55,6 @@ test('an empty wallet draws a whole hairline rather than dividing by zero', () =
 
 describe('the rows of the table', () => {
   test.each<[string, Partial<Lfbw>, Partial<VesselVisual>]>([
-    [
-      'below the channel floor: dust seeds',
-      decided('wait', 'below-floor'),
-      { fill: 'seeds', sheen: 'none', tone: 'dust' },
-    ],
     ['a splice-in: a sprout', decided('splice-in'), { glyph: 'sprout' }],
     ['a channel open: a sprout', decided('open'), { glyph: 'sprout' }],
     ['a dual-funded open: a sprout', decided('open-v2'), { glyph: 'sprout' }],
@@ -114,6 +109,54 @@ describe('the rows of the table', () => {
       ...GLASS,
       ...look,
     });
+  });
+});
+
+describe('below the channel floor', () => {
+  const belowFloor = decided('wait', 'below-floor');
+  /** A 10,000 sat deposit on chain, too small to move on its own. */
+  const DEPOSIT = { availableSats: 30_000, pendingSats: 10_000 };
+
+  test('a deposit too small to move is dust seeds', () => {
+    expect(vesselVisual(DEPOSIT, lfbw(belowFloor))).toEqual({
+      ...GLASS,
+      fill: 'seeds',
+      sheen: 'none',
+      tone: 'dust',
+    });
+    expect(CHANNEL_FLOOR_SATS).toBe(25_000);
+    expect(
+      vesselVisual(
+        { availableSats: 0, pendingSats: CHANNEL_FLOOR_SATS - 1 },
+        lfbw(belowFloor),
+      ).fill,
+    ).toBe('seeds');
+  });
+
+  test('money confirming into a new channel or a splice waits on its clock', () => {
+    // The engine weighs only what is left on chain, so it records below the
+    // floor while an open (69,235 sats) or a splice (30,000) confirms.
+    const confirming = { ...GLASS, sheen: 'slow', glyph: 'clock' };
+    expect(
+      vesselVisual({ availableSats: 0, pendingSats: 69_235 }, lfbw(belowFloor)),
+    ).toEqual({ ...confirming, solid: 0 });
+    expect(
+      vesselVisual(
+        { availableSats: 60_504, pendingSats: 30_000 },
+        lfbw(belowFloor),
+      ),
+    ).toEqual({ ...confirming, solid: 60_504 / 90_504 });
+    // The floor's worth exactly has already been moved.
+    expect(vesselVisual(IN_FLIGHT, lfbw(belowFloor))).toEqual(confirming);
+  });
+
+  test("a payer's transfer growing the channel is an inflow, never seeds", () => {
+    expect(
+      vesselVisual(
+        DEPOSIT,
+        lfbw({ ...belowFloor, unpairedFunding: { at: AT } }),
+      ),
+    ).toEqual({ ...GLASS, glyph: 'inflow' });
   });
 });
 

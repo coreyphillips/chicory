@@ -33,7 +33,8 @@ import { BAR_HEIGHT } from './sheet';
  *
  * `usable` is false while the bar is out of reach, at home under the preview,
  * and then it takes no touches and a screen reader passes over it. A refresh
- * that failed puts a radish retry at its end.
+ * that failed puts a radish retry at its end. On a test network, `test`, the
+ * field's caret is slate where it would be bloom.
  */
 export function FilterBar({
   usable,
@@ -45,6 +46,7 @@ export function FilterBar({
   onSearching,
   refreshError,
   onRetry,
+  test = false,
   style,
 }: {
   usable: boolean;
@@ -56,6 +58,7 @@ export function FilterBar({
   onSearching: (open: boolean) => void;
   refreshError?: string;
   onRetry?: () => void;
+  test?: boolean;
   style?: StyleProp<AnimatedStyle<StyleProp<ViewStyle>>>;
 }) {
   // A search with words in it stays open wherever the list goes.
@@ -99,7 +102,7 @@ export function FilterBar({
               if (!query) onSearching(false);
             }}
             autoFocus={searching && !query}
-            selectionColor={palette.bloom}
+            selectionColor={test ? palette.slate : palette.bloom}
             autoCorrect={false}
             autoCapitalize="none"
             returnKeyType="search"

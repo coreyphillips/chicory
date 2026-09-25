@@ -2,6 +2,7 @@ import type { Activity } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import type { GlyphName } from '../../design/glyphs';
 import { dayLabel, space, statusLabel } from '../../theme';
+import { figureOf } from './visual';
 
 export function activityStatus(item: Activity) {
   if (item.receiveStatus?.phase === 'partial') return 'Partially received';
@@ -47,6 +48,20 @@ function matchesFilter(item: Activity, filter: string) {
   }
 }
 
+/**
+ * The amount as a search can find it: its bare digits, and as a row draws
+ * it in either unit, with and without its unit ("10,000 sats", "0.0001").
+ */
+function amountTexts(sats: number): string[] {
+  const inSats = figureOf(sats, 'sats');
+  const inBtc = figureOf(sats, 'btc');
+  return [
+    String(sats),
+    `${inSats.value} ${inSats.suffix}`,
+    `${inBtc.value}${inBtc.dim} ${inBtc.suffix}`,
+  ];
+}
+
 /** `needle` is already trimmed and lowercased: this runs once per row. */
 function matchesQuery(item: Activity, needle: string) {
   if (!needle) return true;
@@ -59,7 +74,7 @@ function matchesQuery(item: Activity, needle: string) {
     has(item.txid) ||
     has(item.paymentHash) ||
     has(item.address) ||
-    String(item.amountSats).includes(needle)
+    amountTexts(item.amountSats).some(has)
   );
 }
 

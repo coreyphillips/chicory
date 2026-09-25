@@ -5,6 +5,7 @@ import {
   PixelRatio,
   StyleSheet,
 } from 'react-native';
+import { LayoutAnimationConfig } from 'react-native-reanimated';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import {
@@ -125,6 +126,59 @@ describe('a cell', () => {
       }
     },
   );
+
+  test('the hero keeps its largest line box as it steps down, so nothing under it moves', async () => {
+    const { fontScale } = Dimensions.get('window');
+    const box = cellHeight(
+      typography.hero.lineHeight,
+      Math.min(fontScale, 1.2),
+      PixelRatio.get(),
+    );
+    const heights = [];
+    // Roomy enough for 64, then narrow enough for 40: the unit toggle to
+    // BTC, which draws more figures, steps the hero down the same way.
+    for (const room of [2_000, 120]) {
+      const tree = await render(
+        <Odometer sats={261_500} unit="sats" variant="hero" room={room} />,
+      );
+      const outer = tree.root.findByProps({ accessible: true });
+      heights.push(flat(outer).minHeight);
+      // The figures sit in the middle of it, with the unit on their line.
+      expect(flat(outer).alignItems).toBe('center');
+    }
+    expect(heights).toEqual([box, box]);
+    // A smaller amount is sized by its own line, as before.
+    const row = await render(
+      <Odometer sats={261_500} unit="sats" variant="row" />,
+    );
+    expect(flat(row.root.findByProps({ accessible: true })).minHeight).toBe(
+      undefined,
+    );
+  });
+
+  test('a cell that leaves on its own plays its exit; a size step fades as one', async () => {
+    // A config that skips exits over several children wraps each child in a
+    // config of its own, which skips that child's exit whenever it leaves: a
+    // unit swap's outgoing cells, and a digit a roll drops, would vanish in
+    // one frame rather than lift and fade (REDESIGN.md 5, Odometer).
+    const tree = await render(
+      <Odometer sats={62_235} unit="sats" variant="hero" sign="+" />,
+    );
+    await act(async () =>
+      tree.update(
+        <Odometer sats={62_235} unit="btc" variant="hero" sign="+" />,
+      ),
+    );
+    const skipping = tree.root
+      .findAllByType(LayoutAnimationConfig)
+      .filter(config => config.props.skipExiting);
+    expect(skipping.length).toBeGreaterThan(0);
+    for (const config of skipping) {
+      expect(React.Children.count(config.props.children)).toBe(1);
+      // Kept as a view of its own, so there is a view for the skip to name.
+      expect(config.props.children.props.collapsable).toBe(false);
+    }
+  });
 
   test('rolls as two layers, the even rows in its flow and the odd rows over them', async () => {
     const tree = await render(

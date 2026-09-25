@@ -18,6 +18,7 @@ import { DemoWalletClient } from '@beignet/wallet-core';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
 import { haptics } from '../../../design/haptics';
+import { palette } from '../../../design/palette';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
 import type { Backup } from '../../../stage/Canvas';
 import { buildBeats, stops } from '../../../stage/layout';
@@ -35,12 +36,14 @@ import {
   snapshotOf,
 } from '../../../../test-support/fixtures';
 import {
+  drawnIn,
   field,
   meaning,
   press,
   pressableLabels,
   visibleText,
 } from '../../../../test-support/query';
+import { ActivityScreen } from '../../../screens/wallet/Activity';
 import { ActivityRow, RowListContext } from '../ActivityRow';
 import { FilterBar } from '../FilterBar';
 import { FILTERS, activityStatus } from '../model';
@@ -322,6 +325,25 @@ describe('the list on the sheet', () => {
     await act(async () => tree.unmount());
   });
 
+  test('the field’s caret is slate on a test network, bloom on mainnet', async () => {
+    const caret = async (network: 'regtest' | 'mainnet') => {
+      const snapshot = snapshotOf({ activity: [coffee, salary] });
+      const tree = await render(
+        <OnCanvas
+          snapshot={{ ...snapshot, wallet: { ...snapshot.wallet, network } }}
+        />,
+      );
+      await act(async () => stage.actions.openActivity());
+      await settle();
+      await press(tree, copy.activity.search);
+      const color = field(tree, copy.activity.search).props.selectionColor;
+      await act(async () => tree.unmount());
+      return color;
+    };
+    expect(await caret('regtest')).toBe(palette.slate);
+    expect(await caret('mainnet')).toBe(palette.bloom);
+  });
+
   test('a screen reader lands on the field while a search is open', async () => {
     const sent = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent');
     // Under Jest a host ref holds the mocked component, props and all.
@@ -534,6 +556,77 @@ describe('the rows', () => {
       expect(row.props.item).toBe(before[index]),
     );
     await act(async () => tree.unmount());
+  });
+
+  test('in BTC a row keeps all eight decimals, as the hero, its trailing zeros in dust', async () => {
+    const received = activityOf('received', 'completed', { amountSats: 5_000 });
+    const tree = await render(
+      <ActivityRow item={received} onPress={jest.fn()} unit="btc" />,
+    );
+    // The amount's text, which holds its dust zeros and its unit.
+    const [figure] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.children.includes('+0.00005'),
+    );
+    expect(drawnIn(figure)).toBe('+0.00005000 BTC');
+    const dust = figure.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        StyleSheet.flatten(node.props.style)?.color === palette.dust,
+    );
+    expect(dust.map(node => node.children)).toEqual([['000']]);
+    await act(async () => tree.unmount());
+  });
+
+  test('the row a detail grows out of steps out at once; the rest fade with the list', async () => {
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openActivity());
+    await settle();
+    // What the sheet tells its list's rows, which they read on the UI thread.
+    const told = () =>
+      tree.root.findByType(ActivityScreen).props.sheet.lifted.get();
+    expect(told()).toBe('');
+    await act(async () => stage.actions.openDetail(coffee));
+    // Its ring and amount are the ones flying to the detail's header.
+    expect(told()).toBe(coffee.id);
+    await settle();
+    await act(async () => stage.actions.back());
+    expect(told()).toBe('');
+    await act(async () => tree.unmount());
+  });
+
+  test('a row steps out while its own detail is open, and only then', async () => {
+    /** The opacity the row's own view is drawn at, not the list's. */
+    const opacity = (tree: ReactTestRenderer) => {
+      let node: ReactTestInstance | null = tree.root.findAll(
+        host =>
+          typeof host.type === 'string' &&
+          host.props.accessibilityLabel === ROW,
+      )[0];
+      while (
+        node &&
+        StyleSheet.flatten(node.props.style)?.opacity === undefined
+      )
+        node = node.parent;
+      return StyleSheet.flatten(node!.props.style).opacity;
+    };
+    const drawn = async (lifted: string) => {
+      const list = {
+        seen: () => true,
+        lifted: { get: () => lifted } as Reanimated.SharedValue<string>,
+      };
+      const tree = await render(
+        <RowListContext value={list}>
+          <ActivityRow item={coffee} onPress={jest.fn()} />
+        </RowListContext>,
+      );
+      const seen = opacity(tree);
+      await act(async () => tree.unmount());
+      return seen;
+    };
+    expect(await drawn(coffee.id)).toBe(0);
+    expect(await drawn(salary.id)).toBe(1);
+    expect(await drawn('')).toBe(1);
   });
 
   const rect = { x: 24, y: 480, width: 327, height: 64 };

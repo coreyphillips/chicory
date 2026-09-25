@@ -10,8 +10,9 @@ import type { Activity } from '@beignet/wallet-core';
 import { riseIn, sceneIn, sceneOut } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
+import { SLOT_PADDING } from '../../stage/layout';
 import type { Rect } from '../../stage/scene';
-import { radius, type as typography } from '../../theme';
+import { radius, space, type as typography } from '../../theme';
 import {
   NOTE_GAP,
   ROW_BAND,
@@ -25,6 +26,12 @@ import { amountVisual } from '../activity/visual';
 /**
  * A payment's detail growing out of its row and folding back into it
  * (REDESIGN.md 7, T4), as layout animations and the frame math under them.
+ *
+ * A layout animation is handed its view's frame in its parent's coordinates.
+ * On the new architecture its "global" origin is that same frame, not the
+ * window's, so nothing here reads it: where the card and its header sit in
+ * the window comes from where the canvas puts the card and how the detail
+ * lays out its top.
  */
 
 /**
@@ -48,6 +55,7 @@ export interface Frame {
 /**
  * The frame, in the parent's coordinates, that lies over `rect` in the
  * window's, for a view whose frame `origin` sits at `global` in the window.
+ * For the card, `global` is where the canvas rests it (`CardRest`).
  */
 export function frameOver(
   rect: Rect,
@@ -66,17 +74,32 @@ export function frameOver(
 const MOVE = { duration: EXPAND_MS, easing: curves.standard };
 
 /**
- * The card arriving: from the row's rect, corners and all, to where the
- * canvas places it. Without a rect, or under Reduce Motion, it fades in.
+ * Where the canvas rests a payment's card, in window coordinates: the top
+ * left of the slot it keeps at the sheet's compact stop, and the canvas's
+ * width, which the card fills.
  */
-export function expandFrom(rect: Rect | null): EntryExitAnimationFunction {
-  if (!rect || motionReduced()) return sceneIn();
+export interface CardRest {
+  x: number;
+  y: number;
+  width: number;
+}
+
+/**
+ * The card arriving: from the row's rect, corners and all, to where the
+ * canvas places it, `card`. Without a rect or a place, or under Reduce
+ * Motion, it fades in.
+ */
+export function expandFrom(
+  rect: Rect | null,
+  card: CardRest | null,
+): EntryExitAnimationFunction {
+  if (!rect || !card || motionReduced()) return sceneIn();
   return (values: EntryAnimationsValues) => {
     'worklet';
     const start = frameOver(
       rect,
       { x: values.targetOriginX, y: values.targetOriginY },
-      { x: values.targetGlobalOriginX, y: values.targetGlobalOriginY },
+      card,
     );
     return {
       initialValues: { ...start, borderRadius: ROW_RADIUS },
@@ -96,12 +119,14 @@ const FADE = { duration: durations.exit, easing: curves.exit };
 const ENTER = { duration: durations.enter, easing: curves.enter };
 
 /**
- * The card leaving: back into the row `back` holds when it leaves, fading as
- * it lands, or simply fading when there is no row to go to. `back` is read as
- * the card leaves, so it can follow a row that moved while the card was open.
+ * The card leaving `card`, where it rests: back into the row `back` holds
+ * when it leaves, fading as it lands, or simply fading when there is no row
+ * to go to. `back` is read as the card leaves, so it can follow a row that
+ * moved while the card was open.
  */
 export function collapseTo(
   back: SharedValue<Rect | null>,
+  card: CardRest,
 ): EntryExitAnimationFunction {
   if (motionReduced()) return sceneOut();
   return (values: ExitAnimationsValues) => {
@@ -116,7 +141,7 @@ export function collapseTo(
     const end = frameOver(
       rect,
       { x: values.currentOriginX, y: values.currentOriginY },
-      { x: values.currentGlobalOriginX, y: values.currentGlobalOriginY },
+      card,
     );
     return {
       initialValues: {
@@ -142,6 +167,20 @@ export function collapseTo(
 /** The detail header's ring, and its infinity for a request of any amount. */
 export const HEADER_RING = 96;
 export const HEADER_OPEN = 48;
+/** The room over the ring, and between it and the amount, in the header. */
+export const HEADER_PAD = space.xs;
+export const HEADER_GAP = space.sm;
+
+/**
+ * How far below the card's top edge the header's ring and amount sit, both
+ * centred across it. The detail is the first thing in its slot's scroll,
+ * whose content starts `SLOT_PADDING.top` down, and the header is the first
+ * thing in the detail.
+ */
+export const HEADER_TOPS = {
+  ring: SLOT_PADDING.top + HEADER_PAD,
+  amount: SLOT_PADDING.top + HEADER_PAD + HEADER_RING + HEADER_GAP,
+};
 
 /** A point in window coordinates. */
 export interface Point {
@@ -151,13 +190,13 @@ export interface Point {
 
 /**
  * Where a detail's card grows from and where it comes to rest, both in
- * window coordinates: the tapped row's rect, and the top left of the slot the
- * canvas keeps at the compact stop. The header flies out of the row inside
- * it. Null, or no provider, when the card only fades.
+ * window coordinates: the tapped row's rect, and the slot the canvas keeps
+ * at the compact stop. The header flies out of the row inside it. Null, or
+ * no provider, when the card only fades.
  */
 export interface Flight {
   from: Rect;
-  card: Point;
+  card: CardRest;
 }
 
 export const DetailFlight = createContext<Flight | null>(null);
@@ -191,7 +230,7 @@ export interface Launch {
  * Where a view in the card starts its flight, as a transform from its place:
  * over `start` at `scale`, centred on it, or with its left end on it when
  * `anchor` is 'left'. `target` is the view's final frame in window
- * coordinates.
+ * coordinates (`restingFrame`).
  *
  * The card carries the view as it grows. Run back to nothing on the card's
  * own clock and curve, the transform gives back the card's travel as it goes,
@@ -212,9 +251,29 @@ export function launch(
   return { translateX: to - x, translateY: start.y - y, scale };
 }
 
+/**
+ * Where a part of the header `width` by `height` rests in the window: centred
+ * across the card, `top` below its top edge (`HEADER_TOPS`).
+ */
+export function restingFrame(
+  card: CardRest,
+  top: number,
+  width: number,
+  height: number,
+): Frame {
+  'worklet';
+  return {
+    originX: card.x + (card.width - width) / 2,
+    originY: card.y + top,
+    width,
+    height,
+  };
+}
+
 /** One part of the header flying in from `start`; see `launch`. */
 function flyIn(
   flight: Flight,
+  top: number,
   start: Point,
   scale: number,
   anchor: 'center' | 'left',
@@ -222,12 +281,7 @@ function flyIn(
   return (values: EntryAnimationsValues) => {
     'worklet';
     const from = launch(
-      {
-        originX: values.targetGlobalOriginX,
-        originY: values.targetGlobalOriginY,
-        width: values.targetWidth,
-        height: values.targetHeight,
-      },
+      restingFrame(flight.card, top, values.targetWidth, values.targetHeight),
       flight,
       start,
       scale,
@@ -293,8 +347,14 @@ export function headerIn(
     ? ROW_OPEN / HEADER_OPEN
     : typography.row.fontSize / typography.amountDetail.fontSize;
   return {
-    ring: flyIn(flight, parts.ring, ROW_RING / HEADER_RING, 'center'),
-    amount: flyIn(flight, parts.amount, figure, 'left'),
+    ring: flyIn(
+      flight,
+      HEADER_TOPS.ring,
+      parts.ring,
+      ROW_RING / HEADER_RING,
+      'center',
+    ),
+    amount: flyIn(flight, HEADER_TOPS.amount, parts.amount, figure, 'left'),
   };
 }
 

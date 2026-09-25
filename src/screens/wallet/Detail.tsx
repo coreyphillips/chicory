@@ -18,6 +18,7 @@ import { announceSafety } from '../../motion/speech';
 import {
   RAIL_GLYPH,
   amountVisual,
+  figureOf,
   railOf,
   ringVisual,
 } from '../../scenes/activity/visual';
@@ -25,19 +26,15 @@ import type { AmountVisual, RingVisual } from '../../scenes/activity/visual';
 import { ringWords } from '../../scenes/detail/model';
 import {
   DetailFlight,
+  HEADER_GAP,
   HEADER_OPEN,
+  HEADER_PAD,
   HEADER_RING,
   headerIn,
   lineIn,
 } from '../../scenes/detail/motion';
 import type { WalletAdapter } from '../../services/wallet';
-import {
-  MASK,
-  amountIn,
-  dateLabel,
-  space,
-  type as typography,
-} from '../../theme';
+import { MASK, dateLabel, space, type as typography } from '../../theme';
 import type { Unit } from '../../theme';
 
 /**
@@ -57,7 +54,8 @@ const TONES: Record<AmountVisual['tone'], string> = {
  * A payment's detail (REDESIGN.md 6, Detail): its ring at 96pt with the kind
  * glyph, the amount at 40pt, then a line for each thing known about it, each
  * led by a glyph (when, the rail and its fee, the note), and a chip for each
- * reference it can copy. A request's receipt and the request itself follow,
+ * reference it can copy, led by the glyph of what it is, with the chip's own
+ * copy glyph in it. A request's receipt and the request itself follow,
  * as Receive draws them. Opened from a row on the canvas, the ring and the
  * amount fly out of that row into place (T4).
  *
@@ -94,7 +92,7 @@ export function DetailScreen({
   const [entering] = useState(() => headerIn(flight, item));
 
   const date = dateLabel(item.timestamp);
-  const fee = amountIn(item.feeSats, unit);
+  const fee = figureOf(item.feeSats, unit);
   const feeUnknown = item.feeKnown === false;
   const feeLabel = feeUnknown
     ? copy.detail.feeUnavailable
@@ -215,7 +213,16 @@ export function DetailScreen({
                 </Text>
               ) : null}
               <Text style={styles.value} maxFontSizeMultiplier={LINE_CAP}>
-                {hidden ? MASK : `${fee.value} ${fee.suffix}`}
+                {hidden ? (
+                  MASK
+                ) : fee.dim ? (
+                  <>
+                    {fee.value}
+                    <Text style={styles.dim}>{fee.dim}</Text> {fee.suffix}
+                  </>
+                ) : (
+                  `${fee.value} ${fee.suffix}`
+                )}
               </Text>
             </>
           )}
@@ -258,13 +265,15 @@ export function DetailScreen({
       ) : null}
       {chips.length ? (
         <Reanimated.View entering={lineIn(line++)} style={styles.chips}>
+          {/* Led by a glyph for what the value is, like the lines above,
+              each in a chip that hugs it and shows it copies. */}
           {chips.map(chip => (
-            <CopyChip
-              key={chip.label}
-              label={chip.label}
-              value={chip.value}
-              glyph={chip.glyph}
-            />
+            <View key={chip.label} style={styles.line}>
+              <Glyph name={chip.glyph} size={20} color={palette.dust} />
+              <View style={styles.chip}>
+                <CopyChip label={chip.label} value={chip.value} />
+              </View>
+            </View>
           ))}
         </Reanimated.View>
       ) : null}
@@ -333,7 +342,9 @@ const styles = StyleSheet.create({
   // A point rather than nothing: a screen reader passes over an element with
   // no size at all.
   title: { position: 'absolute', top: 0, left: 0, width: 1, height: 1 },
-  header: { alignItems: 'center', gap: space.sm, paddingTop: space.xs },
+  // The flight out of a row lands the ring and the amount where these put
+  // them (HEADER_TOPS), so they are the motion's to set.
+  header: { alignItems: 'center', gap: HEADER_GAP, paddingTop: HEADER_PAD },
   lines: { gap: space.xs },
   line: {
     minHeight: 44,
@@ -343,5 +354,8 @@ const styles = StyleSheet.create({
   },
   value: { ...typography.row, color: palette.cream },
   note: { flex: 1, color: palette.steam },
+  dim: { color: palette.dust },
   chips: { gap: space.xs },
+  // Its content's width, and no wider than the line leaves it.
+  chip: { flexShrink: 1 },
 });

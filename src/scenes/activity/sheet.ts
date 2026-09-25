@@ -104,14 +104,20 @@ export function filterFor(progress: number): number {
   return clamp01((progress - 0.6) / 0.4);
 }
 
+/** Where on the way up the rows make room for the filter bar. */
+const ROOM_FROM = 0.3;
+const ROOM_SPAN = 0.4;
+
 /**
  * How far the list sits up over the filter bar: all the way at home, where the
- * bar is gone, and not at all once it has faded in, so the rows make room for
- * it as it arrives instead of leaving a gap at home.
+ * bar is gone, and not at all once the bar is on its way in, so there is no
+ * gap at home. The rows make the room ahead of the bar, from 30% of the way
+ * up to 70%: three quarters of it is made as the bar starts to fade in, so
+ * its glyphs never show over a day header still sitting where they go.
  */
 export function listShift(progress: number): number {
   'worklet';
-  return -BAR_HEIGHT * (1 - filterFor(progress));
+  return -BAR_HEIGHT * (1 - clamp01((progress - ROOM_FROM) / ROOM_SPAN));
 }
 
 /**

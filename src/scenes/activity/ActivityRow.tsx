@@ -27,7 +27,6 @@ import { usePaneActive } from '../../stage/panes/Pane';
 import type { Rect } from '../../stage/scene';
 import {
   MASK,
-  amountIn,
   dateLabel,
   radius,
   space,
@@ -52,6 +51,7 @@ import {
   EXPIRED_OPACITY,
   RAIL_GLYPH,
   amountVisual,
+  figureOf,
   railOf,
   ringFlags,
   ringVisual,
@@ -63,11 +63,14 @@ import type { AmountVisual } from './visual';
  * before, so only a new one arrives with a fade, and that rows here register
  * where they are, for a detail to grow out of. On the sheet, `back` is the
  * clock of the rows coming back in as the canvas returns home from Send or
- * Receive (`rowReturn`), which each row reads by its place in the list.
+ * Receive (`rowReturn`), which each row reads by its place in the list, and
+ * `lifted` is the payment whose detail is open, whose row steps out at once:
+ * its ring and amount are the ones flying to the detail's header (T4).
  */
 export interface RowList {
   seen: (id: string) => boolean;
   back?: SharedValue<number>;
+  lifted?: SharedValue<string>;
 }
 
 export const RowListContext = createContext<RowList | null>(null);
@@ -137,9 +140,18 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   // Coming back home from Send or Receive, the rows come back in one after
   // another (T1, reversed).
   const back = list?.back;
+  const lifted = list?.lifted;
+  const id = item.id;
   const returning = useAnimatedStyle(
-    () => ({ opacity: back ? rowReturn(back.get(), index) : 1 }),
-    [back, index],
+    () => ({
+      opacity:
+        lifted && lifted.get() === id
+          ? 0
+          : back
+          ? rowReturn(back.get(), index)
+          : 1,
+    }),
+    [back, lifted, id, index],
   );
   useEffect(
     () => (list ? registerRow(item.id, ref) : undefined),
@@ -149,7 +161,7 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   const status = activityStatus(item);
   const ring = ringVisual(item);
   const look = amountVisual(item);
-  const amount = amountIn(item.amountSats, unit);
+  const amount = figureOf(item.amountSats, unit);
   const label = hidden
     ? copy.activity.rowHidden(item.title, status)
     : look.open
@@ -205,6 +217,10 @@ export const ActivityRow = React.memo(function ActivityRowItem({
                   ]}
                 >
                   {hidden ? MASK : `${look.sign}${amount.value}`}
+                  {/* A BTC amount's trailing zeros, in dust, as the hero. */}
+                  {!hidden && amount.dim ? (
+                    <Text style={styles.dim}>{amount.dim}</Text>
+                  ) : null}
                   <Text style={styles.unit}> {amount.suffix}</Text>
                 </Text>
                 <Strike struck={look.struck} />
@@ -288,6 +304,7 @@ const styles = StyleSheet.create({
   middle: { flex: 1, gap: NOTE_GAP, justifyContent: 'center' },
   amount: { alignSelf: 'flex-start' },
   figure: { ...typography.row },
+  dim: { color: palette.dust },
   unit: { ...typography.meta, color: palette.steam, fontWeight: '400' },
   strike: {
     position: 'absolute',

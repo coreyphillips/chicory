@@ -62,7 +62,7 @@ export function SheetPane({
   /** The scene the canvas shows. */
   shown: CanvasSceneName;
 }) {
-  const { actions } = useStage();
+  const { state, actions } = useStage();
   const live = usePaneActive();
   const panes = usePanes();
   const { reduced } = useMotionPrefs();
@@ -120,6 +120,15 @@ export function SheetPane({
     }
   }, [sheet, shown, reduced, shows, drop, rowsBack]);
 
+  // A payment's detail grows out of its row, and that row's ring and amount
+  // are the ones that fly: the row steps out as the card appears, while the
+  // rows around it fade and drop (T4). It is back as the list comes back.
+  const lifted = useSharedValue('');
+  const detailOf = state.scene.name === 'detail' ? state.scene.item.id : '';
+  useLayoutEffect(() => {
+    lifted.set(detailOf);
+  }, [lifted, detailOf]);
+
   // The bar arrives over the last part of the way up, and the list gives
   // back the room it takes at home.
   const { home, compact } = panes.stops;
@@ -159,6 +168,7 @@ export function SheetPane({
     onScroll: drag.onScroll,
     listRef: list,
     rowsBack,
+    lifted,
     searching,
     onSearching: setSearching,
     bottomInset: bottom,

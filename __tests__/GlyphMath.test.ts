@@ -290,8 +290,8 @@ describe('Odometer', () => {
     ];
 
     test('a roll sets out from the digits showing and lands on the amount', () => {
-      // digitPosition alone has 1,295's hundreds already halfway to 3.
-      expect(digitPosition(1_295, 2)).toBeCloseTo(2.5);
+      // A carry caught halfway, where a roll can take over.
+      expect(digitPosition(1_299.5, 2)).toBeCloseTo(2.5);
       for (const [from, to] of PAIRS) {
         const roll = startRoll(from, to, null);
         for (let k = 0; k < 7; k++) {
@@ -323,6 +323,18 @@ describe('Odometer', () => {
           expect(low).toBeGreaterThanOrEqual(0);
           expect(high).toBeLessThan(10);
         }
+      }
+    });
+
+    test('a count never draws more than it has reached', () => {
+      // The received celebration counting a 5,000 sat receipt up from 0.
+      const roll = startRoll(0, 5_000, null);
+      for (let v = 0; v <= 5_000; v += 0.37) {
+        let read = 0;
+        for (let k = 0; k < 5; k++) {
+          read += (Math.round(rollPosition(v, k, roll)) % 10) * 10 ** k;
+        }
+        expect(read).toBeLessThanOrEqual(Math.ceil(v));
       }
     });
 

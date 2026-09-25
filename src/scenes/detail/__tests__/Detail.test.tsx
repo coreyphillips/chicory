@@ -1,5 +1,12 @@
 import React from 'react';
-import { AccessibilityInfo, ScrollView, Text } from 'react-native';
+import {
+  AccessibilityInfo,
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+} from 'react-native';
+import * as Reanimated from 'react-native-reanimated';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create } from 'react-test-renderer';
@@ -8,7 +15,9 @@ import { DemoWalletClient } from '@beignet/wallet-core';
 import type { Activity } from '@beignet/wallet-core';
 import { forgetSpoken } from '../../../design/announce';
 import { copy } from '../../../design/copy';
+import { Glyph } from '../../../design/glyphs';
 import { haptics } from '../../../design/haptics';
+import { palette } from '../../../design/palette';
 import { CopyChip } from '../../../glyphs/CopyChip';
 import { Odometer } from '../../../glyphs/Odometer';
 import { StatusRing } from '../../../glyphs/StatusRing';
@@ -16,7 +25,11 @@ import { FOCUS_SETTLE_MS } from '../../../motion/speech';
 import { ReceiveRequestDetails } from '../../../components/ReceiveRequestDetails';
 import { DetailScreen } from '../../../screens/wallet/Detail';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
-import { DetailCard } from '../../../stage/layers/DetailCard';
+import {
+  DetailCard,
+  DetailReturn,
+  GROUND_MS,
+} from '../../../stage/layers/DetailCard';
 import { SceneSlot } from '../../../stage/panes/SceneSlot';
 import { StageProvider, useStageStore } from '../../../stage/StageContext';
 import type { StageStore } from '../../../stage/StageContext';
@@ -39,10 +52,12 @@ import { ringWords, statusSentence } from '../model';
 import {
   CARD_RADIUS,
   EXPAND_MS,
+  HEADER_TOPS,
   ROW_RADIUS,
   frameOver,
   headerIn,
   launch,
+  restingFrame,
   rowParts,
 } from '../motion';
 
@@ -182,12 +197,22 @@ describe('the detail', () => {
     await act(async () => tree.unmount());
   });
 
-  test('copies each reference once, each with a glyph for what it is', async () => {
+  test('copies each reference once, each led by a glyph for what it is', async () => {
     const chips = async (item: Activity) => {
       const tree = await render(<DetailScreen item={item} />);
-      const found = tree.root
-        .findAllByType(CopyChip)
-        .map(chip => [chip.props.label, chip.props.glyph]);
+      const found = tree.root.findAllByType(CopyChip).map(chip => {
+        // The chip keeps its copy glyph, so it shows that it copies; the
+        // glyph before it on its line says what the value is.
+        expect(chip.props.glyph ?? 'copy').toBe('copy');
+        // The glyph is memoized; the test renderer sees the one inside.
+        const drawn = (Glyph as unknown as { type: React.ComponentType }).type;
+        const own = chip.findAllByType(drawn);
+        const leads = (node: ReactTestInstance) =>
+          node.findAllByType(drawn).filter(glyph => !own.includes(glyph));
+        let line = chip.parent!;
+        while (!leads(line).length) line = line.parent!;
+        return [chip.props.label, leads(line)[0].props.name];
+      });
       await act(async () => tree.unmount());
       return found;
     };
@@ -204,6 +229,25 @@ describe('the detail', () => {
       ['Reference', 'hash'],
       ['Payment hash', 'bolt'],
     ]);
+  });
+
+  test('in BTC its fee keeps all eight decimals, as the hero, the trailing zeros in dust', async () => {
+    const item = { ...EVERY['sent completed'], feeSats: 1_000 };
+    const tree = await render(<DetailScreen item={item} unit="btc" />);
+    const line = spoken(tree, 'Fee, 1,000 sats');
+    // Read in the order it is drawn, nested text and all.
+    const read = (node: ReactTestInstance): string =>
+      node.children
+        .map(child => (typeof child === 'string' ? child : read(child)))
+        .join('');
+    expect(read(line)).toBe('0.00001000 BTC');
+    const dust = line.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        StyleSheet.flatten(node.props.style)?.color === palette.dust,
+    );
+    expect(dust.map(node => node.children)).toEqual([['000']]);
+    await act(async () => tree.unmount());
   });
 
   test('keeps a hidden balance hidden, in what it shows and what it says', async () => {
@@ -430,6 +474,11 @@ describe('the card', () => {
       .findByType(DetailCard)
       .findAll(node => typeof node.type === 'string')[0];
 
+  /**
+   * What a layout animation is handed on the new architecture: the frame in
+   * its parent's coordinates, with the "global" origin the very same frame
+   * rather than the window's (Reanimated 4, LayoutAnimationsProxyCommon).
+   */
   const target = {
     targetOriginX: 0,
     targetOriginY: 0,
@@ -437,18 +486,28 @@ describe('the card', () => {
     targetHeight: 740,
     targetBorderRadius: CARD_RADIUS,
     targetGlobalOriginX: 0,
-    targetGlobalOriginY: 72,
+    targetGlobalOriginY: 0,
     windowWidth: 375,
     windowHeight: 812,
   };
 
-  test('grows out of the row it was opened from', async () => {
+  /** The slot the canvas keeps for the card, 72 down with no insets. */
+  const card = { x: 0, y: 72, width: 375 };
+  const place = {
+    card,
+    back: { get: () => null },
+  } as unknown as React.ContextType<typeof DetailReturn>;
+
+  test('grows out of the row it was opened from, wherever its parent sits', async () => {
     const tree = await render(
-      <DetailCard item={EVERY['sent completed']} from={rect}>
-        <Text>4,200</Text>
-      </DetailCard>,
+      <DetailReturn value={place}>
+        <DetailCard item={EVERY['sent completed']} from={rect}>
+          <Text>4,200</Text>
+        </DetailCard>
+      </DetailReturn>,
     );
     const grown = cardView(tree).props.entering(target);
+    // Laid over the row in the window: 480 down is 408 into the slot.
     expect(grown.initialValues).toEqual({
       originX: 24,
       originY: 408,
@@ -464,6 +523,63 @@ describe('the card', () => {
       height: 740,
       borderRadius: CARD_RADIUS,
     });
+    await act(async () => tree.unmount());
+  });
+
+  test('without its place on the canvas it only fades in', async () => {
+    const tree = await render(
+      <DetailCard item={EVERY['sent completed']} from={rect}>
+        <Text>4,200</Text>
+      </DetailCard>,
+    );
+    const faded = cardView(tree).props.entering(target);
+    expect(faded.initialValues).not.toHaveProperty('originY');
+    expect(faded.initialValues).toMatchObject({ opacity: 0 });
+    await act(async () => tree.unmount());
+  });
+
+  /** The card's ground, drawn under what it holds. */
+  const groundOf = (tree: ReactTestRenderer) =>
+    cardView(tree).findAll(node => typeof node.type === 'string')[1];
+
+  test('grown out of a row, its ground comes up as the rows around it fade', async () => {
+    // T4: the other rows fade and drop from 0 to 140. An opaque card would
+    // sweep them away under its edges as it grows instead.
+    expect(GROUND_MS).toBe(durations.exit);
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    const tree = await render(
+      <DetailReturn value={place}>
+        <DetailCard item={EVERY['sent completed']} from={rect}>
+          <Text>4,200</Text>
+        </DetailCard>
+      </DetailReturn>,
+    );
+    expect(StyleSheet.flatten(cardView(tree).props.style)).not.toHaveProperty(
+      'backgroundColor',
+    );
+    const ground = StyleSheet.flatten(groundOf(tree).props.style);
+    expect(ground.backgroundColor).toBe(palette.espresso);
+    expect(timings).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ duration: GROUND_MS }),
+    );
+    await act(async () => tree.unmount());
+  });
+
+  test('without a row to grow from, its ground is there from the start', async () => {
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    const tree = await render(
+      <DetailReturn value={place}>
+        <DetailCard item={EVERY['sent completed']} from={null}>
+          <Text>4,200</Text>
+        </DetailCard>
+      </DetailReturn>,
+    );
+    expect(StyleSheet.flatten(groundOf(tree).props.style).opacity).toBe(1);
+    expect(timings).not.toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ duration: GROUND_MS }),
+    );
     await act(async () => tree.unmount());
   });
 });
@@ -485,7 +601,7 @@ describe('the header flying out of its row', () => {
   });
 
   test('flies straight to its place while the card grows around it', () => {
-    const flight = { from: rect, card: { x: 0, y: 72 } };
+    const flight = { from: rect, card: { x: 0, y: 72, width: 375 } };
     const target = { originX: 139.5, originY: 88, width: 96, height: 96 };
     const start = { x: 44, y: 512 };
     const off = launch(target, flight, start, 40 / 96, 'center');
@@ -517,7 +633,7 @@ describe('the header flying out of its row', () => {
   });
 
   test('an amount keeps its left end on the row’s as it grows', () => {
-    const flight = { from: rect, card: { x: 0, y: 72 } };
+    const flight = { from: rect, card: { x: 0, y: 72, width: 375 } };
     const target = { originX: 100, originY: 190, width: 175, height: 48 };
     const off = launch(target, flight, { x: 76, y: 512 }, 0.4, 'left');
     const left =
@@ -528,6 +644,25 @@ describe('the header flying out of its row', () => {
       off.translateX -
       (target.width * off.scale) / 2;
     expect(left).toBe(76);
+  });
+
+  test('lands centred across the card, under the top of its slot', () => {
+    // The slot's scroll starts 16 down, the header pads 8 over the ring, and
+    // the amount sits 12 under the 96pt ring.
+    expect(HEADER_TOPS).toEqual({ ring: 24, amount: 132 });
+    const card = { x: 10, y: 72, width: 375 };
+    expect(restingFrame(card, HEADER_TOPS.ring, 96, 96)).toEqual({
+      originX: 10 + (375 - 96) / 2,
+      originY: 96,
+      width: 96,
+      height: 96,
+    });
+    expect(restingFrame(card, HEADER_TOPS.amount, 175, 48)).toEqual({
+      originX: 10 + (375 - 175) / 2,
+      originY: 204,
+      width: 175,
+      height: 48,
+    });
   });
 
   test('without a row, the ring grows where it stands and the amount waits', () => {
@@ -541,7 +676,7 @@ describe('the header flying out of its row', () => {
   test('under Reduce Motion nothing flies', () => {
     jest.spyOn(motionPrefs, 'motionReduced').mockReturnValue(true);
     const header = headerIn(
-      { from: rect, card: { x: 0, y: 72 } },
+      { from: rect, card: { x: 0, y: 72, width: 375 } },
       EVERY['sent completed'],
     );
     expect(header.amount).toBeUndefined();
@@ -591,6 +726,8 @@ describe('the detail on the canvas', () => {
     );
   }
 
+  // As the new architecture hands it over: the "global" origin is the frame
+  // in the parent's coordinates too.
   const leaving = {
     currentOriginX: 0,
     currentOriginY: 0,
@@ -598,7 +735,7 @@ describe('the detail on the canvas', () => {
     currentHeight: 740,
     currentBorderRadius: CARD_RADIUS,
     currentGlobalOriginX: 0,
-    currentGlobalOriginY: 72,
+    currentGlobalOriginY: 0,
     windowWidth: 375,
     windowHeight: 812,
   };
@@ -630,28 +767,36 @@ describe('the detail on the canvas', () => {
     await act(async () => stage.actions.openActivity());
     await act(async () => {});
     await act(async () => stage.actions.openDetail(item, rect));
-    const entering = (node: ReactTestInstance) =>
-      node.props.entering({
-        targetOriginX: 0,
-        targetOriginY: 0,
-        targetGlobalOriginX: node === ring ? 139.5 : 100,
-        targetGlobalOriginY: node === ring ? 88 : 190,
+    // Each is handed its frame in its own parent, the header, and a
+    // "global" origin that is that same frame.
+    const entering = (node: ReactTestInstance) => {
+      const x = node === ring ? 139.5 : 100;
+      const y = node === ring ? 8 : 116;
+      return node.props.entering({
+        targetOriginX: x,
+        targetOriginY: y,
+        targetGlobalOriginX: x,
+        targetGlobalOriginY: y,
         targetWidth: node === ring ? 96 : 175,
         targetHeight: node === ring ? 96 : 48,
       });
+    };
     const ring = spoken(tree, ringWords(item).label);
     // Home's hero is an Odometer too, so look inside the card.
     const amount = tree.root.findByType(DetailCard).findByType(Odometer)
       .parent!;
-    // The slot sits at the compact stop, 72 below the top with no insets.
+    // The slot sits at the compact stop, 72 below the top with no insets,
+    // and the card fills the canvas's width. Grown from the row, the card
+    // starts 480 - 72 lower than it rests, and 24 to the right.
+    const { width } = Dimensions.get('window');
     expect(entering(ring).initialValues.transform).toEqual([
-      { translateX: 44 - (24 + 139.5 + 48) },
-      { translateY: 512 - (480 + 88 - 72 + 48) },
+      { translateX: 44 - (24 + (width - 96) / 2 + 48) },
+      { translateY: 512 - (480 + 24 + 48) },
       { scale: 40 / 96 },
     ]);
     expect(entering(amount).initialValues.transform).toEqual([
-      { translateX: 76 + (175 * 0.4) / 2 - (24 + 100 + 87.5) },
-      { translateY: 512 - (480 + 190 - 72 + 24) },
+      { translateX: 76 + (175 * 0.4) / 2 - (24 + (width - 175) / 2 + 87.5) },
+      { translateY: 512 - (480 + 132 + 24) },
       { scale: 0.4 },
     ]);
     expect(entering(amount).animations.transform).toEqual([
