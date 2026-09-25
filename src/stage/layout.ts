@@ -1,3 +1,4 @@
+import { space } from '../theme';
 import type { Scene, StageState } from './scene';
 
 /**
@@ -28,6 +29,28 @@ export const HERO_MINI = 0.34;
  * stop sits just under the row, so there the strip rests in the row itself.
  */
 export const MINI_STRIP = 44;
+
+/**
+ * How far a scene's content sits inside its slot (`SceneSlot`): for whatever
+ * lands on it from outside, such as a scan closing into Send's well, and
+ * whatever reaches past it to the slot's edges, such as a scrim.
+ */
+export const SLOT_PADDING = {
+  top: space.md,
+  side: space.xl,
+  bottom: space.xxxl,
+};
+
+/** The height of Send's request well while it waits for a request. */
+export const WELL = 72;
+
+/**
+ * Where the centre of Send's request well sits below the status row, which
+ * a code read from home collapses into as Send opens around it (REDESIGN.md
+ * 7, T3): under the mini strip the balance rests in, inside its slot's
+ * padding, half the well down.
+ */
+export const WELL_DROP = MINI_STRIP + SLOT_PADDING.top + WELL / 2;
 
 /** What Settings does to the canvas it slides over. */
 export const COVERED = { scale: 0.94, opacity: 0.5 };

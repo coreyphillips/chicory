@@ -2,7 +2,7 @@ import { number } from '../../theme';
 
 /**
  * The words more than one area speaks: how an amount is read out, what a
- * scene is called, and the notices the canvas still writes on screen.
+ * scene is called, and the one notice still written on screen, in Settings.
  *
  * Amounts are always spoken in sats, whatever unit is on screen, except where
  * the unit is part of what is being read out.

@@ -3,10 +3,15 @@ import {
   SCENE_LAYOUT,
   canvasLayout,
   canvasScene,
+  MINI_STRIP,
+  SLOT_PADDING,
+  WELL,
+  WELL_DROP,
   sameLayout,
   stops,
   veilOpacity,
 } from '../src/stage/layout';
+import { WELL as SEND_WELL } from '../src/scenes/send/RequestEntry';
 import type { Scene } from '../src/stage/scene';
 
 /**
@@ -155,4 +160,11 @@ test('the Reduce Motion crossfade hides the jump at its middle', () => {
   expect(veilOpacity(0.25)).toBeCloseTo(0.5);
   expect(veilOpacity(0.5)).toBe(0);
   expect(veilOpacity(0.75)).toBeCloseTo(0.5);
+});
+
+test('a code read from home lands in the middle of Send’s well', () => {
+  // The canvas keeps the measure the scan overlay aims for, so the overlay
+  // never reaches into a scene's module for it; Send's well is that tall.
+  expect(WELL).toBe(SEND_WELL);
+  expect(WELL_DROP).toBe(MINI_STRIP + SLOT_PADDING.top + WELL / 2);
 });

@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import type { RefreshControlProps } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { space } from '../../theme';
+import { SLOT_PADDING } from '../layout';
 import { usePrimary } from './Primary';
 
 // Padding on both platforms. The app draws edge to edge on Android, where the
@@ -18,16 +18,9 @@ import { usePrimary } from './Primary';
 // window that does resize gets none.
 const KEYBOARD_AVOIDING = 'padding' as const;
 
-/**
- * How far a scene's content sits inside its slot: for whatever lands on it
- * from outside, such as a scan closing into Send's well, and whatever
- * reaches past it to the slot's edges, such as a scrim.
- */
-export const SLOT_PADDING = {
-  top: space.md,
-  side: space.xl,
-  bottom: space.xxxl,
-};
+// How far a scene's content sits inside its slot, kept with the canvas's
+// other measures and served here too, where the slot draws it.
+export { SLOT_PADDING };
 
 /**
  * A scrolling place for a whole scene, that keeps its fields above the

@@ -96,6 +96,7 @@ This branch (`redesign`) is an experimental redesign of the Chicory app. It is n
   - The canvas draws it above everything while `overlay.name` is `scan`. The panes stay drawn beneath it, out of use, and the canvas under it scales to .96 and dims to .5 on the pane spring (`SCANNING`), springing back as it closes; under Reduce Motion it only dims.
   - A code read from home dispatches `scanned`, and the reducer opens Send prefilled with it. A scan started inside Send has the target `send`: the code goes to the receiver the open Send registered with `useScanReceiver(receiver, active)`, the one that became active last, and the overlay closes over that same Send.
   - Cancelling dispatches `back`, which closes the overlay.
+  - Opening and closing the overlay are moves like any other: the canvas under it scales and dims on the pane spring, so each takes the 340ms transition lock. The scanner's close and Android back are refused until it lifts.
 - **No `LayoutAnimation`.** Use Reanimated `LinearTransition` on the specific containers that resize.
 
 ### 2.4 Contracts that tests depend on
@@ -748,6 +749,7 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
   - `canvasScene(state)` and `canvasLayout(state)`: under Settings the canvas keeps the pose of the scene it covers, plus `covered`.
   - `STATUS_ROW` (56), `HERO_MINI` (.34), `MINI_STRIP` (44), `COVERED` (scale .94, opacity .5), `SCANNING` (scale .96, opacity .5) and `PANE_SETTLE_MS` (340). `canvasLayout` also takes the overlay and answers `scanning` while the scan overlay is open, and `card` while a payment's detail is open, so opening or closing one is a move that takes the lock.
   - `veilOpacity(veil)`: the opacity of what the Reduce Motion crossfade covers, whole at either end of its clock and gone at the middle.
+  - `SLOT_PADDING` (how far a scene's content sits inside its `SceneSlot`, which serves it too), `WELL` (72, the height of Send's request well) and `WELL_DROP` (where the well's centre sits below the status row, which a code read from home collapses into). The scan overlay reads these here rather than from a scene's module.
   - `MINI_STRIP` is the band under the status row that Send and Receive leave clear: the balance rests there as the mini strip while either is open. Under Activity and a payment's detail the sheet's compact stop leaves no band, so the strip rests in the middle of the status row instead, and the hero's landing springs between the two (`miniLanding` in `scenes/home/motion.ts`).
 - **`src/stage/panes/Pane.tsx`**.
   - `Pane({ active, style })`: a layer of the canvas. When it is not active it gets `pointerEvents` `none`, `accessibilityElementsHidden` and `importantForAccessibility` `no-hide-descendants`. Panes nest.
