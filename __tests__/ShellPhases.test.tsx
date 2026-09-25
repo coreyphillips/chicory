@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import type { AppStateStatus } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -26,7 +27,8 @@ import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import { HOME, STATUS_ROW, heroBox, stops } from '../src/stage/layout';
 import { Pane } from '../src/stage/panes/Pane';
 import type { Phase } from '../src/stage/phase';
-import { Stage } from '../src/stage/Stage';
+import { Stage, privacyCovered } from '../src/stage/Stage';
+import * as systemPrompt from '../src/stage/systemPrompt';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
 import type { StageStore } from '../src/stage/StageContext';
 import { snapshotOf, walletOf } from '../test-support/fixtures';
@@ -156,6 +158,61 @@ function Staged({ phase, live }: { phase: Phase; live: Session }) {
 }
 
 describe('the app switcher', () => {
+  test('covers in the background always, and inactive unless a prompt the app raised is up', () => {
+    expect(privacyCovered('background', false)).toBe(true);
+    expect(privacyCovered('background', true)).toBe(true);
+    expect(privacyCovered('inactive', false)).toBe(true);
+    // The paste permission over Send, or the camera's over the scan.
+    expect(privacyCovered('inactive', true)).toBe(false);
+    for (const prompting of [false, true]) {
+      expect(privacyCovered('active', prompting)).toBe(false);
+      expect(privacyCovered('unknown', prompting)).toBe(false);
+      expect(privacyCovered(null, prompting)).toBe(false);
+    }
+  });
+
+  test('leaves the screen in place behind a prompt the app raised', async () => {
+    const heard = new Set<(state: AppStateStatus) => void>();
+    jest
+      .spyOn(AppState, 'addEventListener')
+      .mockImplementation((kind, handler) => {
+        const listener = handler as (state: AppStateStatus) => void;
+        if (kind === 'change') heard.add(listener);
+        return { remove: () => heard.delete(listener) } as never;
+      });
+    const change = (state: AppStateStatus) => {
+      for (const listener of [...heard]) listener(state);
+    };
+    const live = sessionOf({ snapshot: snapshotOf() });
+    const tree = await mount(
+      <Staged phase={{ kind: 'wallet', error: '' }} live={live} />,
+    );
+    // Inactive with no prompt of the app's up is the switcher.
+    await act(async () => change('inactive'));
+    expect(byTestID(tree, 'privacy-cover')).toHaveLength(1);
+    await act(async () => change('active'));
+    // A paste asks the system, which puts its prompt over the app: the span
+    // `duringSystemPrompt` marks.
+    const prompting = jest
+      .spyOn(systemPrompt, 'systemPromptOpen')
+      .mockReturnValue(true);
+    await act(async () => change('inactive'));
+    expect(byTestID(tree, 'privacy-cover')).toHaveLength(0);
+    await act(async () => change('active'));
+    expect(byTestID(tree, 'privacy-cover')).toHaveLength(0);
+    // Going to the background covers, prompt or not.
+    await act(async () => change('inactive'));
+    await act(async () => change('background'));
+    expect(byTestID(tree, 'privacy-cover')).toHaveLength(1);
+    await act(async () => change('active'));
+    expect(byTestID(tree, 'privacy-cover')).toHaveLength(0);
+    // Once the prompt has settled, inactive is the switcher again.
+    prompting.mockReturnValue(false);
+    await act(async () => change('inactive'));
+    expect(byTestID(tree, 'privacy-cover')).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
   test('sees roast and the mark, never the balance, while the app is not in front', async () => {
     // Every listener the app sets up hears the same changes.
     const heard = new Set<(state: AppStateStatus) => void>();
@@ -178,8 +235,16 @@ describe('the app switcher', () => {
     const [cover] = byTestID(tree, 'privacy-cover');
     expect(flat(cover)).toMatchObject({ backgroundColor: palette.roast });
     expect(cover.findAllByType(Bloom)).toHaveLength(1);
-    // Up at once: nothing fades that the switcher could catch half drawn.
+    // Up at once: nothing fades that the switcher could catch half drawn,
+    // and nothing of it, the mark's petals included, fades as it goes.
     expect(cover.props.entering).toBeUndefined();
+    // The host view, the View drawing it, and the config around that.
+    const config = cover.parent!.parent!;
+    expect(config.type).toBe(LayoutAnimationConfig);
+    expect(config.props).toMatchObject({
+      skipEntering: true,
+      skipExiting: true,
+    });
     await act(async () => change('active'));
     expect(byTestID(tree, 'privacy-cover')).toHaveLength(0);
     // The lock hides the wallet itself, and its bud stays in view.

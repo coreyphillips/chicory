@@ -6,7 +6,14 @@ import React, {
   useState,
 } from 'react';
 import type { ReactNode } from 'react';
-import { RefreshControl, StatusBar, StyleSheet, View } from 'react-native';
+import {
+  AppState,
+  RefreshControl,
+  StatusBar,
+  StyleSheet,
+  View,
+} from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import Reanimated, { LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { WalletSnapshot } from '@beignet/wallet-core';
@@ -39,6 +46,7 @@ import { SceneSlot } from './panes/SceneSlot';
 import { backupPending } from './phase';
 import type { Phase } from './phase';
 import type { Arrival } from './layout';
+import { systemPromptOpen } from './systemPrompt';
 import { useBackHandler } from './useBackHandler';
 import { useStage } from './StageContext';
 
@@ -124,6 +132,7 @@ export function Stage({
   const closeBackup = useCallback(() => setRevealing(false), []);
   const { reduced } = useMotionPrefs();
   const awake = useAppActive();
+  const covered = usePrivacyCover();
 
   // Decoration wakes with anything worth seeing (REDESIGN.md 3.5): a touch
   // anywhere under the root view, which carries `wakeOnTouch`, the app
@@ -382,21 +391,26 @@ export function Stage({
         ) : null}
         {/* While the app is not in front, as the app switcher shows it, a
             roast ground and the mark cover whatever is drawn, so the
-            switcher's picture of the app holds no balance. It is up and
-            down at once, with no fade: the picture is taken as the app
-            leaves. The lock hides the wallet itself. */}
-        {!awake && !locked ? (
-          <View
-            testID="privacy-cover"
-            style={[styles.layer, styles.cover]}
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-          >
-            <Bloom
-              size={SIZES.loader}
-              tone={bloomTone(activeProfile.network)}
-            />
-          </View>
+            switcher's picture of the app holds no balance. Behind a prompt
+            the app raised itself, paste or the camera, the screen stays,
+            so the person sees what they are answering for
+            (`privacyCovered`). It is up and down at once, the mark's petals
+            too, with no fade: the picture is taken as the app leaves. The
+            lock hides the wallet itself. */}
+        {covered && !locked ? (
+          <LayoutAnimationConfig skipEntering skipExiting>
+            <View
+              testID="privacy-cover"
+              style={[styles.layer, styles.cover]}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              <Bloom
+                size={SIZES.loader}
+                tone={bloomTone(activeProfile.network)}
+              />
+            </View>
+          </LayoutAnimationConfig>
         ) : null}
       </View>
     </WhisperProvider>
@@ -413,6 +427,42 @@ Stage.displayName = 'Stage';
 export function arrivalFrom(before: Phase['kind'], lockedFor: number): Arrival {
   if (before === 'locked') return lockedFor >= QUIET_MS ? 'unlock' : 'load';
   return before === 'offline' ? 'reconnect' : 'load';
+}
+
+/**
+ * Whether the privacy cover is up while the app is in `state`, with
+ * `prompting` true while a system prompt the app raised may be up
+ * (`systemPromptOpen`). The background always covers, since that is where
+ * the app switcher takes its picture. Inactive covers too, since the
+ * switcher starts there, except behind a prompt the app asked for, which
+ * makes the app inactive as well: the paste permission over Send, or the
+ * camera's over the scan, where the screen behind is what the person is
+ * answering for. In front, or unknown, nothing covers.
+ */
+export function privacyCovered(
+  state: AppStateStatus | string | null | undefined,
+  prompting: boolean,
+): boolean {
+  if (state === 'background') return true;
+  if (state === 'inactive') return !prompting;
+  return false;
+}
+
+/**
+ * Whether the privacy cover is up, decided as each change of the app's
+ * state arrives, when whether a prompt the app raised is up can be read.
+ */
+function usePrivacyCover(): boolean {
+  const [covered, setCovered] = useState(() =>
+    privacyCovered(AppState.currentState, systemPromptOpen()),
+  );
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', state =>
+      setCovered(privacyCovered(state, systemPromptOpen())),
+    );
+    return () => subscription.remove();
+  }, []);
+  return covered;
 }
 
 /**
