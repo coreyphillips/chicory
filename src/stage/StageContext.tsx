@@ -1,11 +1,13 @@
 import React, {
   createContext,
   useContext,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import type { Dispatch, PropsWithChildren, RefObject } from 'react';
 import type { Activity } from '@beignet/wallet-core';
@@ -62,6 +64,75 @@ export function newestFirst<T>(registry: Set<Responder<T>>): T[] {
   return [...registry].reverse().map(entry => entry.current);
 }
 
+/** A G3 tint a scene holds for as long as its state lasts (REDESIGN.md 3.2). */
+export type HeldTint = 'honey' | 'night';
+
+/** A G3 tint that flashes once and goes. */
+export type FlashTint = 'sage' | 'radish';
+
+/**
+ * What the scenes ask of the ground's G3 layer: the tint held now, and the
+ * last flash, keyed so each plays once.
+ */
+export interface Tints {
+  held: HeldTint | null;
+  flash: { tint: FlashTint; key: number } | null;
+}
+
+/**
+ * The tint channel. It is a store of its own rather than stage state, so a
+ * scene that holds or flashes a tint draws only the ground again, not the
+ * whole stage.
+ */
+export interface TintChannel {
+  read: () => Tints;
+  subscribe: (listener: () => void) => () => void;
+  /** Holds `tint` until the returned release is called. */
+  hold: (tint: HeldTint) => () => void;
+  flash: (tint: FlashTint) => void;
+}
+
+function tintChannel(): TintChannel {
+  let tints: Tints = { held: null, flash: null };
+  const listeners = new Set<() => void>();
+  const holders: HeldTint[] = [];
+  const publish = (next: Tints) => {
+    tints = next;
+    for (const listener of listeners) listener();
+  };
+  // Honey is a safety state (REDESIGN.md rule 4), so it wins over night.
+  const settle = () => {
+    const held = holders.includes('honey')
+      ? 'honey'
+      : holders.includes('night')
+      ? 'night'
+      : null;
+    if (held !== tints.held) publish({ ...tints, held });
+  };
+  return {
+    read: () => tints,
+    subscribe: listener => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    hold: tint => {
+      holders.push(tint);
+      settle();
+      let held = true;
+      return () => {
+        if (!held) return;
+        held = false;
+        holders.splice(holders.indexOf(tint), 1);
+        settle();
+      };
+    },
+    flash: tint =>
+      publish({ ...tints, flash: { tint, key: (tints.flash?.key ?? 0) + 1 } }),
+  };
+}
+
 export interface StageStore {
   state: StageState;
   dispatch: Dispatch<StageAction>;
@@ -72,6 +143,7 @@ export interface StageStore {
    */
   panes: RefObject<PaneMotion | null>;
   responders: Responders;
+  tint: TintChannel;
 }
 
 const StageContext = createContext<StageStore | null>(null);
@@ -89,6 +161,7 @@ export function useStageStore(): StageStore {
     phaseBack: new Set(),
     scan: new Set(),
   }));
+  const [tint] = useState(tintChannel);
   // The state as of the last tap, ahead of React while a render is pending,
   // so two taps in one tick each start from where the one before led. A scan
   // started inside Send also reads it, to hand its code to that Send.
@@ -138,8 +211,8 @@ export function useStageStore(): StageStore {
     };
   }, []);
   return useMemo(
-    () => ({ state, dispatch, actions, panes, responders }),
-    [state, actions, responders],
+    () => ({ state, dispatch, actions, panes, responders, tint }),
+    [state, actions, responders, tint],
   );
 }
 
@@ -201,6 +274,45 @@ export function useResponder<T>(
  */
 export function useSceneBack(handler: () => boolean, active: boolean) {
   useResponder(useStage().responders.sceneBack, handler, active);
+}
+
+const NO_TINTS: Tints = { held: null, flash: null };
+const noFlash = () => {};
+
+/**
+ * The G3 tints the scenes ask for, for the ground to draw. Outside a stage
+ * there are none.
+ */
+export function useTint(): Tints {
+  const channel = useContext(StageContext)?.tint;
+  return useSyncExternalStore(
+    channel?.subscribe ?? noSubscribe,
+    channel?.read ?? noTints,
+  );
+}
+const noSubscribe = () => () => {};
+const noTints = () => NO_TINTS;
+
+/**
+ * Holds the G3 tint `tint` on the ground while it is set and the caller is
+ * mounted: night while an offline receive is chosen, honey while a payment's
+ * outcome is unknown. Outside a stage, as when a suite draws a screen alone,
+ * it does nothing.
+ */
+export function useHoldTint(tint: HeldTint | null) {
+  const channel = useContext(StageContext)?.tint;
+  useEffect(() => {
+    if (!channel || !tint) return;
+    return channel.hold(tint);
+  }, [channel, tint]);
+}
+
+/**
+ * Flashes a G3 tint over the ground once: sage when money arrives, radish
+ * when a payment fails. Outside a stage it does nothing.
+ */
+export function useFlashTint(): (tint: FlashTint) => void {
+  return useContext(StageContext)?.tint.flash ?? noFlash;
 }
 
 /**

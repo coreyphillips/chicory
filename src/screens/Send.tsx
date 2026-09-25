@@ -8,13 +8,7 @@ import React, {
 } from 'react';
 import type { ReactNode, Ref } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import Reanimated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withSequence,
-  withTiming,
-} from 'react-native-reanimated';
+import Reanimated from 'react-native-reanimated';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { parseSats } from '@beignet/wallet-core';
 import type {
@@ -29,10 +23,9 @@ import { copy } from '../design/copy';
 import { Glyph } from '../design/glyphs';
 import type { GlyphName } from '../design/glyphs';
 import { haptics } from '../design/haptics';
-import { gradients, palette } from '../design/palette';
+import { palette } from '../design/palette';
 import { CopyChip } from '../glyphs/CopyChip';
 import { sceneIn, sceneOut } from '../motion/presets';
-import { durations } from '../motion/tokens';
 import { AmountReadout } from '../scenes/keypad/AmountReadout';
 import { digitsOnly, grouped } from '../scenes/keypad/keys';
 import type { AmountTone } from '../scenes/keypad/keys';
@@ -62,6 +55,7 @@ import { errorMessage } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
 import { heldRequest, holdRequest } from '../stage/heldRequests';
 import { usePaneActive } from '../stage/panes/Pane';
+import { useFlashTint, useHoldTint } from '../stage/StageContext';
 import { space, statusLabel, type as typography } from '../theme';
 
 /** What a Send on the canvas asks of the screen inside it. */
@@ -94,22 +88,6 @@ function quoteExpired() {
     code: 'QUOTE_EXPIRED',
     message: copy.send.quoteExpired,
   });
-}
-
-/** The radish wash a failed payment tints the scene with for a moment. */
-function FailedTint() {
-  const { opacity, hold } = gradients.G3.radish;
-  const shown = useSharedValue(0);
-  useEffect(() => {
-    shown.set(
-      withSequence(
-        withTiming(opacity, { duration: durations.exit }),
-        withDelay(hold, withTiming(0, { duration: durations.celebrate })),
-      ),
-    );
-  }, [opacity, hold, shown]);
-  const style = useAnimatedStyle(() => ({ opacity: shown.get() }));
-  return <Reanimated.View pointerEvents="none" style={[styles.tint, style]} />;
 }
 
 /**
@@ -245,6 +223,12 @@ export function SendScreen({
     recordDiagnostic({ phase: 'ui', code: 'HELD', message: copy.send.held });
   }, [heldFor]);
 
+  // The ground behind the canvas holds honey while an outcome is unknown,
+  // here before the wallet's own read of it says so, and flashes radish as a
+  // payment fails (REDESIGN.md 3.2, G3).
+  useHoldTint(result?.status === 'uncertain' || held ? 'honey' : null);
+  const flash = useFlashTint();
+
   // A result is felt and said once its mark is on screen and has taken a
   // screen reader's focus, so the move never cuts an assertive message short.
   useEffect(() => {
@@ -263,10 +247,11 @@ export function SendScreen({
         break;
       case 'failed':
         haptics.error();
+        flash('radish');
         announce(`${copy.send.failed} ${result.message}`, { assertive: true });
         break;
     }
-  }, [result]);
+  }, [result, flash]);
 
   useEffect(() => {
     if (result?.status !== 'completed' || !onDone || stayed) return;
@@ -502,7 +487,6 @@ export function SendScreen({
     const uncertain = result.status === 'uncertain';
     content = (
       <>
-        {failed ? <FailedTint /> : null}
         <View style={styles.body}>
           <ResultMark
             visual={visual}
@@ -764,5 +748,4 @@ const styles = StyleSheet.create({
   side: { width: 56, alignItems: 'center' },
   fee: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   feeText: { ...typography.line, color: palette.steam },
-  tint: { ...StyleSheet.absoluteFill, backgroundColor: palette.radish },
 });

@@ -29,8 +29,12 @@ import {
 import type { CanvasSceneName } from '../src/stage/layout';
 import { CornerControl } from '../src/stage/panes/CornerControl';
 import { Pane } from '../src/stage/panes/Pane';
-import { StageProvider, useStageStore } from '../src/stage/StageContext';
-import type { StageStore } from '../src/stage/StageContext';
+import {
+  StageProvider,
+  useHoldTint,
+  useStageStore,
+} from '../src/stage/StageContext';
+import type { HeldTint, StageStore } from '../src/stage/StageContext';
 import { a11yText, field, pressableLabels } from '../test-support/query';
 
 /**
@@ -227,6 +231,44 @@ describe('the stage store', () => {
     await act(async () => stage.actions.setBusy(true));
     expect(stage.state.busy).toBe(true);
     expect(follow).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('the tint channel', () => {
+  function Holding({ tint }: { tint: HeldTint | null }) {
+    useHoldTint(tint);
+    return null;
+  }
+  function OnStage({ tints }: { tints: (HeldTint | null)[] }) {
+    stage = useStageStore();
+    return (
+      <StageProvider value={stage}>
+        {tints.map((tint, index) => (
+          <Holding key={index} tint={tint} />
+        ))}
+      </StageProvider>
+    );
+  }
+
+  test('a scene holds a tint while it is set and drawn, and honey wins', async () => {
+    const tree = await render(<OnStage tints={['night']} />);
+    expect(stage.tint.read().held).toBe('night');
+    await act(async () => tree.update(<OnStage tints={['night', 'honey']} />));
+    expect(stage.tint.read().held).toBe('honey');
+    await act(async () => tree.update(<OnStage tints={['night', null]} />));
+    expect(stage.tint.read().held).toBe('night');
+    await act(async () => tree.update(<OnStage tints={[]} />));
+    expect(stage.tint.read().held).toBeNull();
+    await act(async () => tree.unmount());
+  });
+
+  test('each flash is keyed, so the ground plays it once', async () => {
+    const tree = await render(<OnStage tints={[]} />);
+    expect(stage.tint.read().flash).toBeNull();
+    await act(async () => stage.tint.flash('sage'));
+    await act(async () => stage.tint.flash('radish'));
+    expect(stage.tint.read().flash).toEqual({ tint: 'radish', key: 2 });
     await act(async () => tree.unmount());
   });
 });

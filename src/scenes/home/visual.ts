@@ -1,6 +1,7 @@
 import type { WalletRecord, WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import type { GlyphName } from '../../design/glyphs';
+import type { HeldTint } from '../../stage/StageContext';
 
 /**
  * How the vessel under the hero looks (REDESIGN.md 5, Vessel): a pill whose
@@ -242,23 +243,28 @@ export function healthText(input: HealthInput): string {
 export interface BackdropVisual {
   glow: 'bloom' | 'slate';
   dim: boolean;
-  tint: 'honey' | 'night' | null;
+  tint: HeldTint | null;
 }
 
 /**
  * Honey while something needs attention: a backup to save or a payment
  * whose outcome is unknown. Night while an offline request is open and
  * still unexpired as of the snapshot, the one sign of offline receive the
- * wallet itself records.
+ * wallet itself records. `held` is the tint a scene holds through the
+ * stage's tint channel, such as night while Receive has offline chosen, or
+ * honey while Send shows an outcome the wallet has not read yet. Honey is a
+ * safety state, so it wins over night whoever holds either.
  */
 export function backdropVisual({
   snapshot,
   stale,
   backupPending,
+  held = null,
 }: {
   snapshot: Pick<Snapshot, 'wallet' | 'activity'> & { updatedAt: number };
   stale: boolean;
   backupPending: boolean;
+  held?: HeldTint | null;
 }): BackdropVisual {
   const uncertain = snapshot.activity.some(item => item.status === 'uncertain');
   const offline = snapshot.activity.some(
@@ -271,6 +277,11 @@ export function backdropVisual({
   return {
     glow: isTestNetwork(snapshot.wallet.network) ? 'slate' : 'bloom',
     dim: stale,
-    tint: backupPending || uncertain ? 'honey' : offline ? 'night' : null,
+    tint:
+      backupPending || uncertain || held === 'honey'
+        ? 'honey'
+        : offline || held === 'night'
+        ? 'night'
+        : null,
   };
 }

@@ -27,6 +27,7 @@ import { useReceiveStatus } from '../services/useReceiveStatus';
 import { errorMessage as message } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
 import { usePaneActive } from '../stage/panes/Pane';
+import { useHoldTint } from '../stage/StageContext';
 import type { Unit } from '../theme';
 
 const codeOf = (e: unknown) => (e as { code?: string })?.code;
@@ -65,7 +66,7 @@ export function ReceiveScreen({
   onRefresh?: () => void;
   onBusy: (busy: boolean) => void;
 }) {
-  const { useBack, setTint } = useReceiveHost();
+  const { useBack } = useReceiveHost();
   const live = usePaneActive();
   const { width } = useWindowDimensions();
   const [capacityChanged, setCapacityChanged] = useState(false);
@@ -174,10 +175,7 @@ export function ReceiveScreen({
 
   // The night tint while the request being made, or shown, is an offline one.
   const night = request ? !!request.offlineReceive && !face?.expired : offline;
-  useEffect(() => {
-    setTint(night ? 'night' : null);
-  }, [night, setTint]);
-  useEffect(() => () => setTint(null), [setTint]);
+  useHoldTint(night ? 'night' : null);
 
   useArrival(receipt, request);
   useWarning(!!face?.expired && !receipt && !tracking?.ambiguous, () => {

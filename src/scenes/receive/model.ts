@@ -255,7 +255,7 @@ export const CELEBRATION = {
   count: { delay: 200, duration: 700 },
   check: { delay: 600, duration: 420 },
   burst: { delay: 700, duration: 800 },
-  tint: { delay: 700, in: 300, out: 900 },
+  tint: { delay: 700 },
 };
 
 /** Petals in the burst, one per 30 degrees as the bloom has them. */

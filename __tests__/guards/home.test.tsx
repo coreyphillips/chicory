@@ -63,7 +63,7 @@ import { Pane, PanesProvider } from '../../src/stage/panes/Pane';
 import { STALE_AFTER_MS } from '../../src/services/useWalletSession';
 import { useStale } from '../../src/stage/Stage';
 import { StageProvider, useStageStore } from '../../src/stage/StageContext';
-import type { StageStore } from '../../src/stage/StageContext';
+import type { HeldTint, StageStore } from '../../src/stage/StageContext';
 import { arrivals, seenIn, useIncoming } from '../../src/stage/useIncoming';
 import type { Unit } from '../../src/theme';
 import {
@@ -437,7 +437,11 @@ describe('the mark', () => {
 describe('the backdrop', () => {
   const look = (
     snapshot: WalletSnapshot,
-    over: { stale?: boolean; backupPending?: boolean } = {},
+    over: {
+      stale?: boolean;
+      backupPending?: boolean;
+      held?: HeldTint | null;
+    } = {},
   ) =>
     backdropVisual({
       snapshot,
@@ -469,6 +473,17 @@ describe('the backdrop', () => {
       });
     expect(look(offline(NOW + 60_000)).tint).toBe('night');
     expect(look(offline(NOW - 1)).tint).toBeNull();
+  });
+
+  test('a scene’s held tint shows on the ground, and honey wins over night', () => {
+    expect(look(snapshotOf(), { held: 'night' }).tint).toBe('night');
+    expect(look(snapshotOf(), { held: 'honey' }).tint).toBe('honey');
+    expect(
+      look(snapshotOf(), { backupPending: true, held: 'night' }).tint,
+    ).toBe('honey');
+    const unknown = snapshotOf({ activity: [activityOf('sent', 'uncertain')] });
+    expect(look(unknown, { held: 'night' }).tint).toBe('honey');
+    expect(look(snapshotOf(), { held: null }).tint).toBeNull();
   });
 
   test('the drifting glows reach past every edge, however far they drift and turn', () => {

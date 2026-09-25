@@ -179,6 +179,47 @@ test('a completed payment goes home on its own', async () => {
   }
 });
 
+test('an unknown outcome holds honey on the ground, and a failure flashes radish', async () => {
+  jest.spyOn(client, 'prepareSend').mockResolvedValue(quote);
+  const send = jest.spyOn(client, 'send').mockResolvedValue({
+    id: 'p-unknown',
+    status: 'uncertain',
+    amountSats: 4200,
+    feeSats: 20,
+    message: 'The node stopped answering.',
+  });
+  const tree = await openSend();
+  await act(async () => {
+    field(tree, copy.send.request).props.onChangeText('lnbc-tint-unknown');
+  });
+  await press(tree, copy.send.review);
+  expect(stage.tint.read().held).toBeNull();
+  await activate(tree, copy.send.sendSats(4200));
+  expect(stage.tint.read().held).toBe('honey');
+  // Leaving the outcome lets the ground go; the wallet's own read of the
+  // payment holds honey from then on.
+  await act(async () => stage.actions.back());
+  expect(stage.tint.read().held).toBeNull();
+
+  send.mockResolvedValue({
+    id: 'p-failed',
+    status: 'failed',
+    amountSats: 4200,
+    feeSats: 0,
+    message: 'No route.',
+  });
+  await act(async () => stage.actions.openSend());
+  await act(async () => {
+    field(tree, copy.send.request).props.onChangeText('lnbc-tint-failed');
+  });
+  await press(tree, copy.send.review);
+  const before = stage.tint.read().flash?.key ?? 0;
+  await activate(tree, copy.send.sendSats(4200));
+  expect(stage.tint.read().flash).toEqual({ tint: 'radish', key: before + 1 });
+  expect(stage.tint.read().held).toBeNull();
+  await act(async () => tree.unmount());
+});
+
 test('a held payment opens its detail by way of Activity, which back returns to', async () => {
   const txid = hex(77);
   const payment = activityOf('sent', 'uncertain', { rail: 'chain', txid });

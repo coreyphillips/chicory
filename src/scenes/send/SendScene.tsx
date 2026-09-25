@@ -3,7 +3,6 @@ import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Activity } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
-import { palette } from '../../design/palette';
 import { SendScreen } from '../../screens/Send';
 import type { SendHandle } from '../../screens/Send';
 import type { RegionProps } from '../../stage/Canvas';
@@ -17,7 +16,6 @@ import {
   useStage,
 } from '../../stage/StageContext';
 import { useScanReceiver } from '../../stage/useScanReceiver';
-import { radius } from '../../theme';
 import type { Origin } from './RequestEntry';
 
 /**
@@ -37,6 +35,10 @@ const MINI_STRIP = 44;
  * the overlay covers the pane (REDESIGN.md 2.3). Android back steps from the
  * review to compose before the stage closes the scene. A completed payment
  * goes home on its own, and a held one opens the payment it waits on.
+ *
+ * Send lays no ground of its own: the canvas's backdrop shows through, with
+ * the tints the screen asks for, honey while an outcome is unknown and a
+ * radish flash as a payment fails (REDESIGN.md 3.2, G3).
  */
 export function SendScene({
   prefill,
@@ -88,7 +90,7 @@ export function SendScene({
   return (
     <Arriving>
       <View style={styles.mini} />
-      <View style={styles.ground}>
+      <View style={styles.fill}>
         <SceneSlot label={copy.scene.send} offset={STATUS_ROW + MINI_STRIP}>
           <View style={[styles.fill, { paddingBottom: insets.bottom }]}>
             <SendScreen
@@ -114,13 +116,5 @@ export function SendScene({
 
 const styles = StyleSheet.create({
   mini: { height: MINI_STRIP },
-  // Home stays drawn beneath, so below the mini strip Send lays a ground of
-  // its own, rising like a pane.
-  ground: {
-    flex: 1,
-    backgroundColor: palette.roast,
-    borderTopLeftRadius: radius.pane,
-    borderTopRightRadius: radius.pane,
-  },
   fill: { flex: 1 },
 });

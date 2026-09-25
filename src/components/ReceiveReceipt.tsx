@@ -5,7 +5,6 @@ import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
-  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
@@ -13,7 +12,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import type { ReceiveStatus } from '@beignet/wallet-core';
 import { copy } from '../design/copy';
 import { Glyph } from '../design/glyphs';
-import { gradients, palette } from '../design/palette';
+import { palette } from '../design/palette';
 import { CopyChip } from '../glyphs/CopyChip';
 import { Odometer } from '../glyphs/Odometer';
 import { curves } from '../motion/tokens';
@@ -28,6 +27,7 @@ import {
   receiptRing,
   receiptTransactions,
 } from '../scenes/receive/model';
+import { useFlashTint } from '../stage/StageContext';
 import { space } from '../theme';
 import type { Unit } from '../theme';
 
@@ -40,8 +40,9 @@ import type { Unit } from '../theme';
  *
  * `celebrate` plays the arrival the first time it is seen: the ring draws,
  * the amount counts up, and a completed payment draws its check and bursts
- * its petals over a sage glow. A payment's detail shows the same receipt
- * still. The words are in its label, masked like the amounts when `hidden`.
+ * its petals as the ground behind the canvas flashes sage (REDESIGN.md 3.2,
+ * G3). A payment's detail shows the same receipt still. The words are in its
+ * label, masked like the amounts when `hidden`.
  */
 export function ReceiveReceipt({
   status,
@@ -87,6 +88,18 @@ export function ReceiveReceipt({
     .filter(Boolean)
     .join(' ');
   const bitcoin = status.method === 'bitcoin';
+
+  // The sage flash is a colour, so it plays under Reduce Motion too, at once
+  // rather than with the burst it would have joined.
+  const flash = useFlashTint();
+  useEffect(() => {
+    if (!celebrate || !completed) return;
+    const timer = setTimeout(
+      () => flash('sage'),
+      play ? CELEBRATION.tint.delay : 0,
+    );
+    return () => clearTimeout(timer);
+  }, [celebrate, completed, play, flash]);
 
   // The amount counts up from nothing once the ring has started to draw.
   const [counted, setCounted] = useState(play ? 0 : status.receivedSats);
@@ -176,9 +189,6 @@ export function ReceiveReceipt({
 
 const STROKE = 4;
 
-/** The sage tint at its height (REDESIGN.md 3.2, G3). */
-const GLOW = gradients.G3.sageFlash.opacity;
-
 function Ring({
   size,
   kind,
@@ -197,7 +207,6 @@ function Ring({
   const arc = useSharedValue(play ? 0 : share);
   const check = useSharedValue(!play && completed ? 1 : 0);
   const burst = useSharedValue(0);
-  const glow = useSharedValue(0);
   const first = useRef(true);
   useEffect(() => {
     const delay = first.current ? CELEBRATION.ring.delay : 0;
@@ -224,7 +233,7 @@ function Ring({
       check.set(1);
       return;
     }
-    const { check: drawn, burst: petals, tint } = CELEBRATION;
+    const { check: drawn, burst: petals } = CELEBRATION;
     check.set(
       withDelay(
         drawn.delay,
@@ -238,23 +247,12 @@ function Ring({
         withTiming(1, { duration: petals.duration, easing: curves.standard }),
       ),
     );
-    glow.set(
-      withDelay(
-        tint.delay,
-        withSequence(
-          withTiming(1, { duration: tint.in, easing: curves.enter }),
-          withTiming(0, { duration: tint.out, easing: curves.standard }),
-        ),
-      ),
-    );
     return () => {
       cancelAnimation(check);
       cancelAnimation(burst);
-      cancelAnimation(glow);
     };
-  }, [completed, play, check, burst, glow]);
+  }, [completed, play, check, burst]);
 
-  const glowStyle = useAnimatedStyle(() => ({ opacity: GLOW * glow.get() }));
   const stroke = size >= 96 ? STROKE : 2.5;
   const c = size / 2;
   const r = c - stroke;
@@ -266,12 +264,6 @@ function Ring({
   );
   return (
     <View style={box}>
-      {play ? (
-        <Reanimated.View
-          pointerEvents="none"
-          style={[styles.glow, glowBox(size), glowStyle]}
-        />
-      ) : null}
       <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
         <Circle
           cx={c}
@@ -323,15 +315,6 @@ function Ring({
     </View>
   );
 }
-
-/** A soft sage disc behind the ring, a little wider than it. */
-const glowBox = (size: number) => ({
-  top: -size * 0.2,
-  left: -size * 0.2,
-  width: size * 1.4,
-  height: size * 1.4,
-  borderRadius: size * 0.7,
-});
 
 /** A burst petal: the bloom's fringed petal, small, pointing out. */
 const PETAL =
@@ -436,7 +419,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  glow: { position: 'absolute', backgroundColor: palette.sage },
   petal: { position: 'absolute' },
   tx: {
     flexDirection: 'row',

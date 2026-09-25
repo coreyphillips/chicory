@@ -1,4 +1,11 @@
-import React, { memo, useEffect, useId, useRef, useState } from 'react';
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import Reanimated, {
   ReduceMotion,
@@ -24,6 +31,8 @@ import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import type { RegionProps } from '../../stage/Canvas';
 import { usePaneActive } from '../../stage/panes/Pane';
+import { useTint } from '../../stage/StageContext';
+import type { FlashTint } from '../../stage/StageContext';
 import { tintTiming } from './motion';
 import { useAppActive } from './useAppActive';
 import { backdropVisual } from './visual';
@@ -48,6 +57,13 @@ const DIMMED = 0.25;
 /** How the radish tint comes in and goes out. */
 const RADISH_IN = 200;
 const RADISH_OUT = 600;
+
+/**
+ * One arrival or one failure is often heard twice: from the scene that saw
+ * it, and then from the next read of the wallet. A flash within this long of
+ * the last of its kind is taken for the same moment and not played again.
+ */
+const SAME_MOMENT_MS = 3000;
 
 type Stops = ReadonlyArray<{ offset: number; color: string; opacity: number }>;
 
@@ -93,7 +109,10 @@ export function glowBleed(width: number, height: number): number {
  * G3 is the state tint, one at a time, crossfading over 600ms: honey while a
  * backup waits or a payment's outcome is unknown, night while an offline
  * request is open. Over it flash sage when money arrives and radish when a
- * refresh or a payment fails.
+ * refresh or a payment fails. The scenes on the canvas ask for tints of
+ * their own through the stage's tint channel (`useHoldTint`,
+ * `useFlashTint`), and the ground draws those too, so a scene never lays a
+ * tint of its own over its slot.
  */
 export function Backdrop({
   snapshot,
@@ -109,10 +128,12 @@ export function Backdrop({
   const running = live && awake && !reduced;
   const bleed = glowBleed(width, height);
   const spill = { top: -bleed, left: -bleed, right: -bleed, bottom: -bleed };
+  const asked = useTint();
   const look = backdropVisual({
     snapshot,
     stale,
     backupPending: !!backup?.pending,
+    held: asked.held,
   });
 
   const drift = useSwing(G1.drift.period / 2, running);
@@ -133,31 +154,51 @@ export function Backdrop({
     night.set(withTiming(look.tint === 'night' ? 1 : 0, fade));
   }, [look.dim, look.tint, glow, honey, night]);
 
-  useEffect(() => {
-    if (!arrived) return;
-    sage.set(
-      withSequence(
-        withTiming(1, tintTiming(G3.sageFlash.in, curves.enter)),
-        withTiming(0, tintTiming(G3.sageFlash.out)),
-      ),
-    );
-  }, [arrived, sage]);
+  const flashes = useRef({ sage: -Infinity, radish: -Infinity });
+  const flash = useCallback(
+    (tint: FlashTint) => {
+      const now = Date.now();
+      if (now - flashes.current[tint] < SAME_MOMENT_MS) return;
+      flashes.current[tint] = now;
+      if (tint === 'sage') {
+        sage.set(
+          withSequence(
+            withTiming(1, tintTiming(G3.sageFlash.in, curves.enter)),
+            withTiming(0, tintTiming(G3.sageFlash.out)),
+          ),
+        );
+        return;
+      }
+      // In, held, and out again within the tint's 1200ms.
+      radish.set(
+        withSequence(
+          withTiming(1, tintTiming(RADISH_IN, curves.enter)),
+          withDelay(
+            G3.radish.hold - RADISH_IN - RADISH_OUT,
+            withTiming(0, tintTiming(RADISH_OUT)),
+            ReduceMotion.Never,
+          ),
+        ),
+      );
+    },
+    [sage, radish],
+  );
 
+  useEffect(() => {
+    if (arrived) flash('sage');
+  }, [arrived, flash]);
   const failed = useFailures(snapshot, session.error);
   useEffect(() => {
-    if (!failed) return;
-    // In, held, and out again within the tint's 1200ms.
-    radish.set(
-      withSequence(
-        withTiming(1, tintTiming(RADISH_IN, curves.enter)),
-        withDelay(
-          G3.radish.hold - RADISH_IN - RADISH_OUT,
-          withTiming(0, tintTiming(RADISH_OUT)),
-          ReduceMotion.Never,
-        ),
-      ),
-    );
-  }, [failed, radish]);
+    if (failed) flash('radish');
+  }, [failed, flash]);
+  // What a scene flashed before the ground was drawn is over; only a flash
+  // asked for from now on plays.
+  const seen = useRef(asked.flash?.key ?? 0);
+  useEffect(() => {
+    if (!asked.flash || asked.flash.key === seen.current) return;
+    seen.current = asked.flash.key;
+    flash(asked.flash.tint);
+  }, [asked.flash, flash]);
 
   const g1 = useAnimatedStyle(() => {
     const swing = 2 * drift.get() - 1;

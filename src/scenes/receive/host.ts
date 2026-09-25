@@ -3,24 +3,20 @@ import { createContext, useContext } from 'react';
 /**
  * What the Receive scene does for the screen it holds, which the screen
  * cannot do from inside its scroll view: answer Android back through the
- * stage, and tint the ground behind the whole slot.
+ * stage. The ground's tint is the stage's (`useHoldTint`).
  *
  * Outside the scene, as when a suite renders the screen alone, back is
- * never asked and there is no ground to tint, so both do nothing.
+ * never asked, so it does nothing.
  */
-export type Tint = 'night' | null;
-
 export interface ReceiveHost {
   /**
    * A hook: answers Android back while `active` (REDESIGN.md 2.2), the way
    * `useSceneBack` does. The scene passes `useSceneBack` itself.
    */
   useBack: (handler: () => boolean, active: boolean) => void;
-  /** The tint behind the scene: night while an offline receive is chosen. */
-  setTint: (tint: Tint) => void;
 }
 
-const nothing: ReceiveHost = { useBack: () => {}, setTint: () => {} };
+const nothing: ReceiveHost = { useBack: () => {} };
 
 export const ReceiveHostContext = createContext<ReceiveHost>(nothing);
 

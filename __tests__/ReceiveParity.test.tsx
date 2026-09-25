@@ -23,6 +23,7 @@ import {
 } from '../src/glyphs/QrBloom';
 import type { QrState } from '../src/glyphs/QrBloom';
 import {
+  CELEBRATION,
   OFFLINE_MIN_SATS,
   ORBIT_SHARE,
   amountCue,
@@ -40,6 +41,8 @@ import { DetailScreen, activityStatus } from '../src/screens/Wallet';
 import { recentDiagnostics } from '../src/services/diagnosticLog';
 import { useReceiveStatus } from '../src/services/useReceiveStatus';
 import type { WalletAdapter } from '../src/services/wallet';
+import { StageProvider, useStageStore } from '../src/stage/StageContext';
+import type { StageStore } from '../src/stage/StageContext';
 import { MASK } from '../src/theme';
 import { amountValue, enterAmount } from '../test-support/keypad';
 import { alerts, find, meaning, visibleText } from '../test-support/query';
@@ -103,6 +106,13 @@ const activity: Activity = {
 };
 const adapter = (value: object) => value as WalletAdapter;
 const noop = () => {};
+
+/** The stage a screen is drawn on, for the tints it asks of the ground. */
+let stage!: StageStore;
+function OnStage({ children }: { children: React.ReactNode }) {
+  stage = useStageStore();
+  return <StageProvider value={stage}>{children}</StageProvider>;
+}
 const press = (tree: ReactTestRenderer, label: string) =>
   tree.root
     .findAllByProps({ accessibilityLabel: label })
@@ -271,13 +281,15 @@ async function showRequest(
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(
-      <ReceiveScreen
-        client={client}
-        receivableSats={10000}
-        onActivity={noop}
-        onBusy={noop}
-        onRefresh={onRefresh}
-      />,
+      <OnStage>
+        <ReceiveScreen
+          client={client}
+          receivableSats={10000}
+          onActivity={noop}
+          onBusy={noop}
+          onRefresh={onRefresh}
+        />
+      </OnStage>,
     );
   });
   await enterAmount(tree, '1000');
@@ -314,6 +326,25 @@ test('exact pending receipt dismisses QR/share and advances to confirmation with
     jest.advanceTimersByTime(10000);
   });
   expect(getReceiveStatus).toHaveBeenCalledTimes(3);
+  await act(async () => tree.unmount());
+});
+
+test('a paid request flashes sage on the ground as its petals burst, once', async () => {
+  const { tree } = await showRequest([
+    { ...pending, phase: 'completed', confirmedSats: 1000, pendingSats: 0 },
+  ]);
+  await act(async () => {
+    jest.advanceTimersByTime(2000);
+  });
+  expect(meaning(tree)).toContain('Payment received.');
+  await act(async () => {
+    jest.advanceTimersByTime(CELEBRATION.tint.delay);
+  });
+  expect(stage.tint.read().flash).toEqual({ tint: 'sage', key: 1 });
+  await act(async () => {
+    jest.advanceTimersByTime(10000);
+  });
+  expect(stage.tint.read().flash?.key).toBe(1);
   await act(async () => tree.unmount());
 });
 
@@ -717,12 +748,14 @@ test('embedded offline receiving is an opt-in that requires an amount and confir
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(
-      <ReceiveScreen
-        client={client}
-        receivableSats={100000}
-        onActivity={noop}
-        onBusy={noop}
-      />,
+      <OnStage>
+        <ReceiveScreen
+          client={client}
+          receivableSats={100000}
+          onActivity={noop}
+          onBusy={noop}
+        />
+      </OnStage>,
     );
   });
   // Off by default: with inbound capacity the ordinary request needs no
@@ -730,8 +763,11 @@ test('embedded offline receiving is an opt-in that requires an amount and confir
   expect(disabled(tree, 'Continue')).toBe(false);
   expect(offlineSwitch(tree).props.accessibilityRole).toBe('switch');
   expect(offlineSwitch(tree).props.accessibilityState.checked).toBe(false);
+  expect(stage.tint.read().held).toBeNull();
   await act(async () => press(tree, 'Receive offline').props.onPress());
   expect(offlineSwitch(tree).props.accessibilityState.checked).toBe(true);
+  // The ground behind the canvas turns night while it is chosen.
+  expect(stage.tint.read().held).toBe('night');
   expect(disabled(tree, 'Continue')).toBe(true);
   await enterAmount(tree, '1000');
   await act(async () => {
@@ -745,7 +781,9 @@ test('embedded offline receiving is an opt-in that requires an amount and confir
     await press(tree, 'Create request').props.onPress();
   });
   expect(meaning(tree)).toContain('You can close your wallet');
+  expect(stage.tint.read().held).toBe('night');
   await act(async () => tree.unmount());
+  expect(stage.tint.read().held).toBeNull();
 });
 
 test('the ordinary embedded request never names a receive mode, and the box is absent without engine support', async () => {
