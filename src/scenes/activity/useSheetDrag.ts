@@ -145,25 +145,31 @@ export function useSheetDrag(shown: CanvasSceneName, enabled: boolean) {
       },
       onActivate: event => {
         'worklet';
-        cancelAnimation(panes.seam);
-        start.set(panes.seam.get());
         past.set(false);
         // At home the sheet always takes the finger. Over the list it waits
         // for the list to be at its top, unless the drag began above it.
         const takes = !open.get() || fromHeader.get();
         engaged.set(takes);
         base.set(takes ? 0 : event.translationY);
+        if (takes) {
+          cancelAnimation(panes.seam);
+          start.set(panes.seam.get());
+        }
       },
       onUpdate: event => {
         'worklet';
         if (!engaged.get()) {
           // The list scrolls until it is back at its top with the finger still
           // going down; from there the sheet carries on from where it is.
+          // Until then the sheet's own spring is left alone: a scroll that
+          // never takes the sheet must not stop it halfway to its stop.
           if (!atTop.get() || event.translationY <= base.get()) {
             base.set(event.translationY);
             return;
           }
           engaged.set(true);
+          cancelAnimation(panes.seam);
+          start.set(panes.seam.get());
         }
         const at = stops.get();
         const seam = dragSeam(start.get(), event.translationY - base.get(), at);

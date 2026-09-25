@@ -181,6 +181,9 @@ describe('the drag', () => {
   });
 
   test('over a list scrolled down, a drag scrolls it and leaves the sheet', async () => {
+    // Spied before the gesture is built, since its worklets hold on to what
+    // they call.
+    const cancel = jest.spyOn(Reanimated, 'cancelAnimation');
     const tree = await render(<OnCanvas />);
     await act(async () => stage.actions.openActivity());
     await settle();
@@ -188,11 +191,16 @@ describe('the drag', () => {
     await act(async () =>
       list.props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: 300 } } }),
     );
+    cancel.mockClear();
     await drag(tree, 400, { velocity: FLING + 200 });
     expect(stage.state.scene.name).toBe('activity');
+    // A scroll that never takes the sheet leaves its spring running, so a
+    // list scrolled just after it opened cannot stop it short of its stop.
+    expect(cancel).not.toHaveBeenCalled();
     // From the grip and the bar above the list, it still moves the sheet.
     await drag(tree, 400, { velocity: FLING + 200, y: 10 });
     expect(stage.state.scene.name).toBe('home');
+    expect(cancel).toHaveBeenCalled();
     await act(async () => tree.unmount());
   });
 
