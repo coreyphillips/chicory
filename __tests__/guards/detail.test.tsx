@@ -84,6 +84,7 @@ function OnCanvas({ item }: { item: Activity }) {
           view={view}
           stale={false}
           backup={null}
+          arrived={0}
         />
       </PanesProvider>
     </StageProvider>

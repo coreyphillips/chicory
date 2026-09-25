@@ -24,14 +24,13 @@ import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import type { RegionProps } from '../../stage/Canvas';
 import { usePaneActive } from '../../stage/panes/Pane';
-import { useIncoming } from '../../stage/useIncoming';
 import { tintTiming } from './motion';
 import { useAppActive } from './useAppActive';
 import { backdropVisual } from './visual';
 
 export type BackdropProps = Pick<
   RegionProps,
-  'snapshot' | 'stale' | 'backup' | 'session'
+  'snapshot' | 'stale' | 'backup' | 'session' | 'arrived'
 >;
 
 const { G0, G1, G2, G3 } = gradients;
@@ -96,7 +95,13 @@ export function glowBleed(width: number, height: number): number {
  * request is open. Over it flash sage when money arrives and radish when a
  * refresh or a payment fails.
  */
-export function Backdrop({ snapshot, stale, backup, session }: BackdropProps) {
+export function Backdrop({
+  snapshot,
+  stale,
+  backup,
+  session,
+  arrived,
+}: BackdropProps) {
   const { width, height } = useWindowDimensions();
   const live = usePaneActive();
   const awake = useAppActive();
@@ -128,7 +133,6 @@ export function Backdrop({ snapshot, stale, backup, session }: BackdropProps) {
     night.set(withTiming(look.tint === 'night' ? 1 : 0, fade));
   }, [look.dim, look.tint, glow, honey, night]);
 
-  const arrived = useIncoming(snapshot);
   useEffect(() => {
     if (!arrived) return;
     sage.set(

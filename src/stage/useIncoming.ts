@@ -32,18 +32,12 @@ export function arrivals(
 }
 
 /**
- * The reads whose arrivals were already felt. Home, its backdrop and its mark
- * each watch the same wallet and see the same read in the same commit; this
- * keeps it to one haptic between them.
- */
-const felt = new WeakSet<WalletSnapshot>();
-
-/**
  * Money arriving while the app is open (REDESIGN.md 5, Received
  * celebration): a received payment that completes between one read of the
  * wallet and the next. Returns a count that goes up by one with each read
  * that brings any, for a caller to key its flash or its roll on, and plays
- * the incoming haptic once for them.
+ * the incoming haptic once for them. The canvas calls it once and hands the
+ * count to every region, so each arrival is counted and felt once.
  *
  * An ordinary poll that brings nothing new counts nothing. Neither does the
  * first read of a wallet, which sets what is already there, nor the first
@@ -73,10 +67,7 @@ export function useIncoming(snapshot: WalletSnapshot): number {
     away.current = false;
     if (rebase || AppState.currentState === 'background') return;
     if (!arrivals(before.seen, snapshot.activity).length) return;
-    if (!felt.has(snapshot)) {
-      felt.add(snapshot);
-      haptics.incoming();
-    }
+    haptics.incoming();
     setCount(value => value + 1);
   }, [snapshot]);
 

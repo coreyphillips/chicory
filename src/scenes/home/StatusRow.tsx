@@ -18,7 +18,6 @@ import { STATUS_ROW } from '../../stage/layout';
 import { CORNER_ROOM } from '../../stage/panes/CornerControl';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
-import { useIncoming } from '../../stage/useIncoming';
 import { HIT_SLOP, space } from '../../theme';
 import { BackupTile } from './BackupTile';
 import { useAppActive } from './useAppActive';
@@ -50,6 +49,7 @@ export function StatusRow({
   session,
   stale,
   backup,
+  arrived,
 }: RegionProps & {
   /** The scene the canvas shows. */
   shown: CanvasSceneName;
@@ -70,7 +70,6 @@ export function StatusRow({
   };
   const mark = markVisual(health);
   const value = healthText(health);
-  const arrived = useIncoming(snapshot);
   const event = useMarkEvent(mark.droop, arrived);
   const refresh = useCallback(() => {
     haptics.tick();

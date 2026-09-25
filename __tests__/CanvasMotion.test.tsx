@@ -7,6 +7,9 @@ import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
+import { haptics } from '../src/design/haptics';
+import { Backdrop } from '../src/scenes/home/Backdrop';
+import { HomePane } from '../src/scenes/home/HomePane';
 import { StatusRow } from '../src/scenes/home/StatusRow';
 import { SettingsLayer } from '../src/scenes/settings/SettingsLayer';
 import { BackupBanner } from '../src/scenes/shared/BackupBanner';
@@ -79,7 +82,13 @@ const session: React.ComponentProps<typeof Canvas>['session'] = {
 let stage!: StageStore;
 const client = new DemoWalletClient();
 
-function OnCanvas({ backup = null }: { backup?: Backup | null }) {
+function OnCanvas({
+  backup = null,
+  read = snapshot,
+}: {
+  backup?: Backup | null;
+  read?: WalletSnapshot;
+}) {
   stage = useStageStore();
   const view = useCanvasView();
   return (
@@ -89,7 +98,7 @@ function OnCanvas({ backup = null }: { backup?: Backup | null }) {
           scene={stage.state.scene}
           overlay={stage.state.overlay}
           client={client}
-          snapshot={snapshot}
+          snapshot={read}
           session={session}
           stale={false}
           backup={backup}
@@ -472,6 +481,30 @@ describe('the canvas', () => {
     expect(host(panes(tree).canvas).props.accessibilityElementsHidden).toBe(
       true,
     );
+    await act(async () => tree.unmount());
+  });
+
+  test('money arriving is counted once for the canvas, and every region hears it', async () => {
+    const felt = jest.spyOn(haptics, 'incoming');
+    const tree = await render(<OnCanvas />);
+    const regions = () =>
+      [Backdrop, StatusRow, HomePane].map(
+        type => tree.root.findByType(type).props.arrived,
+      );
+    expect(regions()).toEqual([0, 0, 0]);
+    const salary: Activity = {
+      ...payment,
+      id: 'salary',
+      kind: 'received',
+      title: 'Salary',
+    };
+    await act(async () =>
+      tree.update(
+        <OnCanvas read={{ ...snapshot, activity: [salary, payment] }} />,
+      ),
+    );
+    expect(felt).toHaveBeenCalledTimes(1);
+    expect(regions()).toEqual([1, 1, 1]);
     await act(async () => tree.unmount());
   });
 

@@ -110,6 +110,7 @@ function settings(
         view={view}
         stale={false}
         backup={backup}
+        arrived={0}
       />
     </OnStage>,
   );

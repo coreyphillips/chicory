@@ -113,6 +113,7 @@ function OnSheet({
             view={view}
             stale={false}
             backup={null}
+            arrived={0}
           />
         </PanesProvider>
       </StageProvider>

@@ -150,7 +150,16 @@ function HomeRegions({
     cover: useSharedValue(0),
     stops: stops(844, { top: 0 }),
   };
-  const region = { snapshot, client, session: live, view, stale, backup };
+  const arrived = useIncoming(snapshot);
+  const region = {
+    snapshot,
+    client,
+    session: live,
+    view,
+    stale,
+    backup,
+    arrived,
+  };
   return (
     <GestureHandlerRootView>
       <StageProvider value={stage}>
@@ -978,21 +987,9 @@ describe('money arriving', () => {
     const first = snapshotOf({
       activity: [received('completed', { seed: 7 })],
     });
-    const tree = await mount(
-      <>
-        <Watch snapshot={first} seen={seen} />
-        <Watch snapshot={first} seen={[]} />
-      </>,
-    );
+    const tree = await mount(<Watch snapshot={first} seen={seen} />);
     const next = (snapshot: WalletSnapshot) =>
-      act(async () =>
-        tree.update(
-          <>
-            <Watch snapshot={snapshot} seen={seen} />
-            <Watch snapshot={snapshot} seen={[]} />
-          </>,
-        ),
-      );
+      act(async () => tree.update(<Watch snapshot={snapshot} seen={seen} />));
     // An ordinary poll: a new read of the same history.
     await next({ ...first, updatedAt: NOW + 12_000 });
     expect(felt).not.toHaveBeenCalled();
@@ -1004,7 +1001,6 @@ describe('money arriving', () => {
         activity: [{ ...pending, status: 'completed' }, ...first.activity],
       }),
     );
-    // Two watchers saw it, and it was felt once.
     expect(felt).toHaveBeenCalledTimes(1);
     expect(seen[seen.length - 1]).toBe(1);
     await act(async () => tree.unmount());

@@ -9,7 +9,6 @@ import type { RegionProps } from '../../stage/Canvas';
 import { canvasScene } from '../../stage/layout';
 import { usePanes } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
-import { useIncoming } from '../../stage/useIncoming';
 import type { Point } from './ActionCircle';
 import { useSafetySignal } from './signals';
 import { isTestNetwork } from './visual';
@@ -40,6 +39,7 @@ export function HomePane({
   view,
   stale,
   backup,
+  arrived,
 }: RegionProps & {
   /** Home is the scene the canvas shows, whether or not Settings covers it. */
   home: boolean;
@@ -48,7 +48,6 @@ export function HomePane({
   const panes = usePanes();
   const { hidden, setHidden, unit, setUnit } = view;
   const network = snapshot.wallet.network;
-  const arrived = useIncoming(snapshot);
   const aged = stale && !session.connecting;
   useSafetySignal(aged, copy.health.stale, haptics.warning);
   useSafetySignal(

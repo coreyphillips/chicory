@@ -26,6 +26,7 @@ import { Pane, PanesProvider } from './panes/Pane';
 import { usePaneMotion } from './panes/usePaneMotion';
 import type { Overlay, Scene } from './scene';
 import { newestFirst, useStage } from './StageContext';
+import { useIncoming } from './useIncoming';
 
 type Session = ReturnType<typeof useWalletSession>;
 
@@ -92,6 +93,12 @@ export interface RegionProps {
   /** The balance is too old to spend against. */
   stale: boolean;
   backup: Backup | null;
+  /**
+   * A count that goes up with each read that brought money in
+   * (`useIncoming`), counted once for the whole canvas so every region keys
+   * its flash, burst or roll on the same arrival.
+   */
+  arrived: number;
 }
 
 /**
@@ -134,6 +141,7 @@ export function Canvas({
 }) {
   const { state, dispatch, responders } = useStage();
   const { reduced } = useMotionPrefs();
+  const arrived = useIncoming(snapshot);
   const region: RegionProps = {
     snapshot,
     client,
@@ -141,6 +149,7 @@ export function Canvas({
     view,
     stale,
     backup,
+    arrived,
   };
 
   // Measured rather than assumed. The canvas draws edge to edge, top to
