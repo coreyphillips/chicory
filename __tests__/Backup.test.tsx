@@ -1,4 +1,5 @@
 import React from 'react';
+import { AccessibilityInfo } from 'react-native';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import { CreateWalletScreen } from '../src/screens/Settings';
 import {
@@ -417,4 +418,45 @@ describe('the backup hold', () => {
   test('the words rise 30ms apart, in reading order', () => {
     expect([0, 1, 2, 23].map(wordDelay)).toEqual([0, 30, 60, 690]);
   });
+});
+
+test('a new wallet lands a screen reader on the phrase it has to save', async () => {
+  const sent = jest.mocked(AccessibilityInfo.sendAccessibilityEvent);
+  sent.mockClear();
+  const client = {
+    connection: { url: 'embedded:', token: '' },
+    getConfig: jest.fn().mockResolvedValue({ hasDefaultElectrum: true }),
+    createWallet: jest.fn().mockResolvedValue({
+      id: 'new',
+      name: 'Everyday wallet',
+      network: 'regtest',
+      status: 'stopped',
+      mnemonic: phraseOf(12),
+    }),
+  } as unknown as WalletAdapter;
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <CreateWalletScreen
+        client={client}
+        profile={REGTEST}
+        onCreated={jest.fn().mockResolvedValue(undefined)}
+        onBusy={jest.fn()}
+      />,
+    );
+  });
+  await act(async () => {
+    await label(tree, 'Create regtest wallet').props.onPress();
+  });
+  // Focus moves once nothing is moving, which here is the next tick.
+  await act(async () => {
+    await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
+  });
+  // Under Jest a host ref holds the mocked component, props and all.
+  const landed = sent.mock.calls
+    .filter(([, kind]) => kind === 'focus')
+    .map(([node]) => node as unknown as { props: { children: unknown } })
+    .map(node => node.props.children);
+  expect(landed).toEqual(['Save your recovery phrase.']);
+  await act(async () => tree.unmount());
 });

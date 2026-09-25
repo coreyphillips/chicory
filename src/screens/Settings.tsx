@@ -205,6 +205,13 @@ function PrimarySection({
   onRetry: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
+  // Closing the editor removes the field a screen reader was on, so it goes
+  // back to the control that opened it.
+  const [closed, setClosed] = useState(false);
+  const close = () => {
+    setEditing(false);
+    setClosed(true);
+  };
   const [primary, setPrimary] = useState(
     snapshot.primary.uri || DEFAULT_PRIMARY_URI,
   );
@@ -240,21 +247,17 @@ function PrimarySection({
             autoCapitalize="none"
             multiline
             editable={!busy}
+            focus
           />
           <Note>{p.keeps}</Note>
           <Action
             label={p.save}
             glyph="check"
-            onPress={() => onSave(primary.trim(), () => setEditing(false))}
+            onPress={() => onSave(primary.trim(), close)}
             busy={busy}
             disabled={!primary.trim()}
           />
-          <Link
-            label={p.cancel}
-            tone="steam"
-            disabled={busy}
-            onPress={() => setEditing(false)}
-          />
+          <Link label={p.cancel} tone="steam" disabled={busy} onPress={close} />
         </Reanimated.View>
       ) : (
         <>
@@ -268,7 +271,11 @@ function PrimarySection({
             label={p.change}
             glyph="pencil"
             disabled={busy}
-            onPress={() => setEditing(true)}
+            focus={closed}
+            onPress={() => {
+              setEditing(true);
+              setClosed(false);
+            }}
           />
           {!snapshot.primary.connected ? (
             <Action
@@ -374,6 +381,9 @@ function Haptics() {
  */
 function EraseWallet({ onErase }: { onErase: () => Promise<void> }) {
   const [confirming, setConfirming] = useState(false);
+  // Keeping the wallet removes the button a screen reader was on, so it goes
+  // back to the link that asked.
+  const [kept, setKept] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const e = words.erase;
@@ -382,6 +392,7 @@ function EraseWallet({ onErase }: { onErase: () => Promise<void> }) {
       <Link
         label={e.link}
         tone="radish"
+        focus={kept}
         onPress={() => {
           haptics.warning();
           setConfirming(true);
@@ -394,7 +405,9 @@ function EraseWallet({ onErase }: { onErase: () => Promise<void> }) {
       exiting={dropOut(8)}
       style={styles.stack}
     >
-      <Note tone="warning">{e.warning}</Note>
+      <Note tone="warning" focus>
+        {e.warning}
+      </Note>
       {error ? <Note tone="error">{error}</Note> : null}
       <Action
         label={e.confirm}
@@ -422,6 +435,7 @@ function EraseWallet({ onErase }: { onErase: () => Promise<void> }) {
         disabled={busy}
         onPress={() => {
           setConfirming(false);
+          setKept(true);
           setError('');
         }}
       />

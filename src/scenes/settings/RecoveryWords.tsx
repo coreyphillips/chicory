@@ -16,6 +16,7 @@ import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { radius, space, type } from '../../theme';
 import { WORD_RISE, wordDelay } from './motion';
+import { useFocus } from './ui';
 
 /** How long the eye stays open before it blinks, once the words are rising. */
 const BLINK_AFTER = 240;
@@ -56,9 +57,11 @@ function BlinkingEye() {
  * The phrase itself, once revealed: a honey line about who can see the
  * screen, then the words in two columns, numbered, rising one after another
  * in reading order (REDESIGN.md 6, Backup and setup). Each word is one
- * element for a screen reader, its number and the word together.
+ * element for a screen reader, its number and the word together, and the
+ * first takes its focus, since the control that revealed them is gone.
  */
 export function RecoveryWords({ words }: { words: string[] }) {
+  const first = useFocus(true);
   return (
     <View style={styles.stack}>
       <View style={styles.watchers}>
@@ -72,12 +75,17 @@ export function RecoveryWords({ words }: { words: string[] }) {
           <Reanimated.View
             key={index}
             entering={riseIn(WORD_RISE, wordDelay(index))}
-            accessible
-            accessibilityLabel={copy.settings.recovery.word(index + 1, word)}
-            style={styles.word}
+            style={styles.cell}
           >
-            <Text style={styles.number}>{index + 1}</Text>
-            <Text style={styles.text}>{word}</Text>
+            <View
+              ref={index === 0 ? first : undefined}
+              accessible
+              accessibilityLabel={copy.settings.recovery.word(index + 1, word)}
+              style={styles.word}
+            >
+              <Text style={styles.number}>{index + 1}</Text>
+              <Text style={styles.text}>{word}</Text>
+            </View>
           </Reanimated.View>
         ))}
       </View>
@@ -96,8 +104,8 @@ const styles = StyleSheet.create({
   },
   watchersText: { fontSize: 14, lineHeight: 20, color: palette.cream, flex: 1 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  cell: { width: '48.5%' },
   word: {
-    width: '48.5%',
     minHeight: 44,
     paddingHorizontal: space.sm,
     borderRadius: radius.sm,

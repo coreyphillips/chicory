@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { PropsWithChildren, ReactNode } from 'react';
+import type { ComponentRef, PropsWithChildren, ReactNode } from 'react';
 import {
+  AccessibilityInfo,
   AppState,
   Pressable,
   StyleSheet,
@@ -9,7 +10,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type { StyleProp, TextInputProps, ViewStyle } from 'react-native';
+import type {
+  HostInstance,
+  StyleProp,
+  TextInputProps,
+  ViewStyle,
+} from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Reanimated, {
   cancelAnimation,
@@ -28,6 +34,7 @@ import { GLYPHS, GLYPH_LENGTHS, Glyph, strokeFor } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
+import { afterTransition } from '../../motion/idle';
 import { riseIn, smooth, stagger } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -81,6 +88,26 @@ function useForeground(): boolean {
     return () => subscription.remove();
   }, []);
   return front;
+}
+
+/**
+ * A ref for the element a screen reader should land on whenever `on` turns
+ * true, so focus follows each change of what the page holds (REDESIGN.md 9)
+ * instead of being lost with the control that was pressed and then removed.
+ * It moves once the change has settled: an element still arriving may not be
+ * in the accessibility tree yet.
+ */
+export function useFocus<T extends HostInstance = HostInstance>(on: boolean) {
+  const target = useRef<T>(null);
+  useEffect(() => {
+    if (!on) return;
+    return afterTransition(() => {
+      if (target.current) {
+        AccessibilityInfo.sendAccessibilityEvent(target.current, 'focus');
+      }
+    });
+  }, [on]);
+  return target;
 }
 
 /**
@@ -268,10 +295,17 @@ function DrawnGlyph({
   );
 }
 
-/** The page's title, beside its close control. */
-export function Title({ children }: { children: string }) {
+/** The page's title. `focus` lands a screen reader on it (see `useFocus`). */
+export function Title({
+  children,
+  focus = false,
+}: {
+  children: string;
+  focus?: boolean;
+}) {
+  const target = useFocus(focus);
   return (
-    <Text accessibilityRole="header" style={styles.title}>
+    <Text ref={target} accessibilityRole="header" style={styles.title}>
       {children}
     </Text>
   );
@@ -293,7 +327,7 @@ const CASCADE = 2;
  * rises into place `index` steps after Settings arrives, and grows or shrinks
  * smoothly when what it holds changes. `tone` honey is for a section that
  * needs doing: a honey outline, and a halo that breathes around its glyph at
- * the halo's pace.
+ * the halo's pace. `focus` lands a screen reader on its heading.
  */
 export function Section({
   glyph,
@@ -301,6 +335,7 @@ export function Section({
   tone = 'plain',
   accessory,
   index = 0,
+  focus = false,
   children,
 }: PropsWithChildren<{
   glyph?: GlyphName;
@@ -308,8 +343,10 @@ export function Section({
   tone?: 'plain' | 'honey';
   accessory?: ReactNode;
   index?: number;
+  focus?: boolean;
 }>) {
   const honey = tone === 'honey';
+  const heading = useFocus(focus);
   return (
     <Reanimated.View
       entering={stagger(Math.min(index, CASCADE))}
@@ -335,6 +372,7 @@ export function Section({
             </View>
           ) : null}
           <Text
+            ref={heading}
             accessibilityRole="header"
             style={[styles.sectionTitle, honey && styles.sectionTitleHoney]}
           >
@@ -468,22 +506,26 @@ export function Toggle({
 
 /**
  * A text field with its label above it, which is also its name for a screen
- * reader. Its edge lights in bloom while it has focus.
+ * reader. Its edge lights in bloom while it has focus. `focus` lands a screen
+ * reader on it without raising the keyboard.
  */
 export function Field({
   label,
+  focus = false,
   onChangeText,
   onFocus,
   onBlur,
   multiline,
   ...props
-}: TextInputProps & { label: string }) {
+}: TextInputProps & { label: string; focus?: boolean }) {
   const live = usePaneActive();
   const [focused, setFocused] = useState(false);
+  const target = useFocus<ComponentRef<typeof TextInput>>(focus);
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
+        ref={target}
         accessibilityLabel={label}
         placeholderTextColor={palette.dust}
         selectionColor={palette.bloom}
@@ -513,6 +555,7 @@ export function Field({
  * The page's buttons: `primary` in bloom for the one thing a section is for,
  * `quiet` for the rest, and `danger` in radish for what cannot be undone.
  * A press dips on the snap spring; `busy` turns the glyph into an orbit.
+ * `focus` lands a screen reader on it.
  */
 export function Action({
   label,
@@ -521,6 +564,7 @@ export function Action({
   tone = 'primary',
   busy = false,
   disabled = false,
+  focus = false,
   accessibilityHint,
 }: {
   label: string;
@@ -529,10 +573,12 @@ export function Action({
   tone?: 'primary' | 'quiet' | 'danger';
   busy?: boolean;
   disabled?: boolean;
+  focus?: boolean;
   accessibilityHint?: string;
 }) {
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
+  const target = useFocus(focus);
   const scale = useSharedValue(1);
   const pressing = useAnimatedStyle(() => ({
     transform: [{ scale: scale.get() }],
@@ -550,6 +596,7 @@ export function Action({
   return (
     <Reanimated.View style={pressing}>
       <Pressable
+        ref={target}
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityHint={accessibilityHint}
@@ -583,21 +630,27 @@ export function Action({
   );
 }
 
-/** A lighter control, set in words: a way out, a change, a cancel. */
+/**
+ * A lighter control, set in words: a way out, a change, a cancel. `focus`
+ * lands a screen reader on it.
+ */
 export function Link({
   label,
   onPress,
   glyph,
   tone = 'bloom',
   disabled = false,
+  focus = false,
 }: {
   label: string;
   onPress: () => unknown;
   glyph?: GlyphName;
   tone?: 'bloom' | 'steam' | 'radish';
   disabled?: boolean;
+  focus?: boolean;
 }) {
   const live = usePaneActive();
+  const target = useFocus(focus);
   const ink =
     tone === 'radish'
       ? palette.radish
@@ -606,6 +659,7 @@ export function Link({
       : palette.bloom;
   return (
     <Pressable
+      ref={target}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
@@ -737,19 +791,22 @@ const NOTE: Record<
  * radish. It rises into place, and an outcome's check or bang draws itself
  * in, so a result is seen arriving rather than found. An error is an alert,
  * and is read out as it arrives, since it lands away from the press that
- * caused it.
+ * caused it. `focus` lands a screen reader on it.
  */
 export function Note({
   tone = 'info',
   glyph,
+  focus = false,
   children,
 }: {
   tone?: NoteTone;
   glyph?: GlyphName;
+  focus?: boolean;
   children: string;
 }) {
   const look = NOTE[tone];
   const shape = glyph ?? look.glyph;
+  const target = useFocus(focus);
   const error = tone === 'error';
   useEffect(() => {
     if (error) announce(children);
@@ -769,7 +826,9 @@ export function Note({
           <Glyph name={shape} size={18} color={look.ink} />
         )}
       </View>
-      <Text style={styles.noteText}>{children}</Text>
+      <Text ref={target} style={styles.noteText}>
+        {children}
+      </Text>
     </Reanimated.View>
   );
 }

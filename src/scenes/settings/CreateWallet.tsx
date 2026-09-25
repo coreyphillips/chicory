@@ -205,7 +205,7 @@ export function CreateWalletScreen({
     if (source)
       return (
         <View style={styles.stack}>
-          <Title>{words.created}</Title>
+          <Title focus>{words.created}</Title>
           <Body>{words.sharedPhrase(network, source)}</Body>
           {notices}
           <Action
@@ -217,8 +217,8 @@ export function CreateWalletScreen({
           <RecoveryPhrase initialPhrase={created.mnemonic} />
         </View>
       );
-    // The honey section heads the sheet now: saving the phrase is the one
-    // thing left to do here.
+    // The honey section heads the sheet now, and a screen reader lands on
+    // it: saving the phrase is the one thing left to do here.
     return (
       <View style={styles.stack}>
         {notices}
@@ -226,6 +226,7 @@ export function CreateWalletScreen({
           <RecoveryPhrase
             initialPhrase={created.mnemonic}
             onSaved={finishBackup}
+            focus
           />
         ) : (
           <Action
@@ -233,6 +234,7 @@ export function CreateWalletScreen({
             glyph="wallet"
             onPress={finishBackup}
             busy={busy}
+            focus
           />
         )}
       </View>

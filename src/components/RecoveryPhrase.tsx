@@ -30,22 +30,31 @@ const words = copy.settings.recovery;
  *
  * With `onSaved` it is the backup still to be done (REDESIGN.md 6): the
  * section turns honey, and once the words are shown, a 900ms hold confirms
- * they are written down. `index` places it in a page of sections.
+ * they are written down. `index` places it in a page of sections, and
+ * `focus` lands a screen reader on its heading as it arrives.
  */
 export function RecoveryPhrase({
   initialPhrase,
   loadPhrase,
   onSaved,
   index,
+  focus = false,
 }: {
   initialPhrase?: string;
   loadPhrase?: () => Promise<string>;
   onSaved?: () => void;
   index?: number;
+  focus?: boolean;
 }) {
   const [phrase, setPhrase] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Where a screen reader lands once the control it was on goes away: the
+  // words land it themselves, hiding them returns it to the reveal, and
+  // saving them to the heading.
+  const [landing, setLanding] = useState<'reveal' | 'heading' | null>(
+    focus ? 'heading' : null,
+  );
   useEffect(() => {
     const subscription = AppState.addEventListener('change', state => {
       if (state !== 'active') {
@@ -69,6 +78,7 @@ export function RecoveryPhrase({
         throw new Error(words.unavailable);
       }
       setPhrase(value);
+      setLanding(null);
     } catch (e) {
       haptics.error();
       setError(e instanceof Error ? e.message : words.unreadable);
@@ -84,6 +94,7 @@ export function RecoveryPhrase({
       title={pending ? words.pending : words.heading}
       tone={pending ? 'honey' : 'plain'}
       index={index}
+      focus={landing === 'heading'}
     >
       <Body>{words.intro}</Body>
       {error ? <Note tone="error">{error}</Note> : null}
@@ -103,6 +114,7 @@ export function RecoveryPhrase({
               hint={words.savedHint}
               onCommit={() => {
                 setPhrase('');
+                setLanding('heading');
                 haptics.success();
                 announce(words.savedDone);
                 onSaved();
@@ -113,7 +125,10 @@ export function RecoveryPhrase({
             label={words.hide}
             glyph="eyeOff"
             tone="quiet"
-            onPress={() => setPhrase('')}
+            onPress={() => {
+              setPhrase('');
+              setLanding('reveal');
+            }}
           />
         </Reanimated.View>
       ) : (
@@ -122,6 +137,7 @@ export function RecoveryPhrase({
           glyph="eye"
           tone={pending ? 'primary' : 'quiet'}
           busy={busy}
+          focus={landing === 'reveal'}
           accessibilityHint={busy ? words.revealing : undefined}
           onPress={reveal}
         />

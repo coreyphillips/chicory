@@ -4,6 +4,7 @@ import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
 import * as Keychain from 'react-native-keychain';
 import type { WalletSnapshot } from '@beignet/wallet-core';
+import { copy } from '../src/design/copy';
 import { GLYPHS } from '../src/design/glyphs';
 import type { GlyphName } from '../src/design/glyphs';
 import { haptics } from '../src/design/haptics';
@@ -516,6 +517,119 @@ describe('diagnostics', () => {
     const [ui, node] = recentDiagnostics();
     expect(ui.message).toHaveLength(1000);
     expect(node.message).toHaveLength(300);
+  });
+});
+
+describe('a screen reader follows each change', () => {
+  const PHRASE =
+    'one two three four five six seven eight nine ten eleven twelve';
+  const sent = jest.mocked(AccessibilityInfo.sendAccessibilityEvent);
+  /**
+   * What each focus event landed on, by the label or the text it carries.
+   * Under Jest a host ref holds the mocked component, props and all.
+   */
+  const landed = () =>
+    sent.mock.calls
+      .filter(([, kind]) => kind === 'focus')
+      .map(([node]) => {
+        const { props } = node as unknown as {
+          props: { accessibilityLabel?: string; children?: unknown };
+        };
+        return props.accessibilityLabel ?? strings(props.children).join('');
+      });
+  /** Focus moves once nothing is moving, which here is the next tick. */
+  const settle = () =>
+    act(async () => {
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
+    });
+  const mount = async (
+    adapter: WalletAdapter,
+    extra: Partial<Parameters<typeof SettingsScreen>[0]> = {},
+  ) => {
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(
+        <SettingsScreen
+          snapshot={base}
+          client={adapter}
+          switchError=""
+          onDisconnect={jest.fn()}
+          onChooseWallet={jest.fn()}
+          onRefresh={jest.fn()}
+          onNetwork={jest.fn()}
+          {...extra}
+        />,
+      );
+    });
+    await settle();
+    return tree;
+  };
+  beforeEach(() => sent.mockClear());
+
+  test('from the reveal to the first word, back to the reveal, and to the heading once saved', async () => {
+    const adapter = client({
+      getRecoveryPhrase: jest.fn().mockResolvedValue(PHRASE),
+    });
+    const tree = await mount(adapter, {
+      backupPending: true,
+      onBackupSaved: jest.fn(),
+    });
+    // Opening Settings moves nothing by itself.
+    expect(landed()).toEqual([]);
+    await act(async () =>
+      press(tree, 'Reveal recovery phrase').props.onPress(),
+    );
+    await settle();
+    expect(landed()).toEqual(['1. one']);
+    await act(async () => press(tree, 'Hide phrase').props.onPress());
+    await settle();
+    expect(landed()).toEqual(['1. one', 'Reveal recovery phrase']);
+    await act(async () =>
+      press(tree, 'Reveal recovery phrase').props.onPress(),
+    );
+    await settle();
+    await act(async () =>
+      press(tree, 'I saved my recovery phrase').props.onAccessibilityAction({
+        nativeEvent: { actionName: 'activate' },
+      }),
+    );
+    await settle();
+    expect(landed()).toEqual([
+      '1. one',
+      'Reveal recovery phrase',
+      '1. one',
+      'Save your recovery phrase.',
+    ]);
+    await act(async () => tree.unmount());
+  });
+
+  test('into the erase warning, and back to the link when the wallet is kept', async () => {
+    const tree = await mount(client(), {
+      onErase: jest.fn().mockResolvedValue(undefined),
+    });
+    await act(async () =>
+      press(tree, 'Erase wallet from this phone').props.onPress(),
+    );
+    await settle();
+    expect(landed()).toEqual([copy.settings.erase.warning]);
+    await act(async () => press(tree, 'Keep my wallet').props.onPress());
+    await settle();
+    expect(landed()).toEqual([
+      copy.settings.erase.warning,
+      'Erase wallet from this phone',
+    ]);
+    await act(async () => tree.unmount());
+  });
+
+  test('into the node field, and back to the change when it closes', async () => {
+    const tree = await mount(client());
+    await act(async () => press(tree, 'Change primary node').props.onPress());
+    await settle();
+    expect(landed()).toEqual(['Node address']);
+    await act(async () => press(tree, 'Cancel').props.onPress());
+    await settle();
+    expect(landed()).toEqual(['Node address', 'Change primary node']);
+    await act(async () => tree.unmount());
   });
 });
 
