@@ -23,7 +23,7 @@ import type { Unit } from '../../theme';
 import { ErrorPip, GlyphButton, WarningPips } from './controls';
 import type { Focus } from './focus';
 import { Rock } from './loops';
-import type { RequestFace } from './model';
+import type { Refused, RequestFace } from './model';
 import { lateAt, remainderSats, requestRails, shownSats } from './model';
 
 /** The expiry ring runs this far outside the card. */
@@ -73,7 +73,7 @@ export function RequestStep({
   unit: Unit;
   /** How wide the code is drawn. */
   qr: number;
-  error: string;
+  error: Refused | null;
   onLift: () => void;
   onCopy: () => void;
   /** How many times the request has been copied, for the copy control's check. */
@@ -214,7 +214,7 @@ export function RequestStep({
           {remainder === null ? null : hidden ? MASK : shownSats(remainder)}
         </GlyphButton>
       </Reanimated.View>
-      {error ? <ErrorPip message={error} /> : null}
+      {error ? <ErrorPip message={error.message} code={error.code} /> : null}
     </View>
   );
 }

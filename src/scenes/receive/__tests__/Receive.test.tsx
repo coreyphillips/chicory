@@ -8,11 +8,16 @@ import type {
   ReceiveStatus,
 } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
+import { Glyph } from '../../../design/glyphs';
+import { haptics } from '../../../design/haptics';
+import { palette } from '../../../design/palette';
+import * as tokens from '../../../motion/tokens';
 import { ReceiveScreen } from '../../../screens/Receive';
 import type { WalletAdapter } from '../../../services/wallet';
 import { mount } from '../../../../test-support/guard';
 import { enterAmount } from '../../../../test-support/keypad';
-import { find } from '../../../../test-support/query';
+import { alerts, find } from '../../../../test-support/query';
+import { Unplugged } from '../../send/LoopingGlyphs';
 import { Spin } from '../loops';
 
 /**
@@ -243,6 +248,65 @@ describe('what a screen reader hears', () => {
     expect(orbits).toHaveLength(1);
     expect(unreachable(orbits[0])).toBe(true);
     await act(async () => answer(quoteOf()));
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('the primary node away', () => {
+  const DOWN =
+    'Your primary node needs to reconnect before creating this request.';
+  const down = () => Object.assign(new Error(DOWN), { code: 'PRIMARY_DOWN' });
+
+  /** Where `memo` component `drawing` is drawn: the function inside it. */
+  const drawn = (tree: ReactTestRenderer, drawing: object) =>
+    tree.root.findAll(
+      node => node.type === (drawing as { type: unknown }).type,
+    );
+
+  /** The bangs drawn, and the unplugs with their colours. */
+  const marks = (tree: ReactTestRenderer) => ({
+    bangs: drawn(tree, Glyph).filter(glyph => glyph.props.name === 'bang')
+      .length,
+    unplugs: drawn(tree, Unplugged).map(unplug => unplug.props.color),
+  });
+
+  test.each([
+    ['quoted', { quoteReceive: jest.fn(() => Promise.reject(down())) }],
+    ['created', { receive: jest.fn(() => Promise.reject(down())) }],
+  ])(
+    'refused as a request is %s, it is a honey unplug felt as a warning and not shaken',
+    async (_at, refusing) => {
+      const warning = jest.spyOn(haptics, 'warning');
+      const error = jest.spyOn(haptics, 'error');
+      const shakes = jest.spyOn(tokens, 'shake');
+      const tree = await screen(clientOf(refusing));
+      if ('quoteReceive' in refusing) await toQuote(tree);
+      else await toRequest(tree);
+      expect(warning).toHaveBeenCalledTimes(1);
+      expect(error).not.toHaveBeenCalled();
+      expect(shakes).not.toHaveBeenCalled();
+      expect(marks(tree)).toEqual({ bangs: 0, unplugs: [palette.honey] });
+      expect(alerts(tree)).toEqual([DOWN]);
+      await act(async () => tree.unmount());
+    },
+  );
+
+  test('anything the map does not name is still a radish bang, an error and a shake', async () => {
+    const warning = jest.spyOn(haptics, 'warning');
+    const error = jest.spyOn(haptics, 'error');
+    const shakes = jest.spyOn(tokens, 'shake');
+    const tree = await screen(
+      clientOf({
+        quoteReceive: jest.fn(() =>
+          Promise.reject(new Error('No route to the primary.')),
+        ),
+      }),
+    );
+    await toQuote(tree);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(warning).not.toHaveBeenCalled();
+    expect(shakes).toHaveBeenCalledTimes(1);
+    expect(marks(tree)).toEqual({ bangs: 1, unplugs: [] });
     await act(async () => tree.unmount());
   });
 });

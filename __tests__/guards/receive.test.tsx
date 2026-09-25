@@ -310,6 +310,20 @@ const GUARDED: GuardedState[] = [
     ]),
   ),
   form(
+    'the primary node away, a honey unplug',
+    receive(
+      clientOf({
+        quoteError: Object.assign(
+          new Error(
+            'Your primary node needs to reconnect before creating this request.',
+          ),
+          { code: 'PRIMARY_DOWN' },
+        ),
+      }),
+      [tap(copy.receive.continue)],
+    ),
+  ),
+  form(
     'offline refused, the moon shaken off',
     receive(
       clientOf({

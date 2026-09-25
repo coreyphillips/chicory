@@ -20,7 +20,13 @@ import type { Focus } from '../scenes/receive/focus';
 import { FormStep } from '../scenes/receive/FormStep';
 import { useReceiveHost } from '../scenes/receive/host';
 import { LiftedQr } from '../scenes/receive/LiftedQr';
-import { amountCue, remainderSats, requestFace } from '../scenes/receive/model';
+import {
+  amountCue,
+  refusalLook,
+  remainderSats,
+  requestFace,
+} from '../scenes/receive/model';
+import type { Refused } from '../scenes/receive/model';
 import { QuoteStep } from '../scenes/receive/QuoteStep';
 import { RequestStep } from '../scenes/receive/RequestStep';
 import { useNow } from '../services/clock';
@@ -124,7 +130,7 @@ export function ReceiveScreen({
   const [request, setRequest] = useState<ReceiveRequest | null>(null);
   const [createdAt, setCreatedAt] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<Refused | null>(null);
   // Each refusal of a control shakes it once.
   const [refusals, setRefusals] = useState(0);
   const [offlineRefusals, setOfflineRefusals] = useState(0);
@@ -138,7 +144,7 @@ export function ReceiveScreen({
       const previousAmountError = amountError.current;
       if (previousAmountError)
         setError(previous =>
-          previous === previousAmountError ? '' : previous,
+          previous?.message === previousAmountError ? null : previous,
         );
       amountError.current = '';
     }
@@ -213,23 +219,29 @@ export function ReceiveScreen({
   }, [heldBack]);
 
   /**
-   * Something asked for failed: the control that asked shakes, unless the
-   * amount cue answers for it, and a screen reader hears why at once.
+   * Something asked for failed, and a screen reader hears why at once. How
+   * it looks and feels follows what it was (`refusalLook`): the primary node
+   * away is a honey unplug and a warning, and anything else a radish bang
+   * and an error, which shakes the control that asked unless the amount cue
+   * answers for it.
    */
   function refuse(e: unknown, shake = true) {
     const said = message(e);
-    haptics.error();
-    setError(said);
-    if (shake) setRefusals(count => count + 1);
+    const code = codeOf(e);
+    const look = refusalLook(code);
+    if (look.haptic === 'warning') haptics.warning();
+    else haptics.error();
+    setError({ message: said, code });
+    if (shake && look.shake) setRefusals(count => count + 1);
     announce(said, { assertive: true });
-    recordDiagnostic({ phase: 'ui', message: said, code: codeOf(e) });
+    recordDiagnostic({ phase: 'ui', message: said, code });
   }
 
   async function price() {
     if (working.current || disabled || !ready) return;
     working.current = true;
     setBusy(true);
-    setError('');
+    setError(null);
     try {
       const next = await client.quoteReceive({
         amountSats: amount.trim() ? parseSats(amount) : undefined,
@@ -263,7 +275,7 @@ export function ReceiveScreen({
     }
     working.current = true;
     setBusy(true);
-    setError('');
+    setError(null);
     try {
       setRequest(await client.receive(quote));
       setCreatedAt(Date.now());
@@ -316,7 +328,7 @@ export function ReceiveScreen({
     setRequest(null);
     setLifted(false);
     setCapacityChanged(false);
-    setError('');
+    setError(null);
     setAmount(remainder !== null ? String(remainder) : '');
     if (receipt?.phase !== 'partial') {
       setDescription('');
@@ -334,7 +346,7 @@ export function ReceiveScreen({
     }
     if (step === 'quote' && !busy) {
       setQuote(null);
-      setError('');
+      setError(null);
       return true;
     }
     return false;
@@ -359,7 +371,8 @@ export function ReceiveScreen({
   }, [showLift, shareable]);
 
   const qr = Math.min(240, Math.max(150, width - 120));
-  const amountMessage = error && error === amountError.current ? error : '';
+  const amountMessage =
+    error && error.message === amountError.current ? error.message : '';
   return (
     <View style={styles.root}>
       {/* Under a lifted code, the step it covers is out of a screen
@@ -412,7 +425,7 @@ export function ReceiveScreen({
             }}
             onEdit={() => {
               setQuote(null);
-              setError('');
+              setError(null);
             }}
             onBlocked={blocked}
             focus={focus}
@@ -433,12 +446,12 @@ export function ReceiveScreen({
             offlineRefused={offlineRefusals}
             onOffline={next => {
               setOffline(next);
-              setError('');
+              setError(null);
             }}
             busy={busy}
             stale={disabled}
             ready={ready}
-            error={amountMessage ? '' : error}
+            error={amountMessage ? null : error}
             shake={refusals}
             onContinue={price}
             onBlocked={blocked}

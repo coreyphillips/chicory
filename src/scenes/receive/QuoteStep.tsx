@@ -13,6 +13,7 @@ import { amountIn, space, type as typography } from '../../theme';
 import { ErrorPip, GlyphButton, WarningPips, turnIn } from './controls';
 import type { Focus } from './focus';
 import { feeGlyph, shownSats } from './model';
+import type { Refused } from './model';
 
 /** The create control, and the ring that runs down around it. */
 const CONTROL = 88;
@@ -51,7 +52,7 @@ export function QuoteStep({
   expired: boolean;
   busy: boolean;
   stale: boolean;
-  error: string;
+  error: Refused | null;
   shake: number;
   onCreate: () => void;
   onRequote: () => void;
@@ -172,7 +173,7 @@ export function QuoteStep({
           />
         )}
       </Reanimated.View>
-      {error ? <ErrorPip message={error} /> : null}
+      {error ? <ErrorPip message={error.message} code={error.code} /> : null}
     </View>
   );
 }

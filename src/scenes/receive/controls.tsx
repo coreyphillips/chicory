@@ -17,6 +17,7 @@ import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { CopiedGlyph } from '../../glyphs/CopyChip';
 import { Whisper } from '../../glyphs/Whisper';
+import { Unplugged } from '../send/LoopingGlyphs';
 import { useShake } from '../../motion/effects';
 import { riseIn } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
@@ -26,6 +27,7 @@ import { usePaneActive } from '../../stage/panes/Pane';
 import { space, type as typography } from '../../theme';
 import type { Focus } from './focus';
 import { Pulse, Spin } from './loops';
+import { refusalLook } from './model';
 
 /** How long refresh takes to turn once as it arrives (REDESIGN.md 4). */
 const TURN_MS = 500;
@@ -295,12 +297,22 @@ function Orbit({ size }: { size: number }) {
 }
 
 /**
- * Something went wrong with what was just asked: a radish bang beside the
- * control that asked it. It says nothing on screen; the whole message is its
- * label. Whoever sets it also announces it, so it is not a live region too,
- * which would have Android read it twice.
+ * Something went wrong with what was just asked, beside the control that
+ * asked it (REDESIGN.md 6, Engine errors): a radish bang, or while the
+ * primary node is away a honey unplug whose halves drift apart and back
+ * (`refusalLook`, by the engine's `code`). It says nothing on screen; the
+ * whole message is its label. Whoever sets it also announces it, so it is
+ * not a live region too, which would have Android read it twice.
  */
-export function ErrorPip({ message }: { message: string }) {
+export function ErrorPip({
+  message,
+  code,
+}: {
+  message: string;
+  code?: string;
+}) {
+  const look = refusalLook(code);
+  const honey = look.tone === 'honey';
   return (
     <Whisper label={message}>
       <Reanimated.View
@@ -308,9 +320,13 @@ export function ErrorPip({ message }: { message: string }) {
         accessible
         accessibilityRole="alert"
         accessibilityLabel={message}
-        style={styles.errorPip}
+        style={[styles.errorPip, honey && styles.waitPip]}
       >
-        <Glyph name="bang" size={18} color={palette.radish} />
+        {look.glyph === 'unplug' ? (
+          <Unplugged size={18} color={palette.honey} />
+        ) : (
+          <Glyph name="bang" size={18} color={palette.radish} />
+        )}
       </Reanimated.View>
     </Whisper>
   );
@@ -365,6 +381,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: palette.radishSoft,
   },
+  waitPip: { backgroundColor: palette.honeySoft },
   pips: { flexDirection: 'row', justifyContent: 'center' },
   pipArea: {
     width: 28,

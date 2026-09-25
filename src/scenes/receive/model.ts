@@ -190,6 +190,35 @@ export function detailFace(
   };
 }
 
+/**
+ * Something Receive asked for that was refused: the engine's words, and its
+ * code where it gave one.
+ */
+export interface Refused {
+  message: string;
+  code?: string;
+}
+
+/**
+ * How Receive shows a refusal (REDESIGN.md 6, Engine errors). The primary
+ * node away is a honey unplug, felt as a warning and never shaken: nothing
+ * asked for was wrong, and it passes once the node is back. Anything
+ * unmapped is a radish bang, felt as an error, and shakes the control that
+ * asked.
+ */
+export interface RefusalLook {
+  tone: 'honey' | 'radish';
+  glyph: 'unplug' | 'bang';
+  haptic: 'warning' | 'error';
+  shake: boolean;
+}
+
+export function refusalLook(code: string | undefined): RefusalLook {
+  return code === 'PRIMARY_DOWN'
+    ? { tone: 'honey', glyph: 'unplug', haptic: 'warning', shake: false }
+    : { tone: 'radish', glyph: 'bang', haptic: 'error', shake: true };
+}
+
 /** What is still owed on a partly paid request, or null when unknown. */
 export function remainderSats(
   amountSats: number | null,

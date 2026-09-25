@@ -10,7 +10,7 @@ import { radius, space, type as typography } from '../../theme';
 import { AmountCue, AmountFace } from './AmountCue';
 import { ErrorPip, GlyphButton } from './controls';
 import type { Focus } from './focus';
-import type { AmountCue as Cue } from './model';
+import type { AmountCue as Cue, Refused } from './model';
 import { PRESETS } from './model';
 import { OfflineSwitch } from './OfflineSwitch';
 
@@ -71,7 +71,7 @@ export function FormStep({
   stale: boolean;
   /** The amount is one that can be quoted. */
   ready: boolean;
-  error: string;
+  error: Refused | null;
   shake: number;
   onContinue: () => void;
   onBlocked: () => void;
@@ -149,7 +149,7 @@ export function FormStep({
           onBlocked={onBlocked}
           focusRef={focus}
         />
-        {error ? <ErrorPip message={error} /> : null}
+        {error ? <ErrorPip message={error.message} code={error.code} /> : null}
       </Reanimated.View>
     </View>
   );
