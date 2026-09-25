@@ -138,6 +138,55 @@ export function slideOut(): EntryExitAnimationFunction {
   };
 }
 
+/** How far a control turns as it spins out or in, in degrees. */
+const SPIN = 90;
+
+/**
+ * A control arriving where another is leaving, such as the corner's close
+ * taking over from its cog (REDESIGN.md 7, T1): it turns in from a quarter
+ * turn back, growing as it fades up, once the one it replaces is on its way.
+ */
+export function spinIn(): EntryExitAnimationFunction {
+  if (motionReduced()) return crossfade(HIDDEN, SHOWN);
+  return () => {
+    'worklet';
+    const config = { duration: durations.enter, easing: curves.enter };
+    const toward = <T extends number | string>(value: T) =>
+      withDelay(overlap.enterDelay, withTiming(value, config));
+    return {
+      initialValues: {
+        opacity: 0,
+        transform: [{ rotate: `${-SPIN}deg` }, { scale: 0.6 }],
+      },
+      animations: {
+        opacity: toward(1),
+        transform: [{ rotate: toward('0deg') }, { scale: toward(1) }],
+      },
+    };
+  };
+}
+
+/** The control it replaces, turning on out of the way as it fades. */
+export function spinOut(): EntryExitAnimationFunction {
+  if (motionReduced()) return crossfade(SHOWN, HIDDEN, durations.exit);
+  return () => {
+    'worklet';
+    return {
+      initialValues: {
+        opacity: 1,
+        transform: [{ rotate: '0deg' }, { scale: 1 }],
+      },
+      animations: {
+        opacity: withTiming(0, EXIT),
+        transform: [
+          { rotate: withTiming(`${SPIN}deg`, EXIT) },
+          { scale: withTiming(0.6, EXIT) },
+        ],
+      },
+    };
+  };
+}
+
 /** For the few containers that change size: never LayoutAnimation. */
 export function smooth() {
   if (motionReduced()) {

@@ -28,6 +28,7 @@ import {
   canvasScene,
 } from './layout';
 import { CornerControl } from './panes/CornerControl';
+import { EdgeBack } from './panes/EdgeBack';
 import { Pane, PanesProvider } from './panes/Pane';
 import { PrimaryFor, usePrimaryFocus } from './panes/Primary';
 import type { Primaries } from './panes/Primary';
@@ -323,13 +324,17 @@ export function Canvas({
               key={scene.key}
               entering={slideIn()}
               exiting={slideOut()}
-              style={styles.settings}
+              style={styles.fill}
             >
-              <Pane active={!overlay} style={styles.flex}>
-                <PrimaryFor primaries={primaries} scene="settings">
-                  <SettingsLayer {...region} />
-                </PrimaryFor>
-              </Pane>
+              {/* A swipe in from the left edge takes Settings back, the
+                  canvas coming back under the finger (REDESIGN.md 7, T6). */}
+              <EdgeBack style={styles.settings}>
+                <Pane active={!overlay} style={styles.flex}>
+                  <PrimaryFor primaries={primaries} scene="settings">
+                    <SettingsLayer {...region} />
+                  </PrimaryFor>
+                </Pane>
+              </EdgeBack>
             </Reanimated.View>
           ) : null}
         </View>
@@ -370,5 +375,5 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.pane,
   },
   detailSlot: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  settings: { ...StyleSheet.absoluteFill, backgroundColor: colors.background },
+  settings: { flex: 1, backgroundColor: colors.background },
 });

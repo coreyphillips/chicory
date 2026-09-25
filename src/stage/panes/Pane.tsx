@@ -74,3 +74,11 @@ export function usePanes(): Panes {
   if (!panes) throw new Error('usePanes is only available on the canvas.');
   return panes;
 }
+
+/**
+ * The canvas this is drawn on, or null off it, for a control drawn both on
+ * the canvas and over a shell phase.
+ */
+export function useCanvasPanes(): Panes | null {
+  return useContext(PanesContext);
+}

@@ -1,6 +1,11 @@
 import React from 'react';
 import { AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import {
+  GestureDetector,
+  GestureHandlerRootView,
+  State,
+} from 'react-native-gesture-handler';
+import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
 import * as Reanimated from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create } from 'react-test-renderer';
@@ -30,8 +35,15 @@ import {
   stops,
 } from '../src/stage/layout';
 import type { CanvasSceneName } from '../src/stage/layout';
-import { CornerControl } from '../src/stage/panes/CornerControl';
-import { Pane } from '../src/stage/panes/Pane';
+import { COG_TURN, CornerControl } from '../src/stage/panes/CornerControl';
+import {
+  EDGE,
+  EdgeBack,
+  FLING,
+  swipeGoesBack,
+} from '../src/stage/panes/EdgeBack';
+import { Pane, PanesProvider } from '../src/stage/panes/Pane';
+import type { Panes } from '../src/stage/panes/Pane';
 import {
   StageProvider,
   useHoldTint,
@@ -453,6 +465,125 @@ describe('the canvas', () => {
     expect(stage.state.scene.name).toBe('home');
     expect(flat(panes(tree).canvas).opacity).toBe(1);
     expect(tree.root.findAllByType(SettingsScreen)).toHaveLength(0);
+    await act(async () => tree.unmount());
+  });
+
+  test('the cog spins out as the close spins in, and turns as Settings covers the canvas', async () => {
+    const tree = await render(<OnCanvas />);
+    // The canvas's own corner is the first drawn; the turn is on its root
+    // and the glyph that spins sits in the keyed view inside it.
+    const corner = () => tree.root.findAllByType(CornerControl)[0];
+    const spinning = () =>
+      corner().findAll(
+        node => typeof node.type === 'string' && !!node.props.entering,
+      )[0];
+    const turnOf = (node: ReactTestInstance) =>
+      transformOf(host(node), 'rotate');
+    const cog = spinning();
+    expect(cog.props.exiting).toBeDefined();
+    expect(
+      cog.findAll(node => node.props.accessibilityLabel === 'Settings'),
+    ).not.toHaveLength(0);
+    expect(turnOf(corner())).toBe('0deg');
+    await act(async () => stage.actions.openSend());
+    // A new control, not the cog with a new glyph, so each can spin.
+    const close = spinning();
+    expect(close).not.toBe(cog);
+    expect(
+      close.findAll(node => node.props.accessibilityLabel === 'Close'),
+    ).not.toHaveLength(0);
+    await settle();
+    await act(async () => stage.actions.back());
+    await settle();
+    await act(async () => stage.actions.openSettings());
+    // The canvas's cog turns 120 degrees under Settings; Settings' own
+    // close stays upright.
+    const [canvasCorner, settingsCorner] =
+      tree.root.findAllByType(CornerControl);
+    expect(turnOf(canvasCorner)).toBe(`${COG_TURN}deg`);
+    expect(turnOf(settingsCorner)).toBe('0deg');
+    await act(async () => tree.unmount());
+  });
+
+  test('a swipe in from the left edge takes Settings back, the canvas following the finger', async () => {
+    const width = Dimensions.get('window').width;
+    // The swipe on its own, over a canvas whose cover it writes.
+    const covers: number[] = [];
+    const cover = {
+      get: () => covers[covers.length - 1] ?? 1,
+      set: (value: number) => covers.push(value),
+    } as unknown as Panes['cover'];
+    function Swiped() {
+      stage = useStageStore();
+      const still = Reanimated.useSharedValue(0);
+      return (
+        <GestureHandlerRootView>
+          <StageProvider value={stage}>
+            <PanesProvider
+              value={{
+                seam: still,
+                hero: still,
+                bar: still,
+                cover,
+                scan: still,
+                pull: still,
+                stops: at(),
+              }}
+            >
+              <EdgeBack />
+            </PanesProvider>
+          </StageProvider>
+        </GestureHandlerRootView>
+      );
+    }
+    const alone = await render(<Swiped />);
+    await act(async () => stage.actions.openSettings());
+    const swipe = () =>
+      alone.root.findByType(EdgeBack).findByType(GestureDetector).props.gesture;
+    expect(swipe().config.hitSlop).toEqual({ left: 0, width: EDGE });
+    // Half way across, the canvas is half uncovered. Let go short of the
+    // threshold, it springs back and Settings stays.
+    await act(async () =>
+      fireGestureHandler(swipe(), [
+        { state: State.BEGAN },
+        { state: State.ACTIVE, translationX: width / 2 },
+        { state: State.ACTIVE, translationX: width * 0.3 },
+        { state: State.END, translationX: width * 0.3, velocityX: 0 },
+      ]),
+    );
+    expect(covers).toEqual(expect.arrayContaining([0.5]));
+    expect(covers.at(-1)).toBe(1);
+    expect(stage.state.scene.name).toBe('settings');
+    // Let go past it, Settings goes back; a fling does too.
+    await act(async () =>
+      fireGestureHandler(swipe(), [
+        { state: State.BEGAN },
+        { state: State.ACTIVE, translationX: width / 2 },
+        { state: State.END, translationX: width / 2, velocityX: 0 },
+      ]),
+    );
+    expect(stage.state.scene.name).toBe('home');
+    expect(swipeGoesBack(40, width, FLING + 1)).toBe(true);
+    expect(swipeGoesBack(40, width, 0)).toBe(false);
+    expect(swipeGoesBack(0, width, FLING + 1)).toBe(false);
+    await act(async () => alone.unmount());
+
+    // On the canvas, Settings takes it.
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openSettings());
+    await settle();
+    await act(async () =>
+      fireGestureHandler(
+        tree.root.findByType(EdgeBack).findByType(GestureDetector).props
+          .gesture,
+        [
+          { state: State.BEGAN },
+          { state: State.ACTIVE, translationX: width * 0.6 },
+          { state: State.END, translationX: width * 0.6, velocityX: 0 },
+        ],
+      ),
+    );
+    expect(stage.state.scene.name).toBe('home');
     await act(async () => tree.unmount());
   });
 
