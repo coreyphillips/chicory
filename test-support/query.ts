@@ -5,7 +5,7 @@
  * words, and moves those words into accessibility props. So a suite finds a
  * control by its label, reads state from accessibility props, and checks what
  * a person perceives through `meaning`: the text on screen plus the text a
- * screen reader speaks.
+ * screen reader speaks, leaving out the panes a screen reader skips.
  */
 import { act } from 'react-test-renderer';
 import type {
@@ -73,9 +73,25 @@ export function ownText(children: ReadonlyArray<unknown> | null): string[] {
   return runs.map(text => text.trim()).filter(Boolean);
 }
 
-function hosts(tree: ReactTestRenderer): ReactTestRendererJSON[] {
+/**
+ * A host node a screen reader skips, with everything under it, as a pane
+ * that is out of use is.
+ */
+const hiddenFromScreenReaders = (node: ReactTestRendererJSON) =>
+  node.props.accessibilityElementsHidden === true ||
+  node.props.importantForAccessibility === 'no-hide-descendants';
+
+/**
+ * Every host node in tree order. `perceived` leaves out the subtrees a
+ * screen reader skips, which are still drawn but out of use.
+ */
+function hosts(
+  tree: ReactTestRenderer,
+  perceived = false,
+): ReactTestRendererJSON[] {
   const out: ReactTestRendererJSON[] = [];
   const walk = (node: ReactTestRendererJSON) => {
+    if (perceived && hiddenFromScreenReaders(node)) return;
     out.push(node);
     for (const child of node.children ?? []) {
       if (typeof child !== 'string') walk(child);
@@ -162,34 +178,53 @@ export function field(
   return target;
 }
 
-/**
- * Every string on screen: the text children of every host node, plus the
- * placeholder, title and default value props, in tree order.
- */
-export function visibleText(tree: ReactTestRenderer): string[] {
-  return hosts(tree).flatMap(node => [
+const drawn = (nodes: ReactTestRendererJSON[]) =>
+  nodes.flatMap(node => [
     ...ownText(node.children),
     ...strings(node.props, ['placeholder', 'title', 'defaultValue']),
   ]);
+
+const spoken = (nodes: ReactTestRendererJSON[]) =>
+  nodes.flatMap(node => [
+    ...strings(node.props, ['accessibilityLabel', 'accessibilityHint']),
+    ...strings(node.props.accessibilityValue ?? {}, ['text']),
+  ]);
+
+/**
+ * Every string drawn on screen: the text children of every host node, plus
+ * the placeholder, title and default value props, in tree order. A pane out
+ * of use is still drawn, so its text counts here.
+ */
+export function visibleText(tree: ReactTestRenderer): string[] {
+  return drawn(hosts(tree));
 }
 
 /**
  * Every string a screen reader is given: the label, hint and value text of
- * every host node, in tree order.
+ * every host node, in tree order. A subtree it skips, such as a pane out of
+ * use, says nothing.
  */
 export function a11yText(tree: ReactTestRenderer): string[] {
-  return hosts(tree).flatMap(node => [
-    ...strings(node.props, ['accessibilityLabel', 'accessibilityHint']),
-    ...strings(node.props.accessibilityValue ?? {}, ['text']),
-  ]);
+  return spoken(hosts(tree, true));
 }
 
 /**
  * What the tree says by any channel, seen or spoken, joined with ` | `, for
  * `toContain` checks that should not care which channel carries a phrase.
+ * Like a screen reader, it skips a pane out of use.
  */
 export function meaning(tree: ReactTestRenderer): string {
-  return [...visibleText(tree), ...a11yText(tree)].join(' | ');
+  const perceived = hosts(tree, true);
+  return [...drawn(perceived), ...spoken(perceived)].join(' | ');
+}
+
+/**
+ * Everything the tree holds by any channel, hidden panes included, joined
+ * with ` | `, for a test that means to read what is out of use too.
+ */
+export function allText(tree: ReactTestRenderer): string {
+  const every = hosts(tree);
+  return [...drawn(every), ...spoken(every)].join(' | ');
 }
 
 /**

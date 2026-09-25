@@ -7,9 +7,20 @@ import { copy } from '../src/design/copy';
 import type { Phase } from '../src/stage/phase';
 import { initialStage, stageReducer } from '../src/stage/scene';
 import type { Scene } from '../src/stage/scene';
+import { chipText } from '../src/glyphs/CopyChip';
+import { dateLabel, dayLabel } from '../src/theme';
+import { copyViolations } from '../test-support/copyGuard';
+import {
+  activityOf,
+  everyActivity,
+  guardData,
+  requestOf,
+  snapshotOf,
+} from '../test-support/fixtures';
 import { amountValue, enterAmount } from '../test-support/keypad';
 import {
   a11yText,
+  allText,
   alerts,
   field,
   find,
@@ -118,6 +129,32 @@ describe('query', () => {
     await act(async () => tree.unmount());
   });
 
+  test('a pane out of use is drawn but not perceived, and allText reads it anyway', async () => {
+    const tree = await render(
+      <View>
+        <Text>Shown</Text>
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <Text>Behind</Text>
+          <View accessibilityLabel="Hidden control" />
+        </View>
+        <View importantForAccessibility="no-hide-descendants">
+          <View accessibilityLabel="Hidden on Android" />
+        </View>
+        <View accessibilityLabel="Spoken" />
+      </View>,
+    );
+    expect(visibleText(tree)).toEqual(['Shown', 'Behind']);
+    expect(a11yText(tree)).toEqual(['Spoken']);
+    expect(meaning(tree)).toBe('Shown | Spoken');
+    expect(allText(tree)).toBe(
+      'Shown | Behind | Hidden control | Hidden on Android | Spoken',
+    );
+    await act(async () => tree.unmount());
+  });
+
   test('alerts read the label, or the text inside when there is none', async () => {
     const tree = await render(<Screen onSend={noop} />);
     expect(alerts(tree)).toEqual([
@@ -208,6 +245,83 @@ describe('scene', () => {
     );
     expect(activePhase(tree)).toBe('wallet');
     expect(activeScene(tree)).toBe('receive');
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('fixtures', () => {
+  test('every kind of payment comes in every status, each with its own id', () => {
+    const all = Object.values(everyActivity());
+    for (const kind of ['sent', 'received', 'request', 'transfer']) {
+      for (const status of [
+        'completed',
+        'pending',
+        'uncertain',
+        'failed',
+        'expired',
+      ]) {
+        expect(
+          all.some(item => item.kind === kind && item.status === status),
+        ).toBe(true);
+      }
+    }
+    expect(new Set(all.map(item => item.id)).size).toBe(all.length);
+    for (const phase of ['partial', 'pending', 'completed']) {
+      expect(all.some(item => item.receiveStatus?.phase === phase)).toBe(true);
+    }
+  });
+
+  test('a rail gives the id and references the engine would', () => {
+    expect(activityOf('sent', 'completed').id).toMatch(/^payment:/);
+    const chain = activityOf('received', 'completed', { rail: 'chain' });
+    expect(chain.id).toBe(`transaction:${chain.txid}`);
+    expect(chain.address).toMatch(/^bcrt1q/);
+    expect(activityOf('sent', 'completed', { rail: 'fund' }).title).toBe(
+      'Direct funding sent',
+    );
+    expect(requestOf({ amountSats: null }).uri).not.toContain('amount=');
+  });
+
+  test('a snapshot merges what it is given over the fixture wallet', () => {
+    const snapshot = snapshotOf({
+      balance: { pendingSats: 0 },
+      primary: { connected: false },
+      lfbw: {
+        lastChannelize: { action: 'wait', at: 0, reason: 'below-floor' },
+      },
+    });
+    expect(snapshot.balance).toMatchObject({
+      totalSats: 261_500,
+      pendingSats: 0,
+    });
+    expect(snapshot.primary.connected).toBe(false);
+    expect(snapshot.wallet.lfbw).toMatchObject({
+      setup: 'ready',
+      lastChannelize: { action: 'wait' },
+    });
+  });
+
+  test('guardData passes what the app draws from the fixtures, and nothing more', async () => {
+    const item = activityOf('received', 'completed', {
+      rail: 'chain',
+      description: 'Lunch with Sam',
+    });
+    const snapshot = snapshotOf({ activity: [item] });
+    const tree = await render(
+      <View>
+        <Text>{snapshot.wallet.name}</Text>
+        <Text>{item.description}</Text>
+        <Text>{dateLabel(item.timestamp)}</Text>
+        <Text>{dayLabel(item.timestamp)}</Text>
+        <Text>{chipText(item.txid!)}</Text>
+        <Text>{item.title}</Text>
+      </View>,
+    );
+    expect(
+      copyViolations(tree, { data: guardData(snapshot) }).map(
+        found => found.text,
+      ),
+    ).toEqual([item.title]);
     await act(async () => tree.unmount());
   });
 });
