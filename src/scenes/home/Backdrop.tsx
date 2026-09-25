@@ -28,6 +28,7 @@ import Svg, {
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { gradients, palette } from '../../design/palette';
 import { useAmbientRest } from '../../motion/ambient';
+import { REST_CURVE, restEase } from '../../motion/loops';
 import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import type { RegionProps } from '../../stage/Canvas';
@@ -98,8 +99,9 @@ export function glowBleed(width: number, height: number): number {
  * sine and turns slowly over 26; G2, the crema, drifts the opposite way on
  * 22. Only the views around them move, by transform and opacity, and never
  * while the pane is covered, the app is away, motion is reduced, or the app
- * has gone untouched long enough for decoration to rest. A stale balance
- * dims both, and a test network turns the glow slate.
+ * has gone untouched long enough for decoration to rest, where each swing
+ * slows into the end it was heading for rather than stopping. A stale
+ * balance dims both, and a test network turns the glow slate.
  *
  * G3 is the state tint, one at a time, crossfading over 600ms: honey while a
  * backup waits or a payment's outcome is unknown, night while an offline
@@ -121,7 +123,8 @@ export function Backdrop({
   const awake = useAppActive();
   const { reduced } = useMotionPrefs();
   const resting = useAmbientRest();
-  const running = live && awake && !reduced && !resting;
+  const shown = live && awake && !reduced;
+  const running = shown && !resting;
   const bleed = glowBleed(width, height);
   const spill = { top: -bleed, left: -bleed, right: -bleed, bottom: -bleed };
   const asked = useTint();
@@ -132,9 +135,9 @@ export function Backdrop({
     held: asked.held,
   });
 
-  const drift = useSwing(G1.drift.period / 2, running);
-  const spin = useSwing(G1.drift.spin / 2, running);
-  const crema = useSwing(G2.drift.period / 2, running);
+  const drift = useSwing(G1.drift.period / 2, running, shown);
+  const spin = useSwing(G1.drift.spin / 2, running, shown);
+  const crema = useSwing(G2.drift.period / 2, running, shown);
   const glow = useSharedValue(look.dim ? DIMMED : 1);
   const honey = useSharedValue(look.tint === 'honey' ? 1 : 0);
   const night = useSharedValue(look.tint === 'night' ? 1 : 0);
@@ -197,18 +200,18 @@ export function Backdrop({
   }, [asked.flash, flash]);
 
   const g1 = useAnimatedStyle(() => {
-    const swing = 2 * drift.get() - 1;
+    const swing = 2 * swingAt(drift.get()) - 1;
     return {
       opacity: glow.get(),
       transform: [
         { translateX: swing * G1.drift.x * width },
         { translateY: swing * G1.drift.y * height },
-        { rotate: `${spin.get() * G1.drift.rotate}deg` },
+        { rotate: `${swingAt(spin.get()) * G1.drift.rotate}deg` },
       ],
     };
   }, [width, height]);
   const g2 = useAnimatedStyle(() => {
-    const swing = 1 - 2 * crema.get();
+    const swing = 1 - 2 * swingAt(crema.get());
     return {
       opacity: glow.get(),
       transform: [
@@ -279,25 +282,50 @@ export function Backdrop({
 }
 
 /**
- * A value that swings from 0 to 1 and back on a sine, `half` milliseconds
- * each way, while `running`. It rests in the middle until it first runs.
- * Stopped, it holds where it is; started again, it eases back to 0 first, so
- * the swing keeps its full range.
+ * Where a swing stands, from 0 to 1, when its clock reads `clock`: the clock
+ * counts one way across a unit, so the swing is at an end on each whole
+ * number, still there, and halfway at each half, at its fastest.
  */
-function useSwing(half: number, running: boolean): SharedValue<number> {
-  const value = useSharedValue(0.5);
+export function swingAt(clock: number): number {
+  'worklet';
+  return (1 - Math.cos(Math.PI * clock)) / 2;
+}
+
+/**
+ * The clock of a swing from 0 to 1 and back on a sine, `half` milliseconds
+ * each way, while `running` (see swingAt). It rests in the middle until it
+ * first runs. When decoration rests while it is `seen`, the swing carries on
+ * to the end it was heading for, slowing from its own speed (`restEase`),
+ * and starts again from there, where it was still; stopped for anything
+ * else, it holds where it is.
+ */
+function useSwing(
+  half: number,
+  running: boolean,
+  seen: boolean,
+): SharedValue<number> {
+  const clock = useSharedValue(0.5);
   useEffect(() => {
-    if (!running) return;
-    const sine = { duration: half, easing: curves.sine };
-    value.set(
-      withSequence(
-        withTiming(0, { ...sine, duration: half * value.get() }),
-        withRepeat(withTiming(1, sine), -1, true),
-      ),
-    );
-    return () => cancelAnimation(value);
-  }, [half, running, value]);
-  return value;
+    const at = clock.get();
+    if (running) {
+      clock.set(
+        withRepeat(
+          withTiming(at + 2, { duration: 2 * half, easing: curves.linear }),
+          -1,
+          false,
+        ),
+      );
+    } else if (seen) {
+      const rest = restEase(at, half);
+      if (rest.to !== at) {
+        clock.set(
+          withTiming(rest.to, { duration: rest.duration, easing: REST_CURVE }),
+        );
+      }
+    }
+    return () => cancelAnimation(clock);
+  }, [half, running, seen, clock]);
+  return clock;
 }
 
 /**

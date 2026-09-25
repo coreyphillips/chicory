@@ -36,6 +36,7 @@ import { OpeningWallet } from '../scenes/phases/Loading';
 import { OfflineWallet } from '../scenes/phases/Offline';
 import { bloomTone, QUIET_MS, SIZES } from '../scenes/phases/visual';
 import { BackupTile } from '../scenes/home/BackupTile';
+import { vesselVisual } from '../scenes/home/visual';
 import { useAppActive } from '../scenes/home/useAppActive';
 import { colors, space } from '../theme';
 import { Canvas, useCanvasView } from './Canvas';
@@ -466,17 +467,26 @@ function usePrivacyCover(): boolean {
 }
 
 /**
- * What a wallet read shows, as a key that changes only when something drawn
- * from it would: the balances, the connection, the wallet's setup and each
- * payment's state. When it was read is left out.
+ * What a wallet read shows, as a key that changes only when something the
+ * canvas draws from it would: the balance's figures, the vessel's look
+ * (`vesselVisual`), the connection and the setup, and each payment's state.
+ * It is built from what is drawn rather than from the records behind it,
+ * which carry times of their own: the wallet's last channelize decision is
+ * written again, with a new time, by every pass that decides nothing new,
+ * and counted whole it woke decoration a moment after it came to rest.
  */
 export function shownBy(snapshot: WalletSnapshot): string {
   const { balance, primary, wallet, activity } = snapshot;
+  const lfbw = wallet.lfbw;
   return JSON.stringify([
+    balance.totalSats,
     balance.availableSats,
     balance.pendingSats,
+    vesselVisual(balance, lfbw),
     primary.connected,
-    wallet.lfbw ?? null,
+    primary.setup,
+    primary.setupError ?? null,
+    lfbw ? [lfbw.enabled, lfbw.setup ?? null, lfbw.setupError ?? null] : null,
     activity.map(item => [
       item.id,
       item.status,

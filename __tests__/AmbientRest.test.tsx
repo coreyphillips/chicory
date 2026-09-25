@@ -15,9 +15,9 @@ import {
   wakeOnTouch,
 } from '../src/motion/ambient';
 import * as loops from '../src/motion/loops';
-import { useLoop } from '../src/motion/loops';
+import { REST_CURVE, restEase, useLoop } from '../src/motion/loops';
 import { durations } from '../src/motion/tokens';
-import { Backdrop } from '../src/scenes/home/Backdrop';
+import { Backdrop, swingAt } from '../src/scenes/home/Backdrop';
 import { Pulse, Rock, Spin } from '../src/scenes/receive/loops';
 import { shownBy } from '../src/stage/Stage';
 import { activityOf, snapshotOf } from '../test-support/fixtures';
@@ -70,6 +70,17 @@ const restTimers = (waits: jest.SpyInstance) =>
     .map((call, i) => [call[1], waits.mock.results[i].value] as const)
     .filter(([delay]) => delay === AMBIENT_REST_MS)
     .map(([, id]) => id);
+
+/**
+ * Shared values that live as long as their component, as on a device: the
+ * mock makes a new one each render, which would lose where a clock stood.
+ */
+function keepSharedValues() {
+  const made = Reanimated.useSharedValue;
+  jest
+    .spyOn(Reanimated, 'useSharedValue')
+    .mockImplementation(init => React.useState(() => made(init))[0]);
+}
 
 /** Reports whether decoration rests, each time it renders. */
 function Probe({ ambient, seen }: { ambient?: boolean; seen: boolean[] }) {
@@ -143,6 +154,33 @@ describe('a loop', () => {
     expect(repeats).toHaveBeenCalledTimes(1);
     await touch();
     expect(repeats).toHaveBeenCalledTimes(2);
+  });
+
+  test('comes to rest by slowing from its own speed, forward to its next whole cycle', () => {
+    // A quarter of the way round, three quarters are left: at the loop's own
+    // speed that is 750ms, and the ease-out opens at twice its average.
+    expect(restEase(2.25, 1_000)).toEqual({ to: 3, duration: 1_500 });
+    // The square's ease-out opens at twice its average speed, which is then
+    // the loop's own: one cycle every 1,800ms.
+    const { to, duration } = restEase(0.4, 1_800);
+    expect((2 * (to - 0.4)) / duration).toBeCloseTo(1 / 1_800, 9);
+    // Never backwards, and at a whole cycle it is already at rest.
+    expect(restEase(4.9, 1_000).to).toBe(5);
+    expect(restEase(3, 1_000)).toEqual({ to: 3, duration: 0 });
+  });
+
+  test('that decorates eases into its rest pose rather than stopping', async () => {
+    // Caught 40% of the way through a cycle as the quiet runs out.
+    keepSharedValues();
+    jest.spyOn(Reanimated, 'withRepeat').mockReturnValue(0.4 as never);
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    await render(<Loop ambient />);
+    timings.mockClear();
+    await pass(AMBIENT_REST_MS);
+    expect(timings).toHaveBeenCalledWith(1, {
+      duration: 1_200,
+      easing: REST_CURVE,
+    });
   });
 
   test('that says something is under way keeps running', async () => {
@@ -234,6 +272,35 @@ describe('what rests', () => {
     expect(repeats).toHaveBeenCalledTimes(6);
   });
 
+  test("the backdrop's swings slow into the end each was heading for", async () => {
+    // A swing's clock stands at an end, still, on each whole number.
+    expect(swingAt(0)).toBe(0);
+    expect(swingAt(1)).toBe(1);
+    expect(swingAt(2)).toBeCloseTo(0);
+    expect(swingAt(0.5)).toBeCloseTo(0.5);
+    // Each clock caught 30% of the way across a swing as the quiet runs out.
+    keepSharedValues();
+    jest.spyOn(Reanimated, 'withRepeat').mockReturnValue(2.3 as never);
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    await render(
+      <Backdrop
+        snapshot={snapshotOf()}
+        stale={false}
+        backup={null}
+        session={{ error: '' } as never}
+        arrived={0}
+      />,
+    );
+    timings.mockClear();
+    await pass(AMBIENT_REST_MS);
+    const rests = timings.mock.calls.filter(
+      ([, config]) => config?.easing === REST_CURVE,
+    );
+    // The glow's drift and turn, and the crema's, each on to its end.
+    expect(rests).toHaveLength(3);
+    for (const [to] of rests) expect(to).toBe(3);
+  });
+
   test('a poll that lands while decoration rests sends out no ping, and waking sends none', async () => {
     const timings = jest.spyOn(Reanimated, 'withTiming');
     const pings = () =>
@@ -268,8 +335,28 @@ describe('a read', () => {
       snapshotOf({ activity: [{ ...pending, status: 'completed' }] }),
       snapshotOf({ activity: [activityOf('received', 'completed'), pending] }),
       snapshotOf({ activity: [pending], lfbw: { setup: 'pending' } }),
+      snapshotOf({ activity: [pending], balance: { totalSats: 1 } }),
     ]) {
       expect(shownBy(changed)).not.toBe(shownBy(read));
     }
+  });
+
+  test('a channelize pass that decides nothing new wakes nothing', () => {
+    // Every pass writes its decision again with a new time (the P10 device
+    // pass saw lastChannelize.at move while the result stayed the same).
+    const decided = (at: number, reason = 'below-floor') =>
+      snapshotOf({
+        balance: {
+          totalSats: 30_000,
+          availableSats: 20_000,
+          pendingSats: 10_000,
+        },
+        lfbw: { lastChannelize: { action: 'wait', at, reason } },
+      });
+    expect(shownBy(decided(2_000))).toBe(shownBy(decided(1_000)));
+    // A new decision that changes the vessel's look is worth seeing.
+    expect(shownBy(decided(2_000, 'fee-too-high'))).not.toBe(
+      shownBy(decided(1_000)),
+    );
   });
 });
