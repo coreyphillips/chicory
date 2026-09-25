@@ -3,9 +3,8 @@ import type { WithSpringConfig } from 'react-native-reanimated';
 
 /**
  * The redesign's motion vocabulary (REDESIGN.md 3.5). Every spring, curve and
- * duration on the canvas comes from here, so two things that move for the
- * same reason move the same way. theme.ts keeps its older `motion` table for
- * the classic `Animated` code that has not moved to Reanimated yet.
+ * duration in the app comes from here, so two things that move for the same
+ * reason move the same way.
  */
 
 /** Physical springs, named for what they move. */

@@ -5,7 +5,8 @@ import type { PaymentStatus } from '@beignet/wallet-core';
 import { palette } from './design/palette';
 
 /**
- * One source of truth for the app's surfaces, spacing, type and motion.
+ * One source of truth for the app's surfaces, spacing and type. Motion is
+ * src/motion's.
  *
  * The colours are Chicory bloom (`src/design/palette.ts`) and no longer mirror
  * beignet-web's greys and coral. The redesign says most things with colour,
@@ -179,14 +180,6 @@ export const type = {
   },
 } as const;
 
-/** Durations in ms, read by `Animated`. Nothing here uses `LayoutAnimation`. */
-export const motion = {
-  fast: 140,
-  base: 220,
-  slow: 380,
-  celebrate: 1100,
-};
-
 /** Minimum comfortable touch target, per the platform guidelines. */
 export const HIT_SLOP = { top: 10, bottom: 10, left: 10, right: 10 };
 
@@ -318,14 +311,4 @@ export const dayLabel = (timestamp: number, now = Date.now()) => {
       : DAY_MONTH_YEAR.format(day);
   DAY_CACHE.set(dayMidnight, label);
   return label;
-};
-
-/** "Updated 12s ago" for the staleness line. */
-export const agoLabel = (timestamp: number, now = Date.now()) => {
-  const seconds = Math.max(0, Math.round((now - timestamp) / 1000));
-  if (seconds < 5) return 'just now';
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  return `${Math.round(minutes / 60)}h ago`;
 };
