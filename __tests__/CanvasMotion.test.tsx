@@ -13,6 +13,7 @@ import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import { haptics } from '../src/design/haptics';
+import { ActionCircle } from '../src/scenes/home/ActionCircle';
 import { Backdrop } from '../src/scenes/home/Backdrop';
 import { HomePane } from '../src/scenes/home/HomePane';
 import { StatusRow } from '../src/scenes/home/StatusRow';
@@ -171,18 +172,27 @@ const host = (node: ReactTestInstance) =>
 
 /**
  * The balance, which shrinks toward the mini strip with `hero`, and the
- * action row under it, which fades with `bar`: the two parts of Home the
- * panes move, found by the test ids Home gives them.
+ * action row under it, whose circles fade with `bar`: the parts of Home the
+ * panes move, found by the test ids Home gives them and, for the circles,
+ * by the view that poses each one.
  */
 function homeParts(tree: ReactTestRenderer) {
+  const home = tree.root.findByType(HomeScreen);
   const part = (testID: string) =>
-    tree.root
-      .findByType(HomeScreen)
-      .find(
-        node => typeof node.type === 'string' && node.props.testID === testID,
-      );
-  return { hero: part('home-hero'), bar: part('home-bar') };
+    home.find(
+      node => typeof node.type === 'string' && node.props.testID === testID,
+    );
+  const circles = home
+    .findAllByType(ActionCircle)
+    .map(circle => host(circle.parent!));
+  return { hero: part('home-hero'), bar: part('home-bar'), circles };
 }
+
+/** The host views drawn with `testID`, in tree order. */
+const byTestID = (tree: ReactTestRenderer, testID: string) =>
+  tree.root.findAll(
+    node => typeof node.type === 'string' && node.props.testID === testID,
+  );
 
 /** Where each stop is for the height the canvas has. */
 const at = (height = Dimensions.get('window').height) =>
@@ -307,17 +317,22 @@ describe('the canvas', () => {
     const tree = await render(<OnCanvas />);
     const expectPose = (name: CanvasSceneName) => {
       const pose = SCENE_LAYOUT[name];
-      const { hero, bar } = homeParts(tree);
+      const { hero, bar, circles } = homeParts(tree);
       expect(transformOf(panes(tree).sheet, 'translateY')).toBe(
         at()[pose.seam],
       );
       expect(transformOf(hero, 'scale')).toBeCloseTo(
         HERO_MINI + (1 - HERO_MINI) * pose.hero,
       );
-      expect(flat(bar).opacity).toBe(pose.bar);
+      expect(circles).toHaveLength(3);
+      for (const circle of circles) {
+        expect(flat(circle).opacity).toBe(pose.bar);
+      }
       // Each value moves only its own part: the mini strip never fades
       // with the action row, and the row never shrinks with the balance.
+      // Each circle fades on its own, so the row itself does neither.
       expect(flat(hero).opacity).toBeUndefined();
+      expect(flat(bar).opacity).toBeUndefined();
       expect(flat(bar).transform).toBeUndefined();
       expect(flat(host(panes(tree).home)).opacity).toBeUndefined();
     };
@@ -644,11 +659,12 @@ describe('the canvas', () => {
       height: insets.top + STATUS_ROW,
     });
     expect(flat(host(panes(tree).home)).top).toBe(insets.top + STATUS_ROW);
+    // Drawn in the status row, hung from an anchor under the home pane's
+    // top edge (see the reading order test below).
+    const [anchor] = byTestID(tree, 'corner');
     const corner = tree.root.findByType(CornerControl).parent!;
-    expect(flat(corner)).toMatchObject({
-      top: insets.top,
-      height: STATUS_ROW,
-    });
+    expect(flat(corner).height).toBe(STATUS_ROW);
+    expect(flat(anchor).top! + flat(corner).top!).toBe(insets.top);
     await act(async () => stage.actions.openActivity());
     expect(transformOf(panes(tree).sheet, 'translateY')).toBe(inset.compact);
     await act(async () => stage.actions.home());
@@ -673,6 +689,21 @@ describe('the canvas', () => {
     const corner = place(copy.home.settings);
     expect(corner).toBeGreaterThan(Math.max(...actions));
     expect(corner).toBeLessThan(place(copy.home.activity));
+
+    // VoiceOver orders what shares a container by where each part starts,
+    // top to bottom, then left to right, whatever the tree says. So the
+    // corner's anchor starts below the home pane's top edge and above the
+    // sheet's, and the three circles' slots share one top and one height.
+    const [anchor] = byTestID(tree, 'corner');
+    const homeTop = flat(host(panes(tree).home)).top!;
+    expect(flat(anchor).top).toBeGreaterThan(homeTop);
+    expect(flat(anchor).top).toBeLessThan(
+      transformOf(panes(tree).sheet, 'translateY')!,
+    );
+    const slots = byTestID(tree, 'home-slot').map(flat);
+    expect(slots).toHaveLength(3);
+    expect(new Set(slots.map(slot => slot.height)).size).toBe(1);
+    expect(slots[0].height).toBeGreaterThan(0);
     await act(async () => tree.unmount());
   });
 

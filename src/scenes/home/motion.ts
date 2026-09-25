@@ -126,6 +126,39 @@ export interface CirclePose {
 
 const AT_REST: CirclePose = { scale: 1, translateX: 0, translateY: 0 };
 
+const clamp01 = (x: number) => {
+  'worklet';
+  return Math.min(1, Math.max(0, x));
+};
+
+/**
+ * How much of the way the circles not tapped have faded by: two thirds,
+ * which the pane spring reaches at about 140ms (REDESIGN.md 7, T1).
+ */
+const OTHERS_GONE = 2 / 3;
+
+/** The last share of the way, over which the tapped circle hands over. */
+const HANDOVER = 0.3;
+
+/**
+ * One circle's opacity as the row goes away, `away` running from 0 at home
+ * to 1 once it has gone. With nothing launching it is the row's own fade,
+ * which the sheet's drag shapes (T5). On the way to Send or Receive the
+ * circles not tapped are gone within 140ms (T1), and the tapped one stays
+ * whole while it travels and grows, handing over to the scene's own control
+ * over the last 30%. Coming back, each comes in the same way in reverse.
+ */
+export function circleOpacity(
+  away: number,
+  tapped: boolean,
+  launch: Launch,
+): number {
+  'worklet';
+  if (launch === 'none') return clamp01(1 - away);
+  if (tapped) return clamp01((1 - away) / HANDOVER);
+  return clamp01(1 - away / OTHERS_GONE);
+}
+
 /**
  * One circle of the action row while the row fades on the way to Send or
  * Receive (REDESIGN.md 7, T1 and T2). `away` runs from 0 at home to 1 once

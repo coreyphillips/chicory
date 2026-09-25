@@ -31,6 +31,7 @@ import {
   MINI_IN_ROW,
   PULL_TRIGGER,
   REFUSED,
+  circleOpacity,
   heroPose,
   launchPose,
   miniLanding,
@@ -595,6 +596,20 @@ describe('the motion', () => {
     expect(vesselOpacity(0)).toBe(0);
   });
 
+  test('on the way to a scene the rest are gone in 140ms, and the tapped circle stays whole', () => {
+    // The pane spring is two thirds of the way at about 140ms.
+    for (const launch of ['send', 'receive'] as const) {
+      expect(circleOpacity(0, false, launch)).toBe(1);
+      expect(circleOpacity(2 / 3, false, launch)).toBe(0);
+      expect(circleOpacity(0.7, true, launch)).toBe(1);
+      expect(circleOpacity(0.85, true, launch)).toBeCloseTo(0.5);
+      expect(circleOpacity(1, true, launch)).toBe(0);
+    }
+    // With nothing launching the row fades as the sheet's drag shapes it.
+    expect(circleOpacity(0.25, false, 'none')).toBe(0.75);
+    expect(circleOpacity(0.25, true, 'none')).toBe(0.75);
+  });
+
   test('the tapped circle grows toward the 88pt control, and the rest shrink', () => {
     const rest = { scale: 1, translateX: 0, translateY: 0 };
     expect(launchPose(1, true, 'none', 120)).toEqual(rest);
@@ -706,11 +721,38 @@ describe('on the way to Send', () => {
       step => 'translateY' in step,
     )?.translateY;
     expect(lift).toBeCloseTo(MINI_STRIP / 2);
-    expect(flat(part('home-bar')).opacity).toBe(0);
+    // Every circle has faded, each on its own; the row itself does not.
+    expect(flat(part('home-bar')).opacity).toBeUndefined();
     const [send, scan, receive] = circles(tree);
+    for (const circle of [send, scan, receive]) {
+      expect(flat(circle).opacity).toBe(0);
+    }
     expect(scaleOf(send)! * 56).toBeCloseTo(88);
     expect(scaleOf(scan)).toBeCloseTo(0.8);
     expect(scaleOf(receive)).toBeCloseTo(0.8);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('coming back from Send or Receive', () => {
+  test('the circle that opened it is kept until the canvas goes elsewhere', async () => {
+    const tree = await draw({ snapshot: snapshotOf({ wallet: MAINNET }) });
+    const launching = () =>
+      tree.root.findByType(HomeScreen).props.launching as Launch;
+    expect(launching()).toBe('none');
+    await act(async () => stage.actions.openSend());
+    expect(launching()).toBe('send');
+    // Home again: the Send circle travels back into the row, so it is kept.
+    await act(async () => stage.actions.back());
+    expect(canvasScene(stage.state)).toBe('home');
+    expect(launching()).toBe('send');
+    await act(async () => stage.actions.openReceive());
+    expect(launching()).toBe('receive');
+    await act(async () => stage.actions.back());
+    expect(launching()).toBe('receive');
+    // Anywhere else it is let go.
+    await act(async () => stage.actions.openActivity());
+    expect(launching()).toBe('none');
     await act(async () => tree.unmount());
   });
 });

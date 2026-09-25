@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { announce } from '../../design/announce';
@@ -10,6 +10,7 @@ import { canvasScene } from '../../stage/layout';
 import { usePanes } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
 import type { Point } from './ActionCircle';
+import type { Launch } from './motion';
 import { useOverdue, useSafetySignal } from './signals';
 import { isTestNetwork } from './visual';
 
@@ -59,6 +60,17 @@ export function HomePane({
   // be spent (REDESIGN.md 7, T1).
   const shown = canvasScene(state);
   const spending = shown === 'send' || shown === 'receive';
+  // The circle that opened Send or Receive is kept while the canvas comes
+  // home, so it travels back into the row rather than snapping there, and
+  // the mini strip grows from the band it rested in. At home with the row
+  // back it is at rest either way; anywhere else it is let go.
+  const [launched, setLaunched] = useState<Launch>('none');
+  const launching: Launch = spending
+    ? shown
+    : shown === 'home'
+    ? launched
+    : 'none';
+  if (launching !== launched) setLaunched(launching);
 
   const overdue = useOverdue(stale && session.connecting, LIVE_OVERDUE_MS);
   const aged = stale && (!session.connecting || overdue) && !spending;
@@ -109,7 +121,7 @@ export function HomePane({
         stale={stale}
         heroSats={spending ? snapshot.balance.availableSats : undefined}
         progress={panes}
-        launching={spending ? shown : 'none'}
+        launching={launching}
         arrived={arrived}
         onSend={openSend}
         onReceive={actions.openReceive}

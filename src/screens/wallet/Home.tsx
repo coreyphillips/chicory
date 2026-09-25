@@ -23,6 +23,7 @@ import { ActionCircle } from '../../scenes/home/ActionCircle';
 import type { Point } from '../../scenes/home/ActionCircle';
 import {
   PULL_TRIGGER,
+  circleOpacity,
   heroPose,
   launchPose,
   miniLanding,
@@ -43,6 +44,9 @@ const feelPull = () => haptics.soft();
 /** What the stale gate does to the action circles: they shrink to this. */
 const GATED = 0.94;
 
+/** The action row's height: the Scan circle's, the largest in it. */
+const ROW_HEIGHT = 76;
+
 /**
  * Home: the balance, the pill of what is spendable and what is on its way,
  * and the three things you do with it (REDESIGN.md 6, Wallet health). There
@@ -59,9 +63,10 @@ const GATED = 0.94;
  * On the canvas `progress` carries the panes: `hero` shrinks the balance into
  * a mini strip, fading the vessel first, which rests in the band under the
  * status row that Send and Receive leave clear (MINI_STRIP), or in the row
- * itself under Activity and a payment's detail. `bar` fades the action row,
- * whose tapped circle grows toward the scene it opens while the others
- * shrink away. Drawn on its own it rests at home. The activity it once
+ * itself under Activity and a payment's detail. `bar` carries the action
+ * row away: the circles not tapped shrink and are gone within 140ms, and the
+ * tapped one travels and grows toward the scene it opens, whole until it
+ * hands over to the scene's own control. Drawn on its own it rests at home. The activity it once
  * previewed is the sheet's now; `onActivity` and `onDetail` stay for the
  * callers that still pass them.
  */
@@ -213,7 +218,6 @@ export function HomeScreen({
   const vesselStyle = useAnimatedStyle(() => ({
     opacity: vesselOpacity(hero.get()),
   }));
-  const barFade = useAnimatedStyle(() => ({ opacity: bar.get() }));
   // Reduce Motion keeps the circles where they are while the row fades.
   const row = { bar, gate, middle, launching: reduced ? 'none' : launching };
   const sendLaunch = useLaunchStyle(row, 'send', sendAt);
@@ -324,50 +328,61 @@ export function HomeScreen({
               />
             </Reanimated.View>
           </View>
-          <Reanimated.View
-            testID="home-bar"
-            onLayout={measureRow}
-            style={[styles.bar, barFade]}
-          >
-            <Reanimated.View style={sendLaunch} onLayout={centreOf(sendAt)}>
-              <ActionCircle
-                glyph="send"
-                size={56}
-                label={copy.home.send}
-                hint={copy.home.sendHint}
-                stale={stale}
-                onAct={whileLive(onSend)}
-                onRefresh={refresh}
-              />
+          {/* Each circle sits in a slot as tall as the row, so the three
+              share one top edge and VoiceOver, which orders what shares a
+              row by where it starts, reads them left to right: Send, Scan,
+              Receive (REDESIGN.md 9). Each circle fades on its own. */}
+          <View testID="home-bar" onLayout={measureRow} style={styles.bar}>
+            <Reanimated.View
+              testID="home-slot"
+              style={styles.slot}
+              onLayout={centreOf(sendAt)}
+            >
+              <Reanimated.View style={sendLaunch}>
+                <ActionCircle
+                  glyph="send"
+                  size={56}
+                  label={copy.home.send}
+                  hint={copy.home.sendHint}
+                  stale={stale}
+                  onAct={whileLive(onSend)}
+                  onRefresh={refresh}
+                />
+              </Reanimated.View>
             </Reanimated.View>
-            <Reanimated.View style={scanLaunch}>
-              <ActionCircle
-                glyph="scan"
-                size={76}
-                label={copy.home.scan}
-                hint={copy.home.scanHint}
-                primary
-                test={test}
-                stale={stale}
-                onAct={whileLive(onScan)}
-                onRefresh={refresh}
-              />
+            <Reanimated.View testID="home-slot" style={styles.slot}>
+              <Reanimated.View style={scanLaunch}>
+                <ActionCircle
+                  glyph="scan"
+                  size={ROW_HEIGHT}
+                  label={copy.home.scan}
+                  hint={copy.home.scanHint}
+                  primary
+                  test={test}
+                  stale={stale}
+                  onAct={whileLive(onScan)}
+                  onRefresh={refresh}
+                />
+              </Reanimated.View>
             </Reanimated.View>
             <Reanimated.View
-              style={receiveLaunch}
+              testID="home-slot"
+              style={styles.slot}
               onLayout={centreOf(receiveAt)}
             >
-              <ActionCircle
-                glyph="receive"
-                size={56}
-                label={copy.home.receive}
-                hint={copy.home.receiveHint}
-                stale={stale}
-                onAct={whileLive(onReceive)}
-                onRefresh={refresh}
-              />
+              <Reanimated.View style={receiveLaunch}>
+                <ActionCircle
+                  glyph="receive"
+                  size={56}
+                  label={copy.home.receive}
+                  hint={copy.home.receiveHint}
+                  stale={stale}
+                  onAct={whileLive(onReceive)}
+                  onRefresh={refresh}
+                />
+              </Reanimated.View>
             </Reanimated.View>
-          </Reanimated.View>
+          </View>
         </Reanimated.View>
       </View>
     </GestureDetector>
@@ -375,10 +390,10 @@ export function HomeScreen({
 }
 
 /**
- * One circle of the action row, shrunk by the stale `gate` and posed on the
- * way to `launching` (REDESIGN.md 7, T1 and T2). `own` is the scene the
- * circle opens, if any, and `at` its centre across the row, whose middle is
- * `middle`.
+ * One circle of the action row, shrunk by the stale `gate`, and posed and
+ * faded on the way to `launching` (REDESIGN.md 7, T1 and T2). `own` is the
+ * scene the circle opens, if any, and `at` its centre across the row, whose
+ * middle is `middle`.
  */
 function useLaunchStyle(
   {
@@ -397,13 +412,11 @@ function useLaunchStyle(
 ) {
   return useAnimatedStyle(() => {
     const toCentre = at ? middle.get() - at.get() : 0;
-    const pose = launchPose(
-      1 - bar.get(),
-      launching === own,
-      launching,
-      toCentre,
-    );
+    const away = 1 - bar.get();
+    const tapped = launching === own;
+    const pose = launchPose(away, tapped, launching, toCentre);
     return {
+      opacity: circleOpacity(away, tapped, launching),
       transform: [
         { translateX: pose.translateX },
         { translateY: pose.translateY },
@@ -433,5 +446,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-evenly',
     paddingBottom: space.lg,
+  },
+  slot: {
+    height: ROW_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

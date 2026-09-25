@@ -27,7 +27,7 @@ import {
   canvasLayout,
   canvasScene,
 } from './layout';
-import { CornerControl } from './panes/CornerControl';
+import { CORNER_ROOM, CornerControl } from './panes/CornerControl';
 import { EdgeBack } from './panes/EdgeBack';
 import { Pane, PanesProvider } from './panes/Pane';
 import { PrimaryFor, usePrimaryFocus } from './panes/Primary';
@@ -278,9 +278,19 @@ export function Canvas({
           </Pane>
           {/* Drawn at the right of the status row, but after Home, so a
               screen reader reaches it after the actions and before the
-              sheet (REDESIGN.md 9). */}
-          <View style={[styles.corner, { top: insets.top }]}>
-            <CornerControl home={home} />
+              sheet (REDESIGN.md 9). TalkBack follows the tree. VoiceOver
+              orders what shares a container by where each part starts, so
+              the control hangs from an anchor that starts just under the
+              home pane's top edge: it sorts after Home and before the
+              sheet, while drawn, and pressed, in the status row above. */}
+          <View
+            testID="corner"
+            pointerEvents="box-none"
+            style={[styles.cornerAnchor, { top: belowStatus + 1 }]}
+          >
+            <View style={styles.corner}>
+              <CornerControl home={home} />
+            </View>
           </View>
           <View
             testID="slot-top"
@@ -358,9 +368,16 @@ const styles = StyleSheet.create({
   fill: StyleSheet.absoluteFill,
   flex: { flex: 1 },
   home: { position: 'absolute', left: 0, right: 0 },
-  corner: {
+  cornerAnchor: {
     position: 'absolute',
     right: space.xl,
+    width: CORNER_ROOM,
+    height: STATUS_ROW,
+  },
+  corner: {
+    position: 'absolute',
+    top: -(STATUS_ROW + 1),
+    right: 0,
     height: STATUS_ROW,
     justifyContent: 'center',
   },
