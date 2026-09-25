@@ -14,7 +14,7 @@ import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
-import { QrBloom } from '../../glyphs/QrBloom';
+import { QrBloom, qrSide } from '../../glyphs/QrBloom';
 import { riseIn, stagger } from '../../motion/presets';
 import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -26,13 +26,11 @@ import { Rock } from './loops';
 import type { RequestFace } from './model';
 import { remainderSats, requestRails, shownSats } from './model';
 
-/** The quiet zone QrBloom keeps round its modules. */
-const QUIET = 12;
 /** The expiry ring runs this far outside the card. */
-const RING_GAP = 8;
+export const RING_GAP = 8;
 
 /** A request's frame for a code `qr` points across. */
-export const frameSide = (qr: number) => qr + QUIET * 2 + RING_GAP * 2;
+export const frameSide = (qr: number) => qrSide(qr) + RING_GAP * 2;
 
 /**
  * A request and what becomes of it (REDESIGN.md 6, Receive). The code

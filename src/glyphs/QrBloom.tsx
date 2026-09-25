@@ -46,7 +46,10 @@ export interface QrBloomProps {
 }
 
 /** The quiet zone around the modules, which scanners need to find the code. */
-const QUIET = 12;
+export const QR_QUIET = 12;
+
+/** How wide a code `size` across is drawn, its quiet zone included. */
+export const qrSide = (size: number) => size + QR_QUIET * 2;
 
 /** Bands of modules, from the centre out. */
 export const BANDS = 5;
@@ -314,7 +317,7 @@ export const QrBloom = memo(function QrCode({
   // seam shows where one band's modules meet the next band's.
   const unit = Math.floor(size / layers.size) || size / layers.size;
   const drawn = unit * layers.size;
-  const origin = QUIET + (size - drawn) / 2;
+  const origin = QR_QUIET + (size - drawn) / 2;
 
   // The layers stay drawn while they leave, then go, so a code that can no
   // longer be paid is not left on screen at any opacity.
@@ -355,7 +358,7 @@ export const QrBloom = memo(function QrCode({
   }));
   const creamStyle = useAnimatedStyle(() => ({ opacity: cream.get() }));
 
-  const side = size + QUIET * 2;
+  const side = qrSide(size);
   const box = (x: number, y: number, modules: number) => ({
     left: origin + x * unit,
     top: origin + y * unit,

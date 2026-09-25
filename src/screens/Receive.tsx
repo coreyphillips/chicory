@@ -12,6 +12,7 @@ import { useToast } from '../components/Toast';
 import { announce } from '../design/announce';
 import { copy } from '../design/copy';
 import { haptics } from '../design/haptics';
+import { qrSide } from '../glyphs/QrBloom';
 import { sceneIn, sceneOut } from '../motion/presets';
 import { useFocusOn } from '../scenes/receive/focus';
 import type { Focus } from '../scenes/receive/focus';
@@ -28,9 +29,6 @@ import { errorMessage as message } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
 import { usePaneActive } from '../stage/panes/Pane';
 import type { Unit } from '../theme';
-
-/** QrBloom's quiet zone, on each side of the code. */
-const QUIET = 12;
 
 const codeOf = (e: unknown) => (e as { code?: string })?.code;
 
@@ -394,7 +392,7 @@ export function ReceiveScreen({
       {showLift && request ? (
         <LiftedQr
           value={request.uri}
-          from={qr + QUIET * 2}
+          from={qrSide(qr)}
           onClose={() => setLifted(false)}
         />
       ) : null}

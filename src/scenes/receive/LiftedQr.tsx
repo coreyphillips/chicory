@@ -9,16 +9,12 @@ import type { EntryExitAnimationFunction } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
-import { QrBloom } from '../../glyphs/QrBloom';
+import { QR_QUIET, QrBloom } from '../../glyphs/QrBloom';
 import { curves, durations, springs } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { space } from '../../theme';
-
-/** QrBloom's quiet zone, on each side. */
-const QUIET = 12;
-/** How far inside its frame a request's card sits. */
-const RING_GAP = 8;
+import { RING_GAP } from './RequestStep';
 
 /**
  * How far the scene slot's padding sits inside the slot, so the scrim can
@@ -105,7 +101,7 @@ export function LiftedQr({
       >
         <QrBloom
           value={value}
-          size={side - QUIET * 2}
+          size={side - QR_QUIET * 2}
           state="shown"
           accessibilityLabel={copy.receive.qr}
         />

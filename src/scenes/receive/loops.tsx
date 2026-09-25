@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { PropsWithChildren } from 'react';
+import { AppState } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import Reanimated, {
   cancelAnimation,
@@ -11,13 +12,40 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
 import { curves, durations } from '../../motion/tokens';
-import { useLoops } from './loop';
+import { useMotionPrefs } from '../../motion/useMotionPrefs';
+import { usePaneActive } from '../../stage/panes/Pane';
 
 /**
  * The endless motions Receive uses, each a transform or an opacity on a view
  * around a still drawing (REDESIGN.md 3.5). Each stops and rests where
  * `useLoops` says a loop may not run, and is cancelled when it unmounts.
  */
+
+const awake = (state: string | null | undefined) =>
+  state !== 'background' && state !== 'inactive';
+
+/**
+ * Whether an endless loop may run here now: not under Reduce Motion, where
+ * loops are still states (REDESIGN.md 8), not in a pane that is out of use,
+ * and not while the app is in the background, where nobody sees it and it
+ * would only cost battery.
+ */
+function useLoops(): boolean {
+  const { reduced } = useMotionPrefs();
+  const live = usePaneActive();
+  const [foreground, setForeground] = useState(() =>
+    awake(AppState.currentState),
+  );
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', state =>
+      setForeground(awake(state)),
+    );
+    return () => subscription.remove();
+  }, []);
+  return !reduced && live && foreground;
+}
+
+/** A value that runs `play` while `run`, and otherwise rests at `rest`. */
 function useLoop(
   rest: number,
   play: () => number,

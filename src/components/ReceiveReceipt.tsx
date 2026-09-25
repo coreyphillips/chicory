@@ -13,7 +13,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import type { ReceiveStatus } from '@beignet/wallet-core';
 import { copy } from '../design/copy';
 import { Glyph } from '../design/glyphs';
-import { palette } from '../design/palette';
+import { gradients, palette } from '../design/palette';
 import { CopyChip } from '../glyphs/CopyChip';
 import { Odometer } from '../glyphs/Odometer';
 import { curves } from '../motion/tokens';
@@ -177,7 +177,7 @@ export function ReceiveReceipt({
 const STROKE = 4;
 
 /** The sage tint at its height (REDESIGN.md 3.2, G3). */
-const GLOW = 0.22;
+const GLOW = gradients.G3.sageFlash.opacity;
 
 function Ring({
   size,
