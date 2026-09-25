@@ -37,8 +37,11 @@ const SHAPES = [
   /^[\s·•,.:+\-−=≈≤∞]*$/,
 ];
 
-/** Visible props that hold text of their own. */
-const TEXT_PROPS = ['placeholder', 'title'];
+/**
+ * Visible props that hold text of their own: the same ones the suites count
+ * as drawn (`visibleText` in ./query).
+ */
+const TEXT_PROPS = ['placeholder', 'title', 'defaultValue'];
 
 const isMarker = (node: ReactTestInstance) =>
   typeof node.type === 'string' && node.props.testID === SETTINGS_MARKER;
