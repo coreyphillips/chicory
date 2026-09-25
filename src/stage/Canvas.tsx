@@ -22,7 +22,7 @@ import { haptics } from '../design/haptics';
 import { beginTransition } from '../motion/idle';
 import { dropAway, riseFrom, slideIn, slideOut } from '../motion/presets';
 import { steady } from '../motion/steady';
-import { durations } from '../motion/tokens';
+import { curves, durations } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { SheetPane } from '../scenes/activity/SheetPane';
 import { DetailLayer } from '../scenes/detail/DetailLayer';
@@ -39,18 +39,26 @@ import type { Unit } from '../theme';
 import { ScanReveal } from './layers/ScanReveal';
 import {
   COVERED,
+  PANE_SETTLE_MS,
   SCANNING,
   STATUS_ROW,
   buildBeats,
   canvasLayout,
   canvasScene,
+  launchLanding,
   veilOpacity,
 } from './layout';
 import type { Arrival } from './layout';
 import { BuildProvider, beganAt } from './panes/Build';
 import type { Build } from './panes/Build';
-import { CORNER_ROOM, CornerControl } from './panes/CornerControl';
+import {
+  CORNER_REACH,
+  CORNER_ROOM,
+  CornerControl,
+} from './panes/CornerControl';
 import { EdgeBack } from './panes/EdgeBack';
+import { LaunchProvider, Launched } from './panes/Launch';
+import type { Launch } from './panes/Launch';
 import { Pane, PanesProvider } from './panes/Pane';
 import { PrimaryFor, usePrimaryFocus } from './panes/Primary';
 import type { Primaries } from './panes/Primary';
@@ -215,7 +223,7 @@ export function Canvas({
   // bottom under the system bars, and each region keeps its own content
   // clear of them. Only a side cutout, in landscape, narrows it. The
   // window's height stands in until the first layout.
-  const { height: windowHeight } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   // Where the regions under the status row start.
   const belowStatus = insets.top + STATUS_ROW;
@@ -232,6 +240,46 @@ export function Canvas({
     [scene, stack, overlay],
   );
   const { panes, blocking } = usePaneMotion(height, layout);
+
+  // The hand-over from the action circle that opens Send or Receive to the
+  // scene's own control (REDESIGN.md 7, T1 and T2; `panes/Launch`): the
+  // circle travels whole to where the control is drawn, and fades under it
+  // once it has landed.
+  const landingAt = launchLanding(windowWidth, height, insets);
+  const launchX = useSharedValue(landingAt.x);
+  const launchY = useSharedValue(landingAt.y);
+  const handover = useSharedValue(0);
+  // Kept whole from the first draw, so every region reads the same values.
+  const [launch] = useState<Launch>(() => ({
+    x: launchX,
+    y: launchY,
+    handover,
+  }));
+  // As Send or Receive opens, the circle starts over at the slot's bottom
+  // centre, and hands over once it has landed, as the move settles; as the
+  // scene goes, it comes back up as the content leaves.
+  const launchOpen = useCallback(() => {
+    launch.x.set(landingAt.x);
+    launch.y.set(landingAt.y);
+    launch.handover.set(0);
+    launch.handover.set(
+      steady(
+        withDelay(
+          PANE_SETTLE_MS,
+          withTiming(1, { duration: durations.exit, easing: curves.standard }),
+        ),
+      ),
+    );
+  }, [launch, landingAt.x, landingAt.y]);
+  const launchLeave = useCallback(
+    () =>
+      launch.handover.set(
+        steady(
+          withTiming(0, { duration: durations.exit, easing: curves.standard }),
+        ),
+      ),
+    [launch],
+  );
 
   // The sheet rises from past the bottom edge on its beat, and drops away
   // as the canvas leaves.
@@ -323,140 +371,146 @@ export function Canvas({
   if (scene.name === 'send') {
     top = (
       <PrimaryFor key={scene.key} primaries={primaries} scene="send">
-        <SendScene {...region} sceneKey={scene.key} prefill={scene.prefill} />
+        <Launched onOpen={launchOpen} onLeave={launchLeave}>
+          <SendScene {...region} sceneKey={scene.key} prefill={scene.prefill} />
+        </Launched>
       </PrimaryFor>
     );
   } else if (scene.name === 'receive') {
     top = (
       <PrimaryFor key={scene.key} primaries={primaries} scene="receive">
-        <ReceiveScene {...region} sceneKey={scene.key} />
+        <Launched onOpen={launchOpen} onLeave={launchLeave}>
+          <ReceiveScene {...region} sceneKey={scene.key} />
+        </Launched>
       </PrimaryFor>
     );
   }
 
   return (
     <PanesProvider value={panes}>
-      <BuildProvider value={build}>
-        <View
-          style={[
-            styles.canvas,
-            { marginLeft: insets.left, marginRight: insets.right },
-          ]}
-          onLayout={onLayout}
-        >
-          <Pane active={live} style={[styles.fill, coveredStyle]}>
-            {/* The ground, behind everything, under the status bar too. */}
-            <Backdrop {...region} />
-            <StatusRow {...region} shown={shown} />
-            <Pane
-              active={home}
-              style={[
-                styles.home,
-                { top: belowStatus, height: panes.stops.home - belowStatus },
-              ]}
-            >
-              <PrimaryFor primaries={primaries} scene="home">
-                <HomePane {...region} home={home} />
-              </PrimaryFor>
-            </Pane>
-            {/* Drawn at the right of the status row, but after Home, so a
+      <LaunchProvider value={launch}>
+        <BuildProvider value={build}>
+          <View
+            style={[
+              styles.canvas,
+              { marginLeft: insets.left, marginRight: insets.right },
+            ]}
+            onLayout={onLayout}
+          >
+            <Pane active={live} style={[styles.fill, coveredStyle]}>
+              {/* The ground, behind everything, under the status bar too. */}
+              <Backdrop {...region} />
+              <StatusRow {...region} shown={shown} />
+              <Pane
+                active={home}
+                style={[
+                  styles.home,
+                  { top: belowStatus, height: panes.stops.home - belowStatus },
+                ]}
+              >
+                <PrimaryFor primaries={primaries} scene="home">
+                  <HomePane {...region} home={home} />
+                </PrimaryFor>
+              </Pane>
+              {/* Drawn at the right of the status row, but after Home, so a
               screen reader reaches it after the actions and before the
               sheet (REDESIGN.md 9). TalkBack follows the tree. VoiceOver
               orders what shares a container by where each part starts, so
               the control hangs from an anchor that starts just under the
               home pane's top edge: it sorts after Home and before the
               sheet, while drawn, and pressed, in the status row above. */}
-            <View
-              testID="corner"
-              pointerEvents="box-none"
-              style={[styles.cornerAnchor, { top: belowStatus + 1 }]}
-            >
-              <View style={styles.corner}>
-                <CornerControl home={home} />
+              <View
+                testID="corner"
+                pointerEvents="box-none"
+                style={[styles.cornerAnchor, { top: belowStatus + 1 }]}
+              >
+                <View style={styles.corner}>
+                  <CornerControl home={home} />
+                </View>
               </View>
-            </View>
-            <View
-              testID="slot-top"
-              style={[styles.topSlot, { top: belowStatus }]}
-              pointerEvents={blocking ? 'none' : 'box-none'}
-            >
-              {top}
-            </View>
-            <Pane
-              active={home || shown === 'activity'}
-              style={[styles.sheet, { height }, sheetStyle]}
-            >
-              {/* The sheet as it is seen, which rises in as the canvas
+              <View
+                testID="slot-top"
+                style={[styles.topSlot, { top: belowStatus }]}
+                pointerEvents={blocking ? 'none' : 'box-none'}
+              >
+                {top}
+              </View>
+              <Pane
+                active={home || shown === 'activity'}
+                style={[styles.sheet, { height }, sheetStyle]}
+              >
+                {/* The sheet as it is seen, which rises in as the canvas
                   builds and drops away as it leaves. It moves inside the
                   pane rather than the pane moving, so the pane's own place,
                   where VoiceOver orders it, is always the seam. */}
-              <Reanimated.View
-                testID="sheet"
-                entering={sheetIn}
-                exiting={sheetOut}
-                style={styles.sheetFace}
-              >
-                {/* Sized for the compact stop, the highest the sheet rests,
+                <Reanimated.View
+                  testID="sheet"
+                  entering={sheetIn}
+                  exiting={sheetOut}
+                  style={styles.sheetFace}
+                >
+                  {/* Sized for the compact stop, the highest the sheet rests,
                     so the end of the list is reachable there. Lower down the
                     rest simply runs past the bottom edge. */}
-                <View style={{ height: height - panes.stops.compact }}>
-                  <PrimaryFor primaries={primaries} scene="activity">
-                    <SheetPane {...region} shown={shown} />
+                  <View style={{ height: height - panes.stops.compact }}>
+                    <PrimaryFor primaries={primaries} scene="activity">
+                      <SheetPane {...region} shown={shown} />
+                    </PrimaryFor>
+                  </View>
+                </Reanimated.View>
+              </Pane>
+              <View
+                testID="slot-detail"
+                style={[styles.detailSlot, { top: panes.stops.compact }]}
+                pointerEvents={blocking ? 'none' : 'box-none'}
+              >
+                {scene.name === 'detail' && detail ? (
+                  <PrimaryFor
+                    key={scene.key}
+                    primaries={primaries}
+                    scene="detail"
+                  >
+                    <DetailLayer {...region} item={detail} from={scene.from} />
                   </PrimaryFor>
-                </View>
-              </Reanimated.View>
+                ) : null}
+              </View>
             </Pane>
             <View
-              testID="slot-detail"
-              style={[styles.detailSlot, { top: panes.stops.compact }]}
+              testID="slot-settings"
+              style={styles.fill}
               pointerEvents={blocking ? 'none' : 'box-none'}
             >
-              {scene.name === 'detail' && detail ? (
-                <PrimaryFor
+              {scene.name === 'settings' ? (
+                <Reanimated.View
                   key={scene.key}
-                  primaries={primaries}
-                  scene="detail"
+                  entering={slideIn()}
+                  exiting={slideOut()}
+                  style={styles.fill}
                 >
-                  <DetailLayer {...region} item={detail} from={scene.from} />
-                </PrimaryFor>
+                  {/* A swipe in from the left edge takes Settings back, the
+                  canvas coming back under the finger (REDESIGN.md 7, T6). */}
+                  <EdgeBack style={styles.settings}>
+                    <Pane active={!overlay} style={styles.flex}>
+                      <PrimaryFor primaries={primaries} scene="settings">
+                        <SettingsLayer {...region} />
+                      </PrimaryFor>
+                    </Pane>
+                  </EdgeBack>
+                </Reanimated.View>
               ) : null}
             </View>
-          </Pane>
-          <View
-            testID="slot-settings"
-            style={styles.fill}
-            pointerEvents={blocking ? 'none' : 'box-none'}
-          >
-            {scene.name === 'settings' ? (
-              <Reanimated.View
-                key={scene.key}
-                entering={slideIn()}
-                exiting={slideOut()}
-                style={styles.fill}
-              >
-                {/* A swipe in from the left edge takes Settings back, the
-                  canvas coming back under the finger (REDESIGN.md 7, T6). */}
-                <EdgeBack style={styles.settings}>
-                  <Pane active={!overlay} style={styles.flex}>
-                    <PrimaryFor primaries={primaries} scene="settings">
-                      <SettingsLayer {...region} />
-                    </PrimaryFor>
-                  </Pane>
-                </EdgeBack>
-              </Reanimated.View>
+            {scanning ? (
+              <ScanReveal
+                key={scanning.key}
+                origin={scanning.origin}
+                target={scanning.target}
+                onDetected={onScanned}
+                onCancel={onScanCancelled}
+              />
             ) : null}
           </View>
-          {scanning ? (
-            <ScanReveal
-              key={scanning.key}
-              origin={scanning.origin}
-              target={scanning.target}
-              onDetected={onScanned}
-              onCancel={onScanCancelled}
-            />
-          ) : null}
-        </View>
-      </BuildProvider>
+        </BuildProvider>
+      </LaunchProvider>
     </PanesProvider>
   );
 }
@@ -467,9 +521,11 @@ const styles = StyleSheet.create({
   fill: StyleSheet.absoluteFill,
   flex: { flex: 1 },
   home: { position: 'absolute', left: 0, right: 0 },
+  // Its glyph sits where the page edge puts it; the target around it
+  // reaches a little nearer the screen's edge.
   cornerAnchor: {
     position: 'absolute',
-    right: space.xl,
+    right: space.xl - CORNER_REACH,
     width: CORNER_ROOM,
     height: STATUS_ROW,
   },

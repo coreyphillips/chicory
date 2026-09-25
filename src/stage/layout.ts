@@ -1,4 +1,4 @@
-import { space } from '../theme';
+import { space, type as typography } from '../theme';
 import type { Scene, StageState } from './scene';
 
 /**
@@ -51,6 +51,74 @@ export const WELL = 72;
  * padding, half the well down.
  */
 export const WELL_DROP = MINI_STRIP + SLOT_PADDING.top + WELL / 2;
+
+/**
+ * How Home lays out its pane, under the status row and above the sheet's
+ * home stop: the balance and its vessel centred in what the action row
+ * leaves, and the row at the foot. The loading page draws its skeleton from
+ * the same measures, so the canvas that replaces it builds in over it with
+ * nothing moving (REDESIGN.md 7, R-3).
+ */
+export const HOME = {
+  /** The page edge, each side of the balance and the row. */
+  edge: space.xl,
+  /** Between the balance and its vessel. */
+  gap: space.md,
+  /** Above and below the balance's figures. */
+  heroPad: space.xs,
+  /** The vessel's box, its pill at its widest short of a tap. */
+  vessel: 8,
+  /** How much further in than the page edge the vessel runs. */
+  vesselInset: space.xxl,
+  /** The action row: as tall as the Scan circle, the largest in it. */
+  row: 76 as const,
+  /** The Send and Receive circles. */
+  circle: 56 as const,
+  /** Under the action row, over the sheet. */
+  rowBottom: space.lg,
+};
+
+/** The most the hero's figures grow with the text size (REDESIGN.md 3.3). */
+export const HERO_MAX_SCALE = 1.2;
+
+/**
+ * The height of the balance's box at the full hero size, at `fontScale` on a
+ * screen of `ratio` pixels a point: one line box of its figures, in whole
+ * pixels rounded up as the odometer sets its cells, and the padding round
+ * it. The hero only steps down from here, so the box never needs to be
+ * smaller, and keeping it at least this tall keeps the vessel and the row
+ * where they are whatever the balance's size.
+ */
+export function heroBox(fontScale: number, ratio: number): number {
+  const scale = Math.min(fontScale, HERO_MAX_SCALE);
+  const line = typography.hero.lineHeight ?? 0;
+  return Math.ceil(line * scale * ratio - 1e-6) / ratio + 2 * HOME.heroPad;
+}
+
+/**
+ * The primary control Send and Receive draw at the foot of their slot, 88pt
+ * across, which the action circle that opens either grows into (REDESIGN.md
+ * 7, T1).
+ */
+export const PRIMARY_CONTROL = 88;
+
+/**
+ * Where the centre of that control sits, in window points, on a canvas
+ * `width` by `height` with `insets`: at the bottom centre of the slot, over
+ * the slot's bottom padding and the bottom inset. The tapped circle travels
+ * here unless the scene has measured its own control (`useLaunchLanding` in
+ * stage/panes/Launch).
+ */
+export function launchLanding(
+  width: number,
+  height: number,
+  insets: { bottom: number; left: number; right: number },
+): { x: number; y: number } {
+  return {
+    x: insets.left + (width - insets.left - insets.right) / 2,
+    y: height - insets.bottom - SLOT_PADDING.bottom - PRIMARY_CONTROL / 2,
+  };
+}
 
 /** What Settings does to the canvas it slides over. */
 export const COVERED = { scale: 0.94, opacity: 0.5 };

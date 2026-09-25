@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Reanimated, {
   cancelAnimation,
   useAnimatedStyle,
@@ -71,18 +71,23 @@ export function BackupTile({
               }
             : undefined
         }
-        style={styles.tile}
+        style={styles.target}
       >
-        <Reanimated.View style={shield}>
-          <Glyph name="shieldAlert" size={18} color={palette.honey} />
-        </Reanimated.View>
-        <Glyph name="key" size={16} color={palette.honey} />
+        <View style={styles.tile}>
+          <Reanimated.View style={shield}>
+            <Glyph name="shieldAlert" size={18} color={palette.honey} />
+          </Reanimated.View>
+          <Glyph name="key" size={16} color={palette.honey} />
+        </View>
       </Pressable>
     </Reanimated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  // The pill is drawn 36pt tall inside a target of the least a control gets
+  // (REDESIGN.md 3.4).
+  target: { minHeight: 48, justifyContent: 'center' },
   tile: {
     minWidth: 56,
     height: 36,

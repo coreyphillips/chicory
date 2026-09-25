@@ -1,6 +1,22 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
-import type { AccessibilityActionEvent, LayoutChangeEvent } from 'react-native';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  PixelRatio,
+  Pressable,
+  StyleSheet,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import type {
+  AccessibilityActionEvent,
+  HostInstance,
+  LayoutChangeEvent,
+} from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import type { PanGestureConfig } from 'react-native-gesture-handler';
 import Reanimated, {
@@ -30,16 +46,18 @@ import {
   launchPose,
   miniLanding,
   pullOffset,
+  stripOpacity,
   vesselOpacity,
 } from '../../scenes/home/motion';
 import type { HeroFrame, Launch } from '../../scenes/home/motion';
 import { isTestNetwork } from '../../scenes/home/visual';
-import { veilOpacity } from '../../stage/layout';
+import { HOME, heroBox, veilOpacity } from '../../stage/layout';
 import type { BuildBeats } from '../../stage/layout';
+import { useLaunch } from '../../stage/panes/Launch';
+import type { Launch as Landing } from '../../stage/panes/Launch';
 import type { Panes } from '../../stage/panes/Pane';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { usePrimary } from '../../stage/panes/Primary';
-import { space } from '../../theme';
 import type { Unit } from '../../theme';
 
 /** The pull's haptic, as the pan's worklets hand it back to JS. */
@@ -49,7 +67,7 @@ const feelPull = () => haptics.soft();
 const GATED = 0.94;
 
 /** The action row's height: the Scan circle's, the largest in it. */
-const ROW_HEIGHT = 76;
+const ROW_HEIGHT = HOME.row;
 
 /**
  * Home: the balance, the pill of what is spendable and what is on its way,
@@ -137,7 +155,7 @@ export function HomeScreen({
   // Where the mini strip lands: in the band Send and Receive leave clear, or
   // in the status row. It moves on the pane spring when the target changes,
   // so the strip never jumps between the two.
-  const landing = useSharedValue(miniLanding(launching));
+  const landingAt = useSharedValue(miniLanding(launching));
   // The pane follows the finger and springs back on its own; the canvas's
   // pull is only ever the finger, and 0 once it lets go.
   const drag = useSharedValue(0);
@@ -146,10 +164,15 @@ export function HomeScreen({
   const pop = useSharedValue(1);
   const gate = useSharedValue(stale ? GATED : 1);
   // Where the row's middle and the Send and Receive circles are across it,
-  // so a launching circle knows how far it has to travel to the centre.
+  // so a launching circle knows how far it has to travel to the centre, and,
+  // on the canvas, where each circle rests in the window, so it travels to
+  // where the scene it opens draws its own control (`landing`).
   const middle = useSharedValue(0);
   const sendAt = useSharedValue(0);
   const receiveAt = useSharedValue(0);
+  const landing = useLaunch();
+  const sendRest = useWindowPlace();
+  const receiveRest = useWindowPlace();
   const test = isTestNetwork(snapshot.wallet.network);
   const { balance } = snapshot;
 
@@ -162,8 +185,8 @@ export function HomeScreen({
 
   useEffect(() => {
     const to = miniLanding(launching);
-    landing.set(reduced ? to : withSpring(to, springs.pane));
-  }, [launching, reduced, landing]);
+    landingAt.set(reduced ? to : withSpring(to, springs.pane));
+  }, [launching, reduced, landingAt]);
 
   // Money arriving lifts the balance as it rolls to the new figure.
   useEffect(() => {
@@ -219,14 +242,11 @@ export function HomeScreen({
     transform: [{ translateY: pullOffset(drag.get()) }],
   }));
   const heroMotion = useAnimatedStyle(() => {
-    const pose = heroPose(hero.get(), frame.get(), landing.get());
+    const pose = heroPose(hero.get(), frame.get(), landingAt.get());
     return {
       transform: [{ translateY: pose.translateY }, { scale: pose.scale }],
     };
   });
-  const popStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pop.get() }],
-  }));
   const vesselStyle = useAnimatedStyle(() => ({
     opacity: vesselOpacity(hero.get()),
   }));
@@ -236,11 +256,24 @@ export function HomeScreen({
   const veiled = useAnimatedStyle(() => ({
     opacity: veilOpacity(veil?.get() ?? 1),
   }));
-  // Reduce Motion keeps the circles where they are while the row fades.
-  const row = { bar, gate, middle, launching: reduced ? 'none' : launching };
-  const sendLaunch = useLaunchStyle(row, 'send', sendAt);
+  // Reduce Motion keeps the circles where they are while the row fades,
+  // under the veil with the balance.
+  const row = {
+    bar,
+    gate,
+    middle,
+    veil,
+    landing,
+    launching: reduced ? 'none' : launching,
+  };
+  const sendLaunch = useLaunchStyle(row, 'send', sendAt, sendRest.place);
   const scanLaunch = useLaunchStyle(row, null);
-  const receiveLaunch = useLaunchStyle(row, 'receive', receiveAt);
+  const receiveLaunch = useLaunchStyle(
+    row,
+    'receive',
+    receiveAt,
+    receiveRest.place,
+  );
 
   // How each part enters as the canvas builds in, read once as Home mounts,
   // and how the figures roll out as it leaves (R-6).
@@ -260,6 +293,34 @@ export function HomeScreen({
     frame.set({ y, height });
     setRoom(width);
   };
+  // The hero keeps the tallest line box it has drawn, so a step down to a
+  // smaller size, as BTC takes, never moves the vessel and the actions
+  // under it (REDESIGN.md 2.3: layout moves by transform only). A new text
+  // size starts afresh.
+  const { fontScale } = useWindowDimensions();
+  const [tallest, setTallest] = useState({ fontScale, height: 0 });
+  const heroHeight = Math.max(
+    heroBox(fontScale, PixelRatio.get()),
+    tallest.fontScale === fontScale ? tallest.height : 0,
+  );
+  const measureFigures = (event: LayoutChangeEvent) => {
+    const { height } = event.nativeEvent.layout;
+    setTallest(last =>
+      last.fontScale === fontScale && last.height >= height
+        ? last
+        : { fontScale, height },
+    );
+  };
+  // The mini strip's own figures, over the landing (see stripOpacity).
+  const stripHeight = useSharedValue(0);
+  const stripStyle = useAnimatedStyle(() => ({
+    opacity: stripOpacity(hero.get()),
+    transform: [{ translateY: landingAt.get() - stripHeight.get() / 2 }],
+  }));
+  const figuresStyle = useAnimatedStyle(() => ({
+    opacity: 1 - stripOpacity(hero.get()),
+    transform: [{ scale: pop.get() }],
+  }));
   const measureRow = (event: LayoutChangeEvent) =>
     middle.set(event.nativeEvent.layout.width / 2);
   const centreOf = (at: SharedValue<number>) => (event: LayoutChangeEvent) => {
@@ -312,7 +373,7 @@ export function HomeScreen({
             <Reanimated.View
               testID="home-hero"
               onLayout={measureHero}
-              style={[styles.hero, heroMotion]}
+              style={[styles.hero, { minHeight: heroHeight }, heroMotion]}
             >
               <Pressable
                 ref={primary}
@@ -327,10 +388,11 @@ export function HomeScreen({
                 onPress={switchUnit}
                 onLongPress={toggleMask}
                 delayLongPress={400}
+                onLayout={measureFigures}
                 style={styles.balance}
               >
                 <Reanimated.View
-                  style={popStyle}
+                  style={figuresStyle}
                   accessibilityElementsHidden
                   importantForAccessibility="no-hide-descendants"
                 >
@@ -365,6 +427,27 @@ export function HomeScreen({
                 />
               </Reanimated.View>
             </Reanimated.View>
+            {/* The balance as the mini strip, drawn at a size of its own so
+                its unit can be read there (see stripOpacity). The hero's
+                label says it for a screen reader. */}
+            <Reanimated.View
+              testID="home-strip"
+              pointerEvents="none"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              onLayout={event =>
+                stripHeight.set(event.nativeEvent.layout.height)
+              }
+              style={[styles.strip, stripStyle]}
+            >
+              <Odometer
+                sats={heroSats ?? balance.totalSats}
+                unit={unit}
+                masked={hidden}
+                stale={stale}
+                variant="line"
+              />
+            </Reanimated.View>
           </Reanimated.View>
           {/* Each circle sits in a slot as tall as the row, so the three
               share one top edge and VoiceOver, which orders what shares a
@@ -375,19 +458,24 @@ export function HomeScreen({
               testID="home-slot"
               entering={arrive.actions[0]}
               style={styles.slot}
-              onLayout={centreOf(sendAt)}
+              onLayout={event => {
+                centreOf(sendAt)(event);
+                sendRest.measure();
+              }}
             >
-              <Reanimated.View style={sendLaunch}>
-                <ActionCircle
-                  glyph="send"
-                  size={56}
-                  label={copy.home.send}
-                  hint={copy.home.sendHint}
-                  stale={stale}
-                  onAct={whileLive(onSend)}
-                  onRefresh={refresh}
-                />
-              </Reanimated.View>
+              <View ref={sendRest.ref} collapsable={false}>
+                <Reanimated.View style={sendLaunch}>
+                  <ActionCircle
+                    glyph="send"
+                    size={HOME.circle}
+                    label={copy.home.send}
+                    hint={copy.home.sendHint}
+                    stale={stale}
+                    onAct={whileLive(onSend)}
+                    onRefresh={refresh}
+                  />
+                </Reanimated.View>
+              </View>
             </Reanimated.View>
             <Reanimated.View
               testID="home-slot"
@@ -412,19 +500,24 @@ export function HomeScreen({
               testID="home-slot"
               entering={arrive.actions[2]}
               style={styles.slot}
-              onLayout={centreOf(receiveAt)}
+              onLayout={event => {
+                centreOf(receiveAt)(event);
+                receiveRest.measure();
+              }}
             >
-              <Reanimated.View style={receiveLaunch}>
-                <ActionCircle
-                  glyph="receive"
-                  size={56}
-                  label={copy.home.receive}
-                  hint={copy.home.receiveHint}
-                  stale={stale}
-                  onAct={whileLive(onReceive)}
-                  onRefresh={refresh}
-                />
-              </Reanimated.View>
+              <View ref={receiveRest.ref} collapsable={false}>
+                <Reanimated.View style={receiveLaunch}>
+                  <ActionCircle
+                    glyph="receive"
+                    size={HOME.circle}
+                    label={copy.home.receive}
+                    hint={copy.home.receiveHint}
+                    stale={stale}
+                    onAct={whileLive(onReceive)}
+                    onRefresh={refresh}
+                  />
+                </Reanimated.View>
+              </View>
             </Reanimated.View>
           </View>
         </Reanimated.View>
@@ -433,63 +526,111 @@ export function HomeScreen({
   );
 }
 
+/** A point in the window. */
+type Place = { x: number; y: number };
+
+/**
+ * Where a view's centre rests in the window, read as it is laid out: `ref`
+ * goes on the view and `measure` runs from its slot's layout.
+ */
+function useWindowPlace() {
+  const ref = useRef<HostInstance>(null);
+  const place = useSharedValue<Place>({ x: 0, y: 0 });
+  const measure = useCallback(() => {
+    ref.current?.measureInWindow((x, y, width, height) => {
+      if (width && height) place.set({ x: x + width / 2, y: y + height / 2 });
+    });
+  }, [place]);
+  return { ref, place, measure };
+}
+
 /**
  * One circle of the action row, shrunk by the stale `gate`, and posed and
  * faded on the way to `launching` (REDESIGN.md 7, T1 and T2). `own` is the
  * scene the circle opens, if any, and `at` its centre across the row, whose
- * middle is `middle`.
+ * middle is `middle`. On the canvas `rest` is where the circle rests in the
+ * window, and the tapped one travels from there to `landing`, the scene's
+ * own control, and hands over to it as `landing` says. Under Reduce Motion
+ * each circle is under the veil (`veilOpacity`) with the balance.
  */
 function useLaunchStyle(
   {
     bar,
     gate,
     middle,
+    veil,
+    landing,
     launching,
   }: {
     bar: SharedValue<number>;
     gate: SharedValue<number>;
     middle: SharedValue<number>;
+    veil?: SharedValue<number>;
+    landing: Landing | null;
     launching: Launch;
   },
   own: Launch | null,
   at?: SharedValue<number>,
+  rest?: SharedValue<Place>,
 ) {
   return useAnimatedStyle(() => {
-    const toCentre = at ? middle.get() - at.get() : 0;
     const away = 1 - bar.get();
     const tapped = launching === own;
-    const pose = launchPose(away, tapped, launching, toCentre);
+    const from = rest ? rest.get() : null;
+    const measured = !!landing && !!from && from.y > 0;
+    const toCentre = measured
+      ? landing.x.get() - from.x
+      : at
+      ? middle.get() - at.get()
+      : 0;
+    const drop = measured ? landing.y.get() - from.y : undefined;
+    const pose = launchPose(away, tapped, launching, toCentre, drop);
+    const handover = landing ? landing.handover.get() : undefined;
     return {
-      opacity: circleOpacity(away, tapped, launching),
+      opacity:
+        circleOpacity(away, tapped, launching, handover) *
+        veilOpacity(veil ? veil.get() : 1),
       transform: [
         { translateX: pose.translateX },
         { translateY: pose.translateY },
         { scale: pose.scale * gate.get() },
       ],
     };
-  }, [launching, own]);
+  }, [launching, own, landing, veil]);
 }
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   stack: {
     flex: 1,
-    paddingHorizontal: space.xl,
+    paddingHorizontal: HOME.edge,
     maxWidth: 640,
     width: '100%',
     alignSelf: 'center',
   },
   // The balance and its vessel, centred in what the action row leaves.
-  middle: { flex: 1, justifyContent: 'center', gap: space.md },
+  middle: { flex: 1, justifyContent: 'center', gap: HOME.gap },
   // Scaled from its top edge, so the mini strip hangs from where it rises to.
-  hero: { transformOrigin: 'top', alignItems: 'center' },
-  balance: { alignItems: 'center', paddingVertical: space.xs },
-  vessel: { paddingHorizontal: space.xxl },
+  hero: {
+    transformOrigin: 'top',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Placed by its transform, over where the hero lands.
+  strip: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  balance: { alignItems: 'center', paddingVertical: HOME.heroPad },
+  vessel: { paddingHorizontal: HOME.vesselInset },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-evenly',
-    paddingBottom: space.lg,
+    paddingBottom: HOME.rowBottom,
   },
   slot: {
     height: ROW_HEIGHT,

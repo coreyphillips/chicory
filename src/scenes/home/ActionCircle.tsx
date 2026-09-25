@@ -115,6 +115,15 @@ export function ActionCircle({
   const bloom = test ? palette.slate : palette.bloom;
   const fill = stale ? 'transparent' : primary ? bloom : palette.mocha;
   const ink = stale ? palette.dust : primary ? palette.ink : palette.cream;
+  // Gated, the main control keeps a slate ring on a test network: the test
+  // network is a safety state of its own (REDESIGN.md rule 4), and an old
+  // balance must not hide it.
+  const ring =
+    stale && primary && test
+      ? palette.slate
+      : stale || !primary
+      ? palette.husk
+      : fill;
   const circle = (
     <Reanimated.View style={motion}>
       <Pressable
@@ -135,7 +144,7 @@ export function ActionCircle({
             height: size,
             borderRadius: size / 2,
             backgroundColor: fill,
-            borderColor: stale || !primary ? palette.husk : fill,
+            borderColor: ring,
           },
         ]}
       >

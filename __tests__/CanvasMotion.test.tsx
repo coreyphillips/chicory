@@ -194,6 +194,16 @@ function homeParts(tree: ReactTestRenderer) {
   return { hero: part('home-hero'), bar: part('home-bar'), circles };
 }
 
+/**
+ * The balance's own figures. Home draws them twice: as the hero, and again
+ * as the mini strip, which crossfades in as the hero lands.
+ */
+const heroFigures = (tree: ReactTestRenderer) =>
+  tree.root
+    .findByType(HomeScreen)
+    .findAllByType(Odometer)
+    .find(odometer => odometer.props.variant === 'hero')!;
+
 /** The host views drawn with `testID`, in tree order. */
 const byTestID = (tree: ReactTestRenderer, testID: string) =>
   tree.root.findAll(
@@ -384,7 +394,7 @@ describe('the canvas arriving', () => {
         config?.duration === 0 ? to : timing(to, config, done),
       );
     const tree = await render(<OnCanvas arrival="load" />);
-    const hero = () => tree.root.findByType(HomeScreen).findByType(Odometer);
+    const hero = () => heroFigures(tree);
     expect(hero().props.sats).toBe(0);
     expect(hero().props.accessibilityLabel).toBe(
       copy.home.totalBalance(261_500, 'sats'),
@@ -395,9 +405,7 @@ describe('the canvas arriving', () => {
     // Once the beat falls it rolls to the balance.
     const again = await render(<OnCanvas arrival="load" />);
     await settle();
-    expect(
-      again.root.findByType(HomeScreen).findByType(Odometer).props.sats,
-    ).toBe(261_500);
+    expect(heroFigures(again).props.sats).toBe(261_500);
     await act(async () => again.unmount());
   });
 
@@ -431,7 +439,10 @@ describe('the canvas arriving', () => {
 describe('the canvas', () => {
   test('each scene puts the seam at its stop and sets the hero and the action row', async () => {
     const tree = await render(<OnCanvas />);
-    const expectPose = (name: CanvasSceneName) => {
+    const expectPose = async (name: CanvasSceneName) => {
+      // Under the mock a style is read as its component draws, so Home is
+      // drawn again once the scene has taken over from the circle.
+      await act(async () => tree.update(<OnCanvas />));
       const pose = SCENE_LAYOUT[name];
       const { hero, bar, circles } = homeParts(tree);
       expect(transformOf(panes(tree).sheet, 'translateY')).toBe(
@@ -452,7 +463,7 @@ describe('the canvas', () => {
       expect(flat(bar).transform).toBeUndefined();
       expect(flat(host(panes(tree).home)).opacity).toBeUndefined();
     };
-    expectPose('home');
+    await expectPose('home');
     const steps: [() => void, CanvasSceneName][] = [
       [() => stage.actions.openActivity(), 'activity'],
       [() => stage.actions.openDetail(payment), 'detail'],
@@ -466,7 +477,7 @@ describe('the canvas', () => {
     for (const [tap, name] of steps) {
       await act(async () => tap());
       expect(stage.state.scene.name).toBe(name);
-      expectPose(name);
+      await expectPose(name);
     }
     await act(async () => tree.unmount());
   });
