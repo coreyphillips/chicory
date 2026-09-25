@@ -8,7 +8,7 @@ import {
   State,
 } from 'react-native-gesture-handler';
 import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
-import { Circle, G, Path, Pattern } from 'react-native-svg';
+import Svg, { Circle, G, Path, Pattern } from 'react-native-svg';
 import type { WalletRecord } from '@beignet/wallet-core';
 import { Bloom } from '../src/glyphs/Bloom';
 import type { BloomEvent, BloomMode, BloomTone } from '../src/glyphs/Bloom';
@@ -208,6 +208,49 @@ describe('Bloom', () => {
       accessibilityRole: 'image',
       accessibilityState: { busy: true },
     });
+  });
+
+  test('a burst clone grows as it fades; under Reduce Motion it only fades', async () => {
+    const clone = async () => {
+      const tree = await render(<Bloom size={96} />);
+      act(() =>
+        tree.update(<Bloom size={96} event={{ kind: 'burst', key: 1 }} />),
+      );
+      // The clone is the one Svg that draws every petal.
+      const svg = tree.root
+        .findAllByType(Svg)
+        .find(node => node.findAllByType(Path).length === 12)!;
+      let at = svg.parent;
+      while (at && !(typeof at.type === 'string' && flat(at).transform)) {
+        at = at.parent;
+      }
+      const scale = (flat(at!).transform as Array<{ scale?: number }>).find(
+        step => step.scale !== undefined,
+      )!.scale;
+      await act(async () => {});
+      return scale;
+    };
+    expect(await clone()).toBeCloseTo(1.6);
+    reducedMotion();
+    expect(await clone()).toBe(1);
+  });
+
+  test('under Reduce Motion a fall only fades, with nothing dropping', async () => {
+    const drop = async () => {
+      const tree = await render(
+        <Bloom size={96} event={{ kind: 'fall', key: 0 }} />,
+      );
+      return petals(tree).map(petal => {
+        const style = turned(petal);
+        const step = (style.transform as Array<{ translateY?: number }>).find(
+          part => part.translateY !== undefined,
+        );
+        return [style.opacity, step?.translateY];
+      });
+    };
+    for (const pose of await drop()) expect(pose).toEqual([0, 48]);
+    reducedMotion();
+    for (const pose of await drop()) expect(pose).toEqual([0, 0]);
   });
 
   test('under Reduce Motion the chase is a still bloom at .6, and a shake is a tint', async () => {

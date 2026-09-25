@@ -174,7 +174,11 @@ export function drawPlan(
 const AnimatedCircle = Reanimated.createAnimatedComponent(Circle);
 const AnimatedPath = Reanimated.createAnimatedComponent(Path);
 
+/** One pattern hands over to the next; under Reduce Motion, within 160ms. */
 const PATTERN_IN = FadeIn.duration(durations.enter).reduceMotion(
+  ReduceMotion.Never,
+);
+const PATTERN_IN_QUICK = FadeIn.duration(durations.crossfade).reduceMotion(
   ReduceMotion.Never,
 );
 const PATTERN_OUT = FadeOut.duration(durations.exit).reduceMotion(
@@ -604,7 +608,7 @@ export function StatusRing({ size, visual }: StatusRingProps) {
         ) : null}
         <Reanimated.View
           key={`${visual.pattern}:${visual.tone}`}
-          entering={PATTERN_IN}
+          entering={reduced ? PATTERN_IN_QUICK : PATTERN_IN}
           exiting={PATTERN_OUT}
           style={StyleSheet.absoluteFill}
         >

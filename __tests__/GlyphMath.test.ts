@@ -226,6 +226,14 @@ describe('Bloom', () => {
     });
     expect(burstPose(0.5).swell).toBeCloseTo(0.12);
   });
+
+  test('reduced, a burst only brightens the flower where it stands', () => {
+    for (const e of [0, 0.5, 1]) {
+      expect(burstPose(e, true)).toMatchObject({ swell: 0, cloneScale: 1 });
+    }
+    expect(burstPose(0, true).cloneOpacity).toBeGreaterThan(0);
+    expect(burstPose(1, true).cloneOpacity).toBe(0);
+  });
 });
 
 describe('Odometer', () => {

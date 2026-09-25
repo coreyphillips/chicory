@@ -310,15 +310,16 @@ export function wiltPose(w: number) {
 
 /**
  * A burst at `e`, from 0 to done: the petals swell past open and back, and a
- * clone of the flower grows to 1.6 and fades out.
+ * clone of the flower grows to 1.6 and fades out. Reduced, nothing moves:
+ * the clone only brightens the flower where it stands, and fades.
  */
-export function burstPose(e: number) {
+export function burstPose(e: number, still = false) {
   'worklet';
   const out = 1 - (1 - e) * (1 - e);
   return {
     // A rise and fall that is exactly nothing at either end.
-    swell: 0.12 * 4 * e * (1 - e),
-    cloneScale: 1 + 0.6 * out,
+    swell: still ? 0 : 0.12 * 4 * e * (1 - e),
+    cloneScale: still ? 1 : 1 + 0.6 * out,
     cloneOpacity: 0.45 * (1 - e),
   };
 }
@@ -502,11 +503,18 @@ const HaloArt = memo(function HaloDrawing({ size }: { size: number }) {
   );
 });
 
-/** A change of tone or a wilt fades the old drawing out under the new. */
-const ART_IN = FadeIn.duration(durations.draw).reduceMotion(ReduceMotion.Never);
-const ART_OUT = FadeOut.duration(durations.draw).reduceMotion(
-  ReduceMotion.Never,
-);
+/**
+ * A change of tone or a wilt fades the old drawing out under the new; under
+ * Reduce Motion, within a crossfade's 160ms.
+ */
+const ART = {
+  in: FadeIn.duration(durations.draw).reduceMotion(ReduceMotion.Never),
+  out: FadeOut.duration(durations.draw).reduceMotion(ReduceMotion.Never),
+};
+const ART_QUICK = {
+  in: FadeIn.duration(durations.crossfade).reduceMotion(ReduceMotion.Never),
+  out: FadeOut.duration(durations.crossfade).reduceMotion(ReduceMotion.Never),
+};
 const HALO_IN = FadeIn.duration(durations.enter).reduceMotion(
   ReduceMotion.Never,
 );
@@ -563,27 +571,22 @@ const Petal = memo(function BloomPetal({
   useEffect(() => {
     if (fall.get() === (fallen ? 1 : 0)) return;
     cancelAnimation(fall);
-    fall.set(
-      fallen
-        ? withDelay(
-            i * FALL_STEP_MS,
-            withTiming(1, {
-              duration: FALL_MS,
-              easing: curves.exit,
-              reduceMotion: ReduceMotion.Never,
-            }),
-          )
-        : withTiming(0, {
-            duration: durations.enter,
-            easing: curves.enter,
-            reduceMotion: ReduceMotion.Never,
-          }),
-    );
-  }, [fall, i, fallen]);
+    // Reduced, the petals only fade, together and within a crossfade.
+    const timing = withTiming(fallen ? 1 : 0, {
+      duration: reduced
+        ? durations.crossfade
+        : fallen
+        ? FALL_MS
+        : durations.enter,
+      easing: fallen ? curves.exit : curves.enter,
+      reduceMotion: ReduceMotion.Never,
+    });
+    fall.set(fallen && !reduced ? withDelay(i * FALL_STEP_MS, timing) : timing);
+  }, [fall, i, fallen, reduced]);
 
   const { burst, wilt, chase, chasing } = drives;
   const style = useAnimatedStyle(() => {
-    const pose = petalState(q.get() + burstPose(burst.get()).swell, i);
+    const pose = petalState(q.get() + burstPose(burst.get(), reduced).swell, i);
     const droop = wiltPose(wilt.get());
     const drop = fallPose(fall.get(), i, reduced);
     const lit =
@@ -599,12 +602,13 @@ const Petal = memo(function BloomPetal({
     };
   }, [i, reduced, hush]);
 
+  const fade = reduced ? ART_QUICK : ART;
   return (
     <Reanimated.View style={[StyleSheet.absoluteFill, style]}>
       <Reanimated.View
         key={art.art}
-        entering={ART_IN}
-        exiting={ART_OUT}
+        entering={fade.in}
+        exiting={fade.out}
         style={StyleSheet.absoluteFill}
       >
         <PetalArt {...art} />
@@ -692,16 +696,24 @@ export function Bloom({
   useEffect(() => {
     if (!kind || event?.key === played.current) return;
     played.current = event?.key;
-    if (kind === 'burst' && !reduced) {
+    if (kind === 'burst') {
       setBursting(true);
       burst.set(0);
       burst.set(
-        withTiming(1, { duration: BURST_MS, easing: curves.standard }, done => {
-          'worklet';
-          if (done) scheduleOnRN(setBursting, false);
-        }),
+        withTiming(
+          1,
+          {
+            duration: reduced ? durations.crossfade : BURST_MS,
+            easing: curves.standard,
+            reduceMotion: ReduceMotion.Never,
+          },
+          done => {
+            'worklet';
+            if (done) scheduleOnRN(setBursting, false);
+          },
+        ),
       );
-      center.set(kick(0.3, springs.boing));
+      if (!reduced) center.set(kick(0.3, springs.boing));
     }
     if (kind === 'shake' || kind === 'wilt') {
       if (reduced) {
@@ -723,15 +735,15 @@ export function Bloom({
     }
   }, [kind, event?.key, reduced, burst, center, nudge, tint]);
   useEffect(() => {
-    if (wilt.get() === (wilted ? 1 : 0)) return;
+    const to = wilted ? 1 : 0;
+    if (wilt.get() === to) return;
+    // Reduced, the petals take the droop at once; the dust crossfades in.
     wilt.set(
-      withTiming(wilted ? 1 : 0, {
-        duration: durations.draw,
-        easing: curves.standard,
-        reduceMotion: ReduceMotion.Never,
-      }),
+      reduced
+        ? to
+        : withTiming(to, { duration: durations.draw, easing: curves.standard }),
     );
-  }, [wilt, wilted]);
+  }, [wilt, wilted, reduced]);
 
   const wrapStyle = useAnimatedStyle(() => {
     const b = breathe(breath.get());
@@ -747,12 +759,12 @@ export function Bloom({
     transform: [{ scale: center.get() }],
   }));
   const cloneStyle = useAnimatedStyle(() => {
-    const b = burstPose(burst.get());
+    const b = burstPose(burst.get(), reduced);
     return {
       opacity: b.cloneOpacity,
       transform: [{ scale: b.cloneScale }],
     };
-  });
+  }, [reduced]);
   const haloStyle = useAnimatedStyle(() => ({
     opacity: haloOpacity(glow.get()),
   }));
@@ -812,8 +824,8 @@ export function Bloom({
           <Reanimated.View style={[StyleSheet.absoluteFill, centerStyle]}>
             <Reanimated.View
               key={tone}
-              entering={ART_IN}
-              exiting={ART_OUT}
+              entering={reduced ? ART_QUICK.in : ART.in}
+              exiting={reduced ? ART_QUICK.out : ART.out}
               style={StyleSheet.absoluteFill}
             >
               <CenterArt size={size} tone={tone} full={full} />
