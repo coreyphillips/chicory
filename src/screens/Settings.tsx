@@ -27,6 +27,7 @@ import {
   Toggle,
   testNetwork,
 } from '../scenes/settings/ui';
+import { duringSystemPrompt } from '../stage/systemPrompt';
 import { useHapticsPreference } from '../services/hapticsPreference';
 import type { WalletAdapter } from '../services/wallet';
 import { NETWORKS, loadNetworkPreferences } from '../services/networks';
@@ -293,7 +294,12 @@ function PrimarySection({
   );
 }
 
-/** The app lock, when this device can offer one. */
+/**
+ * The app lock, when this device can offer one. Turning it on asks for the
+ * biometric at once (`setLockEnabled`), and that prompt is one the app raised
+ * (`duringSystemPrompt`), so Settings stays in view behind it rather than
+ * going under the privacy cover. Turning it off asks for nothing.
+ */
 function AppLock() {
   const [kind, setKind] = useState<BiometryKind | null>(null);
   const [enabled, setEnabled] = useState(false);
@@ -325,7 +331,9 @@ function AppLock() {
           setBusy(true);
           setError('');
           try {
-            await setLockEnabled(next);
+            await (next
+              ? duringSystemPrompt(() => setLockEnabled(true))
+              : setLockEnabled(false));
             setEnabled(next);
           } catch (e) {
             setError(e instanceof Error ? e.message : words.phone.lockFailed);
@@ -378,7 +386,9 @@ function Haptics() {
 /**
  * Start over on this phone. The action sits behind a link and a second,
  * explicit button, and behind the app lock when one is on, because it deletes
- * keys and channel state that a phrase alone does not bring back.
+ * keys and channel state that a phrase alone does not bring back. The lock's
+ * prompt is one the app raised (`duringSystemPrompt`), so the warning stays
+ * in view behind it.
  */
 function EraseWallet({ onErase }: { onErase: () => Promise<void> }) {
   const [confirming, setConfirming] = useState(false);
@@ -420,8 +430,10 @@ function EraseWallet({ onErase }: { onErase: () => Promise<void> }) {
           setBusy(true);
           setError('');
           try {
-            if (!(await requireUnlock(e.prompt)))
-              throw new Error(e.unconfirmed);
+            const confirmed = await duringSystemPrompt(() =>
+              requireUnlock(e.prompt),
+            );
+            if (!confirmed) throw new Error(e.unconfirmed);
             await onErase();
           } catch (reason) {
             setError(reason instanceof Error ? reason.message : e.failed);

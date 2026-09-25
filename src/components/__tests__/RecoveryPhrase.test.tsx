@@ -4,6 +4,8 @@ import { AppState } from 'react-native';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import { copy } from '../../design/copy';
+import { requireUnlock } from '../../services/lock';
+import { PROMPT_SETTLE_MS, systemPromptOpen } from '../../stage/systemPrompt';
 import { ACTIVATE, press } from '../../../test-support/query';
 import { RecoveryPhrase } from '../RecoveryPhrase';
 
@@ -110,5 +112,26 @@ describe('the recovery words', () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
     expect(shown(tree)).toBe(0);
     expect(exitPlayed()).toBe(true);
+  });
+});
+
+describe('revealing the words', () => {
+  test("asks for the lock's biometric as the app's own prompt", async () => {
+    // The privacy cover leaves the page in view behind a prompt the app
+    // raised, so Face ID does not blank the phrase's section.
+    let during: boolean | null = null;
+    jest.mocked(requireUnlock).mockImplementationOnce(async () => {
+      during = systemPromptOpen();
+      return true;
+    });
+    // The reveals before this one have let their spans go.
+    await act(
+      () => new Promise<void>(done => setTimeout(done, PROMPT_SETTLE_MS + 50)),
+    );
+    expect(systemPromptOpen()).toBe(false);
+    const tree = await revealed();
+    expect(requireUnlock).toHaveBeenCalledWith(words.prompt);
+    expect(during).toBe(true);
+    expect(shown(tree)).toBe(12);
   });
 });
