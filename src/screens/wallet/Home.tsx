@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { AccessibilityActionEvent, LayoutChangeEvent } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
+import type { PanGestureConfig } from 'react-native-gesture-handler';
 import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
@@ -159,37 +160,43 @@ export function HomeScreen({
   }, [arrived, reduced, pop]);
 
   const refresh = live ? onRefresh : undefined;
-  const follow = (dy: number) => {
-    'worklet';
-    drag.set(Math.max(0, dy));
-    pull?.set(Math.max(0, dy));
-    const ready = dy >= PULL_TRIGGER;
-    if (ready !== armed.get()) {
-      armed.set(ready);
-      if (ready) scheduleOnRN(feelPull);
-    }
-  };
-  const pan = usePanGesture({
-    enabled: !!refresh,
-    // Only a pull down starts it, and a sideways swipe never does.
-    activeOffsetY: 12,
-    failOffsetX: [-20, 20],
-    onActivate: event => {
+  // Held across renders, so a poll or a pane that starts or ends a move,
+  // which draw Home again, never hands the pan a new configuration, even
+  // mid-pull.
+  const config = useMemo<PanGestureConfig>(() => {
+    const follow = (dy: number) => {
       'worklet';
-      follow(event.translationY);
-    },
-    onUpdate: event => {
-      'worklet';
-      follow(event.translationY);
-    },
-    onDeactivate: event => {
-      'worklet';
-      if (armed.get() && !event.canceled && refresh) scheduleOnRN(refresh);
-      armed.set(false);
-      pull?.set(0);
-      drag.set(withSpring(0, springs.pane));
-    },
-  });
+      drag.set(Math.max(0, dy));
+      pull?.set(Math.max(0, dy));
+      const ready = dy >= PULL_TRIGGER;
+      if (ready !== armed.get()) {
+        armed.set(ready);
+        if (ready) scheduleOnRN(feelPull);
+      }
+    };
+    return {
+      enabled: !!refresh,
+      // Only a pull down starts it, and a sideways swipe never does.
+      activeOffsetY: 12,
+      failOffsetX: [-20, 20],
+      onActivate: event => {
+        'worklet';
+        follow(event.translationY);
+      },
+      onUpdate: event => {
+        'worklet';
+        follow(event.translationY);
+      },
+      onDeactivate: event => {
+        'worklet';
+        if (armed.get() && !event.canceled && refresh) scheduleOnRN(refresh);
+        armed.set(false);
+        pull?.set(0);
+        drag.set(withSpring(0, springs.pane));
+      },
+    };
+  }, [refresh, drag, pull, armed]);
+  const pan = usePanGesture(config);
 
   const stackStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: pullOffset(drag.get()) }],

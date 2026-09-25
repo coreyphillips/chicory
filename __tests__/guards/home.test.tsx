@@ -12,6 +12,7 @@ import {
   GestureDetector,
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
+import * as Reanimated from 'react-native-reanimated';
 import { ReduceMotion, useSharedValue } from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -878,6 +879,31 @@ describe('the pull', () => {
     );
     expect(live.manualRefresh).toHaveBeenCalledTimes(1);
     expect(soft).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('keeps its configuration when Home draws again, as each poll does', async () => {
+    // A shared value lives as long as its component, as on a device; the
+    // mock would otherwise make a new one on every render.
+    const made = Reanimated.useSharedValue;
+    jest
+      .spyOn(Reanimated, 'useSharedValue')
+      .mockImplementation(init => React.useState(() => made(init))[0]);
+    const live = session();
+    const tree = await draw({
+      snapshot: snapshotOf({ wallet: MAINNET }),
+      session: live,
+    });
+    const before = pan(tree).config;
+    await act(async () =>
+      tree.update(
+        <HomeRegions
+          snapshot={{ ...snapshotOf({ wallet: MAINNET }), updatedAt: NOW + 1 }}
+          session={live}
+        />,
+      ),
+    );
+    expect(pan(tree).config).toBe(before);
     await act(async () => tree.unmount());
   });
 
