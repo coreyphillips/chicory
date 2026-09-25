@@ -37,7 +37,7 @@ import { field, press } from '../../test-support/query';
 const PHRASE =
   'abandon ability able about above absent absorb abstract absurd abuse access accident';
 
-function client(): WalletAdapter {
+function client(over: Partial<WalletAdapter> = {}): WalletAdapter {
   return {
     connection: { url: 'embedded:', token: '' },
     demo: false,
@@ -50,6 +50,7 @@ function client(): WalletAdapter {
     createWallet: jest
       .fn()
       .mockResolvedValue({ ...walletOf(), mnemonic: PHRASE }),
+    ...over,
   } as unknown as WalletAdapter;
 }
 
@@ -91,13 +92,18 @@ function settings(
   {
     backup = null,
     over = {},
-  }: { backup?: Backup | null; over?: Partial<CanvasSession> } = {},
+    adapter = client(),
+  }: {
+    backup?: Backup | null;
+    over?: Partial<CanvasSession>;
+    adapter?: WalletAdapter;
+  } = {},
 ) {
   return mount(
     <OnStage>
       <SettingsLayer
         snapshot={snapshot}
-        client={client()}
+        client={adapter}
         session={session(over)}
         view={view}
         stale={false}
@@ -113,11 +119,15 @@ const pending: Backup = {
   onSaved: jest.fn(),
 };
 
-function sheet(restoring: boolean, network: 'mainnet' | 'regtest') {
+function sheet(
+  restoring: boolean,
+  network: 'mainnet' | 'regtest',
+  adapter = client(),
+) {
   return mount(
     <OnStage>
       <CreateSheet
-        client={client()}
+        client={adapter}
         profile={defaultProfile(network)}
         restoring={restoring}
         onCreated={jest.fn().mockResolvedValue(undefined)}
@@ -127,8 +137,8 @@ function sheet(restoring: boolean, network: 'mainnet' | 'regtest') {
 }
 
 /** Restore entry with `count` words typed. */
-async function typed(count: number) {
-  const tree = await sheet(true, 'regtest');
+async function typed(count: number, adapter = client()) {
+  const tree = await sheet(true, 'regtest', adapter);
   const words = PHRASE.split(' ');
   const phrase = Array.from(
     { length: count },
@@ -181,6 +191,15 @@ const GUARDED: GuardedState[] = [
     data: guardData(snapshot, PHRASE.split(' ')),
   },
   {
+    name: 'settings showing the phrase',
+    render: async () => {
+      const tree = await settings(snapshot);
+      await press(tree, 'Reveal recovery phrase');
+      return tree;
+    },
+    data: guardData(snapshot, PHRASE.split(' ')),
+  },
+  {
     name: 'settings proposing another network',
     render: async () => {
       const tree = await settings(snapshot);
@@ -203,6 +222,32 @@ const GUARDED: GuardedState[] = [
     render: async () => {
       const tree = await settings(snapshot);
       await press(tree, 'Change primary node');
+      return tree;
+    },
+    data: guardData(snapshot),
+  },
+  {
+    name: 'settings having saved the primary node',
+    render: async () => {
+      const tree = await settings(snapshot);
+      await press(tree, 'Change primary node');
+      await press(tree, 'Save primary node');
+      return tree;
+    },
+    data: guardData(snapshot),
+  },
+  {
+    name: 'settings refused a primary node',
+    render: async () => {
+      const tree = await settings(snapshot, {
+        adapter: client({
+          updatePrimary: jest
+            .fn()
+            .mockRejectedValue(new Error('That node URI is not valid.')),
+        }),
+      });
+      await press(tree, 'Change primary node');
+      await press(tree, 'Save primary node');
       return tree;
     },
     data: guardData(snapshot),
@@ -289,6 +334,22 @@ const GUARDED: GuardedState[] = [
     data: [],
   },
   {
+    name: 'restore entry, refused',
+    render: async () => {
+      const tree = await typed(
+        12,
+        client({
+          createWallet: jest
+            .fn()
+            .mockRejectedValue(new Error('That recovery phrase is not valid.')),
+        }),
+      );
+      await press(tree, 'Restore regtest wallet');
+      return tree;
+    },
+    data: [],
+  },
+  {
     name: 'new wallet with its phrase to save',
     render: async () => {
       const tree = await sheet(false, 'regtest');
@@ -342,6 +403,32 @@ const GUARDED: GuardedState[] = [
           onCreate={jest.fn()}
         />,
       ),
+    data: names,
+  },
+  {
+    name: 'wallet picker opening the chosen wallet',
+    render: async () => {
+      const onSelect = jest.fn();
+      const tree = await mount(
+        <WalletPicker
+          wallets={wallets}
+          onSelect={onSelect}
+          onCreate={jest.fn()}
+        />,
+      );
+      await press(tree, 'Open Savings');
+      await act(async () =>
+        tree.update(
+          <WalletPicker
+            wallets={wallets}
+            busy
+            onSelect={onSelect}
+            onCreate={jest.fn()}
+          />,
+        ),
+      );
+      return tree;
+    },
     data: names,
   },
   {
