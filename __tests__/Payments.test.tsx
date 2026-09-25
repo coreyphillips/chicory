@@ -9,6 +9,7 @@ import { copy } from '../src/design/copy';
 import * as tokens from '../src/motion/tokens';
 import { stepInMs } from '../src/scenes/send/useLanding';
 import type { WalletAdapter } from '../src/services/wallet';
+import { clearHeldRequests } from '../src/stage/heldRequests';
 import { amountValue, enterAmount } from '../test-support/keypad';
 import {
   ACTIVATE,
@@ -78,6 +79,17 @@ const keypads = (tree: ReactTestRenderer) =>
       node.props.accessibilityLabel === copy.keypad.label,
   );
 
+// A request held by one test's unknown payment would send the next test that
+// pays it to the held ring, and the platform's announcer is a mock that keeps
+// every call. Each test starts with neither, so it sees only what it did.
+beforeEach(() => {
+  clearHeldRequests();
+  jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+  jest
+    .mocked(AccessibilityInfo.announceForAccessibilityWithOptions)
+    .mockClear();
+});
+
 test('review does not send; confirmation sends once and preserves uncertain status', async () => {
   const prepareSend = jest.fn().mockResolvedValue(quote);
   let resolveSend!: (value: unknown) => void;
@@ -98,14 +110,14 @@ test('review does not send; confirmation sends once and preserves uncertain stat
   );
   await act(async () => {
     field(tree, 'Payment request or address').props.onChangeText(
-      'lnbc-unknown',
+      'lnbc-request',
     );
   });
   await act(async () => {
     await label(tree, 'Review payment').props.onPress();
   });
   expect(prepareSend).toHaveBeenCalledWith({
-    request: 'lnbc-unknown',
+    request: 'lnbc-request',
     amountSats: undefined,
   });
   expect(send).not.toHaveBeenCalled();
@@ -505,49 +517,58 @@ async function payOnce(client: WalletAdapter, request: string) {
 }
 
 test('a request whose payment is unknown cannot be paid again: it lands on the held ring', async () => {
-  const said = jest.spyOn(
-    AccessibilityInfo,
-    'announceForAccessibilityWithOptions',
-  );
-  const prepareSend = jest.fn().mockResolvedValue(quote);
-  const send = jest.fn().mockResolvedValue({
-    id: 'p-held',
-    status: 'uncertain',
-    amountSats: 4200,
-    feeSats: 20,
-    message: 'Payment status unknown.',
-  });
-  const client = adapter({ prepareSend, send });
-  const paid = await payOnce(client, 'lnbc-held');
-  // Unknown is said loudly, as soon as a screen reader is on its mark.
-  await act(async () => {
-    await new Promise<void>(resolve => setTimeout(resolve, stepInMs() + 50));
-  });
-  expect(said).toHaveBeenCalledWith(copy.send.heldAnnouncement, {
-    queue: false,
-  });
-  await act(async () => paid.unmount());
-  for (const again of ['lnbc-held', '  LIGHTNING:LNBC-HELD ']) {
-    const tree = await renderSend(
-      <SendScreen
-        client={client}
-        initialRequest={again}
-        onActivity={jest.fn()}
-        onRefresh={jest.fn()}
-        onBusy={onBusy}
-      />,
+  // A phrase is spoken again only 2s after it was last spoken, and the first
+  // test here says this one. An hour on, what this test says is heard.
+  jest.useFakeTimers({ now: Date.now() + 3_600_000 });
+  try {
+    const said = jest.spyOn(
+      AccessibilityInfo,
+      'announceForAccessibilityWithOptions',
     );
-    const shown = meaning(tree);
-    expect(shown).toContain(copy.send.held);
-    expect(shown).toContain('Needs checking');
-    expect(pressableLabels(tree)).not.toContain('Review payment');
-    expect(holds(tree, 'Send 4,200 sats')).toEqual([]);
-    expect(pressableLabels(tree)).toContain(copy.send.viewActivity);
-    await act(async () => tree.unmount());
+    const prepareSend = jest
+      .fn()
+      .mockResolvedValue({ ...quote, expiresAt: Date.now() + 60000 });
+    const send = jest.fn().mockResolvedValue({
+      id: 'p-held',
+      status: 'uncertain',
+      amountSats: 4200,
+      feeSats: 20,
+      message: 'Payment status unknown.',
+    });
+    const client = adapter({ prepareSend, send });
+    const paid = await payOnce(client, 'lnbc-held');
+    // Unknown is said loudly, as soon as a screen reader is on its mark.
+    await act(async () => {
+      jest.advanceTimersByTime(stepInMs() + 50);
+    });
+    expect(said).toHaveBeenCalledWith(copy.send.heldAnnouncement, {
+      queue: false,
+    });
+    await act(async () => paid.unmount());
+    for (const again of ['lnbc-held', '  LIGHTNING:LNBC-HELD ']) {
+      const tree = await renderSend(
+        <SendScreen
+          client={client}
+          initialRequest={again}
+          onActivity={jest.fn()}
+          onRefresh={jest.fn()}
+          onBusy={onBusy}
+        />,
+      );
+      const shown = meaning(tree);
+      expect(shown).toContain(copy.send.held);
+      expect(shown).toContain('Needs checking');
+      expect(pressableLabels(tree)).not.toContain('Review payment');
+      expect(holds(tree, 'Send 4,200 sats')).toEqual([]);
+      expect(pressableLabels(tree)).toContain(copy.send.viewActivity);
+      await act(async () => tree.unmount());
+    }
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    said.mockRestore();
+  } finally {
+    jest.useRealTimers();
   }
-  expect(prepareSend).toHaveBeenCalledTimes(1);
-  expect(send).toHaveBeenCalledTimes(1);
-  said.mockRestore();
 });
 
 test('a send that ends without a result is held as unknown, never an error to retry', async () => {

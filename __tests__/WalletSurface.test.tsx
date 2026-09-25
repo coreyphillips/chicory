@@ -11,13 +11,16 @@ import {
 } from '../src/screens/Wallet';
 import { copy } from '../src/design/copy';
 import { chipText } from '../src/glyphs/CopyChip';
+import { Odometer } from '../src/glyphs/Odometer';
 import { StatusRing } from '../src/glyphs/StatusRing';
 import { ringFlags, ringVisual } from '../src/scenes/activity/visual';
 import { useNow } from '../src/services/clock';
+import { MASK } from '../src/theme';
 import { copyViolations } from '../test-support/copyGuard';
 import { mount } from '../test-support/guard';
 import {
   allText,
+  drawnIn,
   meaning,
   press,
   visibleText,
@@ -224,6 +227,12 @@ test('hiding the balance masks the total, the available line and every row amoun
     </>,
   );
   expect(visibleText(tree)).toContain('••••••');
+  // The hero draws a figure to a cell, so the total is read from its cells:
+  // the mask and the unit, and not one digit.
+  const hero = drawnIn(
+    tree.root.findAll(node => node.props.testID === 'home-hero')[0],
+  );
+  expect(hero).toBe(`${MASK}sats`);
   // Not on screen, and not to a screen reader either.
   const everything = allText(tree);
   for (const figure of ['261,500', '250,000', '11,500', '4,200']) {
@@ -284,7 +293,9 @@ test('payment details keep a hidden balance hidden and follow the unit', async (
   });
   let rendered = text(tree);
   expect(rendered).toContain('••••••');
-  expect(rendered).not.toContain('4,200');
+  // The amount draws a figure to a cell, so it is read from its cells: the
+  // mask and the unit, with no sign to say which way the money went.
+  expect(drawnIn(tree.root.findByType(Odometer))).toBe(`${MASK}sats`);
   expect(meaning(tree)).not.toContain('4,200');
   // A reference is not an amount; it stays readable, in groups of four,
   // and copies whole.
@@ -296,7 +307,7 @@ test('payment details keep a hidden balance hidden and follow the unit', async (
   });
   rendered = text(tree);
   expect(rendered).toContain('BTC');
-  expect(rendered).not.toContain('4,200 sats');
+  expect(drawnIn(tree.root.findByType(Odometer))).toBe('−0.00004200BTC');
   await act(async () => tree.unmount());
 });
 

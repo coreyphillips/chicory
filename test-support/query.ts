@@ -253,6 +253,21 @@ export function visibleText(tree: ReactTestRenderer): string[] {
 }
 
 /**
+ * What `node` draws, read as one run, as an eye reads it. The Odometer draws
+ * each figure in a cell of its own, so `visibleText` lists "2", "6", "1" and
+ * never "261" whole, and a check for the amount there cannot fail. Read here
+ * it is "261,500sats" again, and a masked amount is its dots and unit alone.
+ */
+export function drawnIn(node: ReactTestInstance): string {
+  return node
+    .findAll(at => typeof at.type === 'string')
+    .flatMap(at =>
+      at.children.filter((child): child is string => typeof child === 'string'),
+    )
+    .join('');
+}
+
+/**
  * Every string a screen reader is given: the label, hint and value text of
  * every host node, in tree order. A subtree it skips, such as a pane out of
  * use, says nothing.
