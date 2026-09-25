@@ -1,41 +1,20 @@
 import React from 'react';
 import { Text, TextInput, View } from 'react-native';
-import { act, create } from 'react-test-renderer';
-import type { ReactTestRenderer } from 'react-test-renderer';
+import { act } from 'react-test-renderer';
 import { SETTINGS_MARKER, copyViolations } from '../test-support/copyGuard';
+import { mount } from '../test-support/guard';
 
 /**
- * A state the guard holds to REDESIGN.md rule 1. Each track adds the states it
- * redraws, so the list only grows.
+ * The copy guard's harness: negative controls proving it catches prose and
+ * lets data through. Each track holds the states it redraws to it in its own
+ * file under __tests__/guards.
  */
-export interface GuardedScene {
-  name: string;
-  /** Renders the state and lets it settle; the test unmounts it. */
-  render: () => Promise<ReactTestRenderer>;
-  /**
-   * What the state shows that is data by content: formatter output such as
-   * dates, and fixture values such as wallet names, notes, request strings,
-   * txids and recovery words.
-   */
-  data: string[];
-}
-
-export const GUARDED_SCENES: GuardedScene[] = [];
-
-async function render(element: React.ReactElement) {
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(element);
-  });
-  return tree;
-}
-
 function FakeScene({ children }: { children: React.ReactNode }) {
   return <View>{children}</View>;
 }
 
 async function violations(element: React.ReactElement, data: string[] = []) {
-  const tree = await render(element);
+  const tree = await mount(element);
   const found = copyViolations(tree, { data });
   await act(async () => tree.unmount());
   return found;
@@ -98,7 +77,7 @@ describe('negative controls', () => {
   });
 
   test('a second settings marker throws rather than hiding a scene', async () => {
-    const tree = await render(
+    const tree = await mount(
       <FakeScene>
         <View testID={SETTINGS_MARKER} />
         <View testID={SETTINGS_MARKER} />
@@ -158,20 +137,4 @@ describe('shapes that are data', () => {
     const found = await violations(<Text>{text}</Text>);
     expect(found.map(item => item.text)).toEqual([text]);
   });
-});
-
-describe('guarded scenes', () => {
-  test('each is listed once', () => {
-    const names = GUARDED_SCENES.map(scene => scene.name);
-    expect(new Set(names).size).toBe(names.length);
-  });
-
-  for (const scene of GUARDED_SCENES) {
-    test(`${scene.name} shows only data`, async () => {
-      const tree = await scene.render();
-      const found = copyViolations(tree, { data: scene.data });
-      await act(async () => tree.unmount());
-      expect(found).toEqual([]);
-    });
-  }
 });

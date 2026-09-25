@@ -7,31 +7,21 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { act, create } from 'react-test-renderer';
-import type { ReactTestRenderer } from 'react-test-renderer';
+import { act } from 'react-test-renderer';
 import { Button, Chip, IconButton } from '../src/components/ui';
 import { AmountField } from '../src/components/AmountField';
 import { a11yProblems } from '../test-support/a11y';
+import { mount } from '../test-support/guard';
 
 /**
- * A state whose every control must be named for a screen reader. Each track
- * adds the states it redraws, so the list only grows.
+ * The accessibility check's harness: negative controls proving it catches a
+ * control a screen reader cannot name and passes one it can. Each track holds
+ * the states it redraws to it in its own file under __tests__/guards.
  */
-export interface CoveredState {
-  name: string;
-  /** Renders the state and lets it settle; the test unmounts it. */
-  render: () => Promise<ReactTestRenderer>;
-}
-
-export const COVERED_STATES: CoveredState[] = [];
-
 const noop = () => {};
 
 async function problems(element: React.ReactElement) {
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(element);
-  });
+  const tree = await mount(element);
   const found = a11yProblems(tree);
   await act(async () => tree.unmount());
   return found;
@@ -145,20 +135,4 @@ describe('negative controls', () => {
     const found = await problems(<Pressable accessibilityRole="button" />);
     expect(found).toEqual([]);
   });
-});
-
-describe('covered states', () => {
-  test('each is listed once', () => {
-    const names = COVERED_STATES.map(state => state.name);
-    expect(new Set(names).size).toBe(names.length);
-  });
-
-  for (const state of COVERED_STATES) {
-    test(`${state.name} names every control`, async () => {
-      const tree = await state.render();
-      const found = a11yProblems(tree);
-      await act(async () => tree.unmount());
-      expect(found).toEqual([]);
-    });
-  }
 });
