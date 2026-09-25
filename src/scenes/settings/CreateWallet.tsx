@@ -8,7 +8,9 @@ import type {
   WalletRecord,
 } from '@beignet/wallet-core';
 import { RecoveryPhrase } from '../../components/RecoveryPhrase';
+import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
+import { haptics } from '../../design/haptics';
 import { riseIn, smooth } from '../../motion/presets';
 import { seedSourceNetwork } from '../../embedded/seed';
 import { defaultProfile } from '../../services/networks';
@@ -114,6 +116,12 @@ export function CreateWalletScreen({
     return () => onBusy(false);
   }, [busy, created, onBusy]);
   function chooseNetwork(value: DeviceNetwork) {
+    // A wallet of real money is a safety state (REDESIGN.md rule 4): turning
+    // to mainnet is felt and read out at once, not only drawn in honey.
+    if (!testNetwork(value) && testNetwork(network)) {
+      haptics.warning();
+      announce(words.mainnet, { assertive: true });
+    }
     setNetwork(value);
     // One source for what a network starts with, so this form and the network
     // settings cannot disagree about a default.

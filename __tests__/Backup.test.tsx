@@ -1,6 +1,7 @@
 import React from 'react';
 import { AccessibilityInfo } from 'react-native';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
+import HapticFeedback from 'react-native-haptic-feedback';
 import { CreateWalletScreen } from '../src/screens/Settings';
 import {
   countWords,
@@ -458,5 +459,45 @@ test('a new wallet lands a screen reader on the phrase it has to save', async ()
     .map(([node]) => node as unknown as { props: { children: unknown } })
     .map(node => node.props.children);
   expect(landed).toEqual(['Save your recovery phrase.']);
+  await act(async () => tree.unmount());
+});
+
+test('turning a new wallet to mainnet is felt and read out at once', async () => {
+  const announced = jest.mocked(
+    AccessibilityInfo.announceForAccessibilityWithOptions,
+  );
+  const trigger = jest.mocked(HapticFeedback.trigger);
+  const client = {
+    connection: { url: 'embedded:', token: '' },
+    getConfig: jest.fn().mockResolvedValue({ hasDefaultElectrum: true }),
+    createWallet: jest.fn(),
+  } as unknown as WalletAdapter;
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <CreateWalletScreen
+        client={client}
+        onCreated={jest.fn()}
+        onBusy={jest.fn()}
+      />,
+    );
+  });
+  await act(async () => label(tree, 'regtest').props.onPress());
+  announced.mockClear();
+  trigger.mockClear();
+  await act(async () => label(tree, 'mainnet').props.onPress());
+  expect(announced).toHaveBeenCalledWith(
+    'This creates a real mainnet wallet. The primary node is trusted for instant funding.',
+    { queue: false },
+  );
+  expect(trigger).toHaveBeenCalledWith(
+    'notificationWarning',
+    expect.anything(),
+  );
+  // Choosing it again, or a test network, says nothing more.
+  announced.mockClear();
+  await act(async () => label(tree, 'mainnet').props.onPress());
+  await act(async () => label(tree, 'testnet').props.onPress());
+  expect(announced).not.toHaveBeenCalled();
   await act(async () => tree.unmount());
 });
