@@ -345,6 +345,11 @@ const GUARDED: GuardedState[] = [
     render: () => saved({ networkEditor: true }),
     data: DATA,
   },
+  {
+    name: 'saved, network editor while opening',
+    render: () => saved({ networkEditor: true, connecting: true }),
+    data: DATA,
+  },
   { name: 'welcome, first run', render: () => welcome(), data: DATA },
   {
     name: 'welcome, after a lock',
@@ -448,6 +453,11 @@ const GUARDED: GuardedState[] = [
   {
     name: 'offline, settings',
     render: () => opened(() => offline(), copy.phase.settings),
+    data: DATA,
+  },
+  {
+    name: 'offline, settings while retrying',
+    render: () => opened(() => offline({ busy: true }), copy.phase.settings),
     data: DATA,
   },
   {
