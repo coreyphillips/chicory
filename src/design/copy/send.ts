@@ -45,6 +45,9 @@ export const send = {
   held: 'This request has a payment whose outcome is not known yet. It cannot be paid again until that resolves.',
   heldAnnouncement:
     'Payment status unknown. Do not pay again until this is resolved.',
+  // A request whose payment completed, entered again.
+  paidAlready: 'Already paid.',
+  paid: 'This request has been paid. It cannot be paid again.',
   showPayment: 'Shows the payment in Activity.',
   feePaid: 'Fee paid',
   reviewedFee: 'Reviewed fee',

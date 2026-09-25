@@ -48,16 +48,23 @@ interface FaceProps {
   visual: ResultVisual;
 }
 
-/** Done: a cream disc, and an ink check drawing across it. */
-function Disc() {
+/**
+ * Done: a cream disc, and an ink check drawing across it. At rest, for a
+ * payment seen before, the check is simply there.
+ */
+function Disc({ visual }: FaceProps) {
   return (
     <View style={styles.disc}>
-      <DrawnGlyph
-        name="check"
-        size={56}
-        color={palette.ink}
-        strokes={[{ duration: durations.draw, delay: 120 }]}
-      />
+      {visual.resting ? (
+        <Glyph name="check" size={56} color={palette.ink} />
+      ) : (
+        <DrawnGlyph
+          name="check"
+          size={56}
+          color={palette.ink}
+          strokes={[{ duration: durations.draw, delay: 120 }]}
+        />
+      )}
     </View>
   );
 }
@@ -126,7 +133,8 @@ const FACES: Record<ResultVisual['shape'], (props: FaceProps) => ReactNode> = {
 
 /**
  * How a payment ended, as a 120pt mark grown from the control it was sent
- * with (REDESIGN.md 6, Send). A failure shakes as it lands.
+ * with (REDESIGN.md 6, Send). A failure shakes as it lands. A mark at rest
+ * (`visual.resting`), for a payment seen before, is simply there.
  *
  * The mark carries the words: `accessibilityLabel` for what happened,
  * `accessibilityValue` for the status, and `accessibilityHint` for the
@@ -160,7 +168,7 @@ export function ResultMark({
   return (
     <Whisper label={accessibilityHint}>
       <Reanimated.View
-        entering={popIn(CONTROL / SIZE)}
+        entering={visual.resting ? undefined : popIn(CONTROL / SIZE)}
         style={[styles.mark, refusal.style]}
       >
         <Pressable

@@ -147,6 +147,12 @@ const sends: Shot[] = [
     holdRequest(ADDRESS, { status: 'pending' });
     return {};
   }),
+  send('a request paid already', () => {
+    // A request that names its amount is paid once, so it rests paid.
+    const request = `bitcoin:${ADDRESS}?amount=0.000042`;
+    holdRequest(request, { status: 'completed' });
+    return { request };
+  }),
   refused('a held request, the engine says already out', 'ALREADY_SUBMITTED'),
   refused('a request refused', 'INVALID_REQUEST'),
   refused('short of funds, within what is held', 'INSUFFICIENT_FUNDS'),

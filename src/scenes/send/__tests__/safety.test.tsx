@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { createRef } from 'react';
 import { AccessibilityInfo, TextInput } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -9,6 +10,7 @@ import { announce } from '../../../design/announce';
 import { copy } from '../../../design/copy';
 import { ExpiryRing } from '../../../glyphs/ExpiryRing';
 import { SendScreen } from '../../../screens/Send';
+import type { SendHandle } from '../../../screens/Send';
 import {
   clearDiagnostics,
   recentDiagnostics,
@@ -19,6 +21,7 @@ import {
   heldRequest,
   holdRequest,
 } from '../../../stage/heldRequests';
+import { activityOf } from '../../../../test-support/fixtures';
 import {
   activate,
   alerts,
@@ -235,7 +238,9 @@ describe('a held request', () => {
     );
     await press(tree, copy.send.review);
     // Paid from elsewhere meanwhile, with its outcome unknown.
-    holdRequest('lnbc-held-late', { status: 'uncertain' });
+    await act(async () =>
+      holdRequest('lnbc-held-late', { status: 'uncertain' }),
+    );
     await activate(tree, HOLD);
     expect(send).not.toHaveBeenCalled();
     expect(meaning(tree)).toContain(copy.send.held);
@@ -564,6 +569,162 @@ describe('a payment whose call does not answer', () => {
     expect(meaning(tree)).not.toContain(copy.send.unknown);
     expect(field(tree, copy.send.request).props.value).toBe(priced('another'));
     await act(async () => tree.unmount());
+  });
+});
+
+describe('a paid request', () => {
+  /**
+   * The BOLT 11 example invoice for 250,000 sats, which reads as a payment
+   * and carries a payment hash the history can be matched by.
+   */
+  const INVOICE =
+    'lnbc2500u1pvjluezsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygspp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jsxqzpu9qrsgquk0rl77nj30yxdy8j9vdx85fkpmdla2087ne0xh8nhedh8w27kyke0lp53ut353s06fv3qfegext0eh0ymjpf39tuven09sam30g4vgpfna3rh';
+  const HASH =
+    '0001020304050607080900010203040506070809000102030405060708090102';
+
+  /** Whether the tree shows a request paid: its mark at rest, no review. */
+  function restsOnPaid(tree: ReactTestRenderer) {
+    expect(meaning(tree)).toContain(copy.send.paidAlready);
+    expect(pressableLabels(tree)).not.toContain(copy.send.review);
+    expect(holds(tree, HOLD)).toEqual([]);
+    const [mark] = tree.root.findAllByType(ResultMark);
+    expect(mark.props.visual).toMatchObject({
+      shape: 'disc',
+      resting: true,
+      returnsHome: false,
+    });
+  }
+
+  test('paid here, entered again, rests on its paid mark and is never reviewed', async () => {
+    jest.useFakeTimers();
+    const request = priced('paid-here');
+    const prepareSend = jest.fn().mockResolvedValue(quote());
+    const client = {
+      prepareSend,
+      send: jest.fn().mockResolvedValue(outcome('completed')),
+    };
+    const first = await draw(client, { initialRequest: request });
+    await press(first, copy.send.review);
+    await activate(first, HOLD);
+    expect(meaning(first)).toContain(copy.send.sent);
+    await act(async () => first.unmount());
+    // The history has not been read since, so only this app knows.
+    jest.mocked(HapticFeedback.trigger).mockClear();
+    clearDiagnostics();
+    const onDone = jest.fn();
+    const again = await draw(client, {
+      initialRequest: request,
+      activity: [],
+      onDone,
+    });
+    restsOnPaid(again);
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    // Nothing is played or felt for a payment seen before, nothing is
+    // logged, the ground is not held, and it never goes home on its own.
+    await act(async () => jest.advanceTimersByTime(10_000));
+    expect(felt()).toEqual([]);
+    expect(logged()).toEqual([]);
+    expect(onDone).not.toHaveBeenCalled();
+    expect(said).toHaveBeenCalledWith(copy.send.paidAlready);
+    await act(async () => again.unmount());
+  });
+
+  test('known paid by the history alone, rests on its mark with the way to that payment', async () => {
+    const paid = activityOf('sent', 'completed', { paymentHash: HASH });
+    const onDetail = jest.fn();
+    const onActivity = jest.fn();
+    const tree = await draw(
+      {},
+      {
+        initialRequest: `lightning:${INVOICE}`,
+        activity: [paid],
+        onDetail,
+        onActivity,
+      },
+    );
+    restsOnPaid(tree);
+    await press(tree, copy.send.viewActivity);
+    expect(onDetail).toHaveBeenCalledWith(paid);
+    expect(onActivity).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('rests on its paid mark however it arrives: pasted, scanned, linked or typed', async () => {
+    const request = priced('paid-arrives');
+    holdRequest(request, { status: 'completed' });
+    // Brought by a link.
+    const linked = await draw({}, { initialRequest: request });
+    restsOnPaid(linked);
+    await act(async () => linked.unmount());
+    // Pasted.
+    jest.mocked(Clipboard.getString).mockResolvedValueOnce(request);
+    const pasted = await draw({});
+    await press(pasted, copy.send.paste);
+    restsOnPaid(pasted);
+    await act(async () => pasted.unmount());
+    // Scanned into an open Send.
+    const handle = createRef<SendHandle>();
+    const scanned = await draw({}, { ref: handle });
+    await act(async () => {
+      handle.current!.receive(request);
+    });
+    restsOnPaid(scanned);
+    await act(async () => scanned.unmount());
+    // Typed and left.
+    const typed = await draw({});
+    await type(typed, request);
+    await act(async () => typed.root.findByType(TextInput).props.onBlur());
+    restsOnPaid(typed);
+    await act(async () => typed.unmount());
+  });
+
+  test('paid elsewhere while its review is up, the hold rests on the paid mark and pays nothing', async () => {
+    const request = priced('paid-meanwhile');
+    const send = jest.fn();
+    const tree = await draw(
+      { prepareSend: jest.fn().mockResolvedValue(quote()), send },
+      { initialRequest: request },
+    );
+    await press(tree, copy.send.review);
+    await act(async () => holdRequest(request, { status: 'completed' }));
+    await activate(tree, HOLD);
+    expect(send).not.toHaveBeenCalled();
+    restsOnPaid(tree);
+    await act(async () => tree.unmount());
+  });
+
+  test('a payment that failed moved no money, so its request is offered again', async () => {
+    const request = priced('failed-again');
+    const client = {
+      prepareSend: jest.fn().mockResolvedValue(quote()),
+      send: jest.fn().mockResolvedValue(outcome('failed')),
+    };
+    const first = await draw(client, { initialRequest: request });
+    await press(first, copy.send.review);
+    await activate(first, HOLD);
+    await act(async () => first.unmount());
+    const again = await draw(client, { initialRequest: request });
+    expect(meaning(again)).not.toContain(copy.send.paidAlready);
+    await press(again, copy.send.review);
+    expect(holds(again, HOLD)).toHaveLength(1);
+    await act(async () => again.unmount());
+  });
+
+  test('a bare address may be paid again once its payment completes', async () => {
+    const address = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
+    const client = {
+      prepareSend: jest.fn().mockResolvedValue(quote()),
+      send: jest.fn().mockResolvedValue(outcome('completed')),
+    };
+    const first = await draw(client, { initialRequest: address });
+    await press(first, copy.send.review);
+    await activate(first, HOLD);
+    await act(async () => first.unmount());
+    const again = await draw(client, { initialRequest: address });
+    expect(meaning(again)).not.toContain(copy.send.paidAlready);
+    await press(again, copy.send.review);
+    expect(holds(again, HOLD)).toHaveLength(1);
+    await act(async () => again.unmount());
   });
 });
 

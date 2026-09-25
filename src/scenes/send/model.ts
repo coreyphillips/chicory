@@ -363,6 +363,8 @@ export interface ResultVisual {
   returnsHome: boolean;
   /** An orbit runs round the held ring: the payment is still under way. */
   orbit?: boolean;
+  /** Drawn as it stands, for a payment seen before: no pop, no draw-in. */
+  resting?: boolean;
 }
 
 export function resultVisual(status: SendResult['status']): ResultVisual {
@@ -403,11 +405,20 @@ export function resultVisual(status: SendResult['status']): ResultVisual {
 }
 
 /**
- * The mark of a request that cannot be paid again yet (REDESIGN.md rule 6):
- * the held ring, with an orbit round it while its payment is still under
- * way.
+ * The mark of a request that cannot be paid now (REDESIGN.md rule 6): the
+ * held ring, with an orbit round it while its payment is still under way,
+ * and the done disc at rest once the request is paid, with nothing played
+ * for a payment that was seen before and no way home on its own.
  */
 export function heldVisual(status: Held['status']): ResultVisual {
+  if (status === 'completed') {
+    return {
+      ...resultVisual('completed'),
+      title: copy.send.paidAlready,
+      returnsHome: false,
+      resting: true,
+    };
+  }
   const held = resultVisual('uncertain');
   return status === 'pending'
     ? { ...held, title: copy.send.onItsWay, orbit: true }

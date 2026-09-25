@@ -5,6 +5,7 @@ import {
   heldVersion,
   holdRequest,
   normalizeRequest,
+  paidOnce,
   paymentHashOf,
   subscribeHeld,
 } from '../../../stage/heldRequests';
@@ -95,7 +96,7 @@ test('a payment of unknown outcome holds its request, in every spelling', () => 
   }
 });
 
-test('a pending payment holds too, and an outcome lets it go', () => {
+test('a pending payment holds too, and an outcome lets a request that may be paid again go', () => {
   for (const status of ['completed', 'failed'] as const) {
     const request = `bitcoin:bcrt1q${status}`;
     holdRequest(request, { status: 'pending', txid: hex(40) });
@@ -105,6 +106,61 @@ test('a pending payment holds too, and an outcome lets it go', () => {
   }
 });
 
+test('an invoice, or a Bitcoin request that names its amount, is paid once', () => {
+  expect(paidOnce(invoice(hex(9), 9))).toBe(true);
+  expect(paidOnce(`LIGHTNING:${invoice(hex(9), 9).toUpperCase()}`)).toBe(true);
+  expect(paidOnce('bitcoin:bcrt1qonce?amount=0.0001')).toBe(true);
+  expect(paidOnce('BITCOIN:BCRT1QONCE?label=x&amount=0.5')).toBe(true);
+  expect(paidOnce(`bitcoin:bcrt1qonce?lightning=${invoice(hex(9), 9)}`)).toBe(
+    true,
+  );
+  // An address, or a request that leaves the amount to the payer, may be
+  // paid again, and so may an offer.
+  expect(paidOnce('bcrt1qagain')).toBe(false);
+  expect(paidOnce('bitcoin:bcrt1qagain')).toBe(false);
+  expect(paidOnce('bitcoin:bcrt1qagain?label=amount')).toBe(false);
+  expect(paidOnce('bitcoin:bcrt1qagain?amount=0')).toBe(false);
+  expect(paidOnce('lno1offer')).toBe(false);
+});
+
+test('a request paid once is held paid for good as soon as its payment completes, before the history shows it', () => {
+  const hash = hex(10);
+  const request = invoice(hash, 10);
+  holdRequest(request, { status: 'pending', calling: true });
+  holdRequest(request, { status: 'completed' });
+  // The history has not been read since: nothing shows the payment yet.
+  expect(heldRequest(request)).toEqual({ status: 'completed' });
+  expect(heldRequest(`lightning:${request}`, [])).toEqual({
+    status: 'completed',
+  });
+  // Or it still shows it going out, from a read made before it landed.
+  const going = activityOf('sent', 'pending', { paymentHash: hash });
+  expect(heldRequest(request, [going])).toEqual({ status: 'completed' });
+  // Once the history shows it done, the request points at that payment.
+  const done = { ...going, status: 'completed' as const };
+  expect(heldRequest(request, [done])).toEqual({
+    status: 'completed',
+    item: done,
+  });
+});
+
+test('a Bitcoin request that names its amount is held paid, and a bare address is let go', () => {
+  const priced = 'bitcoin:bcrt1qpriced?amount=0.0001';
+  holdRequest(priced, { status: 'completed', txid: hex(11) });
+  expect(heldRequest(priced)).toEqual({ status: 'completed' });
+  const bare = 'bcrt1qbare';
+  holdRequest(bare, { status: 'pending', txid: hex(12) });
+  holdRequest(bare, { status: 'completed', txid: hex(12) });
+  expect(heldRequest(bare)).toBeNull();
+});
+
+test('a failed payment moved no money, so its request may be paid again', () => {
+  const request = invoice(hex(13), 13);
+  holdRequest(request, { status: 'pending', calling: true });
+  holdRequest(request, { status: 'failed' });
+  expect(heldRequest(request)).toBeNull();
+});
+
 test('the history holds a request whose invoice it shows unsettled', () => {
   const hash = hex(5);
   const request = invoice(hash, 5);
@@ -112,11 +168,9 @@ test('the history holds a request whose invoice it shows unsettled', () => {
     const item = activityOf('sent', status, { paymentHash: hash });
     expect(heldRequest(request, [item])).toEqual({ status, item });
   }
-  // Settled, or money that came in rather than went out, holds nothing.
+  // Failed, or money that came in rather than went out, holds nothing.
   expect(
-    heldRequest(request, [
-      activityOf('sent', 'completed', { paymentHash: hash }),
-    ]),
+    heldRequest(request, [activityOf('sent', 'failed', { paymentHash: hash })]),
   ).toBeNull();
   expect(
     heldRequest(request, [
@@ -125,15 +179,27 @@ test('the history holds a request whose invoice it shows unsettled', () => {
   ).toBeNull();
 });
 
-test('the history lets go of a request once it shows the payment settled', () => {
+test('the history lets go of a request once it shows the payment failed', () => {
   const hash = hex(6);
   const request = invoice(hash, 6);
   holdRequest(request, { status: 'uncertain', paymentHash: hash });
   const item = activityOf('sent', 'uncertain', { paymentHash: hash });
   expect(heldRequest(request, [item])).toEqual({ status: 'uncertain', item });
-  expect(heldRequest(request, [{ ...item, status: 'completed' }])).toBeNull();
+  expect(heldRequest(request, [{ ...item, status: 'failed' }])).toBeNull();
   // Settled for good: without the history, it stays let go.
   expect(heldRequest(request)).toBeNull();
+});
+
+test('the history alone knows an invoice paid, and holds it paid from then on', () => {
+  const hash = hex(14);
+  const request = invoice(hash, 14);
+  const paid = activityOf('sent', 'completed', { paymentHash: hash });
+  // Paid before this process, or from another device: this app saw nothing.
+  expect(heldRequest(request, [paid])).toEqual({
+    status: 'completed',
+    item: paid,
+  });
+  expect(heldRequest(request)).toEqual({ status: 'completed' });
 });
 
 test('an on-chain payment is found in the history by its transaction', () => {
@@ -142,7 +208,20 @@ test('an on-chain payment is found in the history by its transaction', () => {
   holdRequest(request, { status: 'pending', txid });
   const item = activityOf('sent', 'pending', { rail: 'chain', txid });
   expect(heldRequest(request, [item])).toEqual({ status: 'pending', item });
-  expect(heldRequest(request, [{ ...item, status: 'completed' }])).toBeNull();
+  // It names its amount, so once confirmed it is paid.
+  const done = { ...item, status: 'completed' as const };
+  expect(heldRequest(request, [done])).toEqual({
+    status: 'completed',
+    item: done,
+  });
+  // A bare address is let go once its payment completes.
+  const bare = 'bcrt1qonchainbare';
+  holdRequest(bare, { status: 'pending', txid: hex(15) });
+  const sent = activityOf('sent', 'completed', {
+    rail: 'chain',
+    txid: hex(15),
+  });
+  expect(heldRequest(bare, [sent])).toBeNull();
 });
 
 test('a payment going out is held against an earlier attempt the history shows settled', () => {
