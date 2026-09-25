@@ -42,7 +42,10 @@ import {
 } from '../src/scenes/receive/model';
 import { ReceiveScreen } from '../src/screens/Payments';
 import { DetailScreen, activityStatus } from '../src/screens/Wallet';
-import { recentDiagnostics } from '../src/services/diagnosticLog';
+import {
+  clearDiagnostics,
+  recentDiagnostics,
+} from '../src/services/diagnosticLog';
 import { useReceiveStatus } from '../src/services/useReceiveStatus';
 import type { WalletAdapter } from '../src/services/wallet';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
@@ -159,6 +162,14 @@ const openNote = (tree: ReactTestRenderer) =>
 beforeEach(() => {
   jest.useFakeTimers();
   AppState.currentState = 'active';
+  // The platform's announcer is a mock that keeps every call, and the
+  // diagnostic log lives as long as the file does. Each test starts with
+  // both empty, so what it finds there is what its own case said and logged.
+  jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+  jest
+    .mocked(AccessibilityInfo.announceForAccessibilityWithOptions)
+    .mockClear();
+  clearDiagnostics();
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -1119,8 +1130,11 @@ describe('the safety states on a request', () => {
       expect(call[1]).toEqual({ queue: false });
     }
     expect(warned).toHaveBeenCalledTimes(1);
-    expect(recentDiagnostics().map(entry => entry.code)).toContain(
-      'AMBIGUOUS_RECEIVE_ADDRESS',
+    expect(recentDiagnostics()).toContainEqual(
+      expect.objectContaining({
+        message: copy.receive.reusedAddress,
+        code: 'AMBIGUOUS_RECEIVE_ADDRESS',
+      }),
     );
     await act(async () => tree.unmount());
   });
@@ -1354,9 +1368,6 @@ describe('the safety states on a request', () => {
 
   test('a balance going stale is said at once while there is a request to make, and not over one made', async () => {
     const said = spoken();
-    // The platform's announcer is a mock of its own, which keeps what the
-    // cases before this one said.
-    said.mockClear();
     const stale = () =>
       said.mock.calls.filter(
         ([spokenText]) => spokenText === copy.receive.stale,
@@ -1510,16 +1521,13 @@ describe('the safety states on a request', () => {
 describe('copying, and what a copy says', () => {
   afterEach(() => jest.restoreAllMocks());
   const HASH = 'cd'.repeat(32);
-  const spoken = () => {
-    const said = jest.spyOn(
+  const spoken = () =>
+    jest.spyOn(
       AccessibilityInfo,
       Platform.OS === 'ios'
         ? 'announceForAccessibilityWithOptions'
         : 'announceForAccessibility',
     );
-    said.mockClear();
-    return said;
-  };
 
   test('a chip names what it copied the way a sentence starts, whatever its label', async () => {
     // Each case speaks at an hour of its own, past the announcer's repeat window.
