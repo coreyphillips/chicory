@@ -624,7 +624,7 @@ A cocoa pill anchored above its source (see rule 3).
 | partial              | A split ring showing received over requested, and `plus` with the remainder.                                                        |
 | completed            | The full celebration.                                                                                                               |
 
-On a test network Receive draws slate wherever it would draw bloom (`scenes/receive/tone.ts`): its glyphs, the busy orbit, the halo, the offline switch, the primary controls and the burst petals, and `ReceiveRequestDetails` does the same for the request a payment's detail keeps when it is given `test`. The expiry rings are ExpiryRing's own, which has no test tone yet.
+On a test network Receive draws slate wherever it would draw bloom (`scenes/receive/tone.ts`): its glyphs, the busy orbit, the halo, the offline switch, the primary controls and the burst petals, and `ReceiveRequestDetails` does the same for the request a payment's detail keeps when it is given `test`. The quote's and the request's expiry rings take the test network too, so their calm stroke is slate.
 
 ### Backup and setup
 
@@ -638,7 +638,7 @@ On a test network Receive draws slate wherever it would draw bloom (`scenes/rece
 
 | Code                                    | Visual                                                                                                                                                                                    |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| INSUFFICIENT_FUNDS, amount within total | honey, plus a vessel marker                                                                                                                                                               |
+| INSUFFICIENT_FUNDS, amount within total | honey, with a `clock` on the amount and beside the control. The vessel is out of sight while Send is open, and the state ends as Send closes, so the clock stands in for a vessel marker. |
 | INSUFFICIENT_FUNDS, amount over total   | radish and a shake                                                                                                                                                                        |
 | parse and refused inputs                | the chip dissolves with a `cross`                                                                                                                                                         |
 | PRIMARY_DOWN                            | honey `unplug`                                                                                                                                                                            |
