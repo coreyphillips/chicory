@@ -65,9 +65,7 @@ export function Stage({
     networkEditor,
     activeProfile,
   } = session;
-  // The staleness gate trips on its own, at the one moment it can, rather than
-  // by re-rendering the whole app every few seconds to ask whether it has.
-  const stale = useStaleAfter(snapshot?.updatedAt, STALE_AFTER_MS);
+  const stale = useStale(snapshot?.updatedAt);
   const savedWallet = useMemo(
     () => wallets.find(wallet => wallet.id === walletId),
     [wallets, walletId],
@@ -281,6 +279,21 @@ export function Stage({
   );
 }
 Stage.displayName = 'Stage';
+
+/**
+ * Whether the balance read at `updatedAt` is too old to spend against
+ * (REDESIGN.md 6, stale), as of this render.
+ *
+ * The gate trips on its own, at the one moment it can, rather than by
+ * re-rendering the whole app every few seconds to ask whether it has: the
+ * timer only draws the stage again once the read goes old. Its flag is set
+ * in an effect, a render behind each new read, so the answer is the read's
+ * own age, and a fresh read is never drawn as stale.
+ */
+export function useStale(updatedAt: number | undefined): boolean {
+  useStaleAfter(updatedAt, STALE_AFTER_MS);
+  return updatedAt !== undefined && Date.now() - updatedAt >= STALE_AFTER_MS;
+}
 
 /** Every edge of the window that the phase views and the sheet keep clear of. */
 const EDGES = ['top', 'bottom', 'left', 'right'] as const;

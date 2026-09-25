@@ -60,6 +60,8 @@ import {
 } from '../../src/stage/layout';
 import type { CanvasSceneName } from '../../src/stage/layout';
 import { Pane, PanesProvider } from '../../src/stage/panes/Pane';
+import { STALE_AFTER_MS } from '../../src/services/useWalletSession';
+import { useStale } from '../../src/stage/Stage';
 import { StageProvider, useStageStore } from '../../src/stage/StageContext';
 import type { StageStore } from '../../src/stage/StageContext';
 import { arrivals, seenIn, useIncoming } from '../../src/stage/useIncoming';
@@ -874,6 +876,30 @@ describe('safety states', () => {
     jest.useRealTimers();
   });
 
+  test('the stage never draws a fresh read as stale, and trips once it goes old', async () => {
+    jest.useFakeTimers();
+    const drawn: boolean[] = [];
+    function Probe({ updatedAt }: { updatedAt?: number }) {
+      drawn.push(useStale(updatedAt));
+      return null;
+    }
+    const tree = await mount(<Probe updatedAt={Date.now() - 600_000} />);
+    expect(drawn).toEqual([true]);
+    // Every render with the fresh read says fresh, the first one included.
+    drawn.length = 0;
+    await act(async () => tree.update(<Probe updatedAt={Date.now()} />));
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(drawn).not.toContain(true);
+    await act(async () => jest.advanceTimersByTime(STALE_AFTER_MS - 1));
+    expect(drawn.at(-1)).toBe(false);
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(drawn.at(-1)).toBe(true);
+    await act(async () => tree.update(<Probe />));
+    expect(drawn.at(-1)).toBe(false);
+    await act(async () => tree.unmount());
+    jest.useRealTimers();
+  });
+
   test('a cached launch is not warned about, nor is the read that ends it', async () => {
     const warned = jest.spyOn(haptics, 'warning');
     const cached = {
@@ -886,12 +912,12 @@ describe('safety states', () => {
       session: session({ connecting: true }),
     });
     expect(warned).not.toHaveBeenCalled();
-    // The live read lands, and for one render the gate's flag still trails it.
+    // The live read lands, fresh from its first render (see useStale).
     await act(async () =>
       tree.update(
         <HomeRegions
           snapshot={{ ...cached, updatedAt: Date.now() }}
-          stale
+          stale={false}
           session={session()}
         />,
       ),
