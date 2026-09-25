@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import type { ComponentRef } from 'react';
+import React, { useEffect } from 'react';
+import type { ComponentRef, Ref } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
@@ -16,7 +16,7 @@ import { BANG, DrawnGlyph } from './DrawnGlyph';
 import type { Stroke } from './DrawnGlyph';
 import type { ResultVisual } from './model';
 import { Orbit } from './Orbit';
-import { useFocusOnMount } from './useFocusOnMount';
+import { useBloom } from './tone';
 
 const SIZE = 120;
 const STROKE = 5;
@@ -58,13 +58,14 @@ function Disc() {
   );
 }
 
-/** On its way: an orbit round the arrow that left. */
+/** On its way: an orbit round the arrow that left, slate on a test network. */
 function Moving() {
+  const bloom = useBloom();
   return (
     <>
       <Ring color={palette.husk} />
-      <Orbit size={SIZE} stroke={STROKE} color={palette.bloom} />
-      <Glyph name="send" size={44} color={palette.bloom} />
+      <Orbit size={SIZE} stroke={STROKE} color={bloom.tone} />
+      <Glyph name="send" size={44} color={bloom.tone} />
     </>
   );
 }
@@ -117,7 +118,7 @@ const FACES = { disc: Disc, orbit: Moving, held: Held, broken: Broken };
  * `accessibilityValue` for the status, and `accessibilityHint` for the
  * engine's message, which a long press also shows through Whisper. With
  * `onPress` it is a control, such as a failure that returns to the payment.
- * A screen reader moves to it as it lands.
+ * `ref` is the mark, which the screen moves a screen reader to as it lands.
  */
 export function ResultMark({
   visual,
@@ -125,16 +126,16 @@ export function ResultMark({
   accessibilityValue,
   accessibilityHint,
   onPress,
+  ref,
 }: {
   visual: ResultVisual;
   accessibilityLabel: string;
   accessibilityValue: string;
   accessibilityHint: string;
   onPress?: () => void;
+  ref?: Ref<ComponentRef<typeof View>>;
 }) {
   const live = usePaneActive();
-  const face = useRef<ComponentRef<typeof View>>(null);
-  useFocusOnMount(face);
   const refusal = useShake();
   const { play } = refusal;
   const broken = visual.shape === 'broken';
@@ -149,7 +150,7 @@ export function ResultMark({
         style={[styles.mark, refusal.style]}
       >
         <Pressable
-          ref={face}
+          ref={ref}
           accessibilityRole={onPress ? 'button' : undefined}
           accessibilityLabel={accessibilityLabel}
           accessibilityValue={{ text: accessibilityValue }}

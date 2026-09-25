@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import type { ReactNode } from 'react';
+import type { ComponentRef, ReactNode, Ref } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Reanimated, {
   useAnimatedStyle,
@@ -18,21 +18,13 @@ import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { DrawnGlyph } from './DrawnGlyph';
 import { Orbit } from './Orbit';
+import { useBloom } from './tone';
 
 /** The control's circle, the size the home circle grows to (REDESIGN.md 7, T1). */
 export const CONTROL = 88;
 const RING = 4;
 
 type Tone = 'bloom' | 'honey';
-
-const RINGS: Record<Tone, string> = {
-  bloom: palette.bloom,
-  honey: palette.honey,
-};
-const FILLS: Record<Tone, string> = {
-  bloom: palette.bloomSoft,
-  honey: palette.honeySoft,
-};
 
 /**
  * Send's round control at the foot of the scene, for a tap: review the
@@ -47,7 +39,9 @@ const FILLS: Record<Tone, string> = {
  * control's do.
  *
  * Like every control on the canvas, it is given `onPress` only while its
- * pane is in use, and only when a tap does something.
+ * pane is in use, and only when a tap does something. `ref` is the circle,
+ * for a screen that moves a screen reader to it. Its bloom is slate on a
+ * test network.
  */
 export function CircleControl({
   accessibilityLabel,
@@ -57,6 +51,7 @@ export function CircleControl({
   stale = false,
   tone = 'bloom',
   children,
+  ref,
 }: {
   accessibilityLabel: string;
   accessibilityHint?: string;
@@ -65,9 +60,13 @@ export function CircleControl({
   stale?: boolean;
   tone?: Tone;
   children?: ReactNode;
+  ref?: Ref<ComponentRef<typeof View>>;
 }) {
   const live = usePaneActive() && !busy;
   const { reduced } = useMotionPrefs();
+  const bloom = useBloom();
+  const ring = tone === 'honey' ? palette.honey : bloom.tone;
+  const fill = tone === 'honey' ? palette.honeySoft : bloom.soft;
   const refusal = useShake();
   const scale = useSharedValue(1);
   const pressStyle = useAnimatedStyle(() => ({
@@ -91,6 +90,7 @@ export function CircleControl({
   const control = (
     <Reanimated.View style={[refusal.style, pressStyle]}>
       <Pressable
+        ref={ref}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={accessibilityHint}
@@ -101,8 +101,8 @@ export function CircleControl({
         style={[
           styles.circle,
           {
-            backgroundColor: dust ? palette.mocha : FILLS[tone],
-            borderColor: dust ? palette.husk : RINGS[tone],
+            backgroundColor: dust ? palette.mocha : fill,
+            borderColor: dust ? palette.husk : ring,
           },
         ]}
       >
@@ -119,7 +119,7 @@ export function CircleControl({
         )}
         {busy ? (
           <View style={styles.orbit}>
-            <Orbit size={CONTROL} stroke={RING} color={RINGS[tone]} />
+            <Orbit size={CONTROL} stroke={RING} color={ring} />
           </View>
         ) : null}
       </Pressable>
@@ -142,9 +142,11 @@ export function CircleControl({
 export function QuoteRefresh({
   onPress,
   busy,
+  ref,
 }: {
   onPress?: () => void;
   busy: boolean;
+  ref?: Ref<ComponentRef<typeof View>>;
 }) {
   const { reduced } = useMotionPrefs();
   const turned = useSharedValue(0);
@@ -165,6 +167,7 @@ export function QuoteRefresh({
   );
   return (
     <CircleControl
+      ref={ref}
       accessibilityLabel={copy.send.refreshQuote}
       accessibilityHint={copy.send.quoteExpired}
       onPress={onPress}

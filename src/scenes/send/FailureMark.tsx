@@ -7,20 +7,22 @@ import { Whisper } from '../../glyphs/Whisper';
 import { useShake } from '../../motion/effects';
 import { durations } from '../../motion/tokens';
 import { BANG, DrawnGlyph } from './DrawnGlyph';
+import { ClosingChain, FlashingBolt } from './ErrorGlyphs';
 import type { Stroke } from './DrawnGlyph';
 import type { Failure } from './model';
 import { Unplugged, WaitingClock } from './LoopingGlyphs';
 
 /**
  * How each glyph an error shows draws in (REDESIGN.md 4, Animated glyphs):
- * the cross in two quick strokes, the bang's line and then its dot, the bolt
- * quickly, and anything else at the drawing pace. A clock and an unplug are
- * never drawn: they mark something that lasts, so they keep moving.
+ * the cross in two quick strokes, the bang's line and then its dot, and
+ * anything else at the drawing pace. The bolt draws quickly and then
+ * flashes, and the chain's halves slide together instead of drawing. A
+ * clock and an unplug are never drawn: they mark something that lasts, so
+ * they keep moving.
  */
 const STROKES: Partial<Record<GlyphName, Stroke[]>> = {
   cross: [{ duration: 140 }, { duration: 140, delay: 60 }],
   bang: BANG,
-  bolt: [{ duration: 240 }],
 };
 const DRAW: Stroke[] = [{ duration: durations.draw }];
 
@@ -55,6 +57,10 @@ export function FailureMark({ failure }: { failure: Failure }) {
               <WaitingClock key={glyph} size={22} color={color} />
             ) : glyph === 'unplug' ? (
               <Unplugged key={glyph} size={22} color={color} />
+            ) : glyph === 'bolt' ? (
+              <FlashingBolt key={glyph} size={22} color={color} />
+            ) : glyph === 'chain' ? (
+              <ClosingChain key={glyph} size={22} color={color} />
             ) : (
               <DrawnGlyph
                 key={glyph}

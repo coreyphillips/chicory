@@ -71,6 +71,73 @@ export function reviewRail(review: SendReview): {
     : { glyph: 'chain', label: copy.send.bitcoin };
 }
 
+/** One line of a review's sum: its signs, its amount, and its words. */
+export interface ReviewFigure {
+  key: 'fee' | 'expected' | 'total';
+  signs: string;
+  sats: number;
+  /** What a screen reader calls the line, as the engine and old screen did. */
+  label: string;
+  /** How its amount is read out. */
+  value: string;
+}
+
+/**
+ * What a payment will cost, as the review lays it out (REDESIGN.md 6,
+ * Send): `+ ≤` the most the fee can be, `≈` what the route priced should
+ * cost when there is an estimate, and `=` the most it all comes to.
+ */
+export function reviewFigures(review: SendReview): ReviewFigure[] {
+  const estimate = review.estimatedFeeSats;
+  const figures: ReviewFigure[] = [
+    {
+      key: 'fee',
+      signs: '+ ≤',
+      sats: review.feeSats,
+      label: review.feeLabel || copy.send.fee,
+      value: copy.amount.spoken(review.feeSats),
+    },
+  ];
+  if (estimate != null) {
+    figures.push({
+      key: 'expected',
+      signs: '≈',
+      sats: estimate,
+      label: copy.send.expectedFee,
+      value: copy.send.about(estimate),
+    });
+  }
+  figures.push({
+    key: 'total',
+    signs: '=',
+    sats: review.totalSats,
+    label: estimate != null ? copy.send.totalAtMost : copy.send.totalWithFee,
+    value: copy.amount.spoken(review.totalSats),
+  });
+  return figures;
+}
+
+const sentence = (text: string) =>
+  /[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`;
+
+/**
+ * The review as the hold says it to a screen reader: the total first, then
+ * the most the fee can be, what it should cost, and every warning the
+ * engine gave. The hold commits on one action, so whatever the lines above
+ * it show is said with it too, and nothing a sighted payer is shown before
+ * holding is left for a screen reader to find on its own.
+ */
+export function reviewWords(review: SendReview): string {
+  const figures = reviewFigures(review);
+  const total = figures.filter(figure => figure.key === 'total');
+  const rest = figures.filter(figure => figure.key !== 'total');
+  return [...total, ...rest]
+    .map(figure => `${figure.label} ${figure.value}`)
+    .concat(review.warnings)
+    .map(sentence)
+    .join(' ');
+}
+
 /** Characters kept at each end of a shortened request. */
 const KEEP = 8;
 const groups = (text: string) => text.match(/.{1,4}/g)?.join(' ') ?? '';

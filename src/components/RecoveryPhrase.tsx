@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useState } from 'react';
 import { AppState, StyleSheet } from 'react-native';
-import Reanimated from 'react-native-reanimated';
+import Reanimated, { LayoutAnimationConfig } from 'react-native-reanimated';
 import { announce } from '../design/announce';
 import { copy } from '../design/copy';
 import { haptics } from '../design/haptics';
@@ -55,10 +55,24 @@ export function RecoveryPhrase({
   const [landing, setLanding] = useState<'reveal' | 'heading' | null>(
     focus ? 'heading' : null,
   );
+  // An exit animation keeps a view on screen until it ends, on a frame clock
+  // that stops in the background, so words leaving that way could still be
+  // there for the app switcher. The words are held with their exit skipped,
+  // and go at once however they go. Only Hide and the saved hold let them
+  // drop away: they ask for it here, and the words go one render later, once
+  // their exit is no longer skipped.
+  const [letGo, setLetGo] = useState<'reveal' | 'heading' | null>(null);
+  useLayoutEffect(() => {
+    if (!letGo) return;
+    setPhrase('');
+    setLanding(letGo);
+    setLetGo(null);
+  }, [letGo]);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', state => {
       if (state !== 'active') {
         setPhrase('');
+        setLetGo(null);
       }
     });
     return () => subscription.remove();
@@ -99,38 +113,36 @@ export function RecoveryPhrase({
       <Body>{words.intro}</Body>
       {error ? <Note tone="error">{error}</Note> : null}
       {phrase ? (
-        <Reanimated.View
-          entering={riseIn()}
-          exiting={dropOut(8)}
-          style={styles.stack}
-        >
-          <RecoveryWords words={shown} />
-          <Note tone="warning" glyph="bolt">
-            {words.channels}
-          </Note>
-          {onSaved ? (
-            <HoldConfirm
-              label={words.saved}
-              hint={words.savedHint}
-              onCommit={() => {
-                setPhrase('');
-                setLanding('heading');
-                haptics.success();
-                announce(words.savedDone);
-                onSaved();
-              }}
+        <LayoutAnimationConfig skipExiting={letGo === null}>
+          <Reanimated.View
+            entering={riseIn()}
+            exiting={dropOut(8)}
+            style={styles.stack}
+          >
+            <RecoveryWords words={shown} />
+            <Note tone="warning" glyph="bolt">
+              {words.channels}
+            </Note>
+            {onSaved ? (
+              <HoldConfirm
+                label={words.saved}
+                hint={words.savedHint}
+                onCommit={() => {
+                  setLetGo('heading');
+                  haptics.success();
+                  announce(words.savedDone);
+                  onSaved();
+                }}
+              />
+            ) : null}
+            <Action
+              label={words.hide}
+              glyph="eyeOff"
+              tone="quiet"
+              onPress={() => setLetGo('reveal')}
             />
-          ) : null}
-          <Action
-            label={words.hide}
-            glyph="eyeOff"
-            tone="quiet"
-            onPress={() => {
-              setPhrase('');
-              setLanding('reveal');
-            }}
-          />
-        </Reanimated.View>
+          </Reanimated.View>
+        </LayoutAnimationConfig>
       ) : (
         <Action
           label={words.reveal}

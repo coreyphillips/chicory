@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { AccessibilityActionEvent } from 'react-native';
 import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
@@ -33,6 +34,13 @@ const ROW_STEP_MS = 30;
 
 /** Holding backspace this long clears the whole amount. */
 export const CLEAR_AFTER_MS = 450;
+
+/**
+ * The hold that clears, as an action a screen reader can take: TalkBack
+ * offers it as double tap and hold, which it cannot pass through as a touch,
+ * and VoiceOver lists it among the actions.
+ */
+const CLEAR_ACTIONS = [{ name: 'longpress' as const }];
 
 const KEY_HEIGHT = 60;
 
@@ -80,6 +88,14 @@ const Key = memo(function KeyView({
       }
       onPress={live ? () => onKey(name) : undefined}
       onLongPress={live && back ? onClear : undefined}
+      accessibilityActions={back ? CLEAR_ACTIONS : undefined}
+      onAccessibilityAction={
+        live && back
+          ? (event: AccessibilityActionEvent) => {
+              if (event.nativeEvent.actionName === 'longpress') onClear();
+            }
+          : undefined
+      }
       delayLongPress={CLEAR_AFTER_MS}
       style={styles.key}
     >
@@ -102,6 +118,8 @@ const Key = memo(function KeyView({
  *
  * The container is labelled "Amount keypad", each digit with its digit and
  * backspace with its own words, which is how the suites find and press them.
+ * Holding backspace clears the amount, and a screen reader clears it with
+ * backspace's `longpress` action.
  * While `disabled`, or while its pane is out of use, no key takes a touch.
  */
 export const Keypad = memo(function KeypadView({

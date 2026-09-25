@@ -1,39 +1,37 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { SendReview } from '@beignet/wallet-core';
-import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
-import { number, space, type as typography } from '../../theme';
-import { reviewRail } from './model';
+import { amountIn, space, type as typography } from '../../theme';
+import type { Unit } from '../../theme';
+import { reviewFigures, reviewRail } from './model';
+import { useBloom } from './tone';
+import type { ReviewFigure } from './model';
 
-const UNIT = 'sats';
+/** The sum's lines are line text, which stops growing at 1.4 (REDESIGN.md 3.3). */
+export const LINE_SCALE = 1.4;
 
 /** One line of the sum: its signs and its amount, with its words spoken. */
-function Figure({
-  signs,
-  sats,
-  label,
-  value,
-  total = false,
-}: {
-  signs: string;
-  sats: number;
-  label: string;
-  value: string;
-  total?: boolean;
-}) {
+function Figure({ figure, unit }: { figure: ReviewFigure; unit: Unit }) {
+  const total = figure.key === 'total';
+  const shown = amountIn(figure.sats, unit);
   return (
     <View
       accessible
-      accessibilityLabel={label}
-      accessibilityValue={{ text: value }}
+      accessibilityLabel={figure.label}
+      accessibilityValue={{ text: figure.value }}
       style={styles.figure}
     >
-      <Text style={styles.signs}>{signs}</Text>
-      <Text style={[styles.amount, total && styles.total]}>
-        {`${number(sats)} ${UNIT}`}
+      <Text style={styles.signs} maxFontSizeMultiplier={LINE_SCALE}>
+        {figure.signs}
+      </Text>
+      <Text
+        style={[styles.amount, total && styles.total]}
+        maxFontSizeMultiplier={LINE_SCALE}
+      >
+        {`${shown.value} ${shown.suffix}`}
       </Text>
     </View>
   );
@@ -56,51 +54,38 @@ function Pip({ warning }: { warning: string }) {
  * priced should cost when there is an estimate, and `=` the most it all
  * comes to. Each line's words, as the engine and the old screen named them,
  * are what a screen reader hears. Engine warnings are honey pips.
+ *
+ * The figures are in `unit`, the one the balance is shown in. They are
+ * never hidden: a review is where the payment is checked before it is sent.
  */
-export function ReviewLines({ review }: { review: SendReview }) {
+export function ReviewLines({
+  review,
+  unit = 'sats',
+}: {
+  review: SendReview;
+  unit?: Unit;
+}) {
   const rail = reviewRail(review);
-  const estimate = review.estimatedFeeSats;
+  const bloom = useBloom();
   return (
     <View style={styles.lines}>
-      <View style={styles.line}>
-        <View
-          accessible
-          accessibilityRole="image"
-          accessibilityLabel={rail.label}
-          style={styles.rail}
-        >
-          <Glyph name={rail.glyph} size={20} color={palette.bloom} />
+      {reviewFigures(review).map((figure, index) => (
+        <View key={figure.key} style={styles.line}>
+          {index === 0 ? (
+            <View
+              accessible
+              accessibilityRole="image"
+              accessibilityLabel={rail.label}
+              style={styles.rail}
+            >
+              <Glyph name={rail.glyph} size={20} color={bloom.tone} />
+            </View>
+          ) : (
+            <View style={styles.rail} />
+          )}
+          <Figure figure={figure} unit={unit} />
         </View>
-        <Figure
-          signs="+ ≤"
-          sats={review.feeSats}
-          label={review.feeLabel || copy.send.fee}
-          value={copy.amount.spoken(review.feeSats)}
-        />
-      </View>
-      {estimate != null ? (
-        <View style={styles.line}>
-          <View style={styles.rail} />
-          <Figure
-            signs="≈"
-            sats={estimate}
-            label={copy.send.expectedFee}
-            value={copy.send.about(estimate)}
-          />
-        </View>
-      ) : null}
-      <View style={styles.line}>
-        <View style={styles.rail} />
-        <Figure
-          signs="="
-          sats={review.totalSats}
-          label={
-            estimate != null ? copy.send.totalAtMost : copy.send.totalWithFee
-          }
-          value={copy.amount.spoken(review.totalSats)}
-          total
-        />
-      </View>
+      ))}
       {review.warnings.length ? (
         <View style={styles.pips}>
           {review.warnings.map(warning => (

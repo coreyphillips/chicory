@@ -1,6 +1,7 @@
 import React, {
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -8,6 +9,7 @@ import React, {
 } from 'react';
 import type { ReactNode, Ref } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import type { HostInstance } from 'react-native';
 import Reanimated from 'react-native-reanimated';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { parseSats } from '@beignet/wallet-core';
@@ -18,7 +20,6 @@ import type {
   WalletSnapshot,
 } from '@beignet/wallet-core';
 import { Scanner } from '../components/Scanner';
-import { announce } from '../design/announce';
 import { copy } from '../design/copy';
 import { Glyph } from '../design/glyphs';
 import type { GlyphName } from '../design/glyphs';
@@ -43,20 +44,32 @@ import {
   isUncertain,
   resultVisual,
   reviewRail,
+  reviewWords,
   sendFailure,
 } from '../scenes/send/model';
 import type { Failure } from '../scenes/send/model';
 import { RequestEntry } from '../scenes/send/RequestEntry';
 import type { Origin } from '../scenes/send/RequestEntry';
 import { ResultMark } from '../scenes/send/ResultMark';
-import { ReviewLines } from '../scenes/send/ReviewLines';
+import { LINE_SCALE, ReviewLines } from '../scenes/send/ReviewLines';
+import { useLanding } from '../scenes/send/useLanding';
+import { useScreenReader } from '../scenes/send/useScreenReader';
+import { TestNetwork } from '../scenes/send/tone';
+import type { Landing } from '../scenes/send/useLanding';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { errorMessage } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
 import { heldRequest, holdRequest } from '../stage/heldRequests';
 import { usePaneActive } from '../stage/panes/Pane';
 import { useFlashTint, useHoldTint } from '../stage/StageContext';
-import { space, statusLabel, type as typography } from '../theme';
+import {
+  MASK,
+  amountIn,
+  space,
+  statusLabel,
+  type as typography,
+} from '../theme';
+import type { Unit } from '../theme';
 
 /** What a Send on the canvas asks of the screen inside it. */
 export interface SendHandle {
@@ -65,6 +78,12 @@ export interface SendHandle {
   /** A code the scan overlay read for this Send. */
   receive: (code: string) => void;
 }
+
+/** An amount as the screen shows it, in `unit`, with its suffix. */
+const shownIn = (sats: number, unit: Unit) => {
+  const { value, suffix } = amountIn(sats, unit);
+  return `${value} ${suffix}`;
+};
 
 /** A quote this close to running out is said aloud once. */
 const LATE_MS = 10_000;
@@ -79,11 +98,12 @@ const TONE_WORDS: Record<AmountTone, string | null> = {
 /**
  * A quote that ran out on its clock. An expired quote is a safety state
  * (REDESIGN.md rule 4): the hold gives way to a refresh, and the change is
- * felt, said and logged as it happens.
+ * felt, said and logged as it happens. It is said through `say`, once a
+ * screen reader has landed on the refresh.
  */
-function quoteExpired() {
+function quoteExpired(say: (text: string, assertive?: boolean) => void) {
   haptics.warning();
-  announce(copy.send.quoteExpired, { assertive: true });
+  say(copy.send.quoteExpired, true);
   recordDiagnostic({
     phase: 'ui',
     code: 'QUOTE_EXPIRED',
@@ -104,6 +124,18 @@ function quoteExpired() {
  * and a motion, and its words are what a screen reader hears and what a long
  * press shows.
  *
+ * As each step settles a screen reader lands on its primary element
+ * (REDESIGN.md 9), and what the step says aloud waits until it has: a review
+ * lands on its amount, at the head of the sum, never on the hold; a quote
+ * running out or the balance going stale lands on the control that takes
+ * the hold's place, and a fresh quote back on the amount; a result or the
+ * held ring on its mark; and back in compose, on the amount.
+ *
+ * Amounts are shown in `unit`, the one the balance is in. While amounts are
+ * hidden (`masked`) a result and the held ring show theirs as dots, as the
+ * fee paid; a review never does, since it is where the payment is checked
+ * before it is sent. A screen reader always hears sats.
+ *
  * On the canvas, `onScan` opens the scan overlay and the Send scene hands the
  * code back through `receive`. Rendered on its own, with no `onScan`, the
  * camera opens inside it instead. `onDone` takes a completed payment home
@@ -123,6 +155,9 @@ export function SendScreen({
   onScan,
   onDetail,
   onDone,
+  masked = false,
+  unit = 'sats',
+  test = false,
   ref,
 }: {
   client: WalletAdapter;
@@ -142,6 +177,12 @@ export function SendScreen({
   onScan?: (origin: Origin | null) => void;
   onDetail?: (item: Activity) => void;
   onDone?: () => void;
+  /** Amounts are hidden, as the balance is. */
+  masked?: boolean;
+  /** The unit the balance is shown in. */
+  unit?: Unit;
+  /** A test network, where slate stands in for bloom throughout. */
+  test?: boolean;
   ref?: Ref<SendHandle>;
 }) {
   const live = usePaneActive();
@@ -161,8 +202,11 @@ export function SendScreen({
   const [failure, setFailure] = useState<Failure | null>(null);
   // Each refusal of the amount shakes it, the same one again included.
   const [amountShakes, setAmountShakes] = useState(0);
-  // A completed payment goes home on its own unless the screen is touched.
+  // A completed payment goes home on its own unless the screen is touched or
+  // focused, and never while a screen reader is running: its user reaches
+  // the result a swipe at a time, and no timer should take it away.
   const [stayed, setStayed] = useState(false);
+  const reader = useScreenReader();
   // A request that names its amount sets it and locks it, so the amount
   // cannot be changed by accident. What was typed stays for a request that
   // names none.
@@ -176,15 +220,35 @@ export function SendScreen({
     review || result || !collapsed ? null : heldRequest(request, activity);
   const [, heldChanged] = useReducer((count: number) => count + 1, 0);
 
+  // Where a screen reader lands as a step settles: the review's amount, the
+  // control in the ring, the amount in compose, and a result's mark.
+  const { land, say } = useLanding();
+  const summary = useRef<HostInstance>(null);
+  const control = useRef<HostInstance>(null);
+  const readout = useRef<HostInstance>(null);
+  const mark = useRef<HostInstance>(null);
+  // Whether the hold is up, for the balance's gate to read as it turns.
+  const reviewing = useRef(false);
+  useLayoutEffect(() => {
+    reviewing.current = review !== null && !expired;
+  });
+
   useEffect(() => {
     if (!initialRequest) return;
     setRequest(initialRequest);
     setCollapsed(true);
   }, [initialRequest]);
+  // The stage is told busy by the handlers that send, as a request goes out
+  // and as its answer comes back (`goingOut` and `cameBack` below), and
+  // released as Send goes, whatever is still in flight.
+  const mounted = useRef(true);
   useEffect(() => {
-    onBusy(busy);
-    return () => onBusy(false);
-  }, [busy, onBusy]);
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => () => onBusy(false), [onBusy]);
 
   // A quote runs out on its own clock, and is said aloud once as it gets
   // close.
@@ -194,37 +258,46 @@ export function SendScreen({
     const timers = [
       setTimeout(() => {
         setExpired(true);
-        quoteExpired();
+        land(control);
+        quoteExpired(say);
       }, Math.max(0, left)),
     ];
     if (left > LATE_MS) {
       timers.push(
         setTimeout(
-          () => announce(copy.send.quoteExpires(LATE_MS / 1000)),
+          () => say(copy.send.quoteExpires(LATE_MS / 1000)),
           left - LATE_MS,
         ),
       );
     }
     return () => timers.forEach(clearTimeout);
-  }, [review, expired]);
+  }, [review, expired, land, say]);
 
   // The stale gate closing on the payment is a safety state (REDESIGN.md
-  // rule 4): felt, said and logged as it closes.
+  // rule 4): felt, said and logged as it closes. On a review it takes the
+  // hold's place, and a screen reader lands on it; as it opens again, back
+  // on the review's amount above the hold.
+  const gateWas = useRef(disabled);
   useEffect(() => {
+    const opened = gateWas.current && !disabled;
+    gateWas.current = disabled;
+    if (opened && reviewing.current) land(summary);
     if (!disabled) return;
     haptics.warning();
-    announce(copy.send.stale, { assertive: true });
+    if (reviewing.current) land(control);
+    say(copy.send.stale, true);
     recordDiagnostic({ phase: 'ui', code: 'STALE', message: copy.send.stale });
-  }, [disabled]);
+  }, [disabled, land, say]);
 
   // Landing on the held ring is felt, said and logged, once for each time.
   const heldFor = held ? request.trim() : '';
   useEffect(() => {
     if (!heldFor) return;
     haptics.held();
-    announce(copy.send.heldAnnouncement, { assertive: true });
+    land(mark);
+    say(copy.send.heldAnnouncement, true);
     recordDiagnostic({ phase: 'ui', code: 'HELD', message: copy.send.held });
-  }, [heldFor]);
+  }, [heldFor, land, say]);
 
   // The ground behind the canvas holds honey while an outcome is unknown,
   // here before the wallet's own read of it says so, and flashes radish as a
@@ -232,37 +305,63 @@ export function SendScreen({
   useHoldTint(result?.status === 'uncertain' || held ? 'honey' : null);
   const flash = useFlashTint();
 
-  // A result is felt and said once its mark is on screen and has taken a
-  // screen reader's focus, so the move never cuts an assertive message short.
+  // A result is felt as it lands, and said once its mark has taken a screen
+  // reader's focus, so the move never cuts an assertive message short.
   useEffect(() => {
-    switch (result?.status) {
+    if (!result) return;
+    land(mark);
+    switch (result.status) {
       case 'completed':
         haptics.success();
-        announce(copy.send.sent);
+        say(copy.send.sent);
         break;
       case 'pending':
         haptics.soft();
-        announce(copy.send.onItsWay);
+        say(copy.send.onItsWay);
         break;
       case 'uncertain':
         haptics.held();
-        announce(copy.send.heldAnnouncement, { assertive: true });
+        say(copy.send.heldAnnouncement, true);
         break;
       case 'failed':
         haptics.error();
         flash('radish');
-        announce(`${copy.send.failed} ${result.message}`, { assertive: true });
+        say(`${copy.send.failed} ${result.message}`, true);
         break;
     }
-  }, [result, flash]);
+  }, [result, flash, land, say]);
 
   useEffect(() => {
-    if (result?.status !== 'completed' || !onDone || stayed) return;
+    if (result?.status !== 'completed' || !onDone || stayed || reader) return;
     const timer = setTimeout(onDone, HOME_AFTER_MS);
     return () => clearTimeout(timer);
-  }, [result, onDone, stayed]);
+  }, [result, onDone, stayed, reader]);
+
+  const stay = () => setStayed(true);
 
   const sending = useRef(false);
+
+  /**
+   * Marks a request to the engine as going out. The stage hears it now, in
+   * the handler that sends it, rather than from an effect a render later:
+   * until then a close or a back could still take Send away under a payment
+   * in flight, and its result would never be shown.
+   */
+  function goingOut() {
+    sending.current = true;
+    onBusy(true);
+    setBusy(true);
+  }
+
+  /**
+   * The answer is back. A Send that has already gone leaves the stage alone,
+   * which it released as it went and may since be holding for another.
+   */
+  function cameBack() {
+    sending.current = false;
+    if (mounted.current) onBusy(false);
+    setBusy(false);
+  }
 
   function accept(code: string) {
     setRequest(code);
@@ -271,7 +370,14 @@ export function SendScreen({
     setScanning(false);
   }
 
-  function fail(error: unknown): Failure {
+  /**
+   * An engine refusal: felt and logged as it comes, and said once a screen
+   * reader has landed where `landing` says, when the refusal moves it on.
+   */
+  function fail(
+    error: unknown,
+    landing?: (next: Failure) => Landing | null,
+  ): Failure {
     const message = errorMessage(error);
     const next = sendFailure(error, {
       message,
@@ -279,13 +385,23 @@ export function SendScreen({
       balance,
     });
     haptics[next.haptic]();
-    announce(message, { assertive: true });
+    const target = landing?.(next);
+    if (target) land(target);
+    say(message, true);
     recordDiagnostic({ phase: 'ui', code: next.code || undefined, message });
     if (next.target === 'request') setCollapsed(false);
     if (next.target === 'amount' && next.shake) setAmountShakes(n => n + 1);
     setFailure(next);
     return next;
   }
+
+  /**
+   * Where a screen reader lands as a refusal takes a review back to compose:
+   * the amount, unless the request was refused, whose well takes focus as it
+   * opens.
+   */
+  const backToCompose = (next: Failure) =>
+    next.target === 'request' ? null : readout;
 
   /** Lands a held request on its ring, whatever step it was on. */
   function toHeld() {
@@ -318,8 +434,9 @@ export function SendScreen({
       toHeld();
       return;
     }
-    sending.current = true;
-    setBusy(true);
+    // A refresh is asked for from a review whose quote ran out.
+    const fromReview = review !== null;
+    goingOut();
     setFailure(null);
     try {
       const next = await client.prepareSend({
@@ -332,7 +449,8 @@ export function SendScreen({
       setCollapsed(true);
       const late = next.expiresAt <= Date.now();
       setExpired(late);
-      if (late) quoteExpired();
+      land(late ? control : summary);
+      if (late) quoteExpired(say);
     } catch (e) {
       if (alreadySubmitted(e)) {
         // The engine has a payment for this request out already.
@@ -343,15 +461,18 @@ export function SendScreen({
           message: errorMessage(e),
         });
         toHeld();
-      } else if (fail(e).target !== 'control') {
+      } else if (
         // A refresh refused beside its control keeps the spent quote on
         // screen, to try again; anything else is fixed back in compose.
+        fail(e, next =>
+          fromReview && next.target !== 'control' ? backToCompose(next) : null,
+        ).target !== 'control'
+      ) {
         setReview(null);
         setExpired(false);
       }
     } finally {
-      sending.current = false;
-      setBusy(false);
+      cameBack();
     }
   }
 
@@ -361,15 +482,15 @@ export function SendScreen({
     // in, and a request held since the review never pays twice.
     if (review.expiresAt <= Date.now()) {
       setExpired(true);
-      quoteExpired();
+      land(control);
+      quoteExpired(say);
       return;
     }
     if (heldRequest(request, activity)) {
       toHeld();
       return;
     }
-    sending.current = true;
-    setBusy(true);
+    goingOut();
     setFailure(null);
     setRail(reviewRail(review).glyph);
     try {
@@ -390,14 +511,13 @@ export function SendScreen({
         );
       } else if (errorCode(e) === 'QUOTE_EXPIRED') {
         setExpired(true);
-        fail(e);
+        fail(e, () => control);
       } else {
         setReview(null);
-        fail(e);
+        fail(e, backToCompose);
       }
     } finally {
-      sending.current = false;
-      setBusy(false);
+      cameBack();
     }
   }
 
@@ -406,6 +526,7 @@ export function SendScreen({
     setReview(null);
     setExpired(false);
     setFailure(null);
+    land(readout);
   }
 
   /** A new quote for the same payment, which takes the spent one's place. */
@@ -418,6 +539,7 @@ export function SendScreen({
   function retry() {
     setResult(null);
     setFailure(null);
+    land(readout);
   }
 
   async function paste(): Promise<boolean> {
@@ -425,11 +547,11 @@ export function SendScreen({
       const pasted = (await Clipboard.getString())?.trim();
       if (!pasted) {
         haptics.error();
-        announce(copy.send.clipboardEmpty);
+        say(copy.send.clipboardEmpty);
         return false;
       }
       accept(pasted);
-      announce(copy.send.pasted);
+      say(copy.send.pasted);
       return true;
     } catch (e) {
       fail(e);
@@ -444,7 +566,8 @@ export function SendScreen({
 
   useImperativeHandle(ref, () => ({
     back: () => {
-      if (busy) return false;
+      // Sent but not yet rendered as busy counts too: the stage refuses it.
+      if (busy || sending.current) return false;
       if (review) {
         edit();
         return true;
@@ -493,6 +616,7 @@ export function SendScreen({
       <>
         <View style={styles.body}>
           <ResultMark
+            ref={mark}
             visual={visual}
             accessibilityLabel={visual.title}
             accessibilityValue={statusLabel(result.status)}
@@ -516,6 +640,8 @@ export function SendScreen({
           />
           <Amount
             sats={result.amountSats}
+            unit={unit}
+            masked={masked}
             color={uncertain ? palette.honey : palette.cream}
           />
           <View
@@ -532,14 +658,14 @@ export function SendScreen({
             style={styles.fee}
           >
             <Glyph name={rail} size={16} color={palette.steam} />
-            <Text style={styles.feeText}>
+            <Text style={styles.feeText} maxFontSizeMultiplier={LINE_SCALE}>
               {result.feeEstimated ? '+ ≈' : '+'}
             </Text>
             {result.feeKnown === false ? (
               <Glyph name="question" size={16} color={palette.steam} />
             ) : (
-              <Text style={styles.feeText}>
-                {copy.amount.spoken(result.feeSats)}
+              <Text style={styles.feeText} maxFontSizeMultiplier={LINE_SCALE}>
+                {masked ? MASK : shownIn(result.feeSats, unit)}
               </Text>
             )}
           </View>
@@ -563,6 +689,7 @@ export function SendScreen({
       <>
         <View style={styles.body}>
           <ResultMark
+            ref={mark}
             visual={resultVisual('uncertain')}
             accessibilityLabel={
               held.status === 'pending' ? copy.send.onItsWay : copy.send.unknown
@@ -578,7 +705,14 @@ export function SendScreen({
               live && item && onDetail ? () => onDetail(item) : undefined
             }
           />
-          {shown ? <Amount sats={shown} color={palette.honey} /> : null}
+          {shown ? (
+            <Amount
+              sats={shown}
+              unit={unit}
+              masked={masked}
+              color={palette.honey}
+            />
+          ) : null}
         </View>
         <View style={[styles.controls, styles.centred]}>
           <GlyphButton
@@ -593,13 +727,17 @@ export function SendScreen({
     content = (
       <>
         <View style={styles.body}>
-          <Amount sats={review.amountSats} />
+          <Amount ref={summary} sats={review.amountSats} unit={unit} />
           {review.description ? (
-            <Text style={styles.note} numberOfLines={2}>
+            <Text
+              style={styles.note}
+              numberOfLines={2}
+              maxFontSizeMultiplier={LINE_SCALE}
+            >
               {review.description}
             </Text>
           ) : null}
-          <ReviewLines review={review} />
+          <ReviewLines review={review} unit={unit} />
         </View>
         <View style={styles.controls}>
           <View style={styles.side}>
@@ -611,7 +749,9 @@ export function SendScreen({
             />
           </View>
           <Commit
+            ref={control}
             accessibilityLabel={copy.send.sendSats(review.amountSats)}
+            summary={reviewWords(review)}
             expiresAt={review.expiresAt}
             createdAt={reviewedAt}
             warning={review.warnings.length > 0}
@@ -646,6 +786,7 @@ export function SendScreen({
     content = (
       <>
         <AmountReadout
+          ref={readout}
           accessibilityLabel={copy.amount.field}
           value={grouped(shownAmount)}
           onChangeText={
@@ -699,38 +840,43 @@ export function SendScreen({
 
   const composing = step === 'compose';
   return (
-    <View style={styles.screen}>
-      {/* The request stays in place from step to step, a well while it is
+    <TestNetwork.Provider value={test}>
+      <View style={styles.screen}>
+        {/* The request stays in place from step to step, a well while it is
           composed and a chip after, so only what changes crossfades. A
           chip past compose opens back to compose: from a review to edit
           the payment, from the held ring to take another request. */}
-      {result ? null : (
-        <RequestEntry
-          accessibilityLabel={copy.send.request}
-          value={request}
-          onChangeText={composing && live ? typed : undefined}
-          collapsed={!composing || collapsed}
-          onExpand={
-            busy ? undefined : review ? edit : () => setCollapsed(false)
-          }
-          onCollapse={() => setCollapsed(request.trim() !== '')}
-          fixed={fixedSats !== null}
-          refused={composing && failure?.target === 'request' ? failure : null}
-          busy={busy}
-          onPaste={composing ? paste : undefined}
-          onScan={composing ? scan : undefined}
-        />
-      )}
-      <Reanimated.View
-        key={step}
-        entering={sceneIn()}
-        exiting={sceneOut()}
-        onTouchStart={result ? () => setStayed(true) : undefined}
-        style={styles.step}
-      >
-        {content}
-      </Reanimated.View>
-    </View>
+        {result ? null : (
+          <RequestEntry
+            accessibilityLabel={copy.send.request}
+            value={request}
+            onChangeText={composing && live ? typed : undefined}
+            collapsed={!composing || collapsed}
+            onExpand={
+              busy ? undefined : review ? edit : () => setCollapsed(false)
+            }
+            onCollapse={() => setCollapsed(request.trim() !== '')}
+            fixed={fixedSats !== null}
+            refused={
+              composing && failure?.target === 'request' ? failure : null
+            }
+            busy={busy}
+            onPaste={composing ? paste : undefined}
+            onScan={composing ? scan : undefined}
+          />
+        )}
+        <Reanimated.View
+          key={step}
+          entering={sceneIn()}
+          exiting={sceneOut()}
+          onTouchStart={result ? stay : undefined}
+          onFocus={result ? stay : undefined}
+          style={styles.step}
+        >
+          {content}
+        </Reanimated.View>
+      </View>
+    </TestNetwork.Provider>
   );
 }
 

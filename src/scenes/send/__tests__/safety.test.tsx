@@ -26,6 +26,7 @@ import {
   pressableLabels,
 } from '../../../../test-support/query';
 import { ReviewLines } from '../ReviewLines';
+import { stepInMs } from '../useLanding';
 
 jest.mock('../../../design/announce', () => ({ announce: jest.fn() }));
 
@@ -34,7 +35,8 @@ jest.mock('../../../design/announce', () => ({ announce: jest.fn() }));
  * reaches a review however it is entered, a prepare that pays nothing holds
  * nothing, and an expired quote or a stale balance is felt, said aloud and
  * logged as it starts. After each step a screen reader moves to the step's
- * primary element, ahead of anything said aloud.
+ * primary element once the step has risen into view, ahead of anything said
+ * aloud.
  */
 const said = jest.mocked(announce);
 const felt = () =>
@@ -93,6 +95,17 @@ async function draw(client: object, props: Props = {}) {
 /** The hold for the 4,200 sats every test here sends. */
 const HOLD = copy.send.sendSats(4_200);
 
+/**
+ * Lets a step rise into view, so a screen reader lands on it and what waited
+ * for the landing is said. Under fake timers the clock is moved on instead.
+ */
+const arrive = (fake = false) =>
+  act(async () => {
+    const ms = stepInMs() + 50;
+    if (fake) jest.advanceTimersByTime(ms);
+    else await new Promise<void>(resolve => setTimeout(resolve, ms));
+  });
+
 const type = (tree: ReactTestRenderer, text: string) =>
   act(async () => {
     field(tree, copy.send.request).props.onChangeText(text);
@@ -131,6 +144,7 @@ describe('a held request', () => {
     expect(prepareSend).not.toHaveBeenCalled();
     expect(meaning(tree)).toContain(copy.send.held);
     expect(pressableLabels(tree)).not.toContain(copy.send.review);
+    await arrive();
     expect(said).toHaveBeenCalledWith(copy.send.heldAnnouncement, {
       assertive: true,
     });
@@ -221,14 +235,15 @@ describe('a quote', () => {
       { initialRequest: 'lnbc-clock' },
     );
     await press(tree, copy.send.review);
-    // The ring says nothing; the hold carries the time left.
+    // The ring says nothing; the hold carries the time left, last.
     const left = () => holds(tree, HOLD)[0].props.accessibilityValue.text;
-    expect(left()).toBe(copy.send.quoteExpires(15));
+    expect(left()).toMatch(new RegExp(`${copy.send.quoteExpires(15)}$`));
     await act(async () => jest.advanceTimersByTime(5_000));
-    expect(left()).toBe(copy.send.quoteExpires(10));
+    expect(left()).toMatch(new RegExp(`${copy.send.quoteExpires(10)}$`));
     expect(said).toHaveBeenLastCalledWith(copy.send.quoteExpires(10));
     expect(find(tree, copy.send.refreshQuote)).toBeUndefined();
     await act(async () => jest.advanceTimersByTime(10_000));
+    await arrive(true);
     expect(find(tree, copy.send.refreshQuote)).toBeDefined();
     expect(holds(tree, HOLD)).toEqual([]);
     expect(said).toHaveBeenLastCalledWith(copy.send.quoteExpired, {
@@ -282,6 +297,51 @@ describe('a quote', () => {
   });
 });
 
+describe('the stage', () => {
+  /** When the stage was first told busy, against when `call` was made. */
+  const busyBefore = (onBusy: jest.Mock, call: jest.Mock) => {
+    const told = onBusy.mock.calls.findIndex(([busy]) => busy === true);
+    expect(told).toBeGreaterThanOrEqual(0);
+    expect(call).toHaveBeenCalled();
+    return (
+      onBusy.mock.invocationCallOrder[told] < call.mock.invocationCallOrder[0]
+    );
+  };
+
+  test('is held busy as a review is asked for, before it goes out', async () => {
+    const onBusy = jest.fn();
+    const prepareSend = jest.fn(() => new Promise<SendReview>(() => {}));
+    const tree = await draw(
+      { prepareSend },
+      { initialRequest: 'lnbc-busy-review', onBusy },
+    );
+    onBusy.mockClear();
+    // The review never lands, so the press is not waited on.
+    await act(async () => {
+      find(tree, copy.send.review)?.props.onPress();
+    });
+    expect(busyBefore(onBusy, prepareSend)).toBe(true);
+    await act(async () => tree.unmount());
+  });
+
+  test('is held busy the moment the hold commits, before the payment goes out', async () => {
+    const onBusy = jest.fn();
+    const send = jest.fn(() => new Promise<SendResult>(() => {}));
+    const tree = await draw(
+      { prepareSend: jest.fn().mockResolvedValue(quote()), send },
+      { initialRequest: 'lnbc-busy-send', onBusy },
+    );
+    await press(tree, copy.send.review);
+    onBusy.mockClear();
+    await activate(tree, HOLD);
+    expect(busyBefore(onBusy, send)).toBe(true);
+    // Released only as Send goes, never on the way into busy.
+    expect(onBusy).not.toHaveBeenCalledWith(false);
+    await act(async () => tree.unmount());
+    expect(onBusy).toHaveBeenLastCalledWith(false);
+  });
+});
+
 test('a balance going stale closes the gate, felt, said and logged, and a tap refreshes', async () => {
   const send = jest.fn();
   const onRefresh = jest.fn();
@@ -290,17 +350,30 @@ test('a balance going stale closes the gate, felt, said and logged, and a tap re
   const tree = await draw(client, props);
   await press(tree, copy.send.review);
   expect(logged()).not.toContain('STALE');
+  await arrive();
+  jest.mocked(AccessibilityInfo.sendAccessibilityEvent).mockClear();
   await act(async () => {
     tree.update(screen(client, { ...props, disabled: true }));
   });
-  expect(said).toHaveBeenCalledWith(copy.send.stale, { assertive: true });
   expect(felt()).toContain('notificationWarning');
   expect(logged()).toContain('STALE');
-  // The hold is gone; what is left under its label only refreshes.
+  // The hold is gone; what is left under its label only refreshes, and a
+  // screen reader lands on it before it hears why.
   expect(holds(tree, HOLD)).toEqual([]);
+  await arrive();
+  expect(focused()).toEqual([HOLD]);
+  expect(said).toHaveBeenCalledWith(copy.send.stale, { assertive: true });
   await press(tree, copy.send.sendSats(4_200));
   expect(onRefresh).toHaveBeenCalledTimes(1);
   expect(send).not.toHaveBeenCalled();
+  // Fresh again, the hold is back, and a screen reader lands on the amount
+  // above it rather than on the hold itself.
+  await act(async () => {
+    tree.update(screen(client, { ...props, disabled: false }));
+  });
+  await arrive();
+  expect(holds(tree, HOLD)).toHaveLength(1);
+  expect(focused().at(-1)).toBe(copy.amount.spoken(4_200));
   await act(async () => tree.unmount());
 });
 
@@ -315,13 +388,92 @@ describe('a screen reader', () => {
     await act(async () => tree.unmount());
   });
 
-  test('moves to the hold as the review arrives', async () => {
+  test('lands on the amount a review is for as it arrives, never on the hold, once in view', async () => {
     const tree = await draw(
       { prepareSend: jest.fn().mockResolvedValue(quote()) },
       { initialRequest: 'lnbc-focus' },
     );
     await press(tree, copy.send.review);
-    expect(focused()).toEqual([copy.send.sendSats(4_200)]);
+    // Still rising into view: nothing is moved yet.
+    expect(focused()).toEqual([]);
+    await arrive();
+    expect(focused()).toEqual([copy.amount.spoken(4_200)]);
+    await act(async () => tree.unmount());
+  });
+
+  test('hears the whole review from the hold, warnings included, before one action pays', async () => {
+    const warning = 'Paid as direct funding. Completes after one confirmation.';
+    const tree = await draw(
+      {
+        prepareSend: jest.fn().mockResolvedValue(
+          quote({
+            feeSats: 900,
+            totalSats: 5_100,
+            estimatedFeeSats: 300,
+            warnings: [warning],
+          }),
+        ),
+      },
+      { initialRequest: 'lnbc-words' },
+    );
+    await press(tree, copy.send.review);
+    const [hold] = holds(tree, HOLD);
+    expect(hold.props.accessibilityValue.text).toBe(
+      [
+        `${copy.send.totalAtMost} ${copy.amount.spoken(5_100)}.`,
+        `Maximum fee ${copy.amount.spoken(900)}.`,
+        `${copy.send.expectedFee} ${copy.send.about(300)}.`,
+        warning,
+        copy.send.quoteExpires(60),
+      ].join(' '),
+    );
+    // A double tap commits it on iOS as the action does on Android.
+    expect(typeof hold.props.onAccessibilityTap).toBe('function');
+    await act(async () => tree.unmount());
+  });
+
+  test('lands on the refresh as a quote runs out, then hears it has', async () => {
+    jest.useFakeTimers();
+    const expiresAt = Date.now() + 5_000;
+    const tree = await draw(
+      { prepareSend: jest.fn().mockResolvedValue(quote({ expiresAt })) },
+      { initialRequest: 'lnbc-focus-expiry' },
+    );
+    await press(tree, copy.send.review);
+    await arrive(true);
+    // To the moment it runs out, and not past it.
+    await act(async () => jest.advanceTimersByTime(expiresAt - Date.now()));
+    expect(find(tree, copy.send.refreshQuote)).toBeDefined();
+    expect(said).not.toHaveBeenCalledWith(copy.send.quoteExpired, {
+      assertive: true,
+    });
+    await arrive(true);
+    expect(focused().at(-1)).toBe(copy.send.refreshQuote);
+    expect(said).toHaveBeenLastCalledWith(copy.send.quoteExpired, {
+      assertive: true,
+    });
+    await act(async () => tree.unmount());
+  });
+
+  test('lands on the amount back in compose, from an edit and from a retry', async () => {
+    const tree = await draw(
+      {
+        prepareSend: jest.fn().mockResolvedValue(quote()),
+        send: jest.fn().mockResolvedValue(outcome('failed')),
+      },
+      { initialRequest: 'lnbc-focus-back' },
+    );
+    await press(tree, copy.send.review);
+    await press(tree, copy.send.edit);
+    await arrive();
+    expect(focused().at(-1)).toBe(copy.amount.field);
+    await press(tree, copy.send.review);
+    await activate(tree, HOLD);
+    await arrive();
+    expect(focused().at(-1)).toBe(copy.send.failed);
+    await press(tree, copy.send.failed);
+    await arrive();
+    expect(focused().at(-1)).toBe(copy.amount.field);
     await act(async () => tree.unmount());
   });
 
@@ -335,6 +487,7 @@ describe('a screen reader', () => {
     );
     await press(tree, copy.send.review);
     await activate(tree, HOLD);
+    await arrive();
     expect(focused().at(-1)).toBe(copy.send.unknown);
     const [moved] = jest
       .mocked(AccessibilityInfo.sendAccessibilityEvent)
@@ -344,6 +497,68 @@ describe('a screen reader', () => {
     );
     expect(said.mock.calls[told][1]).toEqual({ assertive: true });
     expect(said.mock.invocationCallOrder[told]).toBeGreaterThan(moved);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('a completed payment', () => {
+  /** A payment that completes, under fake timers, with `onDone` to watch. */
+  async function completed(props: Props = {}) {
+    jest.useFakeTimers();
+    const onDone = jest.fn();
+    const tree = await draw(
+      {
+        prepareSend: jest.fn().mockResolvedValue(quote()),
+        send: jest.fn().mockResolvedValue(outcome('completed')),
+      },
+      { initialRequest: 'lnbc-home', onDone, ...props },
+    );
+    await press(tree, copy.send.review);
+    await activate(tree, HOLD);
+    expect(meaning(tree)).toContain(copy.send.sent);
+    return { tree, onDone };
+  }
+  const later = () => act(async () => jest.advanceTimersByTime(10_000));
+
+  test('stays while a screen reader is running, which reaches it a swipe at a time', async () => {
+    jest
+      .mocked(AccessibilityInfo.isScreenReaderEnabled)
+      .mockResolvedValueOnce(true);
+    const { tree, onDone } = await completed();
+    await later();
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('stays once a screen reader is turned on while it waits', async () => {
+    const { tree, onDone } = await completed();
+    const [turned] = jest
+      .mocked(AccessibilityInfo.addEventListener)
+      .mock.calls.filter(([event]) => event === 'screenReaderChanged')
+      .map(([, listener]) => listener as (on: boolean) => void)
+      .slice(-1);
+    await act(async () => turned(true));
+    await later();
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('stays once anything in it takes focus', async () => {
+    const { tree, onDone } = await completed();
+    await act(async () => {
+      tree.root
+        .findAll(node => typeof node.props.onFocus === 'function')[0]
+        .props.onFocus();
+    });
+    await later();
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('otherwise goes home on its own', async () => {
+    const { tree, onDone } = await completed();
+    await later();
+    expect(onDone).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
   });
 });

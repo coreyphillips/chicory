@@ -34,7 +34,8 @@ import { curves, durations } from '../motion/tokens';
  * shows one.
  *
  * Under Reduce Motion the ring still runs down and still turns honey; only
- * the pulse and the retreat are left out.
+ * the pulse and the retreat are left out. On a test network (`test`) its
+ * calm stroke is slate, where it is bloom on mainnet.
  */
 export interface ExpiryRingProps {
   size: number;
@@ -47,6 +48,8 @@ export interface ExpiryRingProps {
   /** When it turns honey, if sooner than its last 10 seconds. */
   lateAt?: number;
   onExpired?: () => void;
+  /** A test network, where slate stands in for bloom. */
+  test?: boolean;
 }
 
 /** Time left when the ring warns, and when it starts to pulse. */
@@ -76,6 +79,7 @@ export function ExpiryRing({
   radius = 0,
   lateAt,
   onExpired,
+  test = false,
 }: ExpiryRingProps) {
   const late = Math.max(LATE_MS, expiresAt - (lateAt ?? expiresAt));
   // Without a start, the ring is full when it first appears.
@@ -149,7 +153,8 @@ export function ExpiryRing({
     transform: [{ scale: 1 - 0.08 * gone.get() }],
   }));
 
-  const color = stage === 'calm' ? palette.bloom : palette.honey;
+  const calm = test ? palette.slate : palette.bloom;
+  const color = stage === 'calm' ? calm : palette.honey;
   const inset = STROKE / 2;
   const w = shape === 'rect' ? width : size;
   const h = shape === 'rect' ? height : size;

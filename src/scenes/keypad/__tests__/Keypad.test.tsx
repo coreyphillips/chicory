@@ -100,6 +100,32 @@ test('holding backspace clears the amount with a rigid tap', async () => {
   await act(async () => tree.unmount());
 });
 
+test('a screen reader clears the amount with the long press action', async () => {
+  const tree = await mount(<Field start="4200" />);
+  const backspace = find(tree, copy.keypad.backspace)!;
+  expect(backspace.props.accessibilityActions).toEqual([{ name: 'longpress' }]);
+  await act(async () =>
+    backspace.props.onAccessibilityAction({
+      nativeEvent: { actionName: 'longpress' },
+    }),
+  );
+  expect(amountValue(tree)).toBe('');
+  expect(felt()).toEqual(['rigid']);
+  // A digit key has no such action.
+  expect(find(tree, '4')!.props.accessibilityActions).toBeUndefined();
+  await act(async () => tree.unmount());
+});
+
+test('the amount and its unit stop growing at 1.2', async () => {
+  const tree = await mount(<Field start="4200" />);
+  const caps = readout(tree)
+    .findAllByType(Text)
+    .map(node => node.props.maxFontSizeMultiplier);
+  expect(caps.length).toBeGreaterThan(1);
+  expect(caps.every(cap => cap === 1.2)).toBe(true);
+  await act(async () => tree.unmount());
+});
+
 test('a 17th digit is refused, with a rigid tap', async () => {
   const full = '2100000000000000';
   const tree = await mount(<Field start={full} />);
@@ -210,7 +236,7 @@ test("an empty amount stands its caller's face in place of the 0, until a digit 
 test.each([
   ['honey', palette.honey, GLYPHS.clock[0].d],
   ['radish', palette.radish, GLYPHS.bang[0].d],
-  ['dust', palette.dust, null],
+  ['dust', palette.dust, GLYPHS.sprout[0].d],
 ] as const)(
   'a %s tone colours the amount, with the mark that says why',
   async (tone, color, mark) => {

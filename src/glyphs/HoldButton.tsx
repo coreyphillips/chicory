@@ -25,6 +25,7 @@ import { palette } from '../design/palette';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { Orbit } from '../scenes/send/Orbit';
+import { bloomFor } from '../scenes/send/tone';
 import { usePaneActive } from '../stage/panes/Pane';
 
 /**
@@ -36,10 +37,15 @@ import { usePaneActive } from '../stage/panes/Pane';
  * Held, the circle dips and its ring fills, with a tick at each quarter.
  * Complete, it thuds, flashes cream, pops, and the arrow launches as twelve
  * petal sparks burst. Let go early, the fill drains away. With warnings the
- * fill is honey. While `busy` an orbit runs round the ring.
+ * fill is honey. While `busy` an orbit runs round the ring. On a test
+ * network (`test`) slate stands in for bloom throughout.
  *
  * A screen reader has no hold to give, so it gets one `activate` action that
- * commits at once: the confirmation is the deliberate double tap.
+ * commits at once: the confirmation is the deliberate double tap. TalkBack
+ * sends that as the action, and VoiceOver as an accessibility tap, since on
+ * the new architecture iOS lists `activate` only among the custom actions;
+ * both commit. Its words are the caller's, and a caller gives the whole of
+ * what is committed in `accessibilityValue`, as Send gives the review.
  */
 export interface HoldButtonProps {
   accessibilityLabel: string;
@@ -49,6 +55,8 @@ export interface HoldButtonProps {
   warning?: boolean;
   disabled?: boolean;
   busy?: boolean;
+  /** A test network, where slate stands in for bloom. */
+  test?: boolean;
   /** What sits in the circle instead of the send glyph. */
   children?: ReactNode;
   /** The circle itself, for a screen that moves a screen reader to it. */
@@ -77,9 +85,11 @@ const AnimatedCircle = Reanimated.createAnimatedComponent(Circle);
 function Spark({
   index,
   burst,
+  color,
 }: {
   index: number;
   burst: SharedValue<number>;
+  color: string;
 }) {
   const angle = (index * 2 * Math.PI) / SPARKS;
   const style = useAnimatedStyle(() => {
@@ -95,7 +105,12 @@ function Spark({
       ],
     };
   });
-  return <Reanimated.View pointerEvents="none" style={[styles.spark, style]} />;
+  return (
+    <Reanimated.View
+      pointerEvents="none"
+      style={[styles.spark, { backgroundColor: color }, style]}
+    />
+  );
 }
 
 const SPARK_INDEXES = Array.from({ length: SPARKS }, (_, index) => index);
@@ -107,6 +122,7 @@ export function HoldButton({
   warning = false,
   disabled = false,
   busy = false,
+  test = false,
   children,
   ref,
 }: HoldButtonProps) {
@@ -218,15 +234,12 @@ export function HoldButton({
     [reduced],
   );
 
-  const tone = disabled
-    ? palette.dust
-    : warning
-    ? palette.honey
-    : palette.bloom;
+  const bloom = bloomFor(test);
+  const tone = disabled ? palette.dust : warning ? palette.honey : bloom.tone;
   return (
     <Reanimated.View style={[styles.frame, frameStyle]}>
       {SPARK_INDEXES.map(index => (
-        <Spark key={index} index={index} burst={burst} />
+        <Spark key={index} index={index} burst={burst} color={bloom.hi} />
       ))}
       <Pressable
         ref={ref}
@@ -243,6 +256,7 @@ export function HoldButton({
               }
             : undefined
         }
+        onAccessibilityTap={live ? commit : undefined}
         onPressIn={live ? begin : undefined}
         onPressOut={live ? release : undefined}
         onLongPress={live ? commit : undefined}
@@ -250,6 +264,7 @@ export function HoldButton({
         disabled={disabled || busy}
         style={[
           styles.circle,
+          { backgroundColor: bloom.soft },
           warning && styles.warning,
           disabled && styles.inactive,
         ]}
@@ -308,7 +323,6 @@ const styles = StyleSheet.create({
     borderRadius: SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: palette.bloomSoft,
   },
   warning: { backgroundColor: palette.honeySoft },
   inactive: { backgroundColor: palette.mocha },
@@ -323,6 +337,5 @@ const styles = StyleSheet.create({
     width: 6,
     height: 12,
     borderRadius: 3,
-    backgroundColor: palette.bloomHi,
   },
 });
