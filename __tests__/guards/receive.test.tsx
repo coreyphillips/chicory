@@ -7,7 +7,6 @@ import type {
   ReceiveRequest,
   ReceiveStatus,
 } from '@beignet/wallet-core';
-import { AmountField } from '../../src/components/AmountField';
 import { ReceiveReceipt } from '../../src/components/ReceiveReceipt';
 import { ReceiveRequestDetails } from '../../src/components/ReceiveRequestDetails';
 import { ToastProvider, useToast } from '../../src/components/Toast';
@@ -27,7 +26,7 @@ import {
 import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
 import { enterAmount } from '../../test-support/keypad';
-import { field, press, visibleText } from '../../test-support/query';
+import { field, press } from '../../test-support/query';
 
 /**
  * Receive under the copy guard (REDESIGN.md rule 1) and the accessibility
@@ -52,19 +51,6 @@ const TXID = hex(400);
 
 const snapshot = snapshotOf();
 const { receivableSats, offlineReceivableSats } = snapshot.balance;
-
-/**
- * The amount field draws its own label while it is the text field; the
- * keypad that replaces it (REDESIGN.md 10.3) belongs to the send track and
- * draws none. Whatever of that label it still draws is its own, so the form
- * states allow exactly that and nothing more.
- */
-let fieldLabel: string[] = [];
-beforeAll(async () => {
-  const tree = await mount(<AmountField value="" onChangeText={noop} />);
-  fieldLabel = visibleText(tree).filter(text => text === copy.amount.field);
-  await act(async () => tree.unmount());
-});
 
 /** What a receive state may show: the wallet's figures, the note, the txid. */
 const shown = (extra: string[] = []) =>
@@ -199,15 +185,12 @@ const stale: Drive = (_tree, set) => set({ disabled: true });
 const toQuote = [amount('10000'), tap(copy.receive.continue)];
 const toRequest = [...toQuote, tap(copy.receive.create)];
 
-/** A form state: its data, plus the amount field's own label while it draws one. */
+/**
+ * A form state. The amount's label is only ever spoken (REDESIGN.md 10.3),
+ * so a form may show no more than any other state.
+ */
 function form(name: string, render: GuardedState['render']): GuardedState {
-  return {
-    name,
-    render,
-    get data() {
-      return shown(fieldLabel);
-    },
-  };
+  return state(name, render);
 }
 
 function state(

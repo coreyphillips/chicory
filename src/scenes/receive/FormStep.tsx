@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
 import Reanimated from 'react-native-reanimated';
 import { AmountField } from '../../components/AmountField';
@@ -7,7 +7,7 @@ import { palette } from '../../design/palette';
 import { riseIn, sceneOut, stagger } from '../../motion/presets';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { radius, space, type as typography } from '../../theme';
-import { AmountCue } from './AmountCue';
+import { AmountCue, AmountFace } from './AmountCue';
 import { ErrorPip, GlyphButton } from './controls';
 import type { Focus } from './focus';
 import type { AmountCue as Cue } from './model';
@@ -23,6 +23,11 @@ const NOTE_MAX = 180;
  * makes the request payable offline when that is offered, and the control
  * that asks for a quote. No words: the cue, the switch and the controls
  * carry them for a screen reader.
+ *
+ * The amount shows an infinity while it is empty and the sender may choose,
+ * and a dust 0 with a caret while one is needed. It turns radish past an
+ * offline receive's cap and dust under its floor, and shakes when an amount
+ * turns out to be needed after all, as the infinity gives way to the 0.
  */
 export function FormStep({
   amount,
@@ -74,6 +79,12 @@ export function FormStep({
 }) {
   const live = usePaneActive();
   const showNote = noteOpen || note !== '';
+  // Each time an amount turns out to be needed, the amount shakes once.
+  const needed = cue.kind === 'required';
+  const [asked, setAsked] = useState({ needed, times: 0 });
+  if (asked.needed !== needed) {
+    setAsked({ needed, times: asked.times + (needed ? 1 : 0) });
+  }
   return (
     <View style={styles.form}>
       <AmountCue cue={cue} cap={cap} message={amountMessage || undefined} />
@@ -82,6 +93,10 @@ export function FormStep({
         onChangeText={onAmount}
         presets={PRESETS}
         busy={busy}
+        hint={cue.kind === 'any' && cue.empty ? copy.amount.any : undefined}
+        empty={<AmountFace cue={cue} />}
+        tone={cue.over ? 'radish' : cue.under ? 'dust' : undefined}
+        shake={asked.times}
       />
       <Reanimated.View entering={stagger(2)} style={styles.options}>
         <GlyphButton

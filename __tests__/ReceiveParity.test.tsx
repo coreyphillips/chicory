@@ -47,6 +47,7 @@ import { useReceiveStatus } from '../src/services/useReceiveStatus';
 import type { WalletAdapter } from '../src/services/wallet';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
 import type { StageStore } from '../src/stage/StageContext';
+import * as tokens from '../src/motion/tokens';
 import { MASK } from '../src/theme';
 import { amountValue, enterAmount } from '../test-support/keypad';
 import { alerts, find, meaning, visibleText } from '../test-support/query';
@@ -126,6 +127,20 @@ const field = (tree: ReactTestRenderer, label: string) =>
     .findAllByProps({ accessibilityLabel: label })
     .find(node => typeof node.props.onChangeText === 'function')!;
 const text = (tree: ReactTestRenderer) => JSON.stringify(tree.toJSON());
+/** What stands in the empty amount: the infinity, or a 0 to key into. */
+const amountFace = (tree: ReactTestRenderer) => {
+  const amount = tree.root.find(
+    node =>
+      typeof node.type === 'string' &&
+      node.props.accessibilityLabel === copy.amount.field,
+  );
+  return {
+    infinity: amount
+      .findAllByType(Path)
+      .some(node => node.props.d === GLYPHS.infinity[0].d),
+    zero: amount.findAllByType(Text).some(node => node.props.children === '0'),
+  };
+};
 /** Whether the control labelled `label` reads as disabled. */
 const disabled = (tree: ReactTestRenderer, label: string) =>
   !!press(tree, label).props.accessibilityState?.disabled;
@@ -157,9 +172,11 @@ test('zero inbound capacity blocks blank amount locally and preserves the fee-re
       />,
     );
   });
-  // The amount cue asks for an amount: a sprout, not the infinity.
+  // The amount cue asks for an amount: a sprout, not the infinity, and the
+  // amount itself is a dust 0 with a caret.
   expect(meaning(tree)).toContain(copy.amount.required);
   expect(meaning(tree)).not.toContain(copy.amount.any);
+  expect(amountFace(tree)).toEqual({ infinity: false, zero: true });
   expect(disabled(tree, 'Continue')).toBe(true);
   await act(async () => {
     await press(tree, 'Continue').props.onPress();
@@ -251,7 +268,10 @@ test('amountless is available with inbound capacity; stale-capacity rejection ke
     );
   });
   expect(meaning(tree)).toContain(copy.amount.any);
+  // The infinity stands in the amount itself, not over it.
+  expect(amountFace(tree)).toEqual({ infinity: true, zero: false });
   expect(disabled(tree, 'Continue')).toBe(false);
+  const shakes = jest.spyOn(tokens, 'shake');
   await openNote(tree);
   await act(async () => {
     field(tree, 'Note · optional').props.onChangeText('Lunch');
@@ -266,6 +286,10 @@ test('amountless is available with inbound capacity; stale-capacity rejection ke
   expect(field(tree, 'Note · optional').props.value).toBe('Lunch');
   expect(disabled(tree, 'Continue')).toBe(true);
   expect(meaning(tree)).toContain(copy.amount.required);
+  // The infinity shakes and becomes the 0 an amount is keyed into.
+  expect(shakes).toHaveBeenCalledTimes(1);
+  expect(amountFace(tree)).toEqual({ infinity: false, zero: true });
+  shakes.mockRestore();
   await act(async () => tree.unmount());
 });
 

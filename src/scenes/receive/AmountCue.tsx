@@ -1,23 +1,21 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Reanimated from 'react-native-reanimated';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
-import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { riseIn, sceneOut } from '../../motion/presets';
-import { number, radius, space, type as typography } from '../../theme';
-import { useRefusal } from './controls';
+import { number, space, type as typography } from '../../theme';
 import { Pulse } from './loops';
 import type { AmountCue as Cue } from './model';
 
 /**
- * What the amount means, as a glyph over it (REDESIGN.md 6, Receive): an
- * infinity while it is empty and the sender may choose; a sprout and a
- * blinking caret while an amount is needed for a channel made just in time;
- * the moon and the cap an offline receive can take, radish past it and dust
- * below the floor. It shakes when it refuses: when the cap is passed, and
- * when the engine says an amount is needed after all.
+ * What the amount means, as a glyph over it (REDESIGN.md 6, Receive): a
+ * sprout while an amount is needed for a channel made just in time, and the
+ * moon and the cap an offline receive can take, radish past it and dust
+ * below the floor. The amount itself shows the rest: an infinity while the
+ * sender may choose, a dust 0 and a caret while one is needed, and the
+ * shake when it is refused (`AmountFace`).
  *
  * It draws only glyphs and the cap, which is data; the words are its label.
  */
@@ -31,19 +29,6 @@ export function AmountCue({
   /** What the engine said when it asked for an amount. */
   message?: string;
 }) {
-  const { play: refuse, shaken, tinted } = useRefusal();
-  // A refusal is news once: passing the cap, which the finger feels too, or
-  // an amount turning required.
-  const refused = cue.over || cue.kind === 'required';
-  const was = useRef(refused);
-  useEffect(() => {
-    if (refused && !was.current) {
-      if (cue.over) haptics.rigid();
-      refuse();
-    }
-    was.current = refused;
-  }, [refused, cue.over, refuse]);
-
   let label: string | undefined;
   let hint: string | undefined;
   let face: React.ReactNode = null;
@@ -81,22 +66,10 @@ export function AmountCue({
   } else if (cue.kind === 'required') {
     label = copy.amount.required;
     hint = copy.receive.enterAmount;
-    face = (
-      <>
-        {cue.empty ? (
-          <Pulse period={1000} low={0}>
-            <View style={styles.caret} />
-          </Pulse>
-        ) : null}
-        <Glyph name="sprout" size={20} color={palette.bloom} />
-      </>
-    );
-  } else if (cue.empty) {
-    label = copy.amount.any;
-    face = <Glyph name="infinity" size={32} color={palette.bloom} />;
+    face = <Glyph name="sprout" size={20} color={palette.bloom} />;
   }
   return (
-    <Reanimated.View style={[styles.strip, shaken]}>
+    <View style={styles.strip}>
       {face ? (
         <Reanimated.View
           key={cue.kind}
@@ -108,11 +81,31 @@ export function AmountCue({
           accessibilityValue={message ? { text: message } : undefined}
           style={styles.face}
         >
-          <Reanimated.View pointerEvents="none" style={[styles.tint, tinted]} />
           {face}
         </Reanimated.View>
       ) : null}
-    </Reanimated.View>
+    </View>
+  );
+}
+
+/**
+ * What stands in the amount while it has no digits: an infinity where the
+ * sender may choose, and otherwise the dust 0 with a caret blinking after
+ * it, since an amount is needed.
+ */
+export function AmountFace({ cue }: { cue: Cue }) {
+  if (cue.kind === 'any') {
+    return <Glyph name="infinity" size={40} color={palette.bloom} />;
+  }
+  return (
+    <>
+      <Text style={styles.zero} maxFontSizeMultiplier={1.2}>
+        0
+      </Text>
+      <Pulse period={1000} low={0}>
+        <View style={styles.caret} />
+      </Pulse>
+    </>
   );
 }
 
@@ -125,14 +118,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
     minHeight: 32,
   },
-  tint: {
-    ...StyleSheet.absoluteFill,
-    borderRadius: radius.round,
-    backgroundColor: palette.radishSoft,
-  },
+  zero: { ...typography.amount, color: palette.dust },
   caret: {
     width: 2,
-    height: 24,
+    height: 36,
+    marginLeft: 2,
     borderRadius: 1,
     backgroundColor: palette.bloom,
   },
