@@ -3,6 +3,7 @@ import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import { open } from '@op-engineering/op-sqlite';
 import * as client from '../src/embedded/client';
+import { AMBIENT_REST_MS, useAmbientRest } from '../src/motion/ambient';
 import { Gallery, SHOTS } from '../native-tests/Gallery';
 
 /**
@@ -10,9 +11,16 @@ import { Gallery, SHOTS } from '../native-tests/Gallery';
  * full cycle. Worklets run on the JS thread under Jest, so this cannot see
  * what only the UI thread would; that is what the gallery is for. What it
  * does see: every state draws without throwing, every control a step
- * reaches for is there to be pressed, and nothing reaches the secure store
- * or the clipboard, opens a vault or starts the engine.
+ * reaches for is there to be pressed, nothing reaches the secure store
+ * or the clipboard, opens a vault or starts the engine, and decoration
+ * never comes to rest, so its loops run in every state.
  */
+
+/** Records whether decoration rests, each time it renders. */
+function Rest({ seen }: { seen: boolean[] }) {
+  seen.push(useAmbientRest());
+  return null;
+}
 
 // The keychain and the clipboard as Metro bundles them: ES modules whose
 // exports every importer shares, so the gallery's seal reaches the screens
@@ -66,10 +74,17 @@ test('draws every state once, then says so and starts again', async () => {
     .spyOn(console, 'log')
     .mockImplementation((line: unknown) => lines.push(String(line)));
   const opened = jest.spyOn(client, 'openDeviceWallet');
+  const rests: boolean[] = [];
+  const started = Date.now();
 
   let tree!: ReactTestRenderer;
   await act(async () => {
-    tree = create(<Gallery />);
+    tree = create(
+      <>
+        <Gallery />
+        <Rest seen={rests} />
+      </>,
+    );
   });
   // A timer at a time, so what one step starts has answered before the next.
   const most = SHOTS.length * 50;
@@ -80,6 +95,7 @@ test('draws every state once, then says so and starts again', async () => {
   }
   const drawn = lines.filter(line => /^GALLERY \d+ /.test(line));
   const trouble = lines.filter(line => /^GALLERY (MISS|ERROR) /.test(line));
+  const ran = Date.now() - started;
 
   await act(async () => tree.unmount());
   log.mockRestore();
@@ -99,6 +115,11 @@ test('draws every state once, then says so and starts again', async () => {
   expect(reached('@react-native-clipboard/clipboard')).toEqual([]);
   expect(engineStarted).toBe(false);
   expect(open).not.toHaveBeenCalled();
+  // Nothing touches the gallery, and a pass runs far longer than the quiet
+  // after which decoration rests, yet each state wakes it as it comes up.
+  expect(ran).toBeGreaterThan(AMBIENT_REST_MS * 5);
+  expect(rests.length).toBeGreaterThan(0);
+  expect(rests).not.toContain(true);
   // A few hundred states, most of them a mount of the whole stage, take
   // minutes rather than the usual seconds.
 }, 600_000);

@@ -405,7 +405,7 @@ const expiries: Shot[] = [
 const qr = (state: QrState) => (
   <QrBloom
     value={present(requestOf()).uri}
-    size={200}
+    size={224}
     state={state}
     accessibilityLabel={copy.receive.qr}
   />

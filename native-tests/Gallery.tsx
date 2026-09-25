@@ -25,6 +25,7 @@ import { AppRegistry, StyleSheet, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastProvider } from '../src/components/Toast';
+import { wakeAmbient } from '../src/motion/ambient';
 import { clearHeldRequests } from '../src/stage/heldRequests';
 import { colors } from '../src/theme';
 import { Probe, driver, report } from './gallery/drive';
@@ -54,9 +55,12 @@ export function Gallery() {
     const shot = SHOTS[index];
     report(`${index} ${shot.name}`);
     // Each state starts from nothing held and a phone with no biometry,
-    // whatever the state before it set up.
+    // whatever the state before it set up. It also wakes decoration, as the
+    // stage does for a new scene (REDESIGN.md 3.5): nothing touches the
+    // gallery, and its loops would otherwise rest a few states in.
     clearHeldRequests();
     setBiometry(null);
+    wakeAmbient();
     const take = shot.make();
     setDrawn(last => ({ take, name: shot.name, key: (last?.key ?? 0) + 1 }));
     const drive = driver(probe, shot.name);
