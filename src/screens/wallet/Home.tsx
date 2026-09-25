@@ -28,7 +28,6 @@ import {
   vesselOpacity,
 } from '../../scenes/home/motion';
 import type { HeroFrame, Launch } from '../../scenes/home/motion';
-import { PullBloom } from '../../scenes/home/PullBloom';
 import { isTestNetwork } from '../../scenes/home/visual';
 import type { Panes } from '../../stage/panes/Pane';
 import { usePaneActive } from '../../stage/panes/Pane';
@@ -49,10 +48,10 @@ const GATED = 0.94;
  * Receive.
  *
  * Tapping the hero rolls it between sats and BTC, and a long press hides it;
- * a screen reader has both as actions. Pulling the pane down opens a bloom
- * above the balance petal by petal, and letting go once it is in full flower
- * starts a refresh. An old balance gates the actions, which say so and
- * refresh when tapped rather than act.
+ * a screen reader has both as actions. Pulling the pane down opens the
+ * status row's mark petal by petal, through the canvas's `pull`, and letting
+ * go once it is in full flower starts a refresh. An old balance gates the
+ * actions, which say so and refresh when tapped rather than act.
  *
  * On the canvas `progress` carries the panes: `hero` shrinks the balance into
  * a mini strip in the status row, fading the vessel first, and `bar` fades
@@ -93,8 +92,11 @@ export function HomeScreen({
   onRefresh?: () => void;
   /** What the hero shows, when not the total: Send's spendable amount. */
   heroSats?: number;
-  /** The canvas's panes, which move the hero and the action row. */
-  progress?: Pick<Panes, 'hero' | 'bar'>;
+  /**
+   * The canvas's panes, which move the hero and the action row, and take
+   * the pull for the mark to open with.
+   */
+  progress?: Pick<Panes, 'hero' | 'bar'> & Partial<Pick<Panes, 'pull'>>;
   /** The scene the canvas is heading to, when one of the circles opens it. */
   launching?: Launch;
   /** A count that rises with each read that brought money in. */
@@ -108,7 +110,10 @@ export function HomeScreen({
   const hero = progress?.hero ?? resting;
   const bar = progress?.bar ?? resting;
   const frame = useSharedValue<HeroFrame>({ y: 0, height: 0 });
-  const pull = useSharedValue(0);
+  // The pane follows the finger and springs back on its own; the canvas's
+  // pull is only ever the finger, and 0 once it lets go.
+  const drag = useSharedValue(0);
+  const pull = progress?.pull;
   const armed = useSharedValue(false);
   const pop = useSharedValue(1);
   const gate = useSharedValue(stale ? GATED : 1);
@@ -141,7 +146,8 @@ export function HomeScreen({
   const refresh = live ? onRefresh : undefined;
   const follow = (dy: number) => {
     'worklet';
-    pull.set(Math.max(0, dy));
+    drag.set(Math.max(0, dy));
+    pull?.set(Math.max(0, dy));
     const ready = dy >= PULL_TRIGGER;
     if (ready !== armed.get()) {
       armed.set(ready);
@@ -165,12 +171,13 @@ export function HomeScreen({
       'worklet';
       if (armed.get() && !event.canceled && refresh) scheduleOnRN(refresh);
       armed.set(false);
-      pull.set(withSpring(0, springs.pane));
+      pull?.set(0);
+      drag.set(withSpring(0, springs.pane));
     },
   });
 
   const stackStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: pullOffset(pull.get()) }],
+    transform: [{ translateY: pullOffset(drag.get()) }],
   }));
   const heroMotion = useAnimatedStyle(() => {
     const pose = heroPose(hero.get(), frame.get());
@@ -242,7 +249,6 @@ export function HomeScreen({
   return (
     <GestureDetector gesture={pan}>
       <View style={styles.fill}>
-        <PullBloom pull={pull} test={test} />
         <Reanimated.View style={[styles.stack, stackStyle]}>
           <View style={styles.middle}>
             <Reanimated.View

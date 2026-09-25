@@ -88,6 +88,7 @@ function OnSheet({
     hero: useSharedValue(pose.hero),
     bar: useSharedValue(pose.bar),
     cover: useSharedValue(0),
+    pull: useSharedValue(0),
     stops: at,
   };
   return (

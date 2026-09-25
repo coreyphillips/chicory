@@ -20,18 +20,17 @@ import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../../src/design/copy';
 import { haptics } from '../../src/design/haptics';
 import { gradients } from '../../src/design/palette';
+import { Bloom, PETALS, pulledPetal } from '../../src/glyphs/Bloom';
 import { ActionCircle } from '../../src/scenes/home/ActionCircle';
 import { Backdrop, glowBleed } from '../../src/scenes/home/Backdrop';
 import { HomePane } from '../../src/scenes/home/HomePane';
 import {
   LAUNCH_DROP,
-  PETALS,
   PULL_TRIGGER,
   REFUSED,
   heroPose,
   launchPose,
   pullOffset,
-  pullPetals,
   pullProgress,
   tintTiming,
   vesselOpacity,
@@ -60,6 +59,7 @@ import {
 } from '../../src/stage/layout';
 import type { CanvasSceneName } from '../../src/stage/layout';
 import { Pane, PanesProvider } from '../../src/stage/panes/Pane';
+import type { Panes } from '../../src/stage/panes/Pane';
 import { STALE_AFTER_MS } from '../../src/services/useWalletSession';
 import { useStale } from '../../src/stage/Stage';
 import { StageProvider, useStageStore } from '../../src/stage/StageContext';
@@ -117,6 +117,8 @@ const pendingBackup = (): Backup => ({
 
 const client = new DemoWalletClient();
 let stage!: StageStore;
+/** The panes the regions were last drawn on. */
+let panes!: Panes;
 
 interface Drawn {
   snapshot: WalletSnapshot;
@@ -143,11 +145,12 @@ function HomeRegions({
 }: Drawn) {
   stage = useStageStore();
   const view = { ...useCanvasView(), hidden, unit };
-  const panes = {
+  panes = {
     seam: useSharedValue(0),
     hero: useSharedValue(1),
     bar: useSharedValue(1),
     cover: useSharedValue(0),
+    pull: useSharedValue(0),
     stops: stops(844, { top: 0 }),
   };
   const arrived = useIncoming(snapshot);
@@ -537,15 +540,23 @@ describe('the motion', () => {
     expect(pullProgress(PULL_TRIGGER * 2)).toBe(1);
   });
 
-  test('the pull bloom opens a petal each twelfth of the way, and is in flower at the trigger', () => {
+  test('the pull opens the mark a petal each twelfth of the way, and it is in flower at the trigger', () => {
+    // How many petals a pull of `dy` holds open, and -1 with no pull.
+    const lit = (dy: number) => {
+      const steps = Array.from({ length: PETALS }, (_, i) =>
+        pulledPetal(pullProgress(dy), i),
+      );
+      return steps.includes(-1) ? -1 : steps.filter(step => step === 1).length;
+    };
     const step = PULL_TRIGGER / PETALS;
-    expect(pullPetals(0)).toBe(0);
-    expect(pullPetals(step - 0.01)).toBe(0);
-    expect(pullPetals(step)).toBe(1);
-    expect(pullPetals(PULL_TRIGGER / 2)).toBe(PETALS / 2);
-    expect(pullPetals(PULL_TRIGGER - 0.01)).toBe(PETALS - 1);
-    expect(pullPetals(PULL_TRIGGER)).toBe(PETALS);
-    expect(pullPetals(PULL_TRIGGER * 3)).toBe(PETALS);
+    expect(lit(0)).toBe(-1);
+    expect(lit(1)).toBe(0);
+    expect(lit(step - 0.01)).toBe(0);
+    expect(lit(step)).toBe(1);
+    expect(lit(PULL_TRIGGER / 2)).toBe(PETALS / 2);
+    expect(lit(PULL_TRIGGER - 0.01)).toBe(PETALS - 1);
+    expect(lit(PULL_TRIGGER)).toBe(PETALS);
+    expect(lit(PULL_TRIGGER * 3)).toBe(PETALS);
   });
 
   test('a tint plays under Reduce Motion, and a refused action tints for 400ms', () => {
@@ -759,6 +770,53 @@ describe('the hero', () => {
 describe('the pull', () => {
   const pan = (tree: ReactTestRenderer) =>
     tree.root.findByType(HomeScreen).findByType(GestureDetector).props.gesture;
+
+  test('the finger’s pull reaches the mark through the canvas, and lets go at once', async () => {
+    const tree = await draw({ snapshot: snapshotOf({ wallet: MAINNET }) });
+    // Home writes the canvas's pull, and the mark opens with it.
+    expect(tree.root.findByType(HomeScreen).props.progress.pull).toBe(
+      panes.pull,
+    );
+    const mark = tree.root.findByType(StatusRow).findByType(Bloom);
+    expect(mark.props.opening.get()).toBe(0);
+    await act(async () => tree.unmount());
+
+    // What the pan writes, as the finger moves and as it lets go.
+    const written: number[] = [];
+    const pull = {
+      get: () => written[written.length - 1] ?? 0,
+      set: (value: number) => written.push(value),
+    } as unknown as Panes['pull'];
+    function Pulled() {
+      const hero = useSharedValue(1);
+      const bar = useSharedValue(1);
+      return (
+        <GestureHandlerRootView>
+          <HomeScreen
+            snapshot={snapshotOf({ wallet: MAINNET })}
+            onSend={jest.fn()}
+            onReceive={jest.fn()}
+            onActivity={jest.fn()}
+            onDetail={jest.fn()}
+            onRefresh={jest.fn()}
+            progress={{ hero, bar, pull }}
+          />
+        </GestureHandlerRootView>
+      );
+    }
+    const alone = await mount(<Pulled />);
+    await act(async () =>
+      fireGestureHandler(pan(alone), [
+        { state: State.BEGAN },
+        { state: State.ACTIVE, translationY: 40 },
+        { state: State.ACTIVE, translationY: 60 },
+        { state: State.END, translationY: 60 },
+      ]),
+    );
+    expect(written).toEqual(expect.arrayContaining([40, 60]));
+    expect(written[written.length - 1]).toBe(0);
+    await act(async () => alone.unmount());
+  });
 
   test('letting go once the bloom is fully open refreshes, and short of it does not', async () => {
     const live = session();

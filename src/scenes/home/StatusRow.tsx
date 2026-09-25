@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import Reanimated from 'react-native-reanimated';
+import Reanimated, { useDerivedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
@@ -16,10 +16,11 @@ import type { RegionProps } from '../../stage/Canvas';
 import type { CanvasSceneName } from '../../stage/layout';
 import { STATUS_ROW } from '../../stage/layout';
 import { CORNER_ROOM } from '../../stage/panes/CornerControl';
-import { usePaneActive } from '../../stage/panes/Pane';
+import { usePaneActive, usePanes } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
 import { HIT_SLOP, space } from '../../theme';
 import { BackupTile } from './BackupTile';
+import { pullProgress } from './motion';
 import { useAppActive } from './useAppActive';
 import { healthText, markVisual } from './visual';
 
@@ -35,7 +36,9 @@ const TARGET = 48;
  *
  * The mark is the refresh control. Its petals open with the wallet's
  * lightning setup, ratchet while a refresh runs and go dormant while the
- * balance is old; its PulseDot is the connection. What it all means is its
+ * balance is old. A pull on the home pane folds them and opens them again a
+ * petal each twelfth of the way, so the mark is in full flower when letting
+ * go would refresh (REDESIGN.md 6). Its PulseDot is the connection. What it all means is its
  * accessibility value, and a long press whispers it. The network shows as a
  * colour, slate off mainnet with a flask beside the mark, and the wallet's
  * name is left to Settings.
@@ -71,6 +74,8 @@ export function StatusRow({
   const mark = markVisual(health);
   const value = healthText(health);
   const event = useMarkEvent(mark.droop, arrived);
+  const { pull } = usePanes();
+  const opening = useDerivedValue(() => pullProgress(pull.get()));
   const refresh = useCallback(() => {
     haptics.tick();
     session.manualRefresh();
@@ -99,6 +104,7 @@ export function StatusRow({
               tone={mark.tone}
               halo={mark.halo}
               event={event}
+              opening={opening}
             />
             {/* The dot is part of the mark: its words are the mark's. */}
             <View

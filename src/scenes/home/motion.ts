@@ -57,18 +57,6 @@ export function pullProgress(dy: number): number {
   return Math.min(1, Math.max(0, dy / PULL_TRIGGER));
 }
 
-/** The petals of a bloom, each of which opens in its own step. */
-export const PETALS = 12;
-
-/**
- * How many of the pull bloom's petals are open at a pull of `dy`: one more
- * each twelfth of the way, and all of them from the trigger on.
- */
-export function pullPetals(dy: number): number {
-  'worklet';
-  return Math.floor(pullProgress(dy) * PETALS);
-}
-
 /** The hero's resting box inside the home pane, as it was last laid out. */
 export interface HeroFrame {
   y: number;

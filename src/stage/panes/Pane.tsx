@@ -47,14 +47,18 @@ export function Pane({
  * The canvas's motion, for anything drawn on it that moves with the panes.
  * `seam` is the sheet's top edge in points, `hero` runs from the mini strip
  * (0) to the full balance (1), `bar` is the action row's opacity, and `cover`
- * runs from nothing (0) to Settings over the whole canvas (1). `stops` are
- * where the seam can rest at the canvas's current size.
+ * runs from nothing (0) to Settings over the whole canvas (1). `pull` is how
+ * far a finger has pulled the home pane down, in points, and 0 whenever no
+ * finger pulls: Home's pan writes it, and the status row's mark opens its
+ * petals with it. `stops` are where the seam can rest at the canvas's
+ * current size.
  */
 export interface Panes {
   seam: SharedValue<number>;
   hero: SharedValue<number>;
   bar: SharedValue<number>;
   cover: SharedValue<number>;
+  pull: SharedValue<number>;
   stops: Stops;
 }
 

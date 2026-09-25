@@ -66,6 +66,7 @@ export function usePaneMotion(
   const hero = useSharedValue(layout.hero);
   const bar = useSharedValue(layout.bar);
   const cover = useSharedValue(layout.covered ? 1 : 0);
+  const pull = useSharedValue(0);
   const settling = useSharedValue(0);
   const aimed = useRef(layout);
 
@@ -118,8 +119,8 @@ export function usePaneMotion(
   }, [registry, active, aim]);
 
   const panes = useMemo(
-    () => ({ seam, hero, bar, cover, stops: at }),
-    [seam, hero, bar, cover, at],
+    () => ({ seam, hero, bar, cover, pull, stops: at }),
+    [seam, hero, bar, cover, pull, at],
   );
   return { panes, blocking };
 }

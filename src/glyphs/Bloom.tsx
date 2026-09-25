@@ -14,6 +14,7 @@ import Reanimated, {
   ReduceMotion,
   ZoomOut,
   cancelAnimation,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -22,7 +23,7 @@ import Reanimated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import type { SharedValue } from 'react-native-reanimated';
+import type { DerivedValue, SharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import Svg, {
   Circle,
@@ -54,6 +55,13 @@ import { useMotionPrefs } from '../motion/useMotionPrefs';
  * and a shake play once. A wilt, a fold and a fall hold for as long as the
  * event stays that kind, and a bloom that mounts with one starts in its pose.
  *
+ * `opening` is a pull on the petals, from 0 to 1, read on the UI thread so
+ * the bloom follows a finger without drawing again. While it is past 0 the
+ * petals follow it instead of `open`: they fold, and one more opens on the
+ * reveal spring each twelfth of the way, so the flower is whole at 1. Back
+ * at 0 they return to `open`. The status row's mark opens this way with a
+ * pull on the home pane (REDESIGN.md 6, manual refresh).
+ *
  * Each petal is its own view, turned about the centre, around a still SVG:
  * the loops move only transforms and opacity, on the UI thread.
  */
@@ -72,6 +80,8 @@ export interface BloomProps {
   halo?: boolean;
   event?: BloomEvent;
   detail?: 'full' | 'mark';
+  /** A pull on the petals, from 0 to 1; see above. */
+  opening?: DerivedValue<number>;
   /** Without one, the bloom is decoration and hidden from screen readers. */
   accessibilityLabel?: string;
 }
@@ -120,6 +130,17 @@ export function chaseOpacity(head: number, i: number): number {
   'worklet';
   const behind = (((head - i) % PETALS) + PETALS) % PETALS;
   return 0.35 + 0.65 * Math.max(0, 1 - behind / 4);
+}
+
+/**
+ * Petal `i` under a pull of `opening` (0 to 1): -1 when there is no pull and
+ * the petal keeps its own pose, else 1 once the pull has passed its twelfth
+ * and 0 until then.
+ */
+export function pulledPetal(opening: number, i: number): number {
+  'worklet';
+  if (!(opening > 0)) return -1;
+  return Math.floor(Math.min(1, opening) * PETALS) > i ? 1 : 0;
 }
 
 /** How long a whole unfold takes to reach the last petal. */
@@ -400,6 +421,7 @@ interface Drives {
 interface PetalProps extends ArtProps {
   i: number;
   open: number;
+  opening?: DerivedValue<number>;
   folded: boolean;
   fallen: boolean;
   reduced: boolean;
@@ -410,6 +432,7 @@ interface PetalProps extends ArtProps {
 const Petal = memo(function BloomPetal({
   i,
   open,
+  opening,
   folded,
   fallen,
   reduced,
@@ -419,6 +442,25 @@ const Petal = memo(function BloomPetal({
 }: PetalProps) {
   const q = useSharedValue(folded ? 0 : open);
   const fall = useSharedValue(fallen ? 1 : 0);
+  // Under a pull: how open this petal is, and how much the pull, rather
+  // than `open`, decides its pose.
+  const pulled = useSharedValue(0);
+  const held = useSharedValue(0);
+  useAnimatedReaction(
+    () => pulledPetal(opening ? opening.get() : 0, i),
+    (step, before) => {
+      if (step === before) return;
+      const to = (target: number) =>
+        reduced ? target : withSpring(target, springs.reveal);
+      if (step < 0) {
+        held.set(to(0));
+        return;
+      }
+      held.set(to(1));
+      pulled.set(to(step));
+    },
+    [opening, i, reduced],
+  );
 
   useEffect(() => {
     const target = folded ? 0 : open;
@@ -452,7 +494,8 @@ const Petal = memo(function BloomPetal({
 
   const { burst, wilt, chase, chasing } = drives;
   const style = useAnimatedStyle(() => {
-    const pose = petalState(q.get() + burstPose(burst.get(), reduced).swell, i);
+    const base = q.get() + (pulled.get() - q.get()) * held.get();
+    const pose = petalState(base + burstPose(burst.get(), reduced).swell, i);
     const droop = wiltPose(wilt.get());
     const drop = fallPose(fall.get(), i, reduced);
     const lit =
@@ -491,6 +534,7 @@ export function Bloom({
   halo = false,
   event,
   detail = size < 40 ? 'mark' : 'full',
+  opening,
   accessibilityLabel,
 }: BloomProps) {
   const { reduced } = useMotionPrefs();
@@ -679,6 +723,7 @@ export function Bloom({
               key={i}
               i={i}
               open={unfold}
+              opening={opening}
               folded={kind === 'fold'}
               fallen={kind === 'fall'}
               reduced={reduced}

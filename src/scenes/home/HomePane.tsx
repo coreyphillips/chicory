@@ -30,8 +30,8 @@ import { isTestNetwork } from './visual';
  *
  * Pulling the pane down refreshes. That is a pan of Home's own rather than a
  * scroll view's refresh control: it behaves the same on both platforms, and
- * the bloom it opens is drawn instead of a spinner. The mark in the status
- * row ratchets while the refresh runs.
+ * the status row's mark opens its petals with it, through the canvas's
+ * `pull`, instead of a spinner. The mark ratchets while the refresh runs.
  */
 export function HomePane({
   snapshot,
