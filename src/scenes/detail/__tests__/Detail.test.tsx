@@ -6,11 +6,14 @@ import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import type { Activity } from '@beignet/wallet-core';
+import { forgetSpoken } from '../../../design/announce';
 import { copy } from '../../../design/copy';
 import { haptics } from '../../../design/haptics';
 import { CopyChip } from '../../../glyphs/CopyChip';
 import { Odometer } from '../../../glyphs/Odometer';
 import { StatusRing } from '../../../glyphs/StatusRing';
+import { FOCUS_SETTLE_MS } from '../../../motion/speech';
+import { ReceiveRequestDetails } from '../../../components/ReceiveRequestDetails';
 import { DetailScreen } from '../../../screens/wallet/Detail';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
 import { DetailCard } from '../../../stage/layers/DetailCard';
@@ -76,7 +79,13 @@ const liveRegions = (tree: ReactTestRenderer, label: string) =>
     )
     .map(node => node.props.accessibilityLiveRegion);
 
-afterEach(() => jest.restoreAllMocks());
+// A phrase said within 2s is not said again, so each test starts with
+// nothing said.
+beforeEach(() => forgetSpoken());
+afterEach(() => {
+  jest.restoreAllMocks();
+  jest.useRealTimers();
+});
 
 describe('what the ring says', () => {
   test.each<[string, string]>([
@@ -235,13 +244,18 @@ describe('the detail', () => {
 });
 
 describe('an unknown outcome', () => {
-  test('is held, and a screen reader hears it at once', async () => {
+  test('is held, and a screen reader hears it once focus has landed', async () => {
+    jest.useFakeTimers();
     const announce = jest.mocked(
       AccessibilityInfo.announceForAccessibilityWithOptions,
     );
     const polite = jest.mocked(AccessibilityInfo.announceForAccessibility);
     announce.mockClear();
     polite.mockClear();
+    const said = () =>
+      [...announce.mock.calls, ...polite.mock.calls]
+        .map(([text]) => text)
+        .filter(text => text === copy.detail.uncertain);
     const tree = await render(<DetailScreen item={EVERY['sent uncertain']} />);
     expect(tree.root.findByType(StatusRing).props.visual).toMatchObject({
       tone: 'honey',
@@ -249,14 +263,30 @@ describe('an unknown outcome', () => {
       glyph: 'pause',
     });
     expect(alerts(tree)).toEqual([copy.detail.uncertain]);
-    const said = [...announce.mock.calls, ...polite.mock.calls].map(
-      ([text]) => text,
-    );
-    expect(said.filter(text => text === copy.detail.uncertain)).toHaveLength(1);
+    // Held until the card has settled and the canvas's focus move has
+    // landed, so the move does not cut it short (REDESIGN.md 9).
+    expect(said()).toEqual([]);
+    await act(async () => jest.advanceTimersByTime(FOCUS_SETTLE_MS + 100));
+    expect(said()).toHaveLength(1);
+    expect(announce).toHaveBeenCalledWith(copy.detail.uncertain, {
+      queue: false,
+    });
     // Said once: a live region carrying the same words would have Android
     // read them a second time.
     expect(liveRegions(tree, copy.detail.uncertain)).toEqual([]);
     await act(async () => tree.unmount());
+  });
+
+  test('is not said once the detail has closed before it is heard', async () => {
+    jest.useFakeTimers();
+    const announce = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    announce.mockClear();
+    const tree = await render(<DetailScreen item={EVERY['sent uncertain']} />);
+    await act(async () => tree.unmount());
+    await act(async () => jest.advanceTimersByTime(FOCUS_SETTLE_MS + 100));
+    expect(announce).not.toHaveBeenCalled();
   });
 
   test('is felt when a payment turns uncertain while its detail is open', async () => {
@@ -287,13 +317,16 @@ describe('a reused address', () => {
   const reused = EVERY['request with a reused address'];
   const label = `${copy.detail.awaiting} Address reused.`;
 
-  test('is said at once, over whatever else is being read', async () => {
+  test('is said once focus has landed, over whatever else is being read', async () => {
+    jest.useFakeTimers();
     const announce = jest.mocked(
       AccessibilityInfo.announceForAccessibilityWithOptions,
     );
     announce.mockClear();
     const tree = await render(<DetailScreen item={reused} />);
     expect(alerts(tree)).toEqual([label]);
+    expect(announce).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTime(FOCUS_SETTLE_MS + 100));
     expect(announce).toHaveBeenCalledWith(label, { queue: false });
     expect(announce).toHaveBeenCalledTimes(1);
     expect(liveRegions(tree, label)).toEqual([]);
@@ -315,6 +348,50 @@ describe('a reused address', () => {
     expect(warning).toHaveBeenCalledTimes(1);
     expect(held).not.toHaveBeenCalled();
     await act(async () => tree.unmount());
+  });
+});
+
+describe('the lines', () => {
+  /** Whether `node` is drawn inside a component of type `type`. */
+  const within = (node: ReactTestInstance, type: unknown) => {
+    for (let at = node.parent; at; at = at.parent) {
+      if (at.type === type) return true;
+    }
+    return false;
+  };
+
+  test('hold their type to the 1.4 cap of the row amounts', async () => {
+    const item = {
+      ...EVERY['sent completed'],
+      description: 'Coffee beans',
+      feeEstimated: true,
+    };
+    const tree = await render(<DetailScreen item={item} />);
+    const lines = tree.root
+      .findAllByType(Text)
+      .filter(text => !within(text, Odometer) && !within(text, CopyChip));
+    const said = lines.map(text => text.props.children);
+    expect(said).toEqual(
+      expect.arrayContaining([dateLabel(item.timestamp), '≈', 'Coffee beans']),
+    );
+    expect(lines.map(text => text.props.maxFontSizeMultiplier)).toEqual(
+      lines.map(() => 1.4),
+    );
+    await act(async () => tree.unmount());
+  });
+
+  test('hand the test network to the request a payment keeps', async () => {
+    const item = EVERY['request pending'];
+    expect(item.receiveRequest).toBeDefined();
+    for (const test of [false, true]) {
+      const tree = await render(<DetailScreen item={item} test={test} />);
+      expect(
+        tree.root
+          .findAllByType(ReceiveRequestDetails)
+          .map(details => details.props.test),
+      ).toEqual([test]);
+      await act(async () => tree.unmount());
+    }
   });
 });
 

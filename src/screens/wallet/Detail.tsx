@@ -5,7 +5,6 @@ import Reanimated from 'react-native-reanimated';
 import type { Activity } from '@beignet/wallet-core';
 import { ReceiveReceipt } from '../../components/ReceiveReceipt';
 import { ReceiveRequestDetails } from '../../components/ReceiveRequestDetails';
-import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
@@ -15,6 +14,7 @@ import { CopyChip } from '../../glyphs/CopyChip';
 import { Odometer } from '../../glyphs/Odometer';
 import { StatusRing } from '../../glyphs/StatusRing';
 import { Whisper } from '../../glyphs/Whisper';
+import { announceSafety } from '../../motion/speech';
 import {
   RAIL_GLYPH,
   amountVisual,
@@ -40,6 +40,12 @@ import {
 } from '../../theme';
 import type { Unit } from '../../theme';
 
+/**
+ * The lines' type grows with the system's text size up to this, as the row
+ * amounts do (REDESIGN.md 3.3).
+ */
+const LINE_CAP = 1.4;
+
 const TONES: Record<AmountVisual['tone'], string> = {
   sage: palette.sage,
   cream: palette.cream,
@@ -56,8 +62,8 @@ const TONES: Record<AmountVisual['tone'], string> = {
  * amount fly out of that row into place (T4).
  *
  * The outcome is the ring's to say: its sentence is what a screen reader
- * hears. An unknown outcome is held honey, announced at once, and never
- * shown as done; so is a reused address.
+ * hears. An unknown outcome is held honey, announced assertively once the
+ * card has settled, and never shown as done; so is a reused address.
  *
  * A hidden balance stays hidden here too; tapping a row must not be the way
  * around the mask. References keep showing, they are not amounts.
@@ -194,15 +200,21 @@ export function DetailScreen({
       </View>
       <View style={styles.lines}>
         <Line index={line++} glyph="clock" label={copy.detail.date(date)}>
-          <Text style={styles.value}>{date}</Text>
+          <Text style={styles.value} maxFontSizeMultiplier={LINE_CAP}>
+            {date}
+          </Text>
         </Line>
         <Line index={line++} glyph={RAIL_GLYPH[railOf(item)]} label={feeLabel}>
           {feeUnknown ? (
             <Glyph name="question" size={20} color={palette.steam} />
           ) : (
             <>
-              {item.feeEstimated ? <Text style={styles.value}>≈</Text> : null}
-              <Text style={styles.value}>
+              {item.feeEstimated ? (
+                <Text style={styles.value} maxFontSizeMultiplier={LINE_CAP}>
+                  ≈
+                </Text>
+              ) : null}
+              <Text style={styles.value} maxFontSizeMultiplier={LINE_CAP}>
                 {hidden ? MASK : `${fee.value} ${fee.suffix}`}
               </Text>
             </>
@@ -214,7 +226,12 @@ export function DetailScreen({
             glyph="pencil"
             label={copy.detail.note(item.description)}
           >
-            <Text style={[styles.value, styles.note]}>{item.description}</Text>
+            <Text
+              style={[styles.value, styles.note]}
+              maxFontSizeMultiplier={LINE_CAP}
+            >
+              {item.description}
+            </Text>
           </Line>
         ) : null}
       </View>
@@ -235,6 +252,7 @@ export function DetailScreen({
             client={client}
             onRefresh={onRefresh}
             onBusy={onBusy}
+            test={test}
           />
         </Reanimated.View>
       ) : null}
@@ -257,9 +275,12 @@ export function DetailScreen({
 /**
  * The safety states a detail can show (REDESIGN.md rule 4): an unknown
  * outcome, which must never be paid again, and a reused address, which cannot
- * tell whose coins arrived. A screen reader hears the ring's words at once
- * whenever the detail shows one, and one that begins while the detail is
- * open is felt too: held for the outcome, a warning for the address.
+ * tell whose coins arrived. A screen reader hears the ring's words
+ * assertively whenever the detail shows one, through `announceSafety`, so
+ * the canvas's focus move as the card settles does not cut them short, and
+ * nothing is said if the detail closes first (REDESIGN.md 9). One that
+ * begins while the detail is open is felt at once too: held for the outcome,
+ * a warning for the address.
  */
 function useSafetyNotice(visual: RingVisual, label: string) {
   const state =
@@ -274,12 +295,12 @@ function useSafetyNotice(visual: RingVisual, label: string) {
       was.current = null;
       return;
     }
-    announce(label, { assertive: true });
     if (state !== was.current) {
       if (state === 'held') haptics.held();
       else haptics.warning();
     }
     was.current = state;
+    return announceSafety(label, state);
   }, [state, label]);
 }
 
