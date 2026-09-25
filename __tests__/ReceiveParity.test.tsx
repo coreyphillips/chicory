@@ -51,6 +51,7 @@ import { useReceiveStatus } from '../src/services/useReceiveStatus';
 import type { WalletAdapter } from '../src/services/wallet';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
 import type { StageStore } from '../src/stage/StageContext';
+import { FOCUS_SETTLE_MS } from '../src/motion/speech';
 import * as tokens from '../src/motion/tokens';
 import { MASK } from '../src/theme';
 import { amountValue, enterAmount } from '../test-support/keypad';
@@ -1043,6 +1044,12 @@ test('the offline box turns itself off when the room goes, but not under a reque
 describe('the safety states on a request', () => {
   afterEach(() => jest.restoreAllMocks());
 
+  /** Past the step's settling and the landing of its focus move. */
+  const settle = () =>
+    act(async () => {
+      jest.advanceTimersByTime(FOCUS_SETTLE_MS + 100);
+    });
+
   const spoken = () =>
     jest.spyOn(
       AccessibilityInfo,
@@ -1094,7 +1101,7 @@ describe('the safety states on a request', () => {
     return { tree, client, onRefresh };
   }
 
-  test('a reused address scatters the code, takes share and copy away, and says why at once', async () => {
+  test('a reused address scatters the code, takes share and copy away, and says why once focus has landed', async () => {
     const said = spoken();
     const warned = jest.spyOn(haptics, 'warning');
     const { tree } = await made(
@@ -1113,10 +1120,13 @@ describe('the safety states on a request', () => {
     // Plus is the one way on, ringed in bloom.
     const again = press(tree, 'Create another request');
     expect(again.props.accessibilityState.disabled).toBe(false);
-    const heard = said.mock.calls.map(call => call[0]);
-    expect(heard).toContain(
-      `${copy.receive.reusedAddress} ${copy.receive.reusedShare}`,
-    );
+    const reused = `${copy.receive.reusedAddress} ${copy.receive.reusedShare}`;
+    const heard = () => said.mock.calls.map(call => call[0]);
+    // Felt at once, and said once the step has settled and focus has
+    // landed, so the move does not cut it short (REDESIGN.md 9).
+    expect(heard()).not.toContain(reused);
+    await settle();
+    expect(heard()).toContain(reused);
     if (Platform.OS === 'ios') {
       const call = said.mock.calls.find(([spokenText]) =>
         spokenText.includes(copy.receive.reusedShare),
@@ -1167,7 +1177,7 @@ describe('the safety states on a request', () => {
     await act(async () => tree.unmount());
   });
 
-  test('an expired request dissolves, leaves nothing to share, copy or lift, and says so at once', async () => {
+  test('an expired request dissolves, leaves nothing to share, copy or lift, and says so once focus has landed', async () => {
     const said = spoken();
     const warned = jest.spyOn(haptics, 'warning');
     const { tree } = await made(fresh());
@@ -1184,10 +1194,14 @@ describe('the safety states on a request', () => {
     expect(qr(tree)).toBeUndefined();
     expect(meaning(tree)).toContain(copy.receive.expired);
     expect(find(tree, 'Create another request')).toBeDefined();
+    expect(warned).toHaveBeenCalledTimes(1);
+    expect(said.mock.calls.map(call => call[0])).not.toContain(
+      copy.receive.expired,
+    );
+    await settle();
     expect(said.mock.calls.map(call => call[0])).toContain(
       copy.receive.expired,
     );
-    expect(warned).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
   });
 
@@ -1284,7 +1298,7 @@ describe('the safety states on a request', () => {
     await act(async () => tree.unmount());
   });
 
-  test('a quote the engine calls expired turns to refresh in place, is said at once and logged', async () => {
+  test('a quote the engine calls expired turns to refresh in place, is said once focus has landed, and logged', async () => {
     const said = spoken();
     const warned = jest.spyOn(haptics, 'warning');
     const why = 'The receive quote expired. Review the request again.';
@@ -1314,9 +1328,13 @@ describe('the safety states on a request', () => {
     expect(find(tree, 'Refresh quote')).toBeDefined();
     expect(find(tree, 'Continue')).toBeUndefined();
     expect(warned).toHaveBeenCalledTimes(1);
-    const call = said.mock.calls.find(
-      ([spokenText]) => spokenText === copy.receive.quoteExpired,
-    );
+    const findSaid = () =>
+      said.mock.calls.find(
+        ([spokenText]) => spokenText === copy.receive.quoteExpired,
+      );
+    expect(findSaid()).toBeUndefined();
+    await settle();
+    const call = findSaid();
     expect(call).toBeDefined();
     if (Platform.OS === 'ios') expect(call![1]).toEqual({ queue: false });
     expect(recentDiagnostics()).toContainEqual(
@@ -1360,7 +1378,7 @@ describe('the safety states on a request', () => {
     await act(async () => tree.unmount());
   });
 
-  test('a balance going stale is said at once while there is a request to make, and not over one made', async () => {
+  test('a balance going stale is said once focus has landed while there is a request to make, and not over one made', async () => {
     const said = spoken();
     const stale = () =>
       said.mock.calls.filter(
@@ -1388,6 +1406,8 @@ describe('the safety states on a request', () => {
     });
     expect(stale()).toHaveLength(0);
     await act(async () => tree.update(screen(true)));
+    expect(stale()).toHaveLength(0);
+    await settle();
     expect(stale()).toHaveLength(1);
     if (Platform.OS === 'ios') expect(stale()[0][1]).toEqual({ queue: false });
     await act(async () => tree.update(screen(false)));
@@ -1397,9 +1417,41 @@ describe('the safety states on a request', () => {
       jest.advanceTimersByTime(3000);
     });
     await act(async () => tree.update(screen(true)));
+    await settle();
     // The request is made and can still be paid; nothing to hold back.
     expect(stale()).toHaveLength(1);
     expect(find(tree, 'Share request')).toBeDefined();
+    await act(async () => tree.unmount());
+  });
+
+  test('a balance that is fresh again before it is heard is not said stale', async () => {
+    const said = spoken();
+    const stale = () =>
+      said.mock.calls.filter(
+        ([spokenText]) => spokenText === copy.receive.stale,
+      );
+    const client = adapter({
+      quoteReceive: jest
+        .fn()
+        .mockResolvedValue({ ...quote, expiresAt: Date.now() + 60000 }),
+    });
+    const screen = (isStale: boolean) => (
+      <ReceiveScreen
+        client={client}
+        receivableSats={10000}
+        disabled={isStale}
+        onActivity={noop}
+        onBusy={noop}
+      />
+    );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(screen(false));
+    });
+    await act(async () => tree.update(screen(true)));
+    await act(async () => tree.update(screen(false)));
+    await settle();
+    expect(stale()).toHaveLength(0);
     await act(async () => tree.unmount());
   });
 

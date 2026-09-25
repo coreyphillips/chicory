@@ -12,9 +12,9 @@ import { announce } from '../design/announce';
 import { copy } from '../design/copy';
 import { haptics } from '../design/haptics';
 import { qrSide } from '../glyphs/QrBloom';
-import { focusOn } from '../motion/focus';
-import { afterTransition } from '../motion/idle';
+import { focusAfterTransition } from '../motion/focus';
 import { sceneIn, sceneOut } from '../motion/presets';
+import { announceSafety } from '../motion/speech';
 import { useFocusOn } from '../scenes/receive/focus';
 import type { Focus } from '../scenes/receive/focus';
 import { FormStep } from '../scenes/receive/FormStep';
@@ -200,20 +200,19 @@ export function ReceiveScreen({
 
   useArrival(receipt, request, completionsFelt);
   useWarning(!!face?.expired && !receipt && !tracking?.ambiguous, () => {
-    announce(copy.receive.expired, { assertive: true });
     recordDiagnostic({ phase: 'ui', message: copy.receive.expired });
+    return announceSafety(copy.receive.expired, 'expired');
   });
   useWarning(!!tracking?.ambiguous, () => {
     const said = tracking?.error ?? copy.receive.reusedAddress;
-    announce(`${said} ${copy.receive.reusedShare}`, { assertive: true });
     recordDiagnostic({
       phase: 'ui',
       message: said,
       code: 'AMBIGUOUS_RECEIVE_ADDRESS',
     });
+    return announceSafety(`${said} ${copy.receive.reusedShare}`, 'reused');
   });
   useWarning(quoteExpired, () => {
-    announce(copy.receive.quoteExpired, { assertive: true });
     // One the engine refused was logged in its own words as it did.
     if (!lapsed) {
       recordDiagnostic({
@@ -222,13 +221,14 @@ export function ReceiveScreen({
         code: 'QUOTE_EXPIRED',
       });
     }
+    return announceSafety(copy.receive.quoteExpired, 'expired');
   });
   // A stale balance holds back making a request (REDESIGN.md rule 4), which
-  // a screen reader hears at once while there is one to make. The balance's
-  // own look and haptic are the canvas's.
+  // a screen reader hears while there is one to make, once focus has landed.
+  // The balance's own look and haptic are the canvas's.
   const heldBack = disabled && live && step !== 'request';
   useEffect(() => {
-    if (heldBack) announce(copy.receive.stale, { assertive: true });
+    if (heldBack) return announceSafety(copy.receive.stale, 'stale');
   }, [heldBack]);
 
   /**
@@ -380,7 +380,7 @@ export function ReceiveScreen({
   useEffect(() => {
     const back = wasLifted.current && !showLift && shareable;
     wasLifted.current = showLift;
-    if (back) return afterTransition(() => focusOn(qrFocus.current));
+    if (back) return focusAfterTransition(() => qrFocus.current);
   }, [showLift, shareable]);
 
   const qr = Math.min(240, Math.max(150, width - 120));
@@ -523,19 +523,26 @@ function useArrival(
 
 /**
  * A safety state starting (REDESIGN.md rule 4): the warning haptic, once,
- * and whatever else it says, each time `on` turns true.
+ * and whatever else it says, each time `on` turns true. `say` may return a
+ * withdrawal, as `announceSafety` does, which runs if the state ends, or the
+ * scene goes, before it is heard.
  */
-function useWarning(on: boolean, say: () => void) {
+function useWarning(on: boolean, say: () => (() => void) | void) {
   const said = useRef(say);
   said.current = say;
   const was = useRef(false);
+  const withdraw = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (on && !was.current) {
       haptics.warning();
-      said.current();
+      withdraw.current = said.current() ?? null;
+    } else if (!on) {
+      withdraw.current?.();
+      withdraw.current = null;
     }
     was.current = on;
   }, [on]);
+  useEffect(() => () => withdraw.current?.(), []);
 }
 
 const styles = StyleSheet.create({
