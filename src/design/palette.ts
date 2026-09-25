@@ -83,6 +83,12 @@ export const gradients = {
       { offset: 0.6, color: '#2A2A45', opacity: 0.12 },
       { offset: 1, color: '#2A2A45', opacity: 0 },
     ],
+    /** On a test network: the same glow in slate, so it never reads as bloom. */
+    test: [
+      { offset: 0, color: palette.slate, opacity: 0.2 },
+      { offset: 0.6, color: '#2A2C31', opacity: 0.1 },
+      { offset: 1, color: '#2A2C31', opacity: 0 },
+    ],
     drift: { x: 0.06, y: 0.04, period: 18000, rotate: 8, spin: 26000 },
   },
   G2: {

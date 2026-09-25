@@ -46,8 +46,6 @@ export const colors = {
   // translucent overlay.
   primarySoft: palette.bloomSoft,
   mintSoft: palette.sageSoft,
-  // Secondary text on a cream card: warm, and 7.5:1 on cream.
-  creamInk: '#54483F',
   warningSoft: palette.honeySoft,
   dangerSoft: palette.radishSoft,
   neutralSoft: palette.creamSoft,
@@ -148,6 +146,8 @@ export const type = {
     fontWeight: '300',
     fontVariant: TABULAR,
   },
+  // The Whisper pill's words (REDESIGN.md rule 3).
+  whisper: { fontSize: 13, lineHeight: 18 },
 
   // The Settings language, and the screens not yet redrawn.
   display: {

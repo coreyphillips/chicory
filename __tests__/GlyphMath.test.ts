@@ -1,5 +1,5 @@
 import { GLYPHS } from '../src/design/glyphs';
-import { alpha, mixHex, palette } from '../src/design/palette';
+import { alpha, gradients, mixHex, palette } from '../src/design/palette';
 import { fract, wave } from '../src/motion/loops';
 import { kickVelocity, springStep } from '../src/motion/springMath';
 import { springs } from '../src/motion/tokens';
@@ -47,6 +47,7 @@ import {
   sheenX,
 } from '../src/glyphs/Vessel';
 import { pillPlace } from '../src/glyphs/Whisper';
+import { colors, type as typography } from '../src/theme';
 
 /**
  * The glyphs' motion as arithmetic (REDESIGN.md 5). Under Jest an animation
@@ -632,5 +633,32 @@ describe('Whisper', () => {
 
   test('with no room above, it goes below', () => {
     expect(pillPlace({ ...source, y: 10 }, 120, 26, 390).y).toBe(58);
+  });
+});
+
+describe('tokens', () => {
+  test('every legacy colour is a palette token', () => {
+    const tokens = new Set<string>(Object.values(palette));
+    for (const [name, value] of Object.entries(colors)) {
+      expect([name, tokens.has(value)]).toEqual([name, true]);
+    }
+  });
+
+  test('the glass is its colour at 35%, bloom or slate', () => {
+    expect(palette.glass).toBe(alpha(palette.bloom, 0.35));
+    expect(palette.slateGlass).toBe(alpha(palette.slate, 0.35));
+  });
+
+  test("a test network's glow keeps the bloom glow's shape, in slate", () => {
+    const { stops, test } = gradients.G1;
+    expect(test.map(stop => stop.offset)).toEqual(
+      stops.map(stop => stop.offset),
+    );
+    expect(test[0].color).toBe(palette.slate);
+    expect(test[test.length - 1].opacity).toBe(0);
+  });
+
+  test("the whisper's words are 13pt, on the type scale", () => {
+    expect(typography.whisper).toEqual({ fontSize: 13, lineHeight: 18 });
   });
 });

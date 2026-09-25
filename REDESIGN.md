@@ -189,7 +189,7 @@ G3 tints:
 - **Radish** (failure): alpha .14 for 1200ms.
 - **Night** (offline receive): #3B4A7A at alpha .10.
 
-**Stale:** G1 and G2 fade to .25. **Test network:** G1 is slate.
+**Stale:** G1 and G2 fade to .25. **Test network:** G1 is slate: slate alpha .2, then #2A2C31 alpha .1 at .6, then 0 (`gradients.G1.test`).
 
 ### 3.3 Type
 
@@ -208,6 +208,7 @@ G3 tints:
 | mono         | 12/18                      | shown in groups of 4                                                                                                            |
 | word         | 17/22                      | 500                                                                                                                             |
 | keypad       | 30/36                      | 300                                                                                                                             |
+| whisper      | 13/18                      | cream, the Whisper pill (rule 3)                                                                                                |
 
 - Settings keeps text styles: title 28/34 at 600, body 15/22, label 13/18 at 600.
 - `maxFontSizeMultiplier`: hero and amount 1.2, rows 1.4, Settings unlimited.

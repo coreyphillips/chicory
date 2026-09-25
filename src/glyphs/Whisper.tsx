@@ -32,7 +32,7 @@ import { palette } from '../design/palette';
 import { curves, durations } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { usePaneActive } from '../stage/panes/Pane';
-import { radius, space } from '../theme';
+import { radius, space, type as typography } from '../theme';
 
 /**
  * Whisper (REDESIGN.md rule 3): long-pressing a status glyph, ring or
@@ -299,5 +299,5 @@ const styles = StyleSheet.create({
     borderRadius: radius.round,
     backgroundColor: palette.cocoa,
   },
-  text: { fontSize: 13, lineHeight: 18, color: palette.cream },
+  text: { ...typography.whisper, color: palette.cream },
 });
