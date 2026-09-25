@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { Activity } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
 import { SendScreen } from '../../screens/Send';
@@ -34,7 +35,8 @@ const MINI_STRIP = 44;
  * Send delivers its code here: the receiver is armed by this Send's own scan
  * button and stays registered, through `useIsCurrentScene(sceneKey)`, while
  * the overlay covers the pane (REDESIGN.md 2.3). Android back steps from the
- * review to compose before the stage closes the scene.
+ * review to compose before the stage closes the scene. A completed payment
+ * goes home on its own, and a held one opens the payment it waits on.
  */
 export function SendScene({
   prefill,
@@ -47,7 +49,7 @@ export function SendScene({
   sceneKey: number;
   prefill: string;
 }) {
-  const { actions, state } = useStage();
+  const { actions, state, dispatch } = useStage();
   const insets = useSafeAreaInsets();
   const screen = useRef<SendHandle>(null);
   const current = useIsCurrentScene(sceneKey);
@@ -72,6 +74,17 @@ export function SendScene({
   );
   useSceneBack(() => screen.current?.back() ?? false, usePaneActive());
 
+  // Send opens no payment's detail itself, so a held payment opens by way
+  // of Activity, which does. Back from its detail then returns to the
+  // history the payment sits in.
+  const openHeld = useCallback(
+    (item: Activity) => {
+      dispatch({ type: 'open', scene: { name: 'activity' } });
+      dispatch({ type: 'open', scene: { name: 'detail', item, from: null } });
+    },
+    [dispatch],
+  );
+
   return (
     <Arriving>
       <View style={styles.mini} />
@@ -89,7 +102,7 @@ export function SendScene({
               onRefresh={session.refresh}
               onBusy={actions.setBusy}
               onScan={scan}
-              onDetail={actions.openDetail}
+              onDetail={openHeld}
               onDone={actions.home}
             />
           </View>

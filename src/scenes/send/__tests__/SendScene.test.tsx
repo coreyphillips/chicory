@@ -3,9 +3,14 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
-import type { SendReview, WalletSnapshot } from '@beignet/wallet-core';
+import type {
+  Activity,
+  SendReview,
+  WalletSnapshot,
+} from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
+import { holdRequest } from '../../../stage/heldRequests';
 import { ScanReveal } from '../../../stage/layers/ScanReveal';
 import {
   StageProvider,
@@ -13,18 +18,21 @@ import {
   useStageStore,
 } from '../../../stage/StageContext';
 import type { StageStore } from '../../../stage/StageContext';
+import { activityOf, hex } from '../../../../test-support/fixtures';
 import { mount } from '../../../../test-support/guard';
 import { field, find, press } from '../../../../test-support/query';
 
 /**
  * Send on the canvas (REDESIGN.md 2.3 and 6): a scan it starts comes back to
- * it, Android back steps out of its review first, and a payment that
- * completed goes home on its own.
+ * it, Android back steps out of its review first, a payment that completed
+ * goes home on its own, and a held one opens the payment it waits on.
  */
 const SCANNED = 'lnbcrt1scanned';
 
 let stage!: StageStore;
 let snapshot: WalletSnapshot;
+/** The history the canvas is drawn with, when a test sets one. */
+let history: Activity[] | null = null;
 const client = new DemoWalletClient();
 const quote: SendReview = {
   id: 'review-scene',
@@ -53,7 +61,7 @@ function OnCanvas() {
           scene={stage.state.scene}
           overlay={stage.state.overlay}
           client={client}
-          snapshot={snapshot}
+          snapshot={history ? { ...snapshot, activity: history } : snapshot}
           session={{
             error: '',
             switchError: '',
@@ -86,7 +94,10 @@ async function openSend() {
   return tree;
 }
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  history = null;
+});
 
 test('a scan Send starts brings its code back to the same Send', async () => {
   const tree = await openSend();
@@ -176,4 +187,25 @@ test('a completed payment goes home on its own', async () => {
   } finally {
     jest.useRealTimers();
   }
+});
+
+test('a held payment opens its detail by way of Activity, which back returns to', async () => {
+  const txid = hex(77);
+  const payment = activityOf('sent', 'uncertain', { rail: 'chain', txid });
+  history = [payment];
+  holdRequest('lnbc-scene-held', { status: 'uncertain', txid });
+  const tree = await mount(<OnCanvas />);
+  await act(async () => stage.actions.openSend('lnbc-scene-held'));
+  await press(tree, copy.send.unknown);
+  expect(stage.state.scene).toMatchObject({
+    name: 'detail',
+    item: { id: payment.id },
+  });
+  expect(stage.state.stack.map(scene => scene.name)).toEqual([
+    'home',
+    'activity',
+  ]);
+  await act(async () => stage.actions.back());
+  expect(stage.state.scene.name).toBe('activity');
+  await act(async () => tree.unmount());
 });
