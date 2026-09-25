@@ -1,7 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { ComponentRef, PropsWithChildren, ReactNode } from 'react';
 import {
   AppState,
+  Platform,
   Pressable,
   StyleSheet,
   Switch,
@@ -45,7 +52,50 @@ import { drawPlan } from './motion';
  *
  * Every control here follows the canvas rule: it takes touches only while the
  * pane it is drawn in is in use.
+ *
+ * Settings has no ceiling on text size (REDESIGN.md 3.3), so nothing here is
+ * laid out for one size: a heading gives its accessory a line of its own
+ * rather than a sliver of width, words wrap rather than run past their
+ * control, and a row of pills breaks onto more lines rather than breaking a
+ * word.
  */
+
+/** The accent a settings surface draws in, and the soft fill behind it. */
+export interface Accent {
+  accent: string;
+  soft: string;
+}
+
+const BLOOM: Accent = { accent: palette.bloom, soft: palette.bloomSoft };
+const SLATE: Accent = { accent: palette.slate, soft: palette.slateSoft };
+
+/**
+ * Bloom, or slate in its place for a wallet on a test network (REDESIGN.md
+ * 3.1, and 6, Wallet health: slate replaces bloom everywhere), so the one
+ * page that keeps words never draws play money in the colour of real money.
+ */
+export const accentFor = (test: boolean): Accent => (test ? SLATE : BLOOM);
+
+/**
+ * Whether what is drawn here is for a test network. Outside a provider it is
+ * not, as for a setup surface with no wallet yet.
+ */
+const TestNetwork = createContext(false);
+
+/** Draws everything under it in the tone of `network` (`accentFor`). */
+export function SettingsNetwork({
+  network,
+  children,
+}: PropsWithChildren<{ network: string }>) {
+  return (
+    <TestNetwork.Provider value={testNetwork(network)}>
+      {children}
+    </TestNetwork.Provider>
+  );
+}
+
+/** The accent for whatever is drawn here: bloom, or slate on a test network. */
+export const useAccent = (): Accent => accentFor(useContext(TestNetwork));
 
 /**
  * The copy guard's marker (REDESIGN.md rule 2). Everything under it is a
@@ -91,16 +141,18 @@ function useForeground(): boolean {
  * Something is being worked on: an orbit turning once every 1400ms, which
  * stands where "Loading..." would have. It turns only while the app is in
  * front, holds still under Reduce Motion, and is decoration unless labelled.
+ * It is drawn in the accent unless given a colour.
  */
 export function Working({
   size = 20,
-  color = palette.bloom,
+  color,
   accessibilityLabel,
 }: {
   size?: number;
   color?: string;
   accessibilityLabel?: string;
 }) {
+  const { accent } = useAccent();
   const { reduced } = useMotionPrefs();
   const front = useForeground();
   const turn = useSharedValue(0);
@@ -130,7 +182,7 @@ export function Working({
       importantForAccessibility={labelled ? 'yes' : 'no-hide-descendants'}
       style={[{ width: size, height: size }, spin]}
     >
-      <Glyph name="orbit" size={size} color={color} />
+      <Glyph name="orbit" size={size} color={color ?? accent} />
     </Reanimated.View>
   );
 }
@@ -305,6 +357,16 @@ const CASCADE = 2;
  * smoothly when what it holds changes. `tone` honey is for a section that
  * needs doing: a honey outline, and a halo that breathes around its glyph at
  * the halo's pace. `focus` lands a screen reader on its heading.
+ *
+ * The card clips what it holds. It grows on a linear transition while what
+ * arrives in it is laid out at once where it will end up, so a line rising
+ * into a card that has not grown to it yet, such as the first recovery word,
+ * would otherwise be drawn over the card below for a frame.
+ *
+ * The heading's accessory, such as the primary node's connection, sits at
+ * the heading's right while both fit, and drops to a line of its own below
+ * the heading once they do not, so a large text size never squeezes the
+ * heading into a column a few letters wide.
  */
 export function Section({
   glyph,
@@ -324,6 +386,7 @@ export function Section({
 }>) {
   const honey = tone === 'honey';
   const heading = useFocus(focus);
+  const { accent } = useAccent();
   return (
     <Reanimated.View
       entering={stagger(Math.min(index, CASCADE))}
@@ -343,19 +406,23 @@ export function Section({
                 <Glyph
                   name={glyph}
                   size={18}
-                  color={honey ? palette.honey : palette.bloom}
+                  color={honey ? palette.honey : accent}
                 />
               </View>
             </View>
           ) : null}
-          <Text
-            ref={heading}
-            accessibilityRole="header"
-            style={[styles.sectionTitle, honey && styles.sectionTitleHoney]}
-          >
-            {title}
-          </Text>
-          {accessory ? <View style={styles.accessory}>{accessory}</View> : null}
+          <View style={styles.sectionWords}>
+            <Text
+              ref={heading}
+              accessibilityRole="header"
+              style={[styles.sectionTitle, honey && styles.sectionTitleHoney]}
+            >
+              {title}
+            </Text>
+            {accessory ? (
+              <View style={styles.accessory}>{accessory}</View>
+            ) : null}
+          </View>
         </View>
       ) : null}
       {children}
@@ -442,7 +509,51 @@ export function Line({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** An on or off setting, its switch at the right. */
+/** Cream a step of blue away: the same thumb to the eye, a new value to iOS. */
+const CREAM_TWIN = '#F3ECE0';
+
+/**
+ * The thumb colour for a switch's `epoch`th showing on iOS. On iOS 26 a
+ * switch's own thumb colour falls back to white: the device pass saw white
+ * thumbs from the first, and it is known to happen each time the app comes
+ * back to the front (react-native#53856). React Native sends the colour only
+ * when it changes, so each showing alternates between cream and its twin,
+ * and the switch is told again once it is on screen and after each return.
+ */
+export const thumbTint = (epoch: number): string =>
+  epoch % 2 === 1 ? palette.cream : CREAM_TWIN;
+
+/**
+ * Counts the showings of a switch on iOS: one once it is on screen, and one
+ * more each time the app comes back to the front. Android keeps its thumb
+ * colour, so there it stays at its first.
+ */
+function useShowing(): number {
+  const [epoch, setEpoch] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    setEpoch(1);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') setEpoch(at => at + 1);
+    });
+    return () => subscription.remove();
+  }, []);
+  return epoch;
+}
+
+/**
+ * An on or off setting, its switch at the right, level with its label.
+ *
+ * React Native gives an iOS switch `alignSelf: 'flex-start'` under any style
+ * of its own, which set it against the top of its 52pt row, 12pt above its
+ * label's middle. The switch sits in a box of its own that the row centres,
+ * and takes `alignSelf: 'center'` itself.
+ *
+ * The colours are set for each platform: on both the track is the accent
+ * when on and husk when off, with a cream thumb; iOS fills the off track with
+ * its own grey unless given a background, so it takes husk as one, and its
+ * thumb is told its colour again on each showing (`thumbTint`).
+ */
 export function Toggle({
   label,
   accessibilityLabel,
@@ -457,34 +568,40 @@ export function Toggle({
   onValueChange: (next: boolean) => void | Promise<void>;
 }) {
   const live = usePaneActive();
+  const { accent } = useAccent();
+  const epoch = useShowing();
+  const ios = Platform.OS === 'ios';
   return (
     <View style={styles.toggle}>
       <Text style={styles.toggleLabel}>{label}</Text>
-      <Switch
-        accessibilityRole="switch"
-        accessibilityLabel={accessibilityLabel}
-        value={value}
-        disabled={disabled || !live}
-        trackColor={{ true: palette.bloom, false: palette.husk }}
-        thumbColor={palette.cream}
-        ios_backgroundColor={palette.husk}
-        onValueChange={
-          live
-            ? next => {
-                haptics.tick();
-                return onValueChange(next);
-              }
-            : undefined
-        }
-      />
+      <View style={styles.switchBox}>
+        <Switch
+          accessibilityRole="switch"
+          accessibilityLabel={accessibilityLabel}
+          value={value}
+          disabled={disabled || !live}
+          trackColor={{ true: accent, false: palette.husk }}
+          thumbColor={ios ? thumbTint(epoch) : palette.cream}
+          ios_backgroundColor={ios ? palette.husk : undefined}
+          style={styles.switch}
+          onValueChange={
+            live
+              ? next => {
+                  haptics.tick();
+                  return onValueChange(next);
+                }
+              : undefined
+          }
+        />
+      </View>
     </View>
   );
 }
 
 /**
  * A text field with its label above it, which is also its name for a screen
- * reader. Its edge lights in bloom while it has focus. `focus` lands a screen
- * reader on it without raising the keyboard.
+ * reader. Its edge lights in the accent while it has focus. `focus` lands a
+ * screen reader on it without raising the keyboard.
  */
 export function Field({
   label,
@@ -496,6 +613,7 @@ export function Field({
   ...props
 }: TextInputProps & { label: string; focus?: boolean }) {
   const live = usePaneActive();
+  const { accent } = useAccent();
   const [focused, setFocused] = useState(false);
   const target = useFocus<ComponentRef<typeof TextInput>>(focus);
   return (
@@ -505,7 +623,7 @@ export function Field({
         ref={target}
         accessibilityLabel={label}
         placeholderTextColor={palette.dust}
-        selectionColor={palette.bloom}
+        selectionColor={accent}
         autoCorrect={false}
         multiline={multiline}
         {...props}
@@ -521,7 +639,7 @@ export function Field({
         style={[
           styles.input,
           multiline && styles.multiline,
-          focused && styles.inputFocused,
+          focused && { borderColor: accent },
         ]}
       />
     </View>
@@ -529,8 +647,8 @@ export function Field({
 }
 
 /**
- * The page's buttons: `primary` in bloom for the one thing a section is for,
- * `quiet` for the rest, and `danger` in radish for what cannot be undone.
+ * The page's buttons: `primary` in the accent for the one thing a section is
+ * for, `quiet` for the rest, and `danger` in radish for what cannot be undone.
  * A press dips on the snap spring; `busy` turns the glyph into an orbit.
  * `focus` lands a screen reader on it.
  */
@@ -554,6 +672,7 @@ export function Action({
   accessibilityHint?: string;
 }) {
   const live = usePaneActive();
+  const { accent } = useAccent();
   const { reduced } = useMotionPrefs();
   const target = useFocus(focus);
   const scale = useSharedValue(1);
@@ -591,6 +710,7 @@ export function Action({
         }
         style={[
           styles.action,
+          tone === 'primary' && { backgroundColor: accent },
           tone === 'quiet' && styles.actionQuiet,
           tone === 'danger' && styles.actionDanger,
           inactive && styles.inactive,
@@ -608,8 +728,9 @@ export function Action({
 }
 
 /**
- * A lighter control, set in words: a way out, a change, a cancel. `focus`
- * lands a screen reader on it.
+ * A lighter control, set in words: a way out, a change, a cancel. Its `bloom`
+ * tone is the accent, so slate on a test network. `focus` lands a screen
+ * reader on it.
  */
 export function Link({
   label,
@@ -627,13 +748,14 @@ export function Link({
   focus?: boolean;
 }) {
   const live = usePaneActive();
+  const { accent } = useAccent();
   const target = useFocus(focus);
   const ink =
     tone === 'radish'
       ? palette.radish
       : tone === 'steam'
       ? palette.steam
-      : palette.bloom;
+      : accent;
   return (
     <Pressable
       ref={target}
@@ -670,6 +792,11 @@ export const testNetwork = (network: string) => network !== 'mainnet';
  * colour, bloom for mainnet and slate for a test network, which also carries
  * a flask so the difference is a shape as well as a colour, and says what a
  * test network is to a screen reader.
+ *
+ * Only one can be chosen, so they are a radio group to a screen reader, the
+ * chosen one checked. The pills share a line equally while their words fit,
+ * and past that each takes the width its word needs, so a large text size
+ * breaks the row onto more lines, or stacks it, and never breaks a word.
  */
 export function NetworkChoice<T extends string>({
   options,
@@ -686,7 +813,7 @@ export function NetworkChoice<T extends string>({
 }) {
   const live = usePaneActive();
   return (
-    <View style={styles.choice}>
+    <View accessibilityRole="radiogroup" style={styles.choice}>
       {options.map(option => {
         const selected = option === value;
         const test = testNetwork(option);
@@ -694,12 +821,12 @@ export function NetworkChoice<T extends string>({
         return (
           <Pressable
             key={option}
-            accessibilityRole="button"
+            accessibilityRole="radio"
             accessibilityLabel={labelFor(option)}
             accessibilityHint={
               test ? copy.settings.testNetwork(option) : undefined
             }
-            accessibilityState={{ selected, disabled }}
+            accessibilityState={{ checked: selected, disabled }}
             disabled={disabled}
             onPress={
               live
@@ -732,17 +859,17 @@ export function NetworkChoice<T extends string>({
 
 type NoteTone = 'info' | 'pending' | 'success' | 'warning' | 'error';
 
-const NOTE: Record<
-  NoteTone,
-  { glyph: GlyphName; ink: string; fill: string; draw: boolean }
-> = {
+interface NoteLook {
+  glyph: GlyphName;
+  ink: string;
+  fill: string;
+  draw: boolean;
+}
+
+// Something in flight is drawn in the accent, so its ink and fill are the
+// accent's (`noteLook`).
+const NOTE: Record<Exclude<NoteTone, 'pending'>, NoteLook> = {
   info: { glyph: 'info', ink: palette.steam, fill: palette.mocha, draw: false },
-  pending: {
-    glyph: 'orbit',
-    ink: palette.bloom,
-    fill: palette.bloomSoft,
-    draw: false,
-  },
   success: {
     glyph: 'check',
     ink: palette.sage,
@@ -763,6 +890,14 @@ const NOTE: Record<
   },
 };
 
+/** How a note of `tone` is drawn, in `accent` when it is in flight. */
+export function noteLook(tone: NoteTone, { accent, soft }: Accent): NoteLook {
+  if (tone === 'pending') {
+    return { glyph: 'orbit', ink: accent, fill: soft, draw: false };
+  }
+  return NOTE[tone];
+}
+
 /**
  * A line that matters: a safety line in honey, an outcome, or an error in
  * radish. It rises into place, and an outcome's check or bang draws itself
@@ -781,7 +916,7 @@ export function Note({
   focus?: boolean;
   children: string;
 }) {
-  const look = NOTE[tone];
+  const look = noteLook(tone, useAccent());
   const shape = glyph ?? look.glyph;
   const target = useFocus(focus);
   const error = tone === 'error';
@@ -889,6 +1024,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: space.lg,
     gap: space.sm + 2,
+    overflow: 'hidden',
   },
   sectionHoney: {
     backgroundColor: palette.honeyWash,
@@ -923,7 +1059,24 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: palette.honey,
   },
-  sectionTitle: { ...type.label, color: palette.steam, flex: 1 },
+  // The heading and its accessory share a line while both fit; the heading
+  // takes what the accessory leaves, and the accessory wraps below it once
+  // the heading needs the width.
+  sectionWords: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    columnGap: space.sm,
+    rowGap: space.xs,
+  },
+  sectionTitle: {
+    ...type.label,
+    color: palette.steam,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 'auto',
+  },
   sectionTitleHoney: { color: palette.honey },
   accessory: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
 
@@ -936,18 +1089,21 @@ const styles = StyleSheet.create({
   rowGlyph: { width: 32, alignItems: 'center' },
   rowLabel: { ...type.body, color: palette.cream, flex: 1 },
 
+  // A value that does not fit beside its label takes the line below.
   line: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    gap: space.md,
+    columnGap: space.md,
     minHeight: 32,
   },
-  lineLabel: { ...type.body, color: palette.steam },
+  lineLabel: { ...type.body, color: palette.steam, flexShrink: 1 },
   lineValue: {
     ...type.body,
     color: palette.cream,
     textAlign: 'right',
+    flexGrow: 1,
     flexShrink: 1,
     fontVariant: ['tabular-nums'],
   },
@@ -960,6 +1116,9 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   toggleLabel: { ...type.body, color: palette.cream, flex: 1 },
+  switchBox: { minHeight: TOUCH, justifyContent: 'center' },
+  // Over React Native's own `flex-start` for an iOS switch.
+  switch: { alignSelf: 'center' },
 
   field: { gap: space.xs },
   fieldLabel: { ...type.label, color: palette.steam },
@@ -974,14 +1133,13 @@ const styles = StyleSheet.create({
     color: palette.cream,
     fontSize: 16,
   },
-  inputFocused: { borderColor: palette.bloom },
   multiline: { minHeight: 96, textAlignVertical: 'top' },
 
   action: {
     minHeight: 52,
     borderRadius: radius.round,
-    backgroundColor: palette.bloom,
     paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -993,7 +1151,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.radish,
   },
-  actionLabel: { ...type.label, fontSize: 15, lineHeight: 20 },
+  actionLabel: {
+    ...type.label,
+    fontSize: 15,
+    lineHeight: 20,
+    flexShrink: 1,
+    textAlign: 'center',
+  },
 
   link: {
     flexDirection: 'row',
@@ -1002,12 +1166,18 @@ const styles = StyleSheet.create({
     gap: space.xs,
     minHeight: TOUCH,
   },
-  linkLabel: { ...type.label },
+  linkLabel: { ...type.label, flexShrink: 1, textAlign: 'center' },
 
-  choice: { flexDirection: 'row', gap: space.xs },
+  choice: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  // At least a third of the line, less the gaps, so three share it equally
+  // until a word needs more.
   chip: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 'auto',
+    minWidth: '30%',
     minHeight: TOUCH,
+    paddingHorizontal: space.xs,
     borderRadius: radius.round,
     borderWidth: 1,
     borderColor: palette.husk,
@@ -1018,7 +1188,7 @@ const styles = StyleSheet.create({
   },
   chipLive: { backgroundColor: palette.bloom, borderColor: palette.bloom },
   chipTest: { backgroundColor: palette.slate, borderColor: palette.slate },
-  chipLabel: { ...type.label },
+  chipLabel: { ...type.label, flexShrink: 1, textAlign: 'center' },
 
   note: {
     flexDirection: 'row',

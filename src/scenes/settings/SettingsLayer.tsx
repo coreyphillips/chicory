@@ -9,7 +9,7 @@ import { STATUS_ROW } from '../../stage/layout';
 import { CornerControl } from '../../stage/panes/CornerControl';
 import { SceneSlot } from '../../stage/panes/SceneSlot';
 import { space, type } from '../../theme';
-import { Note, SettingsSurface } from './ui';
+import { Note, SettingsSurface, accentFor, testNetwork } from './ui';
 
 /**
  * Settings, the one scene that may keep words on screen (REDESIGN.md rule
@@ -22,6 +22,13 @@ import { Note, SettingsSurface } from './ui';
  * the setup surfaces do (the new wallet sheet, and the setup panel a phase
  * opens for network setup or the recovery phrase), and none of them is ever
  * drawn beside Settings.
+ *
+ * On a test network its pull to refresh turns in slate rather than bloom, as
+ * the page under it draws (`SettingsScreen`).
+ *
+ * Its bar grows with the text size, which Settings does not cap: the title
+ * keeps to its one word and gives way before the close control does, so the
+ * close stays on screen at every size.
  */
 export function SettingsLayer({
   snapshot,
@@ -34,6 +41,7 @@ export function SettingsLayer({
   // there, rather than padding down to it, keeps the slot's keyboard offset
   // measured from the top of the safe area.
   const { top, bottom } = useSafeAreaInsets();
+  const { accent } = accentFor(testNetwork(snapshot.wallet.network));
   return (
     <SettingsSurface
       style={[styles.layer, { marginTop: top, paddingBottom: bottom }]}
@@ -43,6 +51,9 @@ export function SettingsLayer({
         <Text
           accessibilityElementsHidden
           importantForAccessibility="no"
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.5}
           style={styles.title}
         >
           {copy.settings.title}
@@ -55,8 +66,8 @@ export function SettingsLayer({
           <RefreshControl
             refreshing={session.refreshing}
             onRefresh={session.manualRefresh}
-            tintColor={palette.bloom}
-            colors={[palette.bloom]}
+            tintColor={accent}
+            colors={[accent]}
           />
         }
       >
@@ -84,13 +95,15 @@ export function SettingsLayer({
 
 const styles = StyleSheet.create({
   layer: { flex: 1 },
+  // At least the status row's height, and taller when the title is.
   bar: {
-    height: STATUS_ROW,
+    minHeight: STATUS_ROW,
     paddingHorizontal: space.xl,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: space.sm,
   },
-  title: { ...type.title, color: palette.cream },
+  title: { ...type.title, color: palette.cream, flexShrink: 1 },
   stack: { gap: space.md },
 });

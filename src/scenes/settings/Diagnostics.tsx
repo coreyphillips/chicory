@@ -9,9 +9,10 @@ import { palette } from '../../design/palette';
 import { dropOut, riseIn } from '../../motion/presets';
 import { recentDiagnostics } from '../../services/diagnosticLog';
 import type { DiagnosticEntry } from '../../services/diagnosticLog';
+import { NETWORKS } from '../../services/networks';
 import type { WalletAdapter } from '../../services/wallet';
 import { fonts, radius, space, type } from '../../theme';
-import { Action, Note, Row, Section, Working } from './ui';
+import { Action, Note, Row, Section, Working, testNetwork } from './ui';
 
 const words = copy.settings.diagnostics;
 
@@ -26,9 +27,57 @@ const TIME = new Intl.DateTimeFormat('en-US', {
 const clock = (at: string) => TIME.format(Date.parse(at));
 
 /**
+ * What an entry the app logged is, by the semantic colours (REDESIGN.md
+ * 3.1): a test network, slate; a safety state that needs attention rather
+ * than a failure (rule 4: a held or uncertain payment, a reused address, an
+ * expiry, a stale balance, a backup to save), honey; anything else failed,
+ * radish.
+ */
+export type EntryTone = 'test' | 'attention' | 'failed';
+
+/** The safety states the app logs with a code. */
+const ATTENTION_CODES = new Set([
+  'STALE',
+  'HELD',
+  'UNCERTAIN',
+  'QUOTE_EXPIRED',
+  'AMBIGUOUS_RECEIVE_ADDRESS',
+]);
+
+/** And the ones the canvas and Receive log by their words alone. */
+const ATTENTION_LINES = new Set<string>([
+  copy.health.stale,
+  copy.health.backupPending,
+  copy.receive.expired,
+]);
+
+/** The line the canvas logs for each test network. */
+const TEST_LINES = new Set(
+  NETWORKS.filter(testNetwork).map(network => copy.health.testNetwork(network)),
+);
+
+export function entryTone(entry: DiagnosticEntry): EntryTone {
+  if (TEST_LINES.has(entry.message)) return 'test';
+  if (
+    (entry.code && ATTENTION_CODES.has(entry.code)) ||
+    ATTENTION_LINES.has(entry.message)
+  )
+    return 'attention';
+  return 'failed';
+}
+
+const WASH: Record<EntryTone, string> = {
+  test: palette.slateSoft,
+  attention: palette.honeyWash,
+  failed: palette.radishWash,
+};
+
+/**
  * The errors the app showed only as a glyph (phase 'ui'), newest first, each
  * with every word of its message. Outside Settings an unmapped error is a
- * radish bang and a shake; this is where its words can be read.
+ * radish bang and a shake; this is where its words can be read. The safety
+ * states logged beside them keep their own colour (`entryTone`), so a test
+ * network's line is never drawn as a failure.
  */
 function RecentErrors({ entries }: { entries: DiagnosticEntry[] }) {
   if (!entries.length) return null;
@@ -38,7 +87,10 @@ function RecentErrors({ entries }: { entries: DiagnosticEntry[] }) {
         {words.errors}
       </Text>
       {entries.map((entry, index) => (
-        <View key={`${entry.at}${index}`} style={styles.error}>
+        <View
+          key={`${entry.at}${index}`}
+          style={[styles.error, { backgroundColor: WASH[entryTone(entry)] }]}
+        >
           <Text style={styles.meta}>
             {entry.code
               ? `${clock(entry.at)} · ${entry.code}`
@@ -115,11 +167,7 @@ export function Diagnostics({
           <RecentErrors entries={errors} />
           {error ? <Note tone="error">{error}</Note> : null}
           {busy && !report ? (
-            <Working
-              size={24}
-              accessibilityLabel={words.loading}
-              color={palette.bloom}
-            />
+            <Working size={24} accessibilityLabel={words.loading} />
           ) : null}
           {report ? (
             <View style={styles.errors}>
@@ -132,7 +180,7 @@ export function Diagnostics({
             </View>
           ) : null}
           <View style={styles.actions}>
-            <View style={styles.flex}>
+            <View style={styles.slot}>
               <Action
                 label={words.refresh}
                 glyph="refresh"
@@ -141,7 +189,7 @@ export function Diagnostics({
                 onPress={load}
               />
             </View>
-            <View style={styles.flex}>
+            <View style={styles.slot}>
               <Action
                 label={words.copy}
                 glyph="copy"
@@ -161,7 +209,6 @@ export function Diagnostics({
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   stack: { gap: space.md },
   errors: { gap: space.xs },
   subheading: { ...type.label, color: palette.steam },
@@ -169,7 +216,6 @@ const styles = StyleSheet.create({
     gap: space.xxs,
     padding: space.sm,
     borderRadius: radius.sm,
-    backgroundColor: palette.radishWash,
   },
   meta: { ...type.meta, color: palette.steam },
   message: { fontSize: 14, lineHeight: 20, color: palette.cream },
@@ -179,5 +225,8 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: palette.steam,
   },
-  actions: { flexDirection: 'row', gap: space.xs },
+  // Side by side and equal while their words fit, one above the other once
+  // the text size needs the width.
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  slot: { flexGrow: 1, flexShrink: 1, flexBasis: 'auto', minWidth: '45%' },
 });

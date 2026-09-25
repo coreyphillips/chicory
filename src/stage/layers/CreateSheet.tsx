@@ -4,7 +4,7 @@ import type { WalletRecord } from '@beignet/wallet-core';
 import { CreateWalletScreen } from '../../screens/Settings';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
-import { SettingsSurface } from '../../scenes/settings/ui';
+import { SettingsNetwork, SettingsSurface } from '../../scenes/settings/ui';
 import type { NetworkProfile } from '../../services/networks';
 import type { WalletAdapter } from '../../services/wallet';
 import { space } from '../../theme';
@@ -21,6 +21,10 @@ import { useStage } from '../StageContext';
  * lines in words (REDESIGN.md rule 2), so its root carries the settings
  * marker. It only opens from a shell phase, and opening a wallet closes it,
  * so it is never drawn beside Settings.
+ *
+ * It draws in the tone of the network the wallet is made on: slate in place
+ * of bloom on a test network, so play money is never made in the colour of
+ * real money.
  */
 export function CreateSheet({
   client,
@@ -40,13 +44,15 @@ export function CreateSheet({
         <CornerControl home={false} />
       </View>
       <SceneSlot label={copy.scene.create}>
-        <CreateWalletScreen
-          client={client}
-          profile={profile}
-          initialRestoring={restoring}
-          onCreated={onCreated}
-          onBusy={actions.setBusy}
-        />
+        <SettingsNetwork network={profile.network}>
+          <CreateWalletScreen
+            client={client}
+            profile={profile}
+            initialRestoring={restoring}
+            onCreated={onCreated}
+            onBusy={actions.setBusy}
+          />
+        </SettingsNetwork>
       </SceneSlot>
     </SettingsSurface>
   );
