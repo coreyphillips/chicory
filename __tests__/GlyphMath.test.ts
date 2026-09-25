@@ -39,6 +39,7 @@ import {
 } from '../src/glyphs/StatusRing';
 import {
   alpha,
+  glyphPose,
   ripplePose,
   seedBob,
   seedSpots,
@@ -429,11 +430,29 @@ describe('Vessel', () => {
     expect(segmentWidths(2, 200)).toEqual({ solid: 200, arriving: 0 });
   });
 
-  test('the sheen crosses from beyond one end to beyond the other', () => {
-    expect(sheenX(0, 300, false)).toBe(-48);
-    expect(sheenX(1, 300, false)).toBe(300);
-    expect(sheenX(0, 300, true)).toBe(300);
-    expect(sheenX(1, 300, true)).toBe(-48);
+  test('the sheen crosses the glass, from behind the seam to past the end', () => {
+    expect(sheenX(0, 0, 300, false)).toBe(-48);
+    expect(sheenX(1, 0, 300, false)).toBe(300);
+    expect(sheenX(0, 100, 300, false)).toBe(52);
+    expect(sheenX(1, 100, 300, false)).toBe(300);
+    expect(sheenX(0, 100, 300, true)).toBe(300);
+    expect(sheenX(1, 100, 300, true)).toBe(52);
+  });
+
+  test('the glyphs over the pill move as REDESIGN.md 4 has them', () => {
+    // The clock's hands turn once a cycle and rest upright on each whole one.
+    expect(glyphPose('clock', 3)).toEqual({ rotate: 0, scale: 1 });
+    expect(glyphPose('clock', 2.25).rotate).toBeCloseTo(90);
+    // The gauge's needle sweeps up from -30 degrees.
+    expect(glyphPose('gauge', 0).rotate).toBe(-30);
+    expect(glyphPose('gauge', 1).rotate).toBeCloseTo(0);
+    // A refresh turns forward once, a rewind back.
+    expect(glyphPose('refresh', 1).rotate).toBe(360);
+    expect(glyphPose('rewind', 1).rotate).toBe(-360);
+    // A sprout grows from nothing.
+    expect(glyphPose('sprout', 0).scale).toBe(0);
+    expect(glyphPose('sprout', 1).scale).toBe(1);
+    expect(glyphPose('inflow', 0)).toEqual({ rotate: 0, scale: 1 });
   });
 
   test('seeds spread over the glass and bob a point out of step', () => {

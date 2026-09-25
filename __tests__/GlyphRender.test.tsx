@@ -8,7 +8,13 @@ import {
   State,
 } from 'react-native-gesture-handler';
 import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
-import Svg, { Circle, G, Path, Pattern } from 'react-native-svg';
+import Svg, {
+  Circle,
+  G,
+  LinearGradient,
+  Path,
+  Pattern,
+} from 'react-native-svg';
 import type { WalletRecord } from '@beignet/wallet-core';
 import { Bloom } from '../src/glyphs/Bloom';
 import type { BloomEvent, BloomMode, BloomTone } from '../src/glyphs/Bloom';
@@ -621,12 +627,84 @@ describe('Vessel', () => {
     ).toBeGreaterThan(0);
   });
 
+  test('the spendable part grows from the left and the glass from the right', async () => {
+    const tree = await render(
+      <Vessel availableSats={250_000} pendingSats={11_500} unit="sats" />,
+    );
+    const part = (origin: string) =>
+      flat(hosts(tree, node => flat(node).transformOrigin === origin)[0]);
+    const scaleX = (style: object) =>
+      ((style as { transform: Array<{ scaleX?: number }> }).transform.find(
+        step => step.scaleX !== undefined,
+      )?.scaleX ?? NaN) as number;
+    const solid = part('left center');
+    const glass = part('right center');
+    expect(solid.backgroundColor).toBe(palette.bloom);
+    expect(glass.backgroundColor).toBe(palette.glass);
+    expect(scaleX(solid)).toBeCloseTo(250_000 / 261_500);
+    expect(scaleX(solid) + scaleX(glass)).toBeCloseTo(1);
+    // With money moving the hairline gives way to the glass.
+    const hairline = hosts(
+      tree,
+      node => flat(node).backgroundColor === 'rgba(243,236,223,0.25)',
+    );
+    expect(flat(hairline[0]).opacity).toBe(0);
+  });
+
+  test.each([
+    ['confirming', decided('wait', 'channel-pending'), 'hands', 'face'],
+    ['the fee wait', decided('wait', 'fee-too-high'), 'needle', 'dial'],
+  ] as const)(
+    'while %s only the moving part of its glyph turns',
+    async (_, lfbw, moving, still) => {
+      const tree = await render(
+        <Vessel
+          availableSats={250_000}
+          pendingSats={11_500}
+          lfbw={lfbw}
+          unit="sats"
+        />,
+      );
+      const glyph =
+        lfbw.lastChannelize!.reason === 'fee-too-high'
+          ? GLYPHS.gauge
+          : GLYPHS.clock;
+      const d = (id: string) => glyph.find(part => part.id === id)!.d;
+      const turns = (id: string) => {
+        let at = tree.root.findByProps({ d: d(id) }).parent;
+        while (at && !(typeof at.type === 'string' && flat(at).transform)) {
+          at = at.parent;
+        }
+        return (
+          !!at &&
+          (flat(at).transform as object[]).some(step => 'rotate' in step)
+        );
+      };
+      expect(turns(moving)).toBe(true);
+      expect(turns(still)).toBe(false);
+    },
+  );
+
   test('under Reduce Motion the glass holds a still hatch instead of a sheen', async () => {
     reducedMotion();
     const tree = await render(
       <Vessel availableSats={1} pendingSats={1} unit="sats" />,
     );
+    const root = tree.root.findByProps({ accessible: true });
+    await act(async () =>
+      root.props.onLayout({
+        nativeEvent: { layout: { width: 300, height: 8 } },
+      }),
+    );
     expect(tree.root.findAllByType(Pattern)).toHaveLength(1);
+    expect(tree.root.findAllByType(LinearGradient)).toEqual([]);
+    // It covers only the glass, from the seam to the end.
+    const glass = hosts(
+      tree,
+      node =>
+        flat(node).left === 150 && node.findAllByType(Pattern).length === 1,
+    );
+    expect(glass).toHaveLength(1);
   });
 });
 
