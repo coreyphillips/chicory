@@ -1,5 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { AccessibilityInfo, AppState } from 'react-native';
+import {
+  AccessibilityInfo,
+  AppState,
+  StyleSheet,
+  Text,
+  TextInput,
+} from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -11,6 +17,8 @@ import type {
   ReceiveStatus,
   WalletSnapshot,
 } from '@beignet/wallet-core';
+import { AmountField } from '../../../components/AmountField';
+import { ReceiveRequestDetails } from '../../../components/ReceiveRequestDetails';
 import { copy } from '../../../design/copy';
 import { Glyph } from '../../../design/glyphs';
 import { haptics } from '../../../design/haptics';
@@ -24,6 +32,7 @@ import type { StageStore } from '../../../stage/StageContext';
 import { mount } from '../../../../test-support/guard';
 import { enterAmount } from '../../../../test-support/keypad';
 import { alerts, find, meaning } from '../../../../test-support/query';
+import { CONTROL as SEND_CONTROL } from '../../send/Controls';
 import { Unplugged } from '../../send/LoopingGlyphs';
 import { Spin } from '../loops';
 
@@ -510,6 +519,93 @@ describe('money arriving with Receive open on the canvas', () => {
     expect(meaning(tree)).toContain(copy.receive.received);
     expect(incoming).toHaveBeenCalledTimes(2);
     expect(success).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('the way on', () => {
+  /** How wide the control labelled `label` is drawn. */
+  const width = (tree: ReactTestRenderer, label: string) =>
+    StyleSheet.flatten(find(tree, label)!.props.style).width;
+
+  test("is the size the home circle grows to as Receive opens, as Send's is", async () => {
+    const tree = await screen(clientOf());
+    expect(width(tree, copy.receive.continue)).toBe(SEND_CONTROL);
+    await toQuote(tree);
+    expect(width(tree, copy.receive.create)).toBe(SEND_CONTROL);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('type', () => {
+  /** Every run of text and every field drawn, outside the amount keypad. */
+  const texts = (tree: ReactTestRenderer) =>
+    tree.root
+      .findAll(node => node.type === Text || node.type === TextInput)
+      .filter(node => {
+        for (let at = node.parent; at; at = at.parent) {
+          if (at.type === AmountField) return false;
+        }
+        return true;
+      });
+
+  /** What would grow past a row's 1.4 with Dynamic Type, by what it shows. */
+  const uncapped = (tree: ReactTestRenderer) =>
+    texts(tree)
+      .filter(node => !(node.props.maxFontSizeMultiplier <= 1.4))
+      .map(node => node.props.children ?? node.props.accessibilityLabel);
+
+  test('grows with Dynamic Type no further than a row does, in every step', async () => {
+    const client = clientOf({
+      getConfig: jest.fn().mockResolvedValue({ offlineReceiveAvailable: true }),
+    });
+    const tree = await screen(client, { offlineReceivableSats: 50_000 });
+    await act(async () => {
+      tree.root
+        .findByProps({ accessibilityLabel: copy.receive.offline })
+        .props.onPress();
+    });
+    await tap(tree, copy.receive.addNote);
+    expect(uncapped(tree)).toEqual([]);
+    // The offline cap is meta as the scale has it, 12 on 16.
+    const cap = texts(tree).find(node => node.props.children === '≤')!;
+    expect(StyleSheet.flatten(cap.props.style)).toMatchObject({
+      fontSize: 12,
+      lineHeight: 16,
+    });
+    await enterAmount(tree, '1000');
+    await tap(tree, copy.receive.continue);
+    expect(find(tree, copy.receive.create)).toBeDefined();
+    expect(uncapped(tree)).toEqual([]);
+    await tap(tree, copy.receive.create);
+    expect(uncapped(tree)).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+
+  test("a payment's detail sets its request string in mono, 12 on 18", async () => {
+    const request = requestOf();
+    const item: Activity = {
+      id: `payment:${request.paymentHash}`,
+      kind: 'request',
+      title: 'Payment request',
+      description: '',
+      amountSats: 1000,
+      feeSats: 0,
+      status: 'pending',
+      timestamp: Date.now(),
+      reference: request.bolt11,
+      paymentHash: request.paymentHash,
+      receiveRequest: request,
+    };
+    const tree = await mount(<ReceiveRequestDetails item={item} />);
+    const shown = texts(tree).find(
+      node => node.props.children === request.uri,
+    )!;
+    expect(StyleSheet.flatten(shown.props.style)).toMatchObject({
+      fontSize: 12,
+      lineHeight: 18,
+    });
+    expect(shown.props.maxFontSizeMultiplier).toBe(1.4);
     await act(async () => tree.unmount());
   });
 });

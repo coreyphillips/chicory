@@ -645,7 +645,7 @@ A cocoa pill anchored above its source (see rule 3).
 
 ## 7. Choreography (ms from the tap)
 
-**T1, Home to Send** (T2, Receive, mirrors it with the receive circle):
+**T1, Home to Send** (T2, Receive, mirrors it with the receive circle, which grows into Receive's own 88pt control):
 
 | Time       | What happens                                                                                                                                                |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |

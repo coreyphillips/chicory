@@ -8,7 +8,7 @@ import { riseIn, sceneOut, stagger } from '../../motion/presets';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { radius, space, type as typography } from '../../theme';
 import { AmountCue, AmountFace } from './AmountCue';
-import { ErrorPip, GlyphButton } from './controls';
+import { CONTROL, ErrorPip, GlyphButton } from './controls';
 import type { Focus } from './focus';
 import type { AmountCue as Cue, Refused } from './model';
 import { PRESETS } from './model';
@@ -126,6 +126,7 @@ export function FormStep({
             onChangeText={live ? onNote : undefined}
             editable={!busy}
             maxLength={NOTE_MAX}
+            maxFontSizeMultiplier={1.4}
             autoFocus={noteOpen && note === ''}
             autoCorrect={false}
             returnKeyType="done"
@@ -139,7 +140,7 @@ export function FormStep({
           glyph="receive"
           label={copy.receive.continue}
           hint={stale ? copy.receive.stale : undefined}
-          size={72}
+          size={CONTROL}
           tone="primary"
           disabled={!stale && !ready}
           blocked={stale}

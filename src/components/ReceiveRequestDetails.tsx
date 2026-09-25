@@ -163,6 +163,7 @@ export function ReceiveRequestDetails({
       >
         <Text
           selectable={shareable}
+          maxFontSizeMultiplier={1.4}
           style={[styles.request, !shareable && styles.kept]}
         >
           {request.uri}
@@ -235,6 +236,7 @@ export function ReceiveRequestDetails({
               autoCorrect={false}
               spellCheck={false}
               editable={!busy}
+              maxFontSizeMultiplier={1.4}
               selectionColor={palette.bloom}
               style={styles.field}
             />
@@ -286,12 +288,7 @@ const styles = StyleSheet.create({
   },
   qr: { alignItems: 'center' },
   rails: { flexDirection: 'row', gap: space.sm, alignItems: 'center' },
-  request: {
-    ...typography.mono,
-    fontSize: 11,
-    lineHeight: 18,
-    color: palette.cream,
-  },
+  request: { ...typography.mono, color: palette.cream },
   kept: { color: palette.steam },
   controls: {
     flexDirection: 'row',

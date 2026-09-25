@@ -129,5 +129,5 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     backgroundColor: palette.bloom,
   },
-  cap: { ...typography.meta, fontSize: 13 },
+  cap: typography.meta,
 });

@@ -29,6 +29,13 @@ import type { Focus } from './focus';
 import { Pulse, Spin } from './loops';
 import { refusalLook } from './model';
 
+/**
+ * The circle of the way on, on the form and on the quote: the size Home's
+ * receive circle grows to as Receive opens (REDESIGN.md 7, T2), as Send's
+ * control is for T1, so the circle lands on the control it becomes.
+ */
+export const CONTROL = 88;
+
 /** How long refresh takes to turn once as it arrives (REDESIGN.md 4). */
 const TURN_MS = 500;
 

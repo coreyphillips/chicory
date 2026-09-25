@@ -10,13 +10,18 @@ import { Whisper } from '../../glyphs/Whisper';
 import { stagger } from '../../motion/presets';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { amountIn, space, type as typography } from '../../theme';
-import { ErrorPip, GlyphButton, WarningPips, turnIn } from './controls';
+import {
+  CONTROL,
+  ErrorPip,
+  GlyphButton,
+  WarningPips,
+  turnIn,
+} from './controls';
 import type { Focus } from './focus';
 import { feeGlyph, shownSats } from './model';
 import type { Refused } from './model';
 
-/** The create control, and the ring that runs down around it. */
-const CONTROL = 88;
+/** The ring that runs down around the create control. */
 const RING = CONTROL + 16;
 
 /**
@@ -113,7 +118,9 @@ export function QuoteStep({
           style={styles.line}
         >
           <Glyph name={glyph} size={20} color={palette.bloom} />
-          <Text style={styles.sign}>−</Text>
+          <Text style={styles.sign} maxFontSizeMultiplier={1.4}>
+            −
+          </Text>
           <Text style={styles.value} maxFontSizeMultiplier={1.4}>
             {shownSats(quote.feeSats)}
           </Text>
@@ -126,7 +133,9 @@ export function QuoteStep({
           accessibilityLabel={copy.receive.net(net)}
           style={styles.line}
         >
-          <Text style={styles.sign}>=</Text>
+          <Text style={styles.sign} maxFontSizeMultiplier={1.4}>
+            =
+          </Text>
           <Text style={[styles.value, styles.net]} maxFontSizeMultiplier={1.4}>
             {shownSats(net)}
           </Text>
