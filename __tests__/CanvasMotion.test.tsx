@@ -1,6 +1,11 @@
 import React from 'react';
 import { AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import {
+  GestureDetector,
+  GestureHandlerRootView,
+  State,
+} from 'react-native-gesture-handler';
+import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
 import * as Reanimated from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create } from 'react-test-renderer';
@@ -8,6 +13,9 @@ import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import { haptics } from '../src/design/haptics';
+import { Bloom } from '../src/glyphs/Bloom';
+import { Odometer } from '../src/glyphs/Odometer';
+import { ActionCircle } from '../src/scenes/home/ActionCircle';
 import { Backdrop } from '../src/scenes/home/Backdrop';
 import { HomePane } from '../src/scenes/home/HomePane';
 import { StatusRow } from '../src/scenes/home/StatusRow';
@@ -16,6 +24,8 @@ import { BackupBanner } from '../src/scenes/shared/BackupBanner';
 import { ActivityScreen, HomeScreen } from '../src/screens/Wallet';
 import { SettingsScreen } from '../src/screens/Settings';
 import { copy } from '../src/design/copy';
+import { durations } from '../src/motion/tokens';
+import { FOCUS_SETTLE_MS } from '../src/motion/speech';
 import { FILTERS } from '../src/scenes/activity/model';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import type { Backup } from '../src/stage/Canvas';
@@ -26,11 +36,19 @@ import {
   SCANNING,
   SCENE_LAYOUT,
   STATUS_ROW,
+  buildBeats,
   stops,
 } from '../src/stage/layout';
-import type { CanvasSceneName } from '../src/stage/layout';
-import { CornerControl } from '../src/stage/panes/CornerControl';
-import { Pane } from '../src/stage/panes/Pane';
+import type { Arrival, CanvasSceneName } from '../src/stage/layout';
+import { COG_TURN, CornerControl } from '../src/stage/panes/CornerControl';
+import {
+  EDGE,
+  EdgeBack,
+  FLING,
+  swipeGoesBack,
+} from '../src/stage/panes/EdgeBack';
+import { Pane, PanesProvider } from '../src/stage/panes/Pane';
+import type { Panes } from '../src/stage/panes/Pane';
 import {
   StageProvider,
   useHoldTint,
@@ -91,9 +109,11 @@ const client = new DemoWalletClient();
 function OnCanvas({
   backup = null,
   read = snapshot,
+  arrival,
 }: {
   backup?: Backup | null;
   read?: WalletSnapshot;
+  arrival?: Arrival;
 }) {
   stage = useStageStore();
   const view = useCanvasView();
@@ -109,6 +129,7 @@ function OnCanvas({
           stale={false}
           backup={backup}
           view={view}
+          arrival={arrival}
         />
       </StageProvider>
     </GestureHandlerRootView>
@@ -158,18 +179,27 @@ const host = (node: ReactTestInstance) =>
 
 /**
  * The balance, which shrinks toward the mini strip with `hero`, and the
- * action row under it, which fades with `bar`: the two parts of Home the
- * panes move, found by the test ids Home gives them.
+ * action row under it, whose circles fade with `bar`: the parts of Home the
+ * panes move, found by the test ids Home gives them and, for the circles,
+ * by the view that poses each one.
  */
 function homeParts(tree: ReactTestRenderer) {
+  const home = tree.root.findByType(HomeScreen);
   const part = (testID: string) =>
-    tree.root
-      .findByType(HomeScreen)
-      .find(
-        node => typeof node.type === 'string' && node.props.testID === testID,
-      );
-  return { hero: part('home-hero'), bar: part('home-bar') };
+    home.find(
+      node => typeof node.type === 'string' && node.props.testID === testID,
+    );
+  const circles = home
+    .findAllByType(ActionCircle)
+    .map(circle => host(circle.parent!));
+  return { hero: part('home-hero'), bar: part('home-bar'), circles };
 }
+
+/** The host views drawn with `testID`, in tree order. */
+const byTestID = (tree: ReactTestRenderer, testID: string) =>
+  tree.root.findAll(
+    node => typeof node.type === 'string' && node.props.testID === testID,
+  );
 
 /** Where each stop is for the height the canvas has. */
 const at = (height = Dimensions.get('window').height) =>
@@ -289,22 +319,112 @@ describe('the tint channel', () => {
   });
 });
 
+describe('the canvas arriving', () => {
+  /** The view that rises and drops the sheet as the canvas comes and goes. */
+  const sheetLayer = (tree: ReactTestRenderer) => byTestID(tree, 'sheet')[0];
+  const figures = (tree: ReactTestRenderer) =>
+    byTestID(tree, 'home-figures')[0];
+
+  test('builds in on its beats: the hero, then the sheet, then the actions', async () => {
+    const beats = buildBeats('unlock');
+    expect(beats).toMatchObject({ hero: 600, sheet: 650, actions: 700 });
+    expect(buildBeats('load').hero).toBeLessThan(beats.hero);
+    const tree = await render(<OnCanvas arrival="unlock" />);
+    expect(sheetLayer(tree).props.entering).toEqual(expect.any(Function));
+    expect(figures(tree).props.entering).toEqual(expect.any(Function));
+    const slots = byTestID(tree, 'home-slot');
+    expect(slots).toHaveLength(3);
+    for (const slot of slots) {
+      expect(slot.props.entering).toEqual(expect.any(Function));
+    }
+    // Each circle its own entrance, one after the other.
+    expect(new Set(slots.map(slot => slot.props.entering)).size).toBe(3);
+    await act(async () => tree.unmount());
+
+    // Drawn without an arrival, as a suite draws it, it is simply there.
+    const still = await render(<OnCanvas />);
+    expect(sheetLayer(still).props.entering).toBeUndefined();
+    expect(figures(still).props.entering).toBeUndefined();
+    for (const slot of byTestID(still, 'home-slot')) {
+      expect(slot.props.entering).toBeUndefined();
+    }
+    await act(async () => still.unmount());
+  });
+
+  test('the hero counts up from 0 on its beat, and always says the balance', async () => {
+    // Hold every beat, as a device would until it falls.
+    const timing = Reanimated.withTiming;
+    jest
+      .spyOn(Reanimated, 'withTiming')
+      .mockImplementation((to, config, done) =>
+        config?.duration === 0 ? to : timing(to, config, done),
+      );
+    const tree = await render(<OnCanvas arrival="load" />);
+    const hero = () => tree.root.findByType(HomeScreen).findByType(Odometer);
+    expect(hero().props.sats).toBe(0);
+    expect(hero().props.accessibilityLabel).toBe(
+      copy.home.totalBalance(261_500, 'sats'),
+    );
+    await act(async () => tree.unmount());
+    jest.restoreAllMocks();
+
+    // Once the beat falls it rolls to the balance.
+    const again = await render(<OnCanvas arrival="load" />);
+    await settle();
+    expect(
+      again.root.findByType(HomeScreen).findByType(Odometer).props.sats,
+    ).toBe(261_500);
+    await act(async () => again.unmount());
+  });
+
+  test('a wallet back from offline bursts its mark with a success', async () => {
+    const success = jest.spyOn(haptics, 'success');
+    const tree = await render(<OnCanvas arrival="reconnect" />);
+    await settle();
+    expect(success).toHaveBeenCalledTimes(1);
+    const mark = tree.root.findByType(StatusRow).findByType(Bloom);
+    expect(mark.props.event?.kind).toBe('burst');
+    await act(async () => tree.unmount());
+
+    success.mockClear();
+    const loaded = await render(<OnCanvas arrival="load" />);
+    await settle();
+    expect(success).not.toHaveBeenCalled();
+    expect(
+      loaded.root.findByType(StatusRow).findByType(Bloom).props.event,
+    ).toBeUndefined();
+    await act(async () => loaded.unmount());
+  });
+
+  test('leaving, the sheet drops away and the figures roll out', async () => {
+    const tree = await render(<OnCanvas />);
+    expect(sheetLayer(tree).props.exiting).toEqual(expect.any(Function));
+    expect(figures(tree).props.exiting).toEqual(expect.any(Function));
+    await act(async () => tree.unmount());
+  });
+});
+
 describe('the canvas', () => {
   test('each scene puts the seam at its stop and sets the hero and the action row', async () => {
     const tree = await render(<OnCanvas />);
     const expectPose = (name: CanvasSceneName) => {
       const pose = SCENE_LAYOUT[name];
-      const { hero, bar } = homeParts(tree);
+      const { hero, bar, circles } = homeParts(tree);
       expect(transformOf(panes(tree).sheet, 'translateY')).toBe(
         at()[pose.seam],
       );
       expect(transformOf(hero, 'scale')).toBeCloseTo(
         HERO_MINI + (1 - HERO_MINI) * pose.hero,
       );
-      expect(flat(bar).opacity).toBe(pose.bar);
+      expect(circles).toHaveLength(3);
+      for (const circle of circles) {
+        expect(flat(circle).opacity).toBe(pose.bar);
+      }
       // Each value moves only its own part: the mini strip never fades
       // with the action row, and the row never shrinks with the balance.
+      // Each circle fades on its own, so the row itself does neither.
       expect(flat(hero).opacity).toBeUndefined();
+      expect(flat(bar).opacity).toBeUndefined();
       expect(flat(bar).transform).toBeUndefined();
       expect(flat(host(panes(tree).home)).opacity).toBeUndefined();
     };
@@ -387,6 +507,27 @@ describe('the canvas', () => {
     await act(async () => tree.unmount());
   });
 
+  test('a payment’s detail takes the lock while its card grows out of the row', async () => {
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openActivity());
+    await settle();
+    expect(passThrough(tree)).toBe(SLOTS.length);
+    act(() => stage.actions.openDetail(payment));
+    // The panes stay where the list had them, but the card is on its way:
+    // taps and back wait for it, as for any move.
+    expect(passThrough(tree)).toBe(0);
+    act(() => stage.actions.back());
+    expect(stage.state.scene.name).toBe('detail');
+    await settle();
+    expect(passThrough(tree)).toBe(SLOTS.length);
+    // Closing it is a move too.
+    act(() => stage.actions.back());
+    expect(stage.state.scene.name).toBe('activity');
+    expect(passThrough(tree)).toBe(0);
+    await settle();
+    await act(async () => tree.unmount());
+  });
+
   test('a payment’s detail covers the list, which stays out of reach under it', async () => {
     const tree = await render(<OnCanvas />);
     await act(async () => stage.actions.openActivity());
@@ -455,6 +596,125 @@ describe('the canvas', () => {
     await act(async () => tree.unmount());
   });
 
+  test('the cog spins out as the close spins in, and turns as Settings covers the canvas', async () => {
+    const tree = await render(<OnCanvas />);
+    // The canvas's own corner is the first drawn; the turn is on its root
+    // and the glyph that spins sits in the keyed view inside it.
+    const corner = () => tree.root.findAllByType(CornerControl)[0];
+    const spinning = () =>
+      corner().findAll(
+        node => typeof node.type === 'string' && !!node.props.entering,
+      )[0];
+    const turnOf = (node: ReactTestInstance) =>
+      transformOf(host(node), 'rotate');
+    const cog = spinning();
+    expect(cog.props.exiting).toBeDefined();
+    expect(
+      cog.findAll(node => node.props.accessibilityLabel === 'Settings'),
+    ).not.toHaveLength(0);
+    expect(turnOf(corner())).toBe('0deg');
+    await act(async () => stage.actions.openSend());
+    // A new control, not the cog with a new glyph, so each can spin.
+    const close = spinning();
+    expect(close).not.toBe(cog);
+    expect(
+      close.findAll(node => node.props.accessibilityLabel === 'Close'),
+    ).not.toHaveLength(0);
+    await settle();
+    await act(async () => stage.actions.back());
+    await settle();
+    await act(async () => stage.actions.openSettings());
+    // The canvas's cog turns 120 degrees under Settings; Settings' own
+    // close stays upright.
+    const [canvasCorner, settingsCorner] =
+      tree.root.findAllByType(CornerControl);
+    expect(turnOf(canvasCorner)).toBe(`${COG_TURN}deg`);
+    expect(turnOf(settingsCorner)).toBe('0deg');
+    await act(async () => tree.unmount());
+  });
+
+  test('a swipe in from the left edge takes Settings back, the canvas following the finger', async () => {
+    const width = Dimensions.get('window').width;
+    // The swipe on its own, over a canvas whose cover it writes.
+    const covers: number[] = [];
+    const cover = {
+      get: () => covers[covers.length - 1] ?? 1,
+      set: (value: number) => covers.push(value),
+    } as unknown as Panes['cover'];
+    function Swiped() {
+      stage = useStageStore();
+      const still = Reanimated.useSharedValue(0);
+      return (
+        <GestureHandlerRootView>
+          <StageProvider value={stage}>
+            <PanesProvider
+              value={{
+                seam: still,
+                hero: still,
+                bar: still,
+                cover,
+                scan: still,
+                pull: still,
+                stops: at(),
+              }}
+            >
+              <EdgeBack />
+            </PanesProvider>
+          </StageProvider>
+        </GestureHandlerRootView>
+      );
+    }
+    const alone = await render(<Swiped />);
+    await act(async () => stage.actions.openSettings());
+    const swipe = () =>
+      alone.root.findByType(EdgeBack).findByType(GestureDetector).props.gesture;
+    expect(swipe().config.hitSlop).toEqual({ left: 0, width: EDGE });
+    // Half way across, the canvas is half uncovered. Let go short of the
+    // threshold, it springs back and Settings stays.
+    await act(async () =>
+      fireGestureHandler(swipe(), [
+        { state: State.BEGAN },
+        { state: State.ACTIVE, translationX: width / 2 },
+        { state: State.ACTIVE, translationX: width * 0.3 },
+        { state: State.END, translationX: width * 0.3, velocityX: 0 },
+      ]),
+    );
+    expect(covers).toEqual(expect.arrayContaining([0.5]));
+    expect(covers.at(-1)).toBe(1);
+    expect(stage.state.scene.name).toBe('settings');
+    // Let go past it, Settings goes back; a fling does too.
+    await act(async () =>
+      fireGestureHandler(swipe(), [
+        { state: State.BEGAN },
+        { state: State.ACTIVE, translationX: width / 2 },
+        { state: State.END, translationX: width / 2, velocityX: 0 },
+      ]),
+    );
+    expect(stage.state.scene.name).toBe('home');
+    expect(swipeGoesBack(40, width, FLING + 1)).toBe(true);
+    expect(swipeGoesBack(40, width, 0)).toBe(false);
+    expect(swipeGoesBack(0, width, FLING + 1)).toBe(false);
+    await act(async () => alone.unmount());
+
+    // On the canvas, Settings takes it.
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openSettings());
+    await settle();
+    await act(async () =>
+      fireGestureHandler(
+        tree.root.findByType(EdgeBack).findByType(GestureDetector).props
+          .gesture,
+        [
+          { state: State.BEGAN },
+          { state: State.ACTIVE, translationX: width * 0.6 },
+          { state: State.END, translationX: width * 0.6, velocityX: 0 },
+        ],
+      ),
+    );
+    expect(stage.state.scene.name).toBe('home');
+    await act(async () => tree.unmount());
+  });
+
   test('the scan overlay dims and shrinks the canvas under it, and lets it go as it closes', async () => {
     const tree = await render(<OnCanvas />);
     await act(async () => stage.actions.openScan());
@@ -512,11 +772,12 @@ describe('the canvas', () => {
       height: insets.top + STATUS_ROW,
     });
     expect(flat(host(panes(tree).home)).top).toBe(insets.top + STATUS_ROW);
+    // Drawn in the status row, hung from an anchor under the home pane's
+    // top edge (see the reading order test below).
+    const [anchor] = byTestID(tree, 'corner');
     const corner = tree.root.findByType(CornerControl).parent!;
-    expect(flat(corner)).toMatchObject({
-      top: insets.top,
-      height: STATUS_ROW,
-    });
+    expect(flat(corner).height).toBe(STATUS_ROW);
+    expect(flat(anchor).top! + flat(corner).top!).toBe(insets.top);
     await act(async () => stage.actions.openActivity());
     expect(transformOf(panes(tree).sheet, 'translateY')).toBe(inset.compact);
     await act(async () => stage.actions.home());
@@ -541,6 +802,21 @@ describe('the canvas', () => {
     const corner = place(copy.home.settings);
     expect(corner).toBeGreaterThan(Math.max(...actions));
     expect(corner).toBeLessThan(place(copy.home.activity));
+
+    // VoiceOver orders what shares a container by where each part starts,
+    // top to bottom, then left to right, whatever the tree says. So the
+    // corner's anchor starts below the home pane's top edge and above the
+    // sheet's, and the three circles' slots share one top and one height.
+    const [anchor] = byTestID(tree, 'corner');
+    const homeTop = flat(host(panes(tree).home)).top!;
+    expect(flat(anchor).top).toBeGreaterThan(homeTop);
+    expect(flat(anchor).top).toBeLessThan(
+      transformOf(panes(tree).sheet, 'translateY')!,
+    );
+    const slots = byTestID(tree, 'home-slot').map(flat);
+    expect(slots).toHaveLength(3);
+    expect(new Set(slots.map(slot => slot.height)).size).toBe(1);
+    expect(slots[0].height).toBeGreaterThan(0);
     await act(async () => tree.unmount());
   });
 
@@ -638,10 +914,48 @@ describe('the canvas', () => {
     await act(async () => tree.unmount());
   });
 
+  test('what the wallet opens with is said once focus has landed, not cut short by it', async () => {
+    jest.useFakeTimers();
+    // Past the window in which a message already spoken is not repeated.
+    jest.advanceTimersByTime(2_001);
+    const sent = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent');
+    const said = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    sent.mockClear();
+    said.mockClear();
+    const backup: Backup = {
+      pending: true,
+      loadPhrase: jest.fn(),
+      onSaved: jest.fn(),
+    };
+    const tree = await render(<OnCanvas backup={backup} />);
+    await act(async () => jest.advanceTimersByTime(FOCUS_SETTLE_MS + 500));
+    const assertive = said.mock.calls.filter(
+      ([, options]) => options?.queue === false,
+    );
+    // A regtest wallet with its phrase still to save: both, as one message,
+    // the backup first, and only after focus moved to the balance.
+    expect(assertive.map(([text]) => text)).toEqual([
+      [copy.health.backupPending, copy.health.testNetwork('regtest')].join(' '),
+    ]);
+    const focused = sent.mock.calls.findIndex(([, kind]) => kind === 'focus');
+    expect(focused).toBeGreaterThanOrEqual(0);
+    const spoken = said.mock.calls.findIndex(
+      ([, options]) => options?.queue === false,
+    );
+    expect(sent.mock.invocationCallOrder[focused]).toBeLessThan(
+      said.mock.invocationCallOrder[spoken],
+    );
+    await act(async () => tree.unmount());
+    jest.useRealTimers();
+  });
+
   test('under Reduce Motion the panes jump, nothing waits, and Settings only dims', async () => {
     jest
       .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
       .mockResolvedValue(true);
+    const delays = jest.spyOn(Reanimated, 'withDelay');
     const tree = await render(<OnCanvas />);
     act(() => {
       stage.actions.openActivity();
@@ -650,6 +964,15 @@ describe('the canvas', () => {
     expect(stage.state.scene.name).toBe('detail');
     expect(passThrough(tree)).toBe(SLOTS.length);
     expect(transformOf(panes(tree).sheet, 'translateY')).toBe(at().compact);
+    // Nothing travels: the sheet and the balance crossfade within 160ms,
+    // jumping halfway through while they are unseen.
+    const jumps = delays.mock.calls.filter(
+      ([delay, , reduce]) =>
+        delay === durations.crossfade / 2 &&
+        reduce === Reanimated.ReduceMotion.Never,
+    );
+    expect(jumps.map(([, to]) => to)).toEqual([at().compact, 0]);
+    expect(flat(panes(tree).sheet).opacity).toBe(1);
     await act(async () => stage.actions.home());
     await act(async () => stage.actions.openSettings());
     const { canvas } = panes(tree);

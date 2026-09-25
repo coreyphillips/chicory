@@ -49,4 +49,9 @@ export const phase = {
   createTitle: 'Create a wallet.',
   testNetwork: (network: string) =>
     `${network} is a test network. Its coins have no value.`,
+  /**
+   * The shield tile above a phase while a new wallet's recovery phrase is
+   * still to be saved: what a tap on it does.
+   */
+  backupHint: 'Opens your recovery phrase to reveal and save it.',
 };

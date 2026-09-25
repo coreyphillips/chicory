@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { AccessibilityActionEvent, LayoutChangeEvent } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
+import type { PanGestureConfig } from 'react-native-gesture-handler';
 import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
@@ -16,12 +17,15 @@ import { copy } from '../../design/copy';
 import { haptics } from '../../design/haptics';
 import { Odometer } from '../../glyphs/Odometer';
 import { Vessel } from '../../glyphs/Vessel';
-import { curves, durations, springs } from '../../motion/tokens';
+import { popIn } from '../../motion/effects';
+import { drawIn, dropOut, fadeIn } from '../../motion/presets';
+import { curves, durations, overlap, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { ActionCircle } from '../../scenes/home/ActionCircle';
 import type { Point } from '../../scenes/home/ActionCircle';
 import {
   PULL_TRIGGER,
+  circleOpacity,
   heroPose,
   launchPose,
   miniLanding,
@@ -30,6 +34,8 @@ import {
 } from '../../scenes/home/motion';
 import type { HeroFrame, Launch } from '../../scenes/home/motion';
 import { isTestNetwork } from '../../scenes/home/visual';
+import { veilOpacity } from '../../stage/layout';
+import type { BuildBeats } from '../../stage/layout';
 import type { Panes } from '../../stage/panes/Pane';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { usePrimary } from '../../stage/panes/Primary';
@@ -41,6 +47,9 @@ const feelPull = () => haptics.soft();
 
 /** What the stale gate does to the action circles: they shrink to this. */
 const GATED = 0.94;
+
+/** The action row's height: the Scan circle's, the largest in it. */
+const ROW_HEIGHT = 76;
 
 /**
  * Home: the balance, the pill of what is spendable and what is on its way,
@@ -58,9 +67,10 @@ const GATED = 0.94;
  * On the canvas `progress` carries the panes: `hero` shrinks the balance into
  * a mini strip, fading the vessel first, which rests in the band under the
  * status row that Send and Receive leave clear (MINI_STRIP), or in the row
- * itself under Activity and a payment's detail. `bar` fades the action row,
- * whose tapped circle grows toward the scene it opens while the others
- * shrink away. Drawn on its own it rests at home. The activity it once
+ * itself under Activity and a payment's detail. `bar` carries the action
+ * row away: the circles not tapped shrink and are gone within 140ms, and the
+ * tapped one travels and grows toward the scene it opens, whole until it
+ * hands over to the scene's own control. Drawn on its own it rests at home. The activity it once
  * previewed is the sheet's now; `onActivity` and `onDetail` stay for the
  * callers that still pass them.
  */
@@ -79,6 +89,7 @@ export function HomeScreen({
   progress,
   launching = 'none',
   arrived = 0,
+  build,
 }: {
   snapshot: WalletSnapshot;
   hidden?: boolean;
@@ -100,11 +111,18 @@ export function HomeScreen({
    * The canvas's panes, which move the hero and the action row, and take
    * the pull for the mark to open with.
    */
-  progress?: Pick<Panes, 'hero' | 'bar'> & Partial<Pick<Panes, 'pull'>>;
+  progress?: Pick<Panes, 'hero' | 'bar'> &
+    Partial<Pick<Panes, 'pull' | 'veil'>>;
   /** The scene the canvas is heading to, when one of the circles opens it. */
   launching?: Launch;
   /** A count that rises with each read that brought money in. */
   arrived?: number;
+  /**
+   * The beats of the canvas's build as it arrives (REDESIGN.md 7, R-1 and
+   * R-3), read as Home mounts: the balance fades up as it counts, the
+   * vessel draws, and the actions pop in one after another.
+   */
+  build?: BuildBeats;
 }) {
   // On the canvas, Home stays drawn while other scenes show, so its controls
   // only get their handlers while its pane is the one in use.
@@ -159,37 +177,43 @@ export function HomeScreen({
   }, [arrived, reduced, pop]);
 
   const refresh = live ? onRefresh : undefined;
-  const follow = (dy: number) => {
-    'worklet';
-    drag.set(Math.max(0, dy));
-    pull?.set(Math.max(0, dy));
-    const ready = dy >= PULL_TRIGGER;
-    if (ready !== armed.get()) {
-      armed.set(ready);
-      if (ready) scheduleOnRN(feelPull);
-    }
-  };
-  const pan = usePanGesture({
-    enabled: !!refresh,
-    // Only a pull down starts it, and a sideways swipe never does.
-    activeOffsetY: 12,
-    failOffsetX: [-20, 20],
-    onActivate: event => {
+  // Held across renders, so a poll or a pane that starts or ends a move,
+  // which draw Home again, never hands the pan a new configuration, even
+  // mid-pull.
+  const config = useMemo<PanGestureConfig>(() => {
+    const follow = (dy: number) => {
       'worklet';
-      follow(event.translationY);
-    },
-    onUpdate: event => {
-      'worklet';
-      follow(event.translationY);
-    },
-    onDeactivate: event => {
-      'worklet';
-      if (armed.get() && !event.canceled && refresh) scheduleOnRN(refresh);
-      armed.set(false);
-      pull?.set(0);
-      drag.set(withSpring(0, springs.pane));
-    },
-  });
+      drag.set(Math.max(0, dy));
+      pull?.set(Math.max(0, dy));
+      const ready = dy >= PULL_TRIGGER;
+      if (ready !== armed.get()) {
+        armed.set(ready);
+        if (ready) scheduleOnRN(feelPull);
+      }
+    };
+    return {
+      enabled: !!refresh,
+      // Only a pull down starts it, and a sideways swipe never does.
+      activeOffsetY: 12,
+      failOffsetX: [-20, 20],
+      onActivate: event => {
+        'worklet';
+        follow(event.translationY);
+      },
+      onUpdate: event => {
+        'worklet';
+        follow(event.translationY);
+      },
+      onDeactivate: event => {
+        'worklet';
+        if (armed.get() && !event.canceled && refresh) scheduleOnRN(refresh);
+        armed.set(false);
+        pull?.set(0);
+        drag.set(withSpring(0, springs.pane));
+      },
+    };
+  }, [refresh, drag, pull, armed]);
+  const pan = usePanGesture(config);
 
   const stackStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: pullOffset(drag.get()) }],
@@ -206,12 +230,28 @@ export function HomeScreen({
   const vesselStyle = useAnimatedStyle(() => ({
     opacity: vesselOpacity(hero.get()),
   }));
-  const barFade = useAnimatedStyle(() => ({ opacity: bar.get() }));
+  // Under Reduce Motion the balance and its vessel fade out and back in
+  // around their jump to the mini strip, rather than travelling.
+  const veil = progress?.veil;
+  const veiled = useAnimatedStyle(() => ({
+    opacity: veilOpacity(veil?.get() ?? 1),
+  }));
   // Reduce Motion keeps the circles where they are while the row fades.
   const row = { bar, gate, middle, launching: reduced ? 'none' : launching };
   const sendLaunch = useLaunchStyle(row, 'send', sendAt);
   const scanLaunch = useLaunchStyle(row, null);
   const receiveLaunch = useLaunchStyle(row, 'receive', receiveAt);
+
+  // How each part enters as the canvas builds in, read once as Home mounts,
+  // and how the figures roll out as it leaves (R-6).
+  const [arrive] = useState(() => ({
+    hero: build ? fadeIn(build.hero) : undefined,
+    vessel: build ? drawIn(build.sheet) : undefined,
+    actions: [0, 1, 2].map(at =>
+      build ? popIn(0.6, build.actions + at * build.actionStep) : undefined,
+    ),
+  }));
+  const [heroOut] = useState(() => dropOut(overlap.rise));
 
   // The width the balance has, which it fits its size to (REDESIGN.md 3.3).
   const [room, setRoom] = useState<number | undefined>(undefined);
@@ -268,7 +308,7 @@ export function HomeScreen({
     <GestureDetector gesture={pan}>
       <View style={styles.fill}>
         <Reanimated.View style={[styles.stack, stackStyle]}>
-          <View style={styles.middle}>
+          <Reanimated.View style={[styles.middle, veiled]}>
             <Reanimated.View
               testID="home-hero"
               onLayout={measureHero}
@@ -294,73 +334,98 @@ export function HomeScreen({
                   accessibilityElementsHidden
                   importantForAccessibility="no-hide-descendants"
                 >
-                  <Odometer
-                    sats={heroSats ?? balance.totalSats}
-                    unit={unit}
-                    masked={hidden}
-                    stale={stale}
-                    variant="hero"
-                    room={room}
-                    accessibilityLabel={label}
-                  />
+                  <Reanimated.View
+                    testID="home-figures"
+                    entering={arrive.hero}
+                    exiting={heroOut}
+                  >
+                    <Odometer
+                      sats={heroSats ?? balance.totalSats}
+                      unit={unit}
+                      masked={hidden}
+                      stale={stale}
+                      variant="hero"
+                      room={room}
+                      accessibilityLabel={label}
+                    />
+                  </Reanimated.View>
                 </Reanimated.View>
               </Pressable>
             </Reanimated.View>
             <Reanimated.View style={[styles.vessel, vesselStyle]}>
-              <Vessel
-                availableSats={balance.availableSats}
-                pendingSats={balance.pendingSats}
-                lfbw={snapshot.wallet.lfbw}
-                unit={unit}
-                masked={hidden}
-                stale={stale}
-              />
-            </Reanimated.View>
-          </View>
-          <Reanimated.View
-            testID="home-bar"
-            onLayout={measureRow}
-            style={[styles.bar, barFade]}
-          >
-            <Reanimated.View style={sendLaunch} onLayout={centreOf(sendAt)}>
-              <ActionCircle
-                glyph="send"
-                size={56}
-                label={copy.home.send}
-                hint={copy.home.sendHint}
-                stale={stale}
-                onAct={whileLive(onSend)}
-                onRefresh={refresh}
-              />
-            </Reanimated.View>
-            <Reanimated.View style={scanLaunch}>
-              <ActionCircle
-                glyph="scan"
-                size={76}
-                label={copy.home.scan}
-                hint={copy.home.scanHint}
-                primary
-                test={test}
-                stale={stale}
-                onAct={whileLive(onScan)}
-                onRefresh={refresh}
-              />
-            </Reanimated.View>
-            <Reanimated.View
-              style={receiveLaunch}
-              onLayout={centreOf(receiveAt)}
-            >
-              <ActionCircle
-                glyph="receive"
-                size={56}
-                label={copy.home.receive}
-                hint={copy.home.receiveHint}
-                stale={stale}
-                onAct={whileLive(onReceive)}
-                onRefresh={refresh}
-              />
+              <Reanimated.View entering={arrive.vessel}>
+                <Vessel
+                  availableSats={balance.availableSats}
+                  pendingSats={balance.pendingSats}
+                  lfbw={snapshot.wallet.lfbw}
+                  unit={unit}
+                  masked={hidden}
+                  stale={stale}
+                />
+              </Reanimated.View>
             </Reanimated.View>
           </Reanimated.View>
+          {/* Each circle sits in a slot as tall as the row, so the three
+              share one top edge and VoiceOver, which orders what shares a
+              row by where it starts, reads them left to right: Send, Scan,
+              Receive (REDESIGN.md 9). Each circle fades on its own. */}
+          <View testID="home-bar" onLayout={measureRow} style={styles.bar}>
+            <Reanimated.View
+              testID="home-slot"
+              entering={arrive.actions[0]}
+              style={styles.slot}
+              onLayout={centreOf(sendAt)}
+            >
+              <Reanimated.View style={sendLaunch}>
+                <ActionCircle
+                  glyph="send"
+                  size={56}
+                  label={copy.home.send}
+                  hint={copy.home.sendHint}
+                  stale={stale}
+                  onAct={whileLive(onSend)}
+                  onRefresh={refresh}
+                />
+              </Reanimated.View>
+            </Reanimated.View>
+            <Reanimated.View
+              testID="home-slot"
+              entering={arrive.actions[1]}
+              style={styles.slot}
+            >
+              <Reanimated.View style={scanLaunch}>
+                <ActionCircle
+                  glyph="scan"
+                  size={ROW_HEIGHT}
+                  label={copy.home.scan}
+                  hint={copy.home.scanHint}
+                  primary
+                  test={test}
+                  stale={stale}
+                  onAct={whileLive(onScan)}
+                  onRefresh={refresh}
+                />
+              </Reanimated.View>
+            </Reanimated.View>
+            <Reanimated.View
+              testID="home-slot"
+              entering={arrive.actions[2]}
+              style={styles.slot}
+              onLayout={centreOf(receiveAt)}
+            >
+              <Reanimated.View style={receiveLaunch}>
+                <ActionCircle
+                  glyph="receive"
+                  size={56}
+                  label={copy.home.receive}
+                  hint={copy.home.receiveHint}
+                  stale={stale}
+                  onAct={whileLive(onReceive)}
+                  onRefresh={refresh}
+                />
+              </Reanimated.View>
+            </Reanimated.View>
+          </View>
         </Reanimated.View>
       </View>
     </GestureDetector>
@@ -368,10 +433,10 @@ export function HomeScreen({
 }
 
 /**
- * One circle of the action row, shrunk by the stale `gate` and posed on the
- * way to `launching` (REDESIGN.md 7, T1 and T2). `own` is the scene the
- * circle opens, if any, and `at` its centre across the row, whose middle is
- * `middle`.
+ * One circle of the action row, shrunk by the stale `gate`, and posed and
+ * faded on the way to `launching` (REDESIGN.md 7, T1 and T2). `own` is the
+ * scene the circle opens, if any, and `at` its centre across the row, whose
+ * middle is `middle`.
  */
 function useLaunchStyle(
   {
@@ -390,13 +455,11 @@ function useLaunchStyle(
 ) {
   return useAnimatedStyle(() => {
     const toCentre = at ? middle.get() - at.get() : 0;
-    const pose = launchPose(
-      1 - bar.get(),
-      launching === own,
-      launching,
-      toCentre,
-    );
+    const away = 1 - bar.get();
+    const tapped = launching === own;
+    const pose = launchPose(away, tapped, launching, toCentre);
     return {
+      opacity: circleOpacity(away, tapped, launching),
       transform: [
         { translateX: pose.translateX },
         { translateY: pose.translateY },
@@ -426,5 +489,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-evenly',
     paddingBottom: space.lg,
+  },
+  slot: {
+    height: ROW_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

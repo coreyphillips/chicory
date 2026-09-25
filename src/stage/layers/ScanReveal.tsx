@@ -24,9 +24,7 @@ import {
 import type { CameraAccess } from '../../components/Scanner';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
-import { WELL } from '../../scenes/send/RequestEntry';
-import { MINI_STRIP, STATUS_ROW } from '../layout';
-import { SLOT_PADDING } from '../panes/SceneSlot';
+import { STATUS_ROW, WELL_DROP } from '../layout';
 
 type Point = { x: number; y: number };
 
@@ -39,12 +37,9 @@ export const PARTIAL = 0.6;
  * timed by a clock of its own: the spring only reports rest near 630ms.
  */
 const REVEAL_MS = 380;
-/**
- * Where the centre of Send's request well sits below the status row, which a
- * code read from home collapses into as Send opens around it: under the mini
- * strip the balance rests in, inside its slot's padding, half the well down.
- */
-export const WELL_DROP = MINI_STRIP + SLOT_PADDING.top + WELL / 2;
+// Where a code read from home collapses into Send's well, kept with the
+// canvas's other measures.
+export { WELL_DROP };
 /** How long the disc takes to close, and the curve it closes on. */
 const COLLAPSE_MS = durations.move;
 const COLLAPSE_CURVE = curves.standard;

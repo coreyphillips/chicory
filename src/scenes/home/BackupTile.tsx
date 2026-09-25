@@ -19,15 +19,19 @@ import { HIT_SLOP, radius, space } from '../../theme';
  * A recovery phrase still to save, as the honey shield tile beside the mark
  * (REDESIGN.md 6, Backup and setup). It cannot be dismissed: it goes when the
  * phrase is saved, and a tap opens Settings, where the phrase is revealed.
- * The shield's stroke blinks every 1600ms while `running`.
+ * Over a shell phase, which has no Settings, it opens the phrase's own setup
+ * surface instead, and `hint` says so. The shield's stroke blinks every
+ * 1600ms while `running`.
  */
 export function BackupTile({
   running,
   onOpen,
+  hint = copy.home.backupHint,
 }: {
   running: boolean;
-  /** Opens Settings; absent while the tile is out of use. */
+  /** Opens where the phrase is revealed; absent while out of use. */
   onOpen?: () => void;
+  hint?: string;
 }) {
   const blink = useSharedValue(1);
   useEffect(() => {
@@ -53,7 +57,7 @@ export function BackupTile({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={copy.health.backupPending}
-        accessibilityHint={copy.home.backupHint}
+        accessibilityHint={hint}
         hitSlop={HIT_SLOP}
         onPress={
           onOpen

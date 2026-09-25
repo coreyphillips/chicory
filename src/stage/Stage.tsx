@@ -1,8 +1,18 @@
-import React, { useMemo } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { ReactNode } from 'react';
 import { RefreshControl, StatusBar, StyleSheet, View } from 'react-native';
+import Reanimated, { LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { copy } from '../design/copy';
 import { WhisperProvider } from '../glyphs/Whisper';
+import { slideIn, slideOut } from '../motion/presets';
+import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { useStaleAfter } from '../services/clock';
 import { STALE_AFTER_MS } from '../services/useWalletSession';
 import type { useWalletSession } from '../services/useWalletSession';
@@ -14,14 +24,17 @@ import { Welcome } from '../scenes/phases/Welcome';
 import { Picker } from '../scenes/phases/Picker';
 import { OpeningWallet } from '../scenes/phases/Loading';
 import { OfflineWallet } from '../scenes/phases/Offline';
-import { BackupBanner } from '../scenes/shared/BackupBanner';
+import { BackupTile } from '../scenes/home/BackupTile';
+import { useAppActive } from '../scenes/home/useAppActive';
 import { colors, space } from '../theme';
 import { Canvas, useCanvasView } from './Canvas';
 import type { Backup } from './Canvas';
+import { BackupPanel } from './layers/BackupPanel';
 import { CreateSheet } from './layers/CreateSheet';
 import { SceneSlot } from './panes/SceneSlot';
 import { backupPending } from './phase';
 import type { Phase } from './phase';
+import type { Arrival } from './layout';
 import { useBackHandler } from './useBackHandler';
 import { useStage } from './StageContext';
 
@@ -68,6 +81,23 @@ export function Stage({
     [wallets, activeProfile.network],
   );
   const locked = phase.kind === 'locked';
+  // How the canvas arrives, from the phase before the wallet's: over the
+  // opening lock (R-1), back from offline (R-5), or from loading or anything
+  // else (R-3). Kept until the next arrival, so the canvas is told once.
+  const [shown, setShown] = useState(phase.kind);
+  const [arrival, setArrival] = useState<Arrival>('load');
+  if (phase.kind !== shown) {
+    setShown(phase.kind);
+    if (phase.kind === 'wallet') {
+      setArrival(
+        shown === 'locked'
+          ? 'unlock'
+          : shown === 'offline'
+          ? 'reconnect'
+          : 'load',
+      );
+    }
+  }
 
   // A pending backup sits above whatever is showing, the Activity list
   // included, rather than replacing it. Each surface draws it its own way.
@@ -78,6 +108,17 @@ export function Stage({
         onSaved: session.acknowledgeBackup,
       }
     : null;
+  // Over a shell phase it is a shield tile, which opens the phrase in a
+  // setup surface of its own (BackupPanel). The surface stays open across a
+  // change of phase, the wallet opening included, so a phrase being written
+  // down is never taken away, and it closes once the phrase is saved.
+  const pending = !!backup?.pending;
+  const [revealing, setRevealing] = useState(false);
+  if (revealing && !pending) setRevealing(false);
+  const openBackup = useCallback(() => setRevealing(true), []);
+  const closeBackup = useCallback(() => setRevealing(false), []);
+  const { reduced } = useMotionPrefs();
+  const awake = useAppActive();
 
   let content: ReactNode = null;
   switch (phase.kind) {
@@ -189,15 +230,15 @@ export function Stage({
             stale={stale}
             backup={backup}
             view={view}
+            arrival={arrival}
           />
         ) : null;
       break;
   }
 
-  // Drawn once, here, above every phase but the lock. A change between those
-  // phases never remounts it, so a new wallet's phrase that has not been
-  // saved yet is not lost to one. Locking the app does unmount it, as on
-  // main: nothing of a wallet stays drawn under the lock.
+  // The new wallet sheet, over whatever the shell is showing. Locking the
+  // app unmounts it, as it does the recovery phrase: nothing of a wallet
+  // stays drawn under the lock.
   const overlay = state.overlay;
   const creating =
     !locked && overlay?.name === 'create' && client ? (
@@ -213,52 +254,93 @@ export function Stage({
   // lock included, from the window's own origin, so it lands where the
   // finger is. The lock is the last child, over whatever arrives as it
   // opens, so its bud can unfold and fly to the mark over the wallet
-  // (REDESIGN.md 7, R-1). Nothing of a wallet is drawn under it.
+  // (REDESIGN.md 7, R-1). Nothing of a wallet is drawn under it: locking
+  // drops the wallet with none of its exits played, so no balance or review
+  // fades out where the phone's next holder could see it, and an opaque
+  // cover is up under the lock from its first frame, before the bud fades
+  // in. Unlocking takes the cover down at once, so the wallet builds in
+  // under the flying bud.
   return (
     <WhisperProvider>
       <StatusBar barStyle="light-content" />
       <View style={styles.root}>
-        {locked ? null : phase.kind === 'wallet' ? (
-          // The canvas draws edge to edge, under the system bars, and keeps
-          // its own content clear of them.
-          content
-        ) : (
-          <SafeAreaView style={styles.root} edges={EDGES}>
-            <View
-              style={styles.root}
-              importantForAccessibility={
-                creating ? 'no-hide-descendants' : 'auto'
-              }
-              accessibilityElementsHidden={!!creating}
-            >
-              <SceneSlot
-                refreshControl={
-                  client && walletId && !closing && !switching ? (
-                    // The phase views show their own wait, so the pull only
-                    // starts a refresh.
-                    <RefreshControl
-                      refreshing={false}
-                      onRefresh={session.manualRefresh}
-                      tintColor={colors.primary}
-                      colors={[colors.primary]}
-                    />
-                  ) : undefined
-                }
-              >
-                {/* Each phase enters and leaves through its own PhaseRoot. */}
-                <View style={styles.stack}>
-                  <BackupBanner backup={backup} />
-                  {content}
-                </View>
-              </SceneSlot>
+        {locked ? null : (
+          <LayoutAnimationConfig skipExiting>
+            <View style={styles.root}>
+              {revealing && backup ? (
+                // In place of the phase, so no other setup surface is drawn
+                // beside it.
+                <SafeAreaView style={styles.root} edges={EDGES}>
+                  <Reanimated.View
+                    entering={slideIn()}
+                    exiting={slideOut()}
+                    style={styles.flex}
+                  >
+                    <BackupPanel backup={backup} onClose={closeBackup} />
+                  </Reanimated.View>
+                </SafeAreaView>
+              ) : phase.kind === 'wallet' ? (
+                // The canvas draws edge to edge, under the system bars, and
+                // keeps its own content clear of them.
+                content
+              ) : (
+                <SafeAreaView style={styles.root} edges={EDGES}>
+                  <View
+                    style={styles.root}
+                    importantForAccessibility={
+                      creating ? 'no-hide-descendants' : 'auto'
+                    }
+                    accessibilityElementsHidden={!!creating}
+                  >
+                    <SceneSlot
+                      refreshControl={
+                        client && walletId && !closing && !switching ? (
+                          // The phase views show their own wait, so the pull
+                          // only starts a refresh.
+                          <RefreshControl
+                            refreshing={false}
+                            onRefresh={session.manualRefresh}
+                            tintColor={colors.primary}
+                            colors={[colors.primary]}
+                          />
+                        ) : undefined
+                      }
+                    >
+                      {/* Each phase enters and leaves through its own
+                          PhaseRoot. */}
+                      <View style={styles.stack}>
+                        {pending ? (
+                          <View style={styles.tile}>
+                            <BackupTile
+                              running={awake && !reduced}
+                              hint={copy.phase.backupHint}
+                              onOpen={openBackup}
+                            />
+                          </View>
+                        ) : null}
+                        {content}
+                      </View>
+                    </SceneSlot>
+                  </View>
+                </SafeAreaView>
+              )}
+              {/* A setup surface, so it slides over the phase as Settings
+                  slides over the canvas. */}
+              {creating ? (
+                <Reanimated.View
+                  entering={slideIn()}
+                  exiting={slideOut()}
+                  style={styles.layer}
+                >
+                  <SafeAreaView style={styles.flex} edges={EDGES}>
+                    {creating}
+                  </SafeAreaView>
+                </Reanimated.View>
+              ) : null}
             </View>
-          </SafeAreaView>
+          </LayoutAnimationConfig>
         )}
-        {creating ? (
-          <SafeAreaView style={styles.layer} edges={EDGES}>
-            <View style={styles.flex}>{creating}</View>
-          </SafeAreaView>
-        ) : null}
+        {locked ? <View testID="lock-cover" style={styles.layer} /> : null}
         {locked ? (
           <LockScreen
             prompting={phase.prompting}
@@ -278,13 +360,27 @@ Stage.displayName = 'Stage';
  *
  * The gate trips on its own, at the one moment it can, rather than by
  * re-rendering the whole app every few seconds to ask whether it has: the
- * timer only draws the stage again once the read goes old. Its flag is set
- * in an effect, a render behind each new read, so the answer is the read's
- * own age, and a fresh read is never drawn as stale.
+ * timer only draws the stage again once the read goes old. The answer is
+ * either the timer's flag or the read's age at this render, so neither can
+ * hold the gate open alone. The age catches a clock stepped forward before
+ * the timer fires; the flag holds when the clock was stepped back and the
+ * age at the timer's render falls short of the threshold.
+ *
+ * The flag is set in an effect, a render behind each new read, so it only
+ * counts for the read it was set for: a fresh read is never drawn as stale
+ * on the strength of the old read's flag.
  */
 export function useStale(updatedAt: number | undefined): boolean {
-  useStaleAfter(updatedAt, STALE_AFTER_MS);
-  return updatedAt !== undefined && Date.now() - updatedAt >= STALE_AFTER_MS;
+  const flag = useStaleAfter(updatedAt, STALE_AFTER_MS);
+  // The read the flag was last set for. The timer's effect runs before this
+  // one, so by the next render the flag answers for this read.
+  const flagged = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    flagged.current = updatedAt;
+  }, [updatedAt]);
+  if (updatedAt === undefined) return false;
+  const aged = Date.now() - updatedAt >= STALE_AFTER_MS;
+  return aged || (flag && flagged.current === updatedAt);
 }
 
 /** Every edge of the window that the phase views and the sheet keep clear of. */
@@ -296,4 +392,5 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   // Grows to the slot, so a phase root that grows can centre itself in it.
   stack: { gap: space.lg, flexGrow: 1 },
+  tile: { alignSelf: 'flex-start' },
 });

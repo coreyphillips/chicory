@@ -2,7 +2,7 @@ import { number } from '../../theme';
 
 /**
  * The words more than one area speaks: how an amount is read out, what a
- * scene is called, and the notices the canvas still writes on screen.
+ * scene is called, and the one notice still written on screen, in Settings.
  *
  * Amounts are always spoken in sats, whatever unit is on screen, except where
  * the unit is part of what is being read out.
@@ -15,6 +15,7 @@ export const scene = {
   receive: 'Receive',
   detail: 'Payment details',
   create: 'New wallet',
+  backup: 'Recovery phrase',
 };
 
 export const amount = {
@@ -33,8 +34,8 @@ export const amount = {
 };
 
 /**
- * Words still shown on screen, above Home, Activity and Settings, until the
- * tracks that own those surfaces carry them in glyphs.
+ * Words still shown on screen: a failed refresh, which Settings writes at
+ * its head. Elsewhere the status row's mark carries it as its value.
  */
 export const notice = {
   refreshFailed: (error: string) =>

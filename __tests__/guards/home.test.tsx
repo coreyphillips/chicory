@@ -12,6 +12,7 @@ import {
   GestureDetector,
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
+import * as Reanimated from 'react-native-reanimated';
 import { ReduceMotion, useSharedValue } from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -24,12 +25,13 @@ import { Bloom, PETALS, pulledPetal } from '../../src/glyphs/Bloom';
 import { Odometer } from '../../src/glyphs/Odometer';
 import { ActionCircle } from '../../src/scenes/home/ActionCircle';
 import { Backdrop, glowBleed } from '../../src/scenes/home/Backdrop';
-import { HomePane } from '../../src/scenes/home/HomePane';
+import { HomePane, LIVE_OVERDUE_MS } from '../../src/scenes/home/HomePane';
 import {
   LAUNCH_DROP,
   MINI_IN_ROW,
   PULL_TRIGGER,
   REFUSED,
+  circleOpacity,
   heroPose,
   launchPose,
   miniLanding,
@@ -48,6 +50,7 @@ import {
 } from '../../src/scenes/home/visual';
 import type { HealthInput } from '../../src/scenes/home/visual';
 import { HomeScreen } from '../../src/screens/Wallet';
+import { FOCUS_SETTLE_MS } from '../../src/motion/speech';
 import {
   clearDiagnostics,
   recentDiagnostics,
@@ -79,6 +82,7 @@ import {
 } from '../../test-support/fixtures';
 import type { Lfbw } from '../../test-support/fixtures';
 import { guard, mount } from '../../test-support/guard';
+import { filesUnder, fs, path, ROOT } from '../../test-support/node';
 import type { GuardedState } from '../../test-support/guard';
 import {
   find,
@@ -524,6 +528,23 @@ describe('the backdrop', () => {
     }
   });
 
+  test('every colour comes from the palette, the slate glow included', () => {
+    // A hex colour written anywhere in the canvas's own files, rather than
+    // taken from src/design/palette.ts, would be a colour outside the
+    // palette (REDESIGN.md 3.1).
+    const code = /\.tsx?$/;
+    const sources = [
+      ...filesUnder(path.join(ROOT, 'src/scenes/home'), code),
+      ...filesUnder(path.join(ROOT, 'src/stage'), code),
+      ...filesUnder(path.join(ROOT, 'src/motion'), code),
+      path.join(ROOT, 'src/screens/wallet/Home.tsx'),
+    ];
+    const stray = sources.filter(file =>
+      /['"]#[0-9A-Fa-f]{3,8}['"]/.test(fs.readFileSync(file, 'utf8')),
+    );
+    expect(stray.map(file => path.relative(ROOT, file))).toEqual([]);
+  });
+
   test('an old balance dims the glow, and a test network turns it slate', () => {
     expect(look(snapshotOf({ wallet: MAINNET }), { stale: true }).dim).toBe(
       true,
@@ -591,6 +612,20 @@ describe('the motion', () => {
     expect(vesselOpacity(0.85)).toBeCloseTo(0.5);
     expect(vesselOpacity(0.7)).toBe(0);
     expect(vesselOpacity(0)).toBe(0);
+  });
+
+  test('on the way to a scene the rest are gone in 140ms, and the tapped circle stays whole', () => {
+    // The pane spring is two thirds of the way at about 140ms.
+    for (const launch of ['send', 'receive'] as const) {
+      expect(circleOpacity(0, false, launch)).toBe(1);
+      expect(circleOpacity(2 / 3, false, launch)).toBe(0);
+      expect(circleOpacity(0.7, true, launch)).toBe(1);
+      expect(circleOpacity(0.85, true, launch)).toBeCloseTo(0.5);
+      expect(circleOpacity(1, true, launch)).toBe(0);
+    }
+    // With nothing launching the row fades as the sheet's drag shapes it.
+    expect(circleOpacity(0.25, false, 'none')).toBe(0.75);
+    expect(circleOpacity(0.25, true, 'none')).toBe(0.75);
   });
 
   test('the tapped circle grows toward the 88pt control, and the rest shrink', () => {
@@ -704,11 +739,38 @@ describe('on the way to Send', () => {
       step => 'translateY' in step,
     )?.translateY;
     expect(lift).toBeCloseTo(MINI_STRIP / 2);
-    expect(flat(part('home-bar')).opacity).toBe(0);
+    // Every circle has faded, each on its own; the row itself does not.
+    expect(flat(part('home-bar')).opacity).toBeUndefined();
     const [send, scan, receive] = circles(tree);
+    for (const circle of [send, scan, receive]) {
+      expect(flat(circle).opacity).toBe(0);
+    }
     expect(scaleOf(send)! * 56).toBeCloseTo(88);
     expect(scaleOf(scan)).toBeCloseTo(0.8);
     expect(scaleOf(receive)).toBeCloseTo(0.8);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('coming back from Send or Receive', () => {
+  test('the circle that opened it is kept until the canvas goes elsewhere', async () => {
+    const tree = await draw({ snapshot: snapshotOf({ wallet: MAINNET }) });
+    const launching = () =>
+      tree.root.findByType(HomeScreen).props.launching as Launch;
+    expect(launching()).toBe('none');
+    await act(async () => stage.actions.openSend());
+    expect(launching()).toBe('send');
+    // Home again: the Send circle travels back into the row, so it is kept.
+    await act(async () => stage.actions.back());
+    expect(canvasScene(stage.state)).toBe('home');
+    expect(launching()).toBe('send');
+    await act(async () => stage.actions.openReceive());
+    expect(launching()).toBe('receive');
+    await act(async () => stage.actions.back());
+    expect(launching()).toBe('receive');
+    // Anywhere else it is let go.
+    await act(async () => stage.actions.openActivity());
+    expect(launching()).toBe('none');
     await act(async () => tree.unmount());
   });
 });
@@ -881,6 +943,31 @@ describe('the pull', () => {
     await act(async () => tree.unmount());
   });
 
+  test('keeps its configuration when Home draws again, as each poll does', async () => {
+    // A shared value lives as long as its component, as on a device; the
+    // mock would otherwise make a new one on every render.
+    const made = Reanimated.useSharedValue;
+    jest
+      .spyOn(Reanimated, 'useSharedValue')
+      .mockImplementation(init => React.useState(() => made(init))[0]);
+    const live = session();
+    const tree = await draw({
+      snapshot: snapshotOf({ wallet: MAINNET }),
+      session: live,
+    });
+    const before = pan(tree).config;
+    await act(async () =>
+      tree.update(
+        <HomeRegions
+          snapshot={{ ...snapshotOf({ wallet: MAINNET }), updatedAt: NOW + 1 }}
+          session={live}
+        />,
+      ),
+    );
+    expect(pan(tree).config).toBe(before);
+    await act(async () => tree.unmount());
+  });
+
   test('is off away from home', async () => {
     const live = session();
     const tree = await draw({
@@ -925,6 +1012,31 @@ describe('the status row', () => {
     await act(async () => tree.unmount());
   });
 
+  test('the mark wilts while setup has stopped short, and opens again once it recovers', async () => {
+    const setup = (to: 'failed' | 'ready') =>
+      snapshotOf({
+        wallet: MAINNET,
+        primary:
+          to === 'failed'
+            ? { setup: 'failed', setupError: 'Liquidity provider is down.' }
+            : { setup: 'ready' },
+      });
+    const mark = (tree: ReactTestRenderer) =>
+      tree.root.findByType(StatusRow).findByType(Bloom).props;
+    const tree = await draw({ snapshot: setup('ready') });
+    expect(mark(tree).event).toBeUndefined();
+    await act(async () =>
+      tree.update(<HomeRegions snapshot={setup('failed')} />),
+    );
+    expect(mark(tree).event?.kind).toBe('wilt');
+    await act(async () =>
+      tree.update(<HomeRegions snapshot={setup('ready')} />),
+    );
+    expect(mark(tree).event).toBeUndefined();
+    expect(mark(tree).open).toBe(1);
+    await act(async () => tree.unmount());
+  });
+
   test('the wallet name and the network are not written on it', async () => {
     const tree = await draw({ snapshot: snapshotOf() });
     const row = tree.root.findByType(StatusRow);
@@ -964,7 +1076,7 @@ describe('safety states', () => {
       .mock.calls.filter(([, options]) => options?.queue === false)
       .map(([text]) => text);
 
-  test('each is felt, spoken assertively and logged as it begins', async () => {
+  test('each is felt and logged as it begins, and spoken assertively once, in order', async () => {
     jest.useFakeTimers();
     // Past the window in which a message already spoken is not repeated.
     jest.advanceTimersByTime(2_001);
@@ -983,13 +1095,61 @@ describe('safety states', () => {
       copy.health.backupPending,
       copy.health.testNetwork('testnet'),
     ];
-    expect(assertive()).toEqual(expect.arrayContaining(said));
     expect(recentDiagnostics().map(entry => entry.message)).toEqual(
       expect.arrayContaining(said),
     );
     expect(warned).toHaveBeenCalledTimes(2);
+    // Said once the screen has settled, as one message, so neither cuts
+    // the other short: the old balance first, the test network last.
+    expect(assertive()).toEqual([]);
+    await act(async () => jest.advanceTimersByTime(FOCUS_SETTLE_MS + 100));
+    expect(assertive()).toEqual([said.join(' ')]);
     await act(async () => tree.unmount());
     jest.useRealTimers();
+  });
+
+  test('a state that ends before it is heard is not said', async () => {
+    jest.useFakeTimers();
+    jest.advanceTimersByTime(2_001);
+    jest
+      .mocked(AccessibilityInfo.announceForAccessibilityWithOptions)
+      .mockClear();
+    const snapshot = snapshotOf({ wallet: MAINNET });
+    const tree = await draw({ snapshot, stale: true });
+    await act(async () =>
+      tree.update(<HomeRegions snapshot={snapshot} stale={false} />),
+    );
+    await act(async () => jest.advanceTimersByTime(FOCUS_SETTLE_MS + 100));
+    expect(assertive()).toEqual([]);
+    await act(async () => tree.unmount());
+    jest.useRealTimers();
+  });
+
+  test('while Send or Receive is open an old balance is theirs to warn about', async () => {
+    const warned = jest.spyOn(haptics, 'warning');
+    const snapshot = snapshotOf({ wallet: MAINNET });
+    const live = session();
+    const tree = await draw({ snapshot, session: live });
+    for (const open of [
+      () => stage.actions.openSend(),
+      () => stage.actions.openReceive(),
+    ]) {
+      await act(async () => open());
+      await act(async () =>
+        tree.update(<HomeRegions snapshot={snapshot} session={live} stale />),
+      );
+      expect(warned).not.toHaveBeenCalled();
+      await act(async () =>
+        tree.update(<HomeRegions snapshot={snapshot} session={live} />),
+      );
+      await act(async () => stage.actions.back());
+    }
+    // Home is in front again, and its balance is old: it warns.
+    await act(async () =>
+      tree.update(<HomeRegions snapshot={snapshot} session={live} stale />),
+    );
+    expect(warned).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
   });
 
   test('the stage never draws a fresh read as stale, and trips once it goes old', async () => {
@@ -1016,7 +1176,57 @@ describe('safety states', () => {
     jest.useRealTimers();
   });
 
-  test('a cached launch is not warned about, nor is the read that ends it', async () => {
+  test('the gate trips on its timer even when the clock has been stepped back', async () => {
+    jest.useFakeTimers();
+    const drawn: boolean[] = [];
+    function Probe({ updatedAt }: { updatedAt?: number }) {
+      drawn.push(useStale(updatedAt));
+      return null;
+    }
+    const read = Date.now();
+    const tree = await mount(<Probe updatedAt={read} />);
+    await act(async () => jest.advanceTimersByTime(STALE_AFTER_MS - 1));
+    expect(drawn.at(-1)).toBe(false);
+    // The wall clock steps back, so when the timer fires the read's age at
+    // that render falls short of the threshold. The timer still closes it.
+    jest.setSystemTime(read);
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(Date.now() - read).toBeLessThan(STALE_AFTER_MS);
+    expect(drawn.at(-1)).toBe(true);
+    // A clock stepped forward closes it at the next render, timer or not.
+    const fresh = Date.now();
+    await act(async () => tree.update(<Probe updatedAt={fresh} />));
+    expect(drawn.at(-1)).toBe(false);
+    jest.setSystemTime(fresh + STALE_AFTER_MS);
+    await act(async () => tree.update(<Probe updatedAt={fresh} />));
+    expect(drawn.at(-1)).toBe(true);
+    await act(async () => tree.unmount());
+    jest.useRealTimers();
+  });
+
+  test('a cached launch is warned about once its live figures are overdue', async () => {
+    jest.useFakeTimers();
+    const warned = jest.spyOn(haptics, 'warning');
+    const cached = {
+      ...snapshotOf({ wallet: MAINNET }),
+      updatedAt: Date.now() - 600_000,
+    };
+    const connecting = session({ connecting: true });
+    const tree = await draw({
+      snapshot: cached,
+      stale: true,
+      session: connecting,
+    });
+    await act(async () => jest.advanceTimersByTime(LIVE_OVERDUE_MS - 1));
+    expect(warned).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(warned).toHaveBeenCalledTimes(1);
+    expect(recentDiagnostics().at(-1)?.message).toBe(copy.health.stale);
+    await act(async () => tree.unmount());
+    jest.useRealTimers();
+  });
+
+  test('a cached launch is not warned about while its live figures are due, nor is the read that ends it', async () => {
     const warned = jest.spyOn(haptics, 'warning');
     const cached = {
       ...snapshotOf({ wallet: MAINNET }),

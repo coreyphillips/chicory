@@ -138,6 +138,135 @@ export function slideOut(): EntryExitAnimationFunction {
   };
 }
 
+/*
+ * The canvas's build as it arrives, and its leaving (REDESIGN.md 7, R-1 to
+ * R-6). Each part enters on its own beat, `delay` ms after the canvas
+ * mounts. Under Reduce Motion each is the plain crossfade.
+ */
+
+/** Something that comes up from `distance` points below, on the pane spring. */
+export function riseFrom(
+  distance: number,
+  delay = 0,
+): EntryExitAnimationFunction {
+  if (motionReduced()) return crossfade(HIDDEN, SHOWN);
+  return () => {
+    'worklet';
+    return {
+      initialValues: { transform: [{ translateY: distance }] },
+      animations: {
+        transform: [
+          { translateY: withDelay(delay, withSpring(0, springs.pane)) },
+        ],
+      },
+    };
+  };
+}
+
+/** Something that drops away below the bottom edge as the canvas leaves. */
+export function dropAway(): EntryExitAnimationFunction {
+  if (motionReduced()) return crossfade(SHOWN, HIDDEN, durations.exit);
+  return (values: ExitAnimationsValues) => {
+    'worklet';
+    return {
+      initialValues: { transform: [{ translateY: 0 }] },
+      animations: {
+        transform: [
+          {
+            translateY: withTiming(values.windowHeight, {
+              duration: durations.move,
+              easing: curves.exit,
+            }),
+          },
+        ],
+      },
+    };
+  };
+}
+
+/** Something that fades up in place. */
+export function fadeIn(delay = 0): EntryExitAnimationFunction {
+  if (motionReduced()) return crossfade(HIDDEN, SHOWN);
+  return tween(
+    HIDDEN,
+    SHOWN,
+    { duration: durations.enter, easing: curves.enter },
+    delay,
+  );
+}
+
+/**
+ * A line that draws itself out from its middle, as the vessel does as the
+ * wallet arrives.
+ */
+export function drawIn(delay = 0): EntryExitAnimationFunction {
+  if (motionReduced()) return crossfade(HIDDEN, SHOWN);
+  return () => {
+    'worklet';
+    return {
+      initialValues: { opacity: 0, transform: [{ scaleX: 0.2 }] },
+      animations: {
+        opacity: withDelay(
+          delay,
+          withTiming(1, { duration: durations.enter, easing: curves.enter }),
+        ),
+        transform: [
+          { scaleX: withDelay(delay, withSpring(1, springs.soft)) },
+        ],
+      },
+    };
+  };
+}
+
+/** How far a control turns as it spins out or in, in degrees. */
+const SPIN = 90;
+
+/**
+ * A control arriving where another is leaving, such as the corner's close
+ * taking over from its cog (REDESIGN.md 7, T1): it turns in from a quarter
+ * turn back, growing as it fades up, once the one it replaces is on its way.
+ */
+export function spinIn(): EntryExitAnimationFunction {
+  if (motionReduced()) return crossfade(HIDDEN, SHOWN);
+  return () => {
+    'worklet';
+    const config = { duration: durations.enter, easing: curves.enter };
+    const toward = <T extends number | string>(value: T) =>
+      withDelay(overlap.enterDelay, withTiming(value, config));
+    return {
+      initialValues: {
+        opacity: 0,
+        transform: [{ rotate: `${-SPIN}deg` }, { scale: 0.6 }],
+      },
+      animations: {
+        opacity: toward(1),
+        transform: [{ rotate: toward('0deg') }, { scale: toward(1) }],
+      },
+    };
+  };
+}
+
+/** The control it replaces, turning on out of the way as it fades. */
+export function spinOut(): EntryExitAnimationFunction {
+  if (motionReduced()) return crossfade(SHOWN, HIDDEN, durations.exit);
+  return () => {
+    'worklet';
+    return {
+      initialValues: {
+        opacity: 1,
+        transform: [{ rotate: '0deg' }, { scale: 1 }],
+      },
+      animations: {
+        opacity: withTiming(0, EXIT),
+        transform: [
+          { rotate: withTiming(`${SPIN}deg`, EXIT) },
+          { scale: withTiming(0.6, EXIT) },
+        ],
+      },
+    };
+  };
+}
+
 /** For the few containers that change size: never LayoutAnimation. */
 export function smooth() {
   if (motionReduced()) {

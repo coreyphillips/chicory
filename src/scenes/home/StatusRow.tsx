@@ -16,6 +16,7 @@ import type { RegionProps } from '../../stage/Canvas';
 import type { CanvasSceneName } from '../../stage/layout';
 import { STATUS_ROW } from '../../stage/layout';
 import { CORNER_ROOM } from '../../stage/panes/CornerControl';
+import { useBuild } from '../../stage/panes/Build';
 import { usePaneActive, usePanes } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
 import { HIT_SLOP, space } from '../../theme';
@@ -73,7 +74,11 @@ export function StatusRow({
   };
   const mark = markVisual(health);
   const value = healthText(health);
-  const event = useMarkEvent(mark.droop, arrived);
+  // A wallet back from offline bursts its mark as the canvas builds in
+  // (REDESIGN.md 7, R-5).
+  const build = useBuild();
+  const [reconnected] = useState(() => build?.arrival === 'reconnect');
+  const event = useMarkEvent(mark.droop, arrived, reconnected);
   const { pull } = usePanes();
   const opening = useDerivedValue(() => pullProgress(pull.get()));
   const refresh = useCallback(() => {
@@ -139,11 +144,29 @@ export function StatusRow({
 
 /**
  * The one-off the mark plays: it wilts when setup stops short, and bursts
- * when money arrives, unless it is drooping.
+ * when money arrives, or as a wallet that was offline answers again
+ * (`reconnected`), unless it is drooping. A wilt holds for as long as the
+ * event stays one, so once setup recovers it is let go of, and the petals
+ * open as far as the setup now says.
  */
-function useMarkEvent(droop: boolean, arrived: number): BloomEvent | undefined {
+function useMarkEvent(
+  droop: boolean,
+  arrived: number,
+  reconnected = false,
+): BloomEvent | undefined {
   const [event, setEvent] = useState<BloomEvent>();
   const last = useRef({ droop: false, arrived });
+  // Counted apart from the event, so one that follows a cleared wilt is
+  // still a new key.
+  const count = useRef(0);
+  const burst = useRef(reconnected);
+  useEffect(() => {
+    if (!burst.current) return;
+    burst.current = false;
+    if (droop) return;
+    count.current += 1;
+    setEvent({ kind: 'burst', key: count.current });
+  }, [droop]);
   useEffect(() => {
     const before = last.current;
     last.current = { droop, arrived };
@@ -153,7 +176,12 @@ function useMarkEvent(droop: boolean, arrived: number): BloomEvent | undefined {
         : arrived !== before.arrived && !droop
         ? 'burst'
         : null;
-    if (kind) setEvent(prior => ({ kind, key: (prior?.key ?? 0) + 1 }));
+    if (kind) {
+      count.current += 1;
+      setEvent({ kind, key: count.current });
+    } else if (!droop && before.droop) {
+      setEvent(prior => (prior?.kind === 'wilt' ? undefined : prior));
+    }
   }, [droop, arrived]);
   return event;
 }

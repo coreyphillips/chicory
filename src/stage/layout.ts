@@ -1,3 +1,4 @@
+import { space } from '../theme';
 import type { Scene, StageState } from './scene';
 
 /**
@@ -29,6 +30,28 @@ export const HERO_MINI = 0.34;
  */
 export const MINI_STRIP = 44;
 
+/**
+ * How far a scene's content sits inside its slot (`SceneSlot`): for whatever
+ * lands on it from outside, such as a scan closing into Send's well, and
+ * whatever reaches past it to the slot's edges, such as a scrim.
+ */
+export const SLOT_PADDING = {
+  top: space.md,
+  side: space.xl,
+  bottom: space.xxxl,
+};
+
+/** The height of Send's request well while it waits for a request. */
+export const WELL = 72;
+
+/**
+ * Where the centre of Send's request well sits below the status row, which
+ * a code read from home collapses into as Send opens around it (REDESIGN.md
+ * 7, T3): under the mini strip the balance rests in, inside its slot's
+ * padding, half the well down.
+ */
+export const WELL_DROP = MINI_STRIP + SLOT_PADDING.top + WELL / 2;
+
 /** What Settings does to the canvas it slides over. */
 export const COVERED = { scale: 0.94, opacity: 0.5 };
 
@@ -36,11 +59,72 @@ export const COVERED = { scale: 0.94, opacity: 0.5 };
 export const SCANNING = { scale: 0.96, opacity: 0.5 };
 
 /**
+ * The opacity of what the Reduce Motion crossfade covers (the panes'
+ * `veil`), from its clock: whole at rest (1), gone halfway, whole again at
+ * the end, so the jump at the middle is never seen.
+ */
+export function veilOpacity(veil: number): number {
+  'worklet';
+  return Math.min(1, Math.abs(1 - 2 * veil));
+}
+
+/**
  * About how long the pane spring takes to look settled, which is well before
  * its rest threshold reports rest. The transition lock lasts this long, so
  * taps wait this long at most, and only while a pane is actually moving.
  */
 export const PANE_SETTLE_MS = 340;
+
+/**
+ * How the canvas came to be drawn: the lock opening over it (R-1), a wallet
+ * that finished loading (R-3), or one that was offline and answered again
+ * (R-5). Each is a build: the canvas does not appear at rest, it builds in.
+ */
+export type Arrival = 'unlock' | 'load' | 'reconnect';
+
+/**
+ * When each part of the canvas builds in, in ms from the canvas mounting
+ * (REDESIGN.md 7, R-1): the hero counts up from 0, then 50ms later the
+ * sheet rises, 50ms after that the actions pop in 50ms apart, and then the
+ * rows stagger in 30ms apart. After an unlock the bud unfolds first, so the
+ * build waits for it; after a load or a reconnect it starts as the phase
+ * leaves.
+ */
+export const BUILD = {
+  lead: { unlock: 600, load: 80, reconnect: 80 } as Record<Arrival, number>,
+  sheet: 50,
+  actions: 100,
+  actionStep: 50,
+  rows: 150,
+  rowStep: 30,
+  /** How long after the rows begin the build counts as over. */
+  settle: 400,
+};
+
+export interface BuildBeats {
+  hero: number;
+  sheet: number;
+  actions: number;
+  actionStep: number;
+  rows: number;
+  rowStep: number;
+  /** When the whole build has landed. */
+  done: number;
+}
+
+/** The beats of the build for an `arrival`. */
+export function buildBeats(arrival: Arrival): BuildBeats {
+  const hero = BUILD.lead[arrival];
+  return {
+    hero,
+    sheet: hero + BUILD.sheet,
+    actions: hero + BUILD.actions,
+    actionStep: BUILD.actionStep,
+    rows: hero + BUILD.rows,
+    rowStep: BUILD.rowStep,
+    done: hero + BUILD.rows + BUILD.settle,
+  };
+}
 
 /**
  * The stops for a canvas `height` points tall whose top edge sits `top`
@@ -102,22 +186,28 @@ export function canvasScene(
 }
 
 /**
- * The panes' pose for a stage, plus whether Settings covers the canvas and
- * whether the scan overlay is open over it.
+ * The panes' pose for a stage, plus whether Settings covers the canvas,
+ * whether the scan overlay is open over it, and whether a payment's detail
+ * card is open on the sheet. The card leaves the panes where the list had
+ * them, but its growth out of the row is a move all the same, so it holds
+ * the transition lock like any other.
  */
 export interface CanvasLayout extends PaneLayout {
   covered: boolean;
   scanning: boolean;
+  card: boolean;
 }
 
 export function canvasLayout(
   state: Pick<StageState, 'scene' | 'stack'> &
     Partial<Pick<StageState, 'overlay'>>,
 ): CanvasLayout {
+  const shown = canvasScene(state);
   return {
-    ...SCENE_LAYOUT[canvasScene(state)],
+    ...SCENE_LAYOUT[shown],
     covered: state.scene.name === 'settings',
     scanning: state.overlay?.name === 'scan',
+    card: shown === 'detail',
   };
 }
 
@@ -126,4 +216,5 @@ export const sameLayout = (a: CanvasLayout, b: CanvasLayout) =>
   a.hero === b.hero &&
   a.bar === b.bar &&
   a.covered === b.covered &&
-  a.scanning === b.scanning;
+  a.scanning === b.scanning &&
+  a.card === b.card;

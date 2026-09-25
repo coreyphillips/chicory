@@ -1,16 +1,21 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { scheduleOnRN } from 'react-native-worklets';
 import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
 import { haptics } from '../../design/haptics';
+import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { HomeScreen } from '../../screens/wallet/Home';
 import type { RegionProps } from '../../stage/Canvas';
 import { canvasScene } from '../../stage/layout';
+import { useBuild } from '../../stage/panes/Build';
 import { usePanes } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
 import type { Point } from './ActionCircle';
-import { useSafetySignal } from './signals';
+import type { Launch } from './motion';
+import { useOverdue, useSafetySignal } from './signals';
 import { isTestNetwork } from './visual';
 
 /**
@@ -20,13 +25,19 @@ import { isTestNetwork } from './visual';
  *
  * It also holds what Home's safety states owe beyond the screen (REDESIGN.md
  * rule 4): an old balance, a recovery phrase still to save and a test
- * network are each felt, spoken and logged as they begin. A refresh that
- * fails is spoken too, politely, since the notice that once said so is now
- * the mark's value.
+ * network are each felt, spoken and logged as they begin, and spoken once
+ * focus has landed, together and in order of how much they matter. A
+ * refresh that fails is spoken too, politely, since the notice that once
+ * said so is now the mark's value.
+ *
+ * An old balance is spoken for by the scene in front: while Send or Receive
+ * is open it is theirs to warn about, so Home stays quiet rather than warn
+ * twice.
  *
  * A cached launch opens on old figures while the wallet starts. The dormant,
- * ratcheting mark says so, and the gate holds the actions, but it is not a
- * balance going old in front of the user, so it is not warned about.
+ * ratcheting mark says so, and the gate holds the actions. The live figures
+ * are expected any moment, so the warning waits for them: once they are
+ * overdue (LIVE_OVERDUE_MS) the old balance is warned about like any other.
  *
  * Pulling the pane down refreshes. That is a pan of Home's own rather than a
  * scroll view's refresh control: it behaves the same on both platforms, and
@@ -48,17 +59,60 @@ export function HomePane({
   const panes = usePanes();
   const { hidden, setHidden, unit, setUnit } = view;
   const network = snapshot.wallet.network;
-  const aged = stale && !session.connecting;
-  useSafetySignal(aged, copy.health.stale, haptics.warning);
+
+  // On its way to Send or Receive the hero rolls from the total to what can
+  // be spent (REDESIGN.md 7, T1).
+  const shown = canvasScene(state);
+  const spending = shown === 'send' || shown === 'receive';
+  // The circle that opened Send or Receive is kept while the canvas comes
+  // home, so it travels back into the row rather than snapping there, and
+  // the mini strip grows from the band it rested in. At home with the row
+  // back it is at rest either way; anywhere else it is let go.
+  const [launched, setLaunched] = useState<Launch>('none');
+  const launching: Launch = spending
+    ? shown
+    : shown === 'home'
+    ? launched
+    : 'none';
+  if (launching !== launched) setLaunched(launching);
+
+  // As the canvas builds in, the hero counts up from 0 on its beat (R-1):
+  // it holds 0 until then, unseen, and rolls to the balance as it fades
+  // in. A hidden balance, and one under Reduce Motion, simply shows.
+  const { reduced } = useMotionPrefs();
+  const build = useBuild();
+  const [beats] = useState(() => build?.beats);
+  const [counting, setCounting] = useState(
+    () => !!build && !hidden && !reduced,
+  );
+  const counted = useSharedValue(0);
+  useEffect(() => {
+    if (!counting || !beats) return;
+    counted.set(
+      withDelay(
+        beats.hero,
+        withTiming(1, { duration: 0 }, done => {
+          'worklet';
+          if (done) scheduleOnRN(setCounting, false);
+        }),
+      ),
+    );
+  }, [counting, beats, counted]);
+
+  const overdue = useOverdue(stale && session.connecting, LIVE_OVERDUE_MS);
+  const aged = stale && (!session.connecting || overdue) && !spending;
+  useSafetySignal(aged, copy.health.stale, haptics.warning, 'stale');
   useSafetySignal(
     !!backup?.pending,
     copy.health.backupPending,
     haptics.warning,
+    'backup',
   );
   useSafetySignal(
     isTestNetwork(network),
     copy.health.testNetwork(network),
     haptics.tick,
+    'testNetwork',
   );
   useEffect(() => {
     if (session.error) announce(copy.health.refreshFailedDetail(session.error));
@@ -70,11 +124,6 @@ export function HomePane({
   const { bottom } = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const clear = Math.max(0, panes.stops.home - (height - bottom));
-
-  // On its way to Send or Receive the hero rolls from the total to what can
-  // be spent (REDESIGN.md 7, T1).
-  const shown = canvasScene(state);
-  const spending = shown === 'send' || shown === 'receive';
 
   // Send opens empty, whatever a control passes its handler.
   const openSend = useCallback(() => actions.openSend(), [actions]);
@@ -97,9 +146,12 @@ export function HomePane({
         hidden={hidden}
         unit={unit}
         stale={stale}
-        heroSats={spending ? snapshot.balance.availableSats : undefined}
+        heroSats={
+          counting ? 0 : spending ? snapshot.balance.availableSats : undefined
+        }
+        build={beats}
         progress={panes}
-        launching={spending ? shown : 'none'}
+        launching={launching}
         arrived={arrived}
         onSend={openSend}
         onReceive={actions.openReceive}
@@ -113,5 +165,12 @@ export function HomePane({
     </View>
   );
 }
+
+/**
+ * How long a cached launch waits for its first live read before the old
+ * balance it shows is warned about: longer than a poll's interval, so a
+ * start that is going well is never warned about.
+ */
+export const LIVE_OVERDUE_MS = 15_000;
 
 const styles = StyleSheet.create({ region: { flex: 1 } });

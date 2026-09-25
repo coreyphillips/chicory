@@ -8,8 +8,7 @@ import React, {
 } from 'react';
 import type { PropsWithChildren, RefObject } from 'react';
 import type { HostInstance } from 'react-native';
-import { focusOn } from '../../motion/focus';
-import { afterTransition } from '../../motion/idle';
+import { focusAfterTransition } from '../../motion/focus';
 import type { Scene } from '../scene';
 
 /**
@@ -63,7 +62,8 @@ export function usePrimary<
  * Moves a screen reader to the primary element of `scene` each time the
  * stage arrives at a scene, and again as an overlay over it closes, once
  * nothing is moving. While an overlay is open it moves nothing: the overlay
- * holds the screen.
+ * holds the screen. A safety message the scene raised as it arrived waits
+ * for this move (`motion/speech`), so the move never cuts it short.
  */
 export function usePrimaryFocus(
   primaries: Primaries,
@@ -73,6 +73,6 @@ export function usePrimaryFocus(
   const { key, name } = scene;
   useEffect(() => {
     if (overlaid) return;
-    return afterTransition(() => focusOn(primaries.get(name)?.current));
+    return focusAfterTransition(() => primaries.get(name)?.current);
   }, [primaries, key, name, overlaid]);
 }
