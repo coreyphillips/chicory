@@ -707,7 +707,7 @@ Release on velocity over 800pt/s, or past 40% going up or 25% going down. Rubber
 - **Focus.** After each transition, focus moves to the new primary element.
 - **Home focus order:** mark, hero, vessel, Send, Scan, Receive, cog, sheet.
 - **Shape as well as color.** Every state has a distinct shape.
-- **Strings.** All strings live in `src/design/copy.ts`. The legacy phrases that tests assert are kept verbatim, for example:
+- **Strings.** All strings live in `src/design/copy/`, one file per area (shared, home, activity, detail, send, receive, scan, phases, settings), composed into one `copy` object by its `index.ts`. The legacy phrases that tests assert are kept verbatim, for example:
   - "Total balance {n} sats"
   - "{a} sats ready to send, {p} sats arriving"
   - "Balances are unavailable until the connection is restored."
@@ -754,3 +754,13 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
 | `glyphs/Whisper`          | `WhisperProvider`; `Whisper({ label, children })`                                                                                                                                                                                                                   | The provider sits at the Stage root. A 400ms long press on a `Whisper` shows `label` in the pill for 2400ms with a `tick`; otherwise it only renders its children.                                                                                                 |
 | `stage/layers/ScanReveal` | `origin` (`{ x, y }` or null), `target` `'home' \| 'send'`, `onDetected`, `onCancel`                                                                                                                                                                                | For the scan overlay. The placeholder is the existing `Scanner`, full screen.                                                                                                                                                                                      |
 | `stage/layers/DetailCard` | `item`, `from` (`Rect` or null), `children`                                                                                                                                                                                                                         | The canvas places it at the compact stop and keys it by scene; `children` are laid out from its top. Without `from` it fades.                                                                                                                                      |
+
+### 10.3 Keypad
+
+The amount keypad (`src/scenes/keypad`) replaces the system keyboard for amounts in Send and Receive. The suites drive it only through `test-support/keypad.ts` (`enterAmount`, `amountValue`), so its labels are a contract, kept in `copy.keypad` (`src/design/copy/send.ts`):
+
+- **Container.** One view labelled `copy.keypad.label`, "Amount keypad". Its presence is how `enterAmount` knows a keypad is drawn; without one it types into the `AmountField` instead.
+- **Digit keys.** Each is a button labelled with its digit alone, `copy.keypad.digits[d]`, "0" to "9".
+- **Backspace.** A button labelled `copy.keypad.backspace`, "Delete last digit", with the hint `copy.keypad.backspaceHint`. `enterAmount` presses it until the amount reads empty, at most 16 times.
+- **The amount.** Stays labelled `copy.amount.field`, "Amount in sats", and carries its digits in `accessibilityValue.text` (for example "4,200 sats"). An amount showing only zeros counts as empty.
+- **Presets** stay chips labelled with the amount alone, as `copy.amount.preset` formats it.

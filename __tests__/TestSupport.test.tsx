@@ -137,8 +137,8 @@ describe('keypad', () => {
           accessibilityLabel={copy.amount.field}
           accessibilityValue={{ text: digits ? `${digits} sats` : '0 sats' }}
         />
-        <View accessibilityLabel="Amount keypad">
-          {'0123456789'.split('').map(key => (
+        <View accessibilityLabel={copy.keypad.label}>
+          {copy.keypad.digits.map(key => (
             <Pressable
               key={key}
               accessibilityRole="button"
@@ -148,7 +148,7 @@ describe('keypad', () => {
           ))}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={copy.amount.backspace}
+            accessibilityLabel={copy.keypad.backspace}
             onPress={() => setDigits(value => value.slice(0, -1))}
           />
         </View>

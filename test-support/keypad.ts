@@ -10,9 +10,6 @@ import type { ReactTestRenderer } from 'react-test-renderer';
 import { copy } from '../src/design/copy';
 import { field, press } from './query';
 
-/** The accessibility label of the keypad's container. */
-const KEYPAD = 'Amount keypad';
-
 /** An amount of sats never needs more digits than the supply's 16. */
 const MOST_DIGITS = 16;
 
@@ -48,7 +45,9 @@ export async function enterAmount(
   digits: string,
   label = copy.amount.field,
 ): Promise<void> {
-  if (!tree.root.findAllByProps({ accessibilityLabel: KEYPAD }).length) {
+  if (
+    !tree.root.findAllByProps({ accessibilityLabel: copy.keypad.label }).length
+  ) {
     await act(async () => {
       field(tree, label).props.onChangeText(digits);
     });
@@ -57,10 +56,12 @@ export async function enterAmount(
   for (let presses = 0; !/^0*$/.test(amountValue(tree, label)); presses++) {
     if (presses === MOST_DIGITS) {
       throw new Error(
-        `The amount did not clear after ${MOST_DIGITS} presses of "${copy.amount.backspace}".`,
+        `The amount did not clear after ${MOST_DIGITS} presses of "${copy.keypad.backspace}".`,
       );
     }
-    await press(tree, copy.amount.backspace);
+    await press(tree, copy.keypad.backspace);
   }
-  for (const key of digits) await press(tree, key);
+  for (const key of digits) {
+    await press(tree, copy.keypad.digits[Number(key)]);
+  }
 }

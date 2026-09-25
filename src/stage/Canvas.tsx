@@ -41,8 +41,6 @@ import { useStage } from './StageContext';
 
 type Session = ReturnType<typeof useWalletSession>;
 
-const REFRESH_FAILED = 'Could not refresh. Showing the last known state.';
-
 /**
  * How the wallet is being looked at. The stage keeps it rather than the
  * canvas, because the canvas goes away under a lock or a network switch and a
@@ -164,7 +162,7 @@ export function Canvas({
 
   const notice = session.error ? (
     <Notice kind="error" icon="alert">
-      {`${REFRESH_FAILED} ${session.error}`}
+      {copy.notice.refreshFailed(session.error)}
     </Notice>
   ) : null;
   const refreshControl = (
