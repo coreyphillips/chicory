@@ -1,3 +1,4 @@
+import { palette } from '../design/palette';
 import { space, type as typography } from '../theme';
 import type { Scene, StageState } from './scene';
 
@@ -101,6 +102,75 @@ export function heroBox(fontScale: number, ratio: number): number {
  * 7, T1).
  */
 export const PRIMARY_CONTROL = 88;
+
+/**
+ * How the primary control a launch lands on looks as its scene opens, which
+ * the tapped circle takes on as it travels, so it lands looking like what
+ * it becomes (REDESIGN.md 7, T1): its fill, its ring and the ring's width,
+ * its glyph's colour and size, in points on the 88pt control, and how far
+ * the control is scaled.
+ */
+export interface ControlLook {
+  fill: string;
+  ring: string;
+  ringWidth: number;
+  ink: string;
+  glyph: number;
+  scale: number;
+}
+
+/**
+ * The look of the control `scene` lands the circle on, as its scene draws
+ * it (Send's `CircleControl` in scenes/send/Controls and Receive's
+ * `GlyphButton` in scenes/receive/controls), with slate for bloom on a
+ * `test` network. `live` is whether it takes a tap as the scene opens:
+ * Send's review once a request is in the well, Receive's Continue when an
+ * empty amount can be asked for. Held back, each is a mocha disc in a 4pt
+ * husk ring with a dust glyph, Receive's a little smaller.
+ */
+export function launchLook(
+  scene: 'send' | 'receive',
+  { live, test }: { live: boolean; test: boolean },
+): ControlLook {
+  const bloom = test ? palette.slate : palette.bloom;
+  if (scene === 'send') {
+    return live
+      ? {
+          fill: test ? palette.slateSoft : palette.bloomSoft,
+          ring: bloom,
+          ringWidth: 4,
+          ink: palette.cream,
+          glyph: 32,
+          scale: 1,
+        }
+      : {
+          fill: palette.mocha,
+          ring: palette.husk,
+          ringWidth: 4,
+          ink: palette.dust,
+          glyph: 32,
+          scale: 1,
+        };
+  }
+  const glyph = Math.round(PRIMARY_CONTROL * 0.42);
+  return live
+    ? {
+        fill: bloom,
+        ring: bloom,
+        ringWidth: 0,
+        ink: palette.ink,
+        glyph,
+        scale: 1,
+      }
+    : {
+        fill: palette.mocha,
+        ring: palette.husk,
+        ringWidth: 4,
+        ink: palette.dust,
+        glyph,
+        scale: 0.94,
+      };
+}
 
 /**
  * Where the centre of that control sits, in window points, on a canvas

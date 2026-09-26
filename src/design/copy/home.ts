@@ -14,11 +14,24 @@ export const home = {
   showBalance: 'Show balance',
   hideBalance: 'Hide balance',
   switchUnit: 'Switch unit',
-  /** What the vessel says: nothing about arriving when nothing is. */
-  split: (available: number, arriving: number) =>
-    arriving > 0
-      ? `${sats(available)} ready to send, ${sats(arriving)} arriving`
-      : `${sats(available)} ready to send`,
+  /**
+   * What the vessel says: nothing about arriving when nothing is, and money
+   * out of reach only when a reserve cannot explain it.
+   */
+  split: (available: number, arriving: number, unreachable = 0) =>
+    [
+      `${sats(available)} ready to send`,
+      arriving > 0 ? `${sats(arriving)} arriving` : '',
+      unreachable > 0 ? `${sats(unreachable)} out of reach` : '',
+    ]
+      .filter(Boolean)
+      .join(', '),
+  /**
+   * Why part of the balance cannot be sent, which the vessel's value says
+   * and its unplug whispers. Figures are left to the label.
+   */
+  outOfReach:
+    'Part of the balance is in a channel that is not connected right now. It can be sent once the channel reconnects.',
   send: 'Send',
   sendHint: 'Paste or scan a payment request.',
   receive: 'Receive',

@@ -33,8 +33,9 @@ import { alpha, mixHex, palette } from '../design/palette';
 import { fract, useAwake, useLoop, wave } from '../motion/loops';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
-import { vesselVisual } from '../scenes/home/visual';
+import { unreachableSats, vesselVisual } from '../scenes/home/visual';
 import type { VesselVisual } from '../scenes/home/visual';
+import { Unplugged } from '../scenes/send/LoopingGlyphs';
 import { usePaneActive } from '../stage/panes/Pane';
 import { amountIn, radius, space, type as typography } from '../theme';
 import type { Unit } from '../theme';
@@ -46,11 +47,14 @@ import { Whisper } from './Whisper';
  * looks; this draws and moves that.
  *
  * It is a hairline while everything is spendable and swells when money is
- * in flight. Light sweeps the glass, seeds bob in it below the channel
- * floor, and the glyph above its right end names why the money waits. When
- * money moves into the channel the solid part grows into the glass and a
- * cream ripple runs along the seam. A tap opens it wide enough to show both
- * figures for three seconds, which a screen reader already has in the label.
+ * in flight or out of reach. Light sweeps the glass, seeds bob in it below
+ * the channel floor, and the glyph on its right end names why the money
+ * waits. Money in a channel that is not connected, more than a reserve
+ * explains (`unreachableSats`), takes the left end as a honey hatch, with
+ * the unplug on that end drifting while it lasts. When money moves into
+ * the channel the solid part grows into the glass and a cream ripple runs
+ * along the seam. A tap opens it wide enough to show both figures for
+ * three seconds, which a screen reader already has in the label.
  *
  * `stale` dims it with the hero. A hidden balance hides the split too, since
  * the proportion alone says something.
@@ -65,6 +69,11 @@ import { Whisper } from './Whisper';
 export interface VesselProps {
   availableSats: number;
   pendingSats: number;
+  /**
+   * The whole balance. What it holds past what can be sent and what is
+   * arriving is out of reach, once a reserve cannot explain it.
+   */
+  totalSats?: number;
   lfbw?: WalletRecord['lfbw'];
   unit: Unit;
   masked?: boolean;
@@ -111,7 +120,11 @@ export function vesselWords(visual: VesselVisual): string | null {
       return WAIT_WORDS.moving;
   }
   if (visual.fill === 'seeds') return WAIT_WORDS.belowFloor;
-  return visual.weight === 'swollen' ? WAIT_WORDS.arriving : null;
+  // A pill swollen only by money out of reach has no glass to name.
+  const glass = 1 - visual.solid - visual.unreachable;
+  return visual.weight === 'swollen' && glass > 1e-9
+    ? WAIT_WORDS.arriving
+    : null;
 }
 
 const TONES: Record<VesselVisual['tone'], string> = {
@@ -124,6 +137,22 @@ const TONES: Record<VesselVisual['tone'], string> = {
 
 // Cream at 25%: there, but nothing to look at.
 const HAIRLINE = alpha(palette.cream, 0.25);
+
+/**
+ * The arriving glass on a test network. Slate is grey, and at the 35% bloom
+ * glass takes it read as the empty track of a progress bar rather than money
+ * on its way, so the vessel draws it stronger.
+ */
+export const SLATE_GLASS = alpha(palette.slate, 0.55);
+
+/** The glass for `look` on a network, slate standing in for bloom on a test one. */
+export function glassFill(look: VesselVisual['fill'], test: boolean): string {
+  return look === 'glass' && test ? SLATE_GLASS : FILLS[look];
+}
+
+/** The out-of-reach share: a honey hatch over a faint honey wash. */
+const AWAY_WASH = alpha(palette.honey, 0.14);
+const AWAY_HATCH = 4;
 
 /** The pill's height, from nothing in flight to opened by a tap. */
 export const HEIGHTS = { hairline: 2, swollen: 8, open: 28 };
@@ -142,6 +171,8 @@ export function segmentWidths(solid: number, width: number) {
 }
 
 const SHEEN_WIDTH = 48;
+/** The sheen's brightest cream, at its middle. */
+export const SHEEN_PEAK = 0.55;
 /** The sheen's pace for each look: the usual sweep, half speed, or back. */
 const SHEEN_MS = { sweep: durations.sheen, slow: durations.sheen * 2 };
 
@@ -165,12 +196,34 @@ export function sheenX(
 const SEEDS = 5;
 const SEED = 3;
 
-/** Seed `k`'s centre, as a share of the pill, spread evenly over the glass. */
-export function seedSpots(solid: number, count = SEEDS): number[] {
+/**
+ * Seed `k`'s centre, as a share of the pill, spread evenly over the glass,
+ * which starts `start` of the way along.
+ */
+export function seedSpots(start: number, count = SEEDS): number[] {
   return Array.from(
     { length: count },
-    (_, k) => solid + ((1 - solid) * (k + 0.5)) / count,
+    (_, k) => start + ((1 - start) * (k + 0.5)) / count,
   );
+}
+
+/**
+ * Where each part of a pill `width` wide sits, with `away` of it out of
+ * reach at the left end, then `solid` of it spendable, then the glass to
+ * the right end: the out-of-reach part's clip (`awayShift`, from its place
+ * off to the left), where the spendable part starts (`solidAt`), and the
+ * seam between it and the glass (`seam`).
+ */
+export function segmentPlaces(away: number, solid: number, width: number) {
+  'worklet';
+  const reach = Math.min(1, Math.max(0, away));
+  const spend = Math.min(1 - reach, Math.max(0, solid));
+  return {
+    awayShift: (reach - 1) * width,
+    solidAt: reach * width,
+    seam: (reach + spend) * width,
+    glass: 1 - reach - spend,
+  };
 }
 
 /** How high seed `k` of `count` has bobbed at clock `t`: 1pt, out of step. */
@@ -249,6 +302,8 @@ const RETRY_MS = 900;
 /** A refresh with nothing pending, or a rewind, turns once as it appears. */
 const TURN_MS = 500;
 const GLYPH_SIZE = 16;
+/** Between the pill's end and the glyph on it. */
+const CAP_GAP = 6;
 
 /**
  * The glyphs over the pill that move (REDESIGN.md 4): the part that moves,
@@ -424,13 +479,48 @@ function Hatch() {
   );
 }
 
+/**
+ * The money out of reach: honey stripes over a faint honey wash, drawn
+ * `width` wide and still while the clip around it moves.
+ */
+function AwayArt({ width }: { width: number }) {
+  return (
+    <Svg width={width} height="100%">
+      <Defs>
+        <Pattern
+          id="vesselAway"
+          patternUnits="userSpaceOnUse"
+          width={AWAY_HATCH}
+          height={AWAY_HATCH}
+          patternTransform="rotate(45)"
+        >
+          <Line
+            x1="0"
+            y1="0"
+            x2="0"
+            y2={AWAY_HATCH}
+            stroke={palette.honey}
+            strokeWidth="1.5"
+          />
+        </Pattern>
+      </Defs>
+      <Rect width="100%" height="100%" fill={AWAY_WASH} />
+      <Rect width="100%" height="100%" fill="url(#vesselAway)" />
+    </Svg>
+  );
+}
+
 function SheenArt() {
   return (
     <Svg width={SHEEN_WIDTH} height="100%">
       <Defs>
         <LinearGradient id="vesselSheen" x1="0" y1="0" x2="1" y2="0">
           <Stop offset="0" stopColor={palette.cream} stopOpacity={0} />
-          <Stop offset="0.5" stopColor={palette.cream} stopOpacity={0.35} />
+          <Stop
+            offset="0.5"
+            stopColor={palette.cream}
+            stopOpacity={SHEEN_PEAK}
+          />
           <Stop offset="1" stopColor={palette.cream} stopOpacity={0} />
         </LinearGradient>
       </Defs>
@@ -460,6 +550,7 @@ function Seed({
 export function Vessel({
   availableSats,
   pendingSats,
+  totalSats,
   lfbw,
   unit,
   masked = false,
@@ -469,7 +560,9 @@ export function Vessel({
   const { reduced } = useMotionPrefs();
   const awake = useAwake();
   const active = usePaneActive();
-  const visual = vesselVisual({ availableSats, pendingSats }, lfbw);
+  const balance = { availableSats, pendingSats, totalSats };
+  const visual = vesselVisual(balance, lfbw);
+  const away = unreachableSats(balance);
   // Everything in flight moving into the channel at once would take the
   // pill straight to its hairline, and the solid segment's growth would
   // never show. So the pill holds its split look, and the arriving part's
@@ -520,7 +613,7 @@ export function Vessel({
   const look = was.fill;
   // Slate in place of bloom on a test network.
   const spendable = test ? palette.slate : palette.bloom;
-  const fill = look === 'glass' && test ? palette.slateGlass : FILLS[look];
+  const fill = glassFill(look, test);
   const split = (visual.weight === 'swollen' || !!held) && !masked;
   const [width, setWidth] = useState(0);
   const [open, setOpen] = useState(false);
@@ -552,6 +645,14 @@ export function Vessel({
     if (share.get() === solid) return;
     share.set(reduced ? solid : withSpring(solid, springs.soft));
   }, [share, solid, reduced]);
+  // The share out of reach, at the left end, which gives way to the
+  // spendable part as its channel comes back.
+  const unreachable = split && !held ? visual.unreachable : 0;
+  const reach = useSharedValue(unreachable);
+  useEffect(() => {
+    if (reach.get() === unreachable) return;
+    reach.set(reduced ? unreachable : withSpring(unreachable, springs.soft));
+  }, [reach, unreachable, reduced]);
   // The glass and the hairline trade places as money starts and stops
   // moving.
   const glass = split ? 1 : 0;
@@ -629,15 +730,42 @@ export function Vessel({
   }));
   const arrivingStyle = useAnimatedStyle(() => ({
     opacity: glassShown.get(),
-    transform: [{ scaleX: 1 - share.get() }],
+    transform: [
+      { scaleX: segmentPlaces(reach.get(), share.get(), width).glass },
+    ],
   }));
   const solidStyle = useAnimatedStyle(
     () => ({
       opacity: solidShown.get(),
       backgroundColor: mixHex(spendable, palette.steam, dim.get()),
-      transform: [{ scaleX: share.get() }],
+      transform: [
+        { translateX: segmentPlaces(reach.get(), share.get(), width).solidAt },
+        { scaleX: share.get() },
+      ],
     }),
-    [spendable],
+    [spendable, width],
+  );
+  // The out-of-reach part is a clip that slides in from the left over a
+  // hatch that holds still, so its stripes never stretch.
+  const awayClip = useAnimatedStyle(
+    () => ({
+      transform: [
+        {
+          translateX: segmentPlaces(reach.get(), share.get(), width).awayShift,
+        },
+      ],
+    }),
+    [width],
+  );
+  const awayStill = useAnimatedStyle(
+    () => ({
+      transform: [
+        {
+          translateX: -segmentPlaces(reach.get(), share.get(), width).awayShift,
+        },
+      ],
+    }),
+    [width],
   );
   const sheenStyle = useAnimatedStyle(
     () => ({
@@ -645,7 +773,7 @@ export function Vessel({
         {
           translateX: sheenX(
             fract(sheen.get()),
-            segmentWidths(share.get(), width).solid,
+            segmentPlaces(reach.get(), share.get(), width).seam,
             width,
             reversed,
           ),
@@ -660,7 +788,9 @@ export function Vessel({
       opacity: pose.opacity,
       transform: [
         {
-          translateX: segmentWidths(share.get(), width).solid - SHEEN_WIDTH / 4,
+          translateX:
+            segmentPlaces(reach.get(), share.get(), width).seam -
+            SHEEN_WIDTH / 4,
         },
         { scaleX: pose.scale },
       ],
@@ -694,8 +824,14 @@ export function Vessel({
     [],
   );
   const glyph = visual.glyph && !masked && !opened ? visual.glyph : null;
-  // A hidden balance hides the wait with the split.
-  const words = masked ? null : vesselWords(visual);
+  // Money out of reach wears the unplug on the pill's left end while it
+  // lasts, as the channel is away.
+  const unplugged = visual.unreachable > 0 && !masked && !opened;
+  // A hidden balance hides the wait with the split. The value names what
+  // is out of reach first, then why the rest waits.
+  const wait = masked ? null : vesselWords(visual);
+  const reachWords = masked || !away ? null : copy.home.outOfReach;
+  const words = [reachWords, wait].filter(Boolean).join(' ') || null;
   const tone = visual.tone === 'bloom' ? spendable : TONES[visual.tone];
   const available = amountIn(availableSats, unit);
   const arriving = amountIn(pendingSats, unit);
@@ -705,7 +841,7 @@ export function Vessel({
       accessibilityLabel={
         masked
           ? copy.home.balanceHidden
-          : copy.home.split(availableSats, pendingSats)
+          : copy.home.split(availableSats, pendingSats, away)
       }
       accessibilityValue={words ? { text: words } : undefined}
       hitSlop={REACH}
@@ -721,11 +857,21 @@ export function Vessel({
           <Reanimated.View
             style={[styles.arriving, { backgroundColor: fill }, arrivingStyle]}
           />
+          {split && visual.unreachable > 0 && width > 0 ? (
+            <Reanimated.View style={[styles.away, awayClip]}>
+              <Reanimated.View style={[styles.away, awayStill]}>
+                <AwayArt width={width} />
+              </Reanimated.View>
+            </Reanimated.View>
+          ) : null}
           {split && reduced && visual.fill !== 'seeds' && width > 0 ? (
             <View
               style={[
                 styles.glass,
-                { left: segmentWidths(visual.solid, width).solid },
+                {
+                  left: segmentWidths(visual.unreachable + visual.solid, width)
+                    .solid,
+                },
               ]}
             >
               <Hatch />
@@ -737,7 +883,7 @@ export function Vessel({
             </Reanimated.View>
           ) : null}
           {seeds && !opened && width > 0
-            ? seedSpots(was.solid).map((spot, k) => (
+            ? seedSpots(was.unreachable + was.solid).map((spot, k) => (
                 <Seed key={k} k={k} at={spot * width} bob={bob} />
               ))
             : null}
@@ -765,14 +911,26 @@ export function Vessel({
             </Reanimated.View>
           ) : null}
         </Reanimated.View>
+        {unplugged ? (
+          <Reanimated.View
+            key="unplug"
+            entering={reduced ? FIGURES_IN : glyphIn}
+            exiting={GLYPH_OUT}
+            style={[styles.cap, styles.start, dimStyle]}
+          >
+            <Whisper label={copy.home.outOfReach}>
+              <Unplugged size={GLYPH_SIZE} color={palette.honey} />
+            </Whisper>
+          </Reanimated.View>
+        ) : null}
         {glyph ? (
           <Reanimated.View
             key={glyph}
             entering={reduced ? FIGURES_IN : glyphIn}
             exiting={GLYPH_OUT}
-            style={[styles.glyph, dimStyle]}
+            style={[styles.cap, styles.end, dimStyle]}
           >
-            <Whisper label={words ?? ''} enabled={!!words}>
+            <Whisper label={wait ?? ''} enabled={!!wait}>
               <View
                 style={
                   visual.retry
@@ -818,6 +976,7 @@ const styles = StyleSheet.create({
     transformOrigin: 'right center',
   },
   glass: { position: 'absolute', top: 0, bottom: 0, right: 0 },
+  away: { ...StyleSheet.absoluteFill, overflow: 'hidden' },
   sheen: { position: 'absolute', top: 0, bottom: 0, left: 0 },
   seed: {
     position: 'absolute',
@@ -841,7 +1000,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
   },
   figure: { ...typography.meta, color: palette.cream },
-  glyph: { position: 'absolute', right: 0, bottom: '100%', marginBottom: 6 },
+  // A glyph sits on an end of the pill, on its middle line, just past it, in
+  // the room the vessel's inset leaves (HOME.vesselInset): the wait on the
+  // right end by the glass, the unplug on the left by what is out of reach.
+  cap: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  end: { left: '100%', marginLeft: CAP_GAP },
+  start: { right: '100%', marginRight: CAP_GAP },
   glyphBox: { width: GLYPH_SIZE, height: GLYPH_SIZE },
   retry: { borderWidth: 1.5, borderRadius: radius.round, padding: 2 },
 });

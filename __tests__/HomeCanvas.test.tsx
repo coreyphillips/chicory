@@ -9,23 +9,36 @@ import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../src/design/copy';
 import { palette } from '../src/design/palette';
 import { Bloom } from '../src/glyphs/Bloom';
-import { Odometer } from '../src/glyphs/Odometer';
+import { HERO_SIZES, Odometer, unitScaleFor } from '../src/glyphs/Odometer';
 import { ActionCircle } from '../src/scenes/home/ActionCircle';
 import { BackupTile } from '../src/scenes/home/BackupTile';
 import { StatusRow } from '../src/scenes/home/StatusRow';
-import { stripOpacity } from '../src/scenes/home/motion';
+import {
+  LANDED_PT,
+  glyphMorph,
+  landedAt,
+  launchPose,
+  launchTravel,
+} from '../src/scenes/home/motion';
+import { isTestNetwork } from '../src/scenes/home/visual';
+import { springStep } from '../src/motion/springMath';
+import { springs } from '../src/motion/tokens';
 import { ReceiveScreen, SendScreen } from '../src/screens/Payments';
 import { HomeScreen } from '../src/screens/Wallet';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import {
+  HERO_MINI,
   HOME,
+  PANE_SETTLE_MS,
   PRIMARY_CONTROL,
   SLOT_PADDING,
   heroBox,
   launchLanding,
+  launchLook,
 } from '../src/stage/layout';
+import { rowWait } from '../src/stage/panes/usePaneMotion';
 import { CORNER_TARGET, CornerControl } from '../src/stage/panes/CornerControl';
-import { LaunchProvider } from '../src/stage/panes/Launch';
+import { LaunchProvider, useLaunchLanding } from '../src/stage/panes/Launch';
 import type { Launch } from '../src/stage/panes/Launch';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
 import type { StageStore } from '../src/stage/StageContext';
@@ -45,6 +58,8 @@ const flat = (node: ReactTestInstance) =>
   (StyleSheet.flatten(node.props.style) ?? {}) as Record<string, unknown> & {
     transform?: Transform;
   };
+const flatStyle = (style: unknown) =>
+  (StyleSheet.flatten(style as never) ?? {}) as Record<string, unknown>;
 const transformOf = (node: ReactTestInstance, key: string) =>
   flat(node).transform?.find(step => key in step)?.[key];
 /** The first host view a component draws, where its style lands. */
@@ -190,29 +205,86 @@ describe('the mini strip', () => {
   const odometers = (tree: ReactTestRenderer) =>
     tree.root.findByType(HomeScreen).findAllByType(Odometer);
 
-  test('draws the balance again at a size of its own, its unit readable', async () => {
+  test('is the hero itself, one element all the way, its unit readable', async () => {
+    // The device pass (P10): a second odometer crossfaded in over the hero,
+    // 8 to 12pt off it and rolling on a clock of its own, so for six frames
+    // two balances showed.
     const tree = await mount(<HomeAt hero={0} bar={0} />);
-    const strip = odometers(tree).find(node => node.props.variant === 'line');
-    expect(strip).toBeDefined();
-    const [shown] = byTestID(tree, 'home-strip');
-    // Placed by a move alone: never scaled, so its unit is drawn at 15pt.
-    expect(flat(shown).opacity).toBe(1);
-    expect(transformOf(shown, 'scale')).toBeUndefined();
-    // The hero, at a third of its size, has handed over.
-    let faded: ReactTestInstance | null = odometers(tree).find(
-      node => node.props.variant === 'hero',
-    )!;
-    while (faded && flat(faded).opacity === undefined) faded = faded.parent;
-    expect(faded && flat(faded).opacity).toBe(0);
+    const shown = odometers(tree);
+    expect(shown).toHaveLength(1);
+    expect(shown[0].props.variant).toBe('hero');
+    expect(byTestID(tree, 'home-strip')).toEqual([]);
+    // Shrunk to a third, its unit is grown back to its 15pt.
+    const unit = shown[0].find(
+      node =>
+        typeof node.type === 'string' &&
+        flat(node).transformOrigin === '0% 77%',
+    );
+    const grown = transformOf(unit, 'scale') as number;
+    expect(grown * HERO_MINI * 15).toBeCloseTo(15);
     await act(async () => tree.unmount());
+    // At home it is as it is set.
+    const home = await mount(<HomeAt />);
+    const [hero] = odometers(home);
+    const set = hero.find(
+      node =>
+        typeof node.type === 'string' &&
+        flat(node).transformOrigin === '0% 77%',
+    );
+    expect(transformOf(set, 'scale')).toBe(1);
+    await act(async () => home.unmount());
   });
 
-  test('is unseen at home, and takes over only as the hero lands', async () => {
-    expect(stripOpacity(1)).toBe(0);
-    expect(stripOpacity(0.5)).toBe(0);
-    expect(stripOpacity(0)).toBe(1);
-    const tree = await mount(<HomeAt />);
-    expect(flat(byTestID(tree, 'home-strip')[0]).opacity).toBe(0);
+  test('its unit holds a readable size, in step with a hero stepped down', () => {
+    expect(unitScaleFor(1, 64)).toBe(1);
+    expect(unitScaleFor(HERO_MINI, HERO_SIZES[0]) * HERO_MINI * 15).toBeCloseTo(
+      15,
+    );
+    // A long BTC amount steps the hero down to 40: its unit keeps to three
+    // quarters of the figures there, rather than outgrowing them.
+    const smallest = HERO_SIZES[HERO_SIZES.length - 1];
+    expect(unitScaleFor(HERO_MINI, smallest) * HERO_MINI * 15).toBeCloseTo(
+      0.75 * smallest * HERO_MINI,
+    );
+  });
+
+  test('changes in place when it shows another figure, and rolls only when money moves', async () => {
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    const read = snapshotOf({ wallet: { network: 'mainnet' } });
+    const home = (spendable: boolean, snapshot = read) => (
+      <GestureHandlerRootView>
+        <HomeScreen
+          snapshot={snapshot}
+          spendable={spendable}
+          onSend={jest.fn()}
+          onReceive={jest.fn()}
+          onActivity={jest.fn()}
+          onDetail={jest.fn()}
+        />
+      </GestureHandlerRootView>
+    );
+    // A roll runs the odometer's value to the new figure; a swap sets it.
+    const rolls = (to: number) =>
+      timings.mock.calls.filter(([value]) => value === to).length;
+    const tree = await mount(home(false));
+    expect(odometers(tree)[0].props.sats).toBe(read.balance.totalSats);
+    // Opening Send: what can be spent, in place. It never rolls down from
+    // the total, which reads as money leaving.
+    timings.mockClear();
+    await act(async () => tree.update(home(true)));
+    expect(odometers(tree)[0].props.sats).toBe(read.balance.availableSats);
+    expect(rolls(read.balance.availableSats)).toBe(0);
+    // Back home: the total again, in place, never rolling up.
+    await act(async () => tree.update(home(false)));
+    expect(rolls(read.balance.totalSats)).toBe(0);
+    // Money that moves rolls.
+    const paid = snapshotOf({
+      wallet: { network: 'mainnet' },
+      balance: { totalSats: read.balance.totalSats - 3_000 },
+    });
+    timings.mockClear();
+    await act(async () => tree.update(home(false, paid)));
+    expect(rolls(paid.balance.totalSats)).toBe(1);
     await act(async () => tree.unmount());
   });
 });
@@ -388,6 +460,235 @@ describe('Send and Receive open from their circle', () => {
     await act(async () => stage.actions.back());
     await act(async () => tree.update(<OnCanvas />));
     expect(flat(circles(tree)[0]).opacity).toBe(1);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('the circle becomes the control it lands on', () => {
+  /** The pane spring's progress `ms` after it sets out. */
+  const pane = (ms: number) => springStep(ms / 1000, springs.pane);
+  /** From the Send circle's rest to the review control on the 874pt phone. */
+  const DISTANCE = 752 - 384;
+
+  test('it lands well ahead of the pane spring, and hands over only once it is on the control', () => {
+    // The device pass (P10): on a fixed timer the circle faded 25 to 30pt
+    // short, two circles showing. The spring alone is still points short at
+    // the settle.
+    expect((1 - pane(340)) * DISTANCE).toBeGreaterThan(4);
+    // The circle, on launchTravel, is on the control by then, and not yet
+    // at 250ms.
+    expect(landedAt(pane(340), DISTANCE)).toBe(true);
+    expect(landedAt(pane(250), DISTANCE)).toBe(false);
+    expect(LANDED_PT).toBe(0.5);
+    const pose = launchPose(pane(340), true, 'send', 0, DISTANCE);
+    expect(DISTANCE - pose.translateY).toBeLessThan(LANDED_PT);
+  });
+
+  test('it sets out and lands smoothly, the same both ways', () => {
+    expect(launchTravel(0)).toBe(0);
+    expect(launchTravel(1)).toBe(1);
+    expect(launchTravel(0.5)).toBe(0.5);
+    for (const a of [0.1, 0.3, 0.7, 0.9]) {
+      expect(launchTravel(1 - a)).toBeCloseTo(1 - launchTravel(a));
+      expect(launchTravel(a + 0.05)).toBeGreaterThan(launchTravel(a));
+    }
+  });
+
+  test('coming home, all three circles land on the row together', () => {
+    // The moment Scan and Receive are within 1% of their size, `away` here.
+    const away = 0.01 / (0.2 * 2.2);
+    const others = launchPose(away, false, 'send');
+    expect(others.scale).toBeCloseTo(0.99);
+    // The Send circle was 8pt low then on the spring alone (P10 saw 10);
+    // it is under a point now.
+    expect(away * DISTANCE).toBeGreaterThan(8);
+    expect(launchPose(away, true, 'send', 0, DISTANCE).translateY).toBeLessThan(
+      1,
+    );
+  });
+
+  test('the row waits for the scene to leave before it rises', () => {
+    const at = (seam: 'gone' | 'home' | 'compact', bar: number) => ({
+      seam,
+      bar,
+    });
+    // From Send or Receive: the scene's content, a result's mark too, has
+    // gone before the circles grow where it was drawn.
+    expect(rowWait(at('gone', 0), at('home', 1))).toBe(140);
+    expect(rowWait(at('compact', 0), at('home', 1))).toBe(0);
+    expect(rowWait(at('home', 1), at('gone', 0))).toBe(0);
+  });
+
+  test('on the canvas, the row rises only once Send has gone, and the lock holds as long', async () => {
+    const tree = await mount(<OnCanvas />);
+    await act(async () => stage.actions.openSend());
+    const delays = jest.spyOn(Reanimated, 'withDelay');
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    await act(async () => stage.actions.back());
+    expect(stage.state.scene.name).toBe('home');
+    expect(delays).toHaveBeenCalledWith(140, expect.anything());
+    expect(
+      timings.mock.calls.some(
+        ([, config]) => config?.duration === PANE_SETTLE_MS + 140,
+      ),
+    ).toBe(true);
+    await act(async () => tree.unmount());
+  });
+
+  test('it takes on the look of the control it becomes', () => {
+    // Send's review, empty: its 32pt dust arrow on the 88pt control.
+    const quiet = launchLook('send', { live: false, test: false });
+    expect(glyphMorph(0, 24, 56, quiet.glyph)).toBe(1);
+    expect(24 * glyphMorph(1, 24, 56, quiet.glyph) * (88 / 56)).toBeCloseTo(32);
+    // Receive's Continue, held back, is drawn at .94: the circle grows to it.
+    const held = launchLook('receive', { live: false, test: false });
+    const landed = launchPose(1, true, 'receive', 0, 0, 88 * held.scale);
+    expect(landed.scale * 56).toBeCloseTo(88 * 0.94);
+  });
+
+  test("the look is the one Send's and Receive's controls draw", async () => {
+    const noop = () => {};
+    const none = {} as never;
+    const drawn = async (label: string, scene: React.ReactElement) => {
+      const tree = await mount(
+        <GestureHandlerRootView>{scene}</GestureHandlerRootView>,
+      );
+      const control = tree.root.find(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.accessibilityLabel === label,
+      );
+      const style = flat(control);
+      const [glyph] = control.findAll(
+        node => typeof node.type === 'string' && node.props.stroke,
+      );
+      const look = {
+        fill: style.backgroundColor,
+        ring: style.borderWidth ? style.borderColor : style.backgroundColor,
+        ringWidth: style.borderWidth ?? 0,
+        ink: glyph.props.stroke,
+        glyph: glyph.props.width,
+        scale: (transformOf(control, 'scale') as number | undefined) ?? 1,
+      };
+      await act(async () => tree.unmount());
+      return look;
+    };
+    const send = (request: string) => (
+      <SendScreen
+        client={none}
+        initialRequest={request}
+        onActivity={noop}
+        onRefresh={noop}
+        onBusy={noop}
+      />
+    );
+    expect(await drawn(copy.send.review, send(''))).toEqual(
+      launchLook('send', { live: false, test: false }),
+    );
+    expect(await drawn(copy.send.review, send('lnbc1'))).toEqual(
+      launchLook('send', { live: true, test: false }),
+    );
+    const receive = (receivableSats: number) => (
+      <ReceiveScreen
+        client={none}
+        receivableSats={receivableSats}
+        onActivity={noop}
+        onBusy={noop}
+      />
+    );
+    expect(await drawn(copy.receive.continue, receive(0))).toEqual(
+      launchLook('receive', { live: false, test: false }),
+    );
+    expect(await drawn(copy.receive.continue, receive(10_000))).toEqual(
+      launchLook('receive', { live: true, test: false }),
+    );
+  });
+
+  test('the circle draws the look it becomes over its own as it goes', async () => {
+    const look = launchLook('send', { live: false, test: false });
+    function Becoming({ toward }: { toward: number }) {
+      const value = Reanimated.useSharedValue(toward);
+      return (
+        <ActionCircle
+          glyph="send"
+          size={56}
+          label="Send"
+          hint=""
+          stale={false}
+          morph={{ look, toward: value }}
+        />
+      );
+    }
+    const at = async (toward: number) => {
+      const tree = await mount(<Becoming toward={toward} />);
+      // Its ring, 4pt on the control, in the circle's own points.
+      const disc = tree.root.find(
+        node =>
+          typeof node.type === 'string' &&
+          flat(node).backgroundColor === look.fill &&
+          flat(node).borderWidth === (4 * 56) / 88,
+      );
+      const inks = tree.root
+        .findAll(
+          node =>
+            typeof node.type === 'string' &&
+            typeof node.props.stroke === 'string',
+        )
+        .map(node => node.props.stroke);
+      const shown = { disc: flat(disc), inks };
+      await act(async () => tree.unmount());
+      return shown;
+    };
+    const home = await at(0);
+    expect(home.disc.opacity).toBe(0);
+    const landed = await at(1);
+    expect(landed.disc.opacity).toBe(1);
+    expect(landed.disc.borderColor).toBe(look.ring);
+    expect(landed.inks).toEqual([palette.cream, look.ink]);
+  });
+
+  test('a scene can hold its control unseen until the circle hands over', async () => {
+    const made = Reanimated.useSharedValue;
+    const seen: unknown[] = [];
+    function Control() {
+      seen.push(flatStyle(useLaunchLanding().style).opacity);
+      return null;
+    }
+    function Launching({ handover }: { handover: number }) {
+      const launch = React.useState<Launch>(() => ({
+        x: made(201),
+        y: made(764),
+        handover: made(handover),
+      }))[0];
+      return (
+        <LaunchProvider value={launch}>
+          <Control />
+        </LaunchProvider>
+      );
+    }
+    for (const element of [
+      <Launching handover={0} />,
+      <Launching handover={1} />,
+      <Control />,
+    ]) {
+      const tree = await mount(element);
+      await act(async () => tree.unmount());
+    }
+    // On its way, handed over, and off the canvas.
+    expect(seen).toEqual([0, 1, 1]);
+  });
+
+  test('on the canvas, Home is told the look of the control Send lands on', async () => {
+    const read = snapshotOf();
+    const tree = await mount(<OnCanvas read={read} />);
+    await act(async () => stage.actions.openSend());
+    await act(async () => tree.update(<OnCanvas read={read} />));
+    expect(tree.root.findByType(HomeScreen).props.lands).toEqual(
+      launchLook('send', {
+        live: false,
+        test: isTestNetwork(read.wallet.network),
+      }),
+    );
     await act(async () => tree.unmount());
   });
 });

@@ -1,5 +1,11 @@
 import type { WalletRecord } from '@beignet/wallet-core';
-import { CHANNEL_FLOOR_SATS, vesselVisual } from '../src/scenes/home/visual';
+import {
+  CHANNEL_FLOOR_SATS,
+  RESERVE_FLOOR_SATS,
+  RESERVE_SHARE,
+  unreachableSats,
+  vesselVisual,
+} from '../src/scenes/home/visual';
 import type { VesselVisual } from '../src/scenes/home/visual';
 
 /**
@@ -26,6 +32,7 @@ const splice = (state: 'conflicted' | 'reverted'): Partial<Lfbw> => ({
 const GLASS: VesselVisual = {
   weight: 'swollen',
   solid: 0.75,
+  unreachable: 0,
   fill: 'glass',
   sheen: 'sweep',
   glyph: null,
@@ -194,4 +201,84 @@ test('a failure outranks a conflict, and a conflict outranks an explanation', ()
       lfbw({ ...decided('open'), ...splice('conflicted') }),
     ).glyph,
   ).toBe('rewind');
+});
+
+describe('money out of reach', () => {
+  /*
+   * The device pass (P10) after the primary moved to a new node: the old
+   * channel's peer was away, so 84,488 of 84,488 could not be sent while the
+   * dot was sage and the vessel drew the hairline of everything spendable.
+   */
+  test('a channel whose peer is away takes its share of the pill', () => {
+    const away = { totalSats: 84_488, availableSats: 0, pendingSats: 0 };
+    expect(unreachableSats(away)).toBe(84_488);
+    expect(vesselVisual(away, undefined)).toEqual({
+      ...GLASS,
+      solid: 0,
+      unreachable: 1,
+      sheen: 'none',
+    });
+    // After a cold launch, before the old peer reconnected.
+    const split = { totalSats: 123_963, availableSats: 28_929, pendingSats: 0 };
+    expect(unreachableSats(split)).toBe(95_034);
+    expect(vesselVisual(split, undefined)).toMatchObject({
+      weight: 'swollen',
+      solid: 28_929 / 123_963,
+      unreachable: 95_034 / 123_963,
+    });
+  });
+
+  test('a channel reserve alone is never out of reach', () => {
+    expect(RESERVE_SHARE).toBe(0.02);
+    expect(RESERVE_FLOOR_SATS).toBe(1_000);
+    // The reserves the pass measured: 1.1% of one channel, and the 546 sat
+    // dust floor of a smaller one, which was 1.85% of it.
+    for (const reserve of [
+      { totalSats: 88_488, availableSats: 87_504, pendingSats: 0 },
+      { totalSats: 29_475, availableSats: 28_929, pendingSats: 0 },
+      // A small wallet whose whole balance is its channel's reserve.
+      { totalSats: 800, availableSats: 0, pendingSats: 0 },
+    ]) {
+      expect(unreachableSats(reserve)).toBe(0);
+      expect(vesselVisual(reserve, undefined)).toEqual(
+        vesselVisual({ ...reserve, totalSats: undefined }, undefined),
+      );
+    }
+    // With nothing in flight, that is the hairline of everything spendable.
+    expect(
+      vesselVisual(
+        { totalSats: 88_488, availableSats: 87_504, pendingSats: 0 },
+        undefined,
+      ).weight,
+    ).toBe('hairline');
+  });
+
+  test('the threshold sits just past what a reserve explains, on both sides', () => {
+    const total = 100_000;
+    const limit = RESERVE_SHARE * total + RESERVE_FLOOR_SATS;
+    const gap = (sats: number) => ({
+      totalSats: total,
+      availableSats: total - sats - 5_000,
+      pendingSats: 5_000,
+    });
+    expect(unreachableSats(gap(limit))).toBe(0);
+    expect(unreachableSats(gap(limit + 1))).toBe(limit + 1);
+  });
+
+  test('money out of reach sits beside money arriving, and the glass keeps its look', () => {
+    const both = {
+      totalSats: 100_000,
+      availableSats: 40_000,
+      pendingSats: 30_000,
+    };
+    expect(
+      vesselVisual(both, lfbw(decided('wait', 'channel-pending'))),
+    ).toEqual({
+      ...GLASS,
+      solid: 0.4,
+      unreachable: 0.3,
+      sheen: 'slow',
+      glyph: 'clock',
+    });
+  });
 });

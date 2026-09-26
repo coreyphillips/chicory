@@ -83,6 +83,18 @@ const homes: Shot[] = [
   wallet('home, everything spendable', () => ({
     snapshot: onMainnet({ balance: { totalSats: 250_000, pendingSats: 0 } }),
   })),
+  // A channel whose peer is away holds most of the balance, as after a
+  // switch of primary node before the old one reconnects.
+  wallet('home, part of the balance out of reach', () => ({
+    snapshot: onMainnet({
+      balance: { totalSats: 123_963, availableSats: 28_929, pendingSats: 0 },
+    }),
+  })),
+  wallet('home, a channel reserve, which is not out of reach', () => ({
+    snapshot: onMainnet({
+      balance: { totalSats: 88_488, availableSats: 87_504, pendingSats: 0 },
+    }),
+  })),
   wallet('home, below the channel floor', () => ({
     snapshot: onMainnet({ lfbw: decided('wait', 'below-floor') }),
   })),

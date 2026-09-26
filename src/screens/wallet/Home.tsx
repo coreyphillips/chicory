@@ -20,7 +20,10 @@ import type {
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import type { PanGestureConfig } from 'react-native-gesture-handler';
 import Reanimated, {
+  LayoutAnimationConfig,
+  useAnimatedReaction,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withSequence,
   withSpring,
@@ -35,24 +38,32 @@ import { Odometer } from '../../glyphs/Odometer';
 import { Vessel } from '../../glyphs/Vessel';
 import { popIn } from '../../motion/effects';
 import { drawIn, dropOut, fadeIn } from '../../motion/presets';
+import { steady } from '../../motion/steady';
 import { curves, durations, overlap, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { ActionCircle } from '../../scenes/home/ActionCircle';
 import type { Point } from '../../scenes/home/ActionCircle';
 import {
+  LAUNCH_DROP,
   PULL_TRIGGER,
   circleOpacity,
   heroPose,
+  landedAt,
   launchPose,
+  launchTravel,
   miniLanding,
   pullOffset,
-  stripOpacity,
   vesselOpacity,
 } from '../../scenes/home/motion';
 import type { HeroFrame, Launch } from '../../scenes/home/motion';
 import { isTestNetwork } from '../../scenes/home/visual';
-import { HOME, heroBox, veilOpacity } from '../../stage/layout';
-import type { BuildBeats } from '../../stage/layout';
+import {
+  HOME,
+  PRIMARY_CONTROL,
+  heroBox,
+  veilOpacity,
+} from '../../stage/layout';
+import type { BuildBeats, ControlLook } from '../../stage/layout';
 import { useLaunch } from '../../stage/panes/Launch';
 import type { Launch as Landing } from '../../stage/panes/Launch';
 import type { Panes } from '../../stage/panes/Pane';
@@ -85,7 +96,11 @@ const ROW_HEIGHT = HOME.row;
  * On the canvas `progress` carries the panes: `hero` shrinks the balance into
  * a mini strip, fading the vessel first, which rests in the band under the
  * status row that Send and Receive leave clear (MINI_STRIP), or in the row
- * itself under Activity and a payment's detail. `bar` carries the action
+ * itself under Activity and a payment's detail. The balance is one element
+ * all the way there, its unit holding a readable size as the figures shrink,
+ * so it is never drawn twice. While Send or Receive is open it shows what
+ * can be spent (`spendable`): a different figure rather than money moving,
+ * so it changes in place, where money moving rolls. `bar` carries the action
  * row away: the circles not tapped shrink and are gone within 140ms, and the
  * tapped one travels and grows toward the scene it opens, whole until it
  * hands over to the scene's own control. Drawn on its own it rests at home. The activity it once
@@ -104,8 +119,10 @@ export function HomeScreen({
   onToggleHidden,
   onRefresh,
   heroSats,
+  spendable = false,
   progress,
   launching = 'none',
+  lands = null,
   arrived = 0,
   build,
 }: {
@@ -123,8 +140,13 @@ export function HomeScreen({
   onToggleHidden?: () => void;
   /** Refreshes the wallet, for the pull and for a tap on a gated action. */
   onRefresh?: () => void;
-  /** What the hero shows, when not the total: Send's spendable amount. */
+  /** What the hero shows in place of its figure, as while it counts up. */
   heroSats?: number;
+  /**
+   * The hero shows what can be spent now rather than the total, as it does
+   * while Send or Receive is open.
+   */
+  spendable?: boolean;
   /**
    * The canvas's panes, which move the hero and the action row, and take
    * the pull for the mark to open with.
@@ -133,6 +155,11 @@ export function HomeScreen({
     Partial<Pick<Panes, 'pull' | 'veil'>>;
   /** The scene the canvas is heading to, when one of the circles opens it. */
   launching?: Launch;
+  /**
+   * The look of the control the launching circle lands on, which it takes
+   * on as it travels (`launchLook` in stage/layout).
+   */
+  lands?: ControlLook | null;
   /** A count that rises with each read that brought money in. */
   arrived?: number;
   /**
@@ -258,14 +285,9 @@ export function HomeScreen({
   }));
   // Reduce Motion keeps the circles where they are while the row fades,
   // under the veil with the balance.
-  const row = {
-    bar,
-    gate,
-    middle,
-    veil,
-    landing,
-    launching: reduced ? 'none' : launching,
-  };
+  const flying: Launch = reduced ? 'none' : launching;
+  const size = PRIMARY_CONTROL * (lands?.scale ?? 1);
+  const row = { bar, gate, middle, veil, landing, launching: flying, size };
   const sendLaunch = useLaunchStyle(row, 'send', sendAt, sendRest.place);
   const scanLaunch = useLaunchStyle(row, null);
   const receiveLaunch = useLaunchStyle(
@@ -273,6 +295,43 @@ export function HomeScreen({
     'receive',
     receiveAt,
     receiveRest.place,
+  );
+  // How far each circle has taken on the look of the control it becomes.
+  const sendToward = useDerivedValue(
+    () => (flying === 'send' ? launchTravel(1 - bar.get()) : 0),
+    [flying],
+  );
+  const receiveToward = useDerivedValue(
+    () => (flying === 'receive' ? launchTravel(1 - bar.get()) : 0),
+    [flying],
+  );
+  const morphOf = (toward: SharedValue<number>) =>
+    lands ? { look: lands, toward } : undefined;
+  // The circle hands over to the scene's control once it is on it, not on
+  // a clock: the move can start late, and the spring's tail is long.
+  const flyingAt = flying === 'receive' ? receiveAt : sendAt;
+  const flyingRest = flying === 'receive' ? receiveRest.place : sendRest.place;
+  useAnimatedReaction(
+    () => {
+      if (!landing || flying === 'none') return false;
+      const from = flyingRest.get();
+      const measured = from.y > 0;
+      const across = measured
+        ? landing.x.get() - from.x
+        : middle.get() - flyingAt.get();
+      const down = measured ? landing.y.get() - from.y : LAUNCH_DROP;
+      const growth = (size - HOME.circle) / 2;
+      return landedAt(1 - bar.get(), Math.hypot(across, down) + growth);
+    },
+    (now, before) => {
+      if (!landing || !now || before !== false) return;
+      landing.handover.set(
+        steady(
+          withTiming(1, { duration: durations.exit, easing: curves.standard }),
+        ),
+      );
+    },
+    [landing, flying, size],
   );
 
   // How each part enters as the canvas builds in, read once as Home mounts,
@@ -311,16 +370,19 @@ export function HomeScreen({
         : { fontScale, height },
     );
   };
-  // The mini strip's own figures, over the landing (see stripOpacity).
-  const stripHeight = useSharedValue(0);
-  const stripStyle = useAnimatedStyle(() => ({
-    opacity: stripOpacity(hero.get()),
-    transform: [{ translateY: landingAt.get() - stripHeight.get() / 2 }],
-  }));
+  // The scale the hero is drawn at, which its unit holds its size against.
+  const heroScale = useDerivedValue(
+    () => heroPose(hero.get(), frame.get(), landingAt.get()).scale,
+  );
   const figuresStyle = useAnimatedStyle(() => ({
-    opacity: 1 - stripOpacity(hero.get()),
     transform: [{ scale: pop.get() }],
   }));
+  // Which figure the hero shows: the total, or what can be spent. Each is
+  // its own odometer, so a change between them is a new figure in place,
+  // at once and with nothing fading, while a change of either one rolls.
+  const quantity = spendable ? 'spendable' : 'total';
+  const figure =
+    heroSats ?? (spendable ? balance.availableSats : balance.totalSats);
   const measureRow = (event: LayoutChangeEvent) =>
     middle.set(event.nativeEvent.layout.width / 2);
   const centreOf = (at: SharedValue<number>) => (event: LayoutChangeEvent) => {
@@ -401,15 +463,22 @@ export function HomeScreen({
                     entering={arrive.hero}
                     exiting={heroOut}
                   >
-                    <Odometer
-                      sats={heroSats ?? balance.totalSats}
-                      unit={unit}
-                      masked={hidden}
-                      stale={stale}
-                      variant="hero"
-                      room={room}
-                      accessibilityLabel={label}
-                    />
+                    <LayoutAnimationConfig
+                      key={quantity}
+                      skipEntering
+                      skipExiting
+                    >
+                      <Odometer
+                        sats={figure}
+                        unit={unit}
+                        masked={hidden}
+                        stale={stale}
+                        variant="hero"
+                        room={room}
+                        scaled={heroScale}
+                        accessibilityLabel={label}
+                      />
+                    </LayoutAnimationConfig>
                   </Reanimated.View>
                 </Reanimated.View>
               </Pressable>
@@ -419,6 +488,7 @@ export function HomeScreen({
                 <Vessel
                   availableSats={balance.availableSats}
                   pendingSats={balance.pendingSats}
+                  totalSats={balance.totalSats}
                   lfbw={snapshot.wallet.lfbw}
                   unit={unit}
                   masked={hidden}
@@ -426,27 +496,6 @@ export function HomeScreen({
                   test={test}
                 />
               </Reanimated.View>
-            </Reanimated.View>
-            {/* The balance as the mini strip, drawn at a size of its own so
-                its unit can be read there (see stripOpacity). The hero's
-                label says it for a screen reader. */}
-            <Reanimated.View
-              testID="home-strip"
-              pointerEvents="none"
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              onLayout={event =>
-                stripHeight.set(event.nativeEvent.layout.height)
-              }
-              style={[styles.strip, stripStyle]}
-            >
-              <Odometer
-                sats={heroSats ?? balance.totalSats}
-                unit={unit}
-                masked={hidden}
-                stale={stale}
-                variant="line"
-              />
             </Reanimated.View>
           </Reanimated.View>
           {/* Each circle sits in a slot as tall as the row, so the three
@@ -473,6 +522,7 @@ export function HomeScreen({
                     stale={stale}
                     onAct={whileLive(onSend)}
                     onRefresh={refresh}
+                    morph={morphOf(sendToward)}
                   />
                 </Reanimated.View>
               </View>
@@ -515,6 +565,7 @@ export function HomeScreen({
                     stale={stale}
                     onAct={whileLive(onReceive)}
                     onRefresh={refresh}
+                    morph={morphOf(receiveToward)}
                   />
                 </Reanimated.View>
               </View>
@@ -561,6 +612,7 @@ function useLaunchStyle(
     veil,
     landing,
     launching,
+    size,
   }: {
     bar: SharedValue<number>;
     gate: SharedValue<number>;
@@ -568,6 +620,8 @@ function useLaunchStyle(
     veil?: SharedValue<number>;
     landing: Landing | null;
     launching: Launch;
+    /** How big the control the tapped circle grows into is drawn. */
+    size: number;
   },
   own: Launch | null,
   at?: SharedValue<number>,
@@ -584,7 +638,7 @@ function useLaunchStyle(
       ? middle.get() - at.get()
       : 0;
     const drop = measured ? landing.y.get() - from.y : undefined;
-    const pose = launchPose(away, tapped, launching, toCentre, drop);
+    const pose = launchPose(away, tapped, launching, toCentre, drop, size);
     const handover = landing ? landing.handover.get() : undefined;
     return {
       opacity:
@@ -596,7 +650,7 @@ function useLaunchStyle(
         { scale: pose.scale * gate.get() },
       ],
     };
-  }, [launching, own, landing, veil]);
+  }, [launching, own, landing, veil, size]);
 }
 
 const styles = StyleSheet.create({
@@ -615,14 +669,6 @@ const styles = StyleSheet.create({
     transformOrigin: 'top',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  // Placed by its transform, over where the hero lands.
-  strip: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
   },
   balance: { alignItems: 'center', paddingVertical: HOME.heroPad },
   vessel: { paddingHorizontal: HOME.vesselInset },

@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 import {
+  Easing,
   cancelAnimation,
   useSharedValue,
   withRepeat,
@@ -18,7 +19,9 @@ import { useMotionPrefs } from './useMotionPrefs';
  * A loop is a clock that counts cycles and never rewinds: each pose is a
  * periodic function of it, at rest on every whole number. A paused loop
  * picks up exactly where it stopped, and one that ends eases to the nearest
- * whole number, so nothing snaps back. Under Jest the clock lands on its
+ * whole number, so nothing snaps back. One that decorates, coming to the
+ * ambient rest, carries on to the next whole number instead, slowing from
+ * its own speed to a stop (`restEase`). Under Jest the clock lands on its
  * next whole number at once, which is the resting pose.
  *
  * Drive only transform and opacity with a clock, on a view around a still
@@ -39,6 +42,29 @@ export function fract(x: number): number {
 export function wave(clock: number): number {
   'worklet';
   return (1 - Math.cos(2 * Math.PI * clock)) / 2;
+}
+
+/**
+ * A curve that sets out at twice its average speed and slows to a stop:
+ * the square's ease-out.
+ */
+export const REST_CURVE = Easing.out(Easing.quad);
+
+/**
+ * How a clock at `at`, running one whole number every `unit` ms, comes to
+ * rest: forward to the next whole number, never back, over as long as sets
+ * REST_CURVE off at the clock's own speed. It opens at twice the average
+ * speed, so twice the time the rest of the way would take at that speed
+ * makes the two meet: the loop slows from where it was going to a stop
+ * rather than stopping, and nothing turns backwards. At a whole number it
+ * is already at rest.
+ */
+export function restEase(
+  at: number,
+  unit: number,
+): { to: number; duration: number } {
+  const to = Math.ceil(at);
+  return { to, duration: 2 * (to - at) * unit };
 }
 
 const foreground = () =>
@@ -80,9 +106,9 @@ export function useAwake(): boolean {
  * It is cancelled when its owner unmounts.
  *
  * An `ambient` loop only decorates, and rests too once the app has gone
- * untouched a while, picking up where it stopped with the next touch
- * (`ambient.ts`, REDESIGN.md 3.5). A loop that says something is under way
- * leaves it false.
+ * untouched a while, easing into its rest pose (`restEase`), and picks up
+ * where it stopped with the next touch (`ambient.ts`, REDESIGN.md 3.5). A
+ * loop that says something is under way leaves it false.
  *
  * A loop that turns reads `fract` of it; one that goes out and back, such as
  * a breath, reads `wave` of it, and a whole breath is then one period.
@@ -96,6 +122,8 @@ export function useLoop(
   const awake = useAwake();
   const idle = useAmbientRest(ambient);
   const on = running && awake && !reduced && !idle;
+  // Seen, and stopping only because decoration rests.
+  const resting = running && awake && !reduced && idle;
   const clock = useSharedValue(0);
   useEffect(() => {
     const at = clock.get();
@@ -107,6 +135,13 @@ export function useLoop(
           false,
         ),
       );
+    } else if (resting) {
+      const rest = restEase(at, period);
+      if (rest.to !== at) {
+        clock.set(
+          withTiming(rest.to, { duration: rest.duration, easing: REST_CURVE }),
+        );
+      }
     } else if (at !== Math.round(at)) {
       clock.set(
         withTiming(Math.round(at), {
@@ -116,6 +151,6 @@ export function useLoop(
       );
     }
     return () => cancelAnimation(clock);
-  }, [clock, period, on]);
+  }, [clock, period, on, resting]);
   return clock;
 }

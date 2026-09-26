@@ -139,7 +139,7 @@ export function rowBack(bar: number, before: number | null): boolean {
 }
 
 /** The Send and Receive circles are 56pt; the scene's own control is 88. */
-const LAUNCH_GROWTH = PRIMARY_CONTROL / 56 - 1;
+const LAUNCH_FROM = 56;
 
 /**
  * How far the tapped circle drops toward the bottom as it goes, when where
@@ -162,22 +162,48 @@ const clamp01 = (x: number) => {
 };
 
 /**
- * How far from the mini strip, in `hero`, the hero hands over to the strip's
- * own figures: over the last stretch of the way, where the two are all but
- * the same size.
+ * How much of its way the tapped circle has gone when the row is `away`
+ * gone: a smoothstep of the pane spring's own progress, so it sets out a
+ * little behind the panes and lands well ahead of the spring's long tail,
+ * the same both ways. Going to the scene it is on the control, within half
+ * a point, about 300ms after the panes set out, where the spring alone would
+ * take 420; coming home it is back in the row as the other two settle, so
+ * the three land together.
  */
-const STRIP_SWAP = 0.15;
+export function launchTravel(away: number): number {
+  'worklet';
+  const a = clamp01(away);
+  return a * a * (3 - 2 * a);
+}
+
+/** How near the control the circle counts as landed on it, in points. */
+export const LANDED_PT = 0.5;
 
 /**
- * The opacity of the mini strip's own figures at `hero`: none at home, whole
- * in the strip. The hero, scaled to a third, would draw its unit at 5pt,
- * too small to read, so the strip draws the balance again at a size of its
- * own, its unit at 15pt (REDESIGN.md 3.3), and the two crossfade as the
- * hero lands. The hero's own figures take the rest.
+ * Whether the tapped circle, `distance` points from the control it lands on
+ * when it sets out, is on it at `away`: the hand-over starts there, when it
+ * has arrived, rather than on a clock (REDESIGN.md 7, T1).
  */
-export function stripOpacity(hero: number): number {
+export function landedAt(away: number, distance: number): boolean {
   'worklet';
-  return clamp01(1 - hero / STRIP_SWAP);
+  return (1 - launchTravel(away)) * distance <= LANDED_PT;
+}
+
+/**
+ * How big the tapped circle's glyph is drawn, as a share of its own size,
+ * `m` of the way to the control: `glyph` points on a circle `size` across,
+ * to `to` points on the 88pt control it grows into, which its growth then
+ * carries.
+ */
+export function glyphMorph(
+  m: number,
+  glyph: number,
+  size: number,
+  to: number,
+): number {
+  'worklet';
+  const landed = (to * size) / (glyph * PRIMARY_CONTROL);
+  return 1 + clamp01(m) * (landed - 1);
 }
 
 /**
@@ -221,9 +247,9 @@ export function circleOpacity(
  * Receive (REDESIGN.md 7, T1 and T2). `away` runs from 0 at home to 1 once
  * the row has gone. The tapped circle travels to the bottom centre, where
  * the scene draws its own 88pt control, `toCentre` points across and `drop`
- * points down, and grows from 56 to 88 into it; the others shrink to .8,
- * done by the time the row is half gone. With nothing launching the row is
- * at rest.
+ * points down, and grows from 56 to `size` (88, or as the control is drawn)
+ * into it, on `launchTravel`; the others shrink to .8, done by the time the
+ * row is half gone. With nothing launching the row is at rest.
  */
 export function launchPose(
   away: number,
@@ -231,15 +257,18 @@ export function launchPose(
   launch: Launch,
   toCentre = 0,
   drop?: number,
+  size?: number,
 ): CirclePose {
   'worklet';
   if (launch === 'none') return AT_REST;
   if (tapped) {
     // Read in the body, where the worklet captures it (see tintTiming).
+    const t = launchTravel(away);
+    const grown = (size ?? PRIMARY_CONTROL) / LAUNCH_FROM - 1;
     return {
-      scale: 1 + LAUNCH_GROWTH * away,
-      translateX: toCentre * away,
-      translateY: (drop ?? LAUNCH_DROP) * away,
+      scale: 1 + grown * t,
+      translateX: toCentre * t,
+      translateY: (drop ?? LAUNCH_DROP) * t,
     };
   }
   return {

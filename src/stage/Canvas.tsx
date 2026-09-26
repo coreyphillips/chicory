@@ -257,21 +257,25 @@ export function Canvas({
     handover,
   }));
   // As Send or Receive opens, the circle starts over at the slot's bottom
-  // centre, and hands over once it has landed, as the move settles; as the
-  // scene goes, it comes back up as the content leaves.
+  // centre. Home hands it over once it is on the scene's control, whenever
+  // the move gets it there (`landedAt`); in case it never travels, as when
+  // Home is not drawn, the hand-over comes by HANDOVER_LATEST all the same,
+  // and at once under Reduce Motion, where the circle fades with its row.
+  // As the scene goes, it comes back up as the content leaves.
   const launchOpen = useCallback(() => {
     launch.x.set(landingAt.x);
     launch.y.set(landingAt.y);
-    launch.handover.set(0);
+    launch.handover.set(reduced ? 1 : 0);
+    if (reduced) return;
     launch.handover.set(
       steady(
         withDelay(
-          PANE_SETTLE_MS,
+          HANDOVER_LATEST,
           withTiming(1, { duration: durations.exit, easing: curves.standard }),
         ),
       ),
     );
-  }, [launch, landingAt.x, landingAt.y]);
+  }, [launch, landingAt.x, landingAt.y, reduced]);
   const launchLeave = useCallback(
     () =>
       launch.handover.set(
@@ -517,6 +521,13 @@ export function Canvas({
   );
 }
 Canvas.displayName = 'Canvas';
+
+/**
+ * The latest the launched circle hands over to the scene's control, in ms
+ * of the move's steady clock: well past where it lands, about 300ms, so it
+ * only ever stands in for an arrival that never came.
+ */
+export const HANDOVER_LATEST = 2 * PANE_SETTLE_MS;
 
 const styles = StyleSheet.create({
   canvas: { flex: 1, overflow: 'hidden' },
