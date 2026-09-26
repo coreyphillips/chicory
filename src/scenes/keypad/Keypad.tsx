@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { AccessibilityActionEvent } from 'react-native';
 import Reanimated, {
@@ -51,6 +51,11 @@ const KEY_HEIGHT = 60;
  * One key: a button labelled with its digit, or backspace with its words.
  * While it would do nothing, as zero and backspace do to an empty amount
  * (`idle`), it is dimmed and disabled, and a screen reader hears so.
+ *
+ * Its pressed disc always springs back. A key can go idle under the finger,
+ * as backspace does when holding it clears the amount, and a release that
+ * waited for the key to be live again would leave the disc up on a key
+ * that does nothing.
  */
 const Key = memo(function KeyView({
   name,
@@ -77,6 +82,10 @@ const Key = memo(function KeyView({
     [reduced],
   );
   const back = name === 'back';
+  const release = () => pressed.set(withSpring(0, springs.snap));
+  useEffect(() => {
+    if (!live) pressed.set(withSpring(0, springs.snap));
+  }, [live, pressed]);
   return (
     <Pressable
       accessible
@@ -95,9 +104,7 @@ const Key = memo(function KeyView({
             }
           : undefined
       }
-      onPressOut={
-        live ? () => pressed.set(withSpring(0, springs.snap)) : undefined
-      }
+      onPressOut={release}
       onPress={live ? () => onKey(name) : undefined}
       onLongPress={live && back ? onClear : undefined}
       accessibilityActions={back ? CLEAR_ACTIONS : undefined}

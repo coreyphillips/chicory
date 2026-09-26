@@ -100,6 +100,31 @@ test('holding backspace clears the amount with a rigid tap', async () => {
   await act(async () => tree.unmount());
 });
 
+test("a hold that clears the amount still lets backspace's disc spring back", async () => {
+  const tree = await mount(<Field start="4200" />);
+  // Backspace as drawn, live or idle.
+  const backspace = () =>
+    tree.root.find(
+      node =>
+        node.props.accessibilityLabel === copy.keypad.backspace &&
+        node.props.delayLongPress !== undefined,
+    );
+  await act(async () => backspace().props.onPressIn());
+  await act(async () => backspace().props.onLongPress());
+  expect(amountValue(tree)).toBe('');
+  // Idle under the finger, and the finger still lifts the disc.
+  expect(backspace().props.disabled).toBe(true);
+  expect(typeof backspace().props.onPressOut).toBe('function');
+  await act(async () => backspace().props.onPressOut());
+  // Drawn again as a digit wakes it, it stands back at rest.
+  await press(tree, '5');
+  expect(disc(tree, copy.keypad.backspace)).toEqual({
+    opacity: 0,
+    scale: 0.6,
+  });
+  await act(async () => tree.unmount());
+});
+
 test('a screen reader clears the amount with the long press action', async () => {
   const tree = await mount(<Field start="4200" />);
   const backspace = find(tree, copy.keypad.backspace)!;

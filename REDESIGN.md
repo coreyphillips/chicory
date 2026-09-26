@@ -517,7 +517,7 @@ On the canvas a payment that completes is felt once, by the canvas's `useIncomin
 ### Keypad
 
 - **Layout.** 1 to 9, blank, 0, backspace.
-- **Press.** A mocha disc springs in behind the key (snap) with a tick.
+- **Press.** A mocha disc springs in behind the key (snap) with a tick. It always springs back as the finger lifts, even from a key that went idle under it, as backspace does once holding it clears the amount.
 - **Digits.** A new digit rises 12pt as it enters. A removed digit drops 8pt as it leaves.
 - **Clear.** Long-pressing backspace for 450ms clears the amount, with a rigid haptic. A screen reader has it as backspace's `longpress` action, labelled `copy.keypad.clear` ("Clear the amount").
 - **Limits.**
