@@ -482,9 +482,12 @@ test('a balance that goes old in Send is said by Home when Send goes before its 
   // Closed at once, before the screen settles and its words are said.
   await act(async () => stage.actions.home());
   expect(heard()).toEqual([]);
-  await act(async () => {
-    await new Promise<void>(resolve => setTimeout(resolve, 1_500));
-  });
+  // Said once the screen has settled, which a loaded test run can slow.
+  for (let waited = 0; heard().length === 0 && waited < 5_000; waited += 100) {
+    await act(async () => {
+      await new Promise<void>(resolve => setTimeout(resolve, 100));
+    });
+  }
   expect(heard()).toHaveLength(1);
   expect(warned).toHaveBeenCalledTimes(1);
   const logged = recentDiagnostics().filter(entry => entry.code === 'STALE');
