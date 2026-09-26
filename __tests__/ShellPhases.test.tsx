@@ -27,7 +27,7 @@ import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import { HOME, STATUS_ROW, heroBox, stops } from '../src/stage/layout';
 import { Pane } from '../src/stage/panes/Pane';
 import type { Phase } from '../src/stage/phase';
-import { Stage, privacyCovered } from '../src/stage/Stage';
+import { Stage, coverAfter } from '../src/stage/Stage';
 import * as systemPrompt from '../src/stage/systemPrompt';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
 import type { StageStore } from '../src/stage/StageContext';
@@ -158,17 +158,74 @@ function Staged({ phase, live }: { phase: Phase; live: Session }) {
 }
 
 describe('the app switcher', () => {
+  /**
+   * The cover after each of `steps`, a change of the app's state and
+   * whether a prompt the app raised was up as it came, from the front.
+   */
+  const through = (
+    steps: Array<[string | null, boolean?]>,
+    from = false,
+  ): boolean[] => {
+    const seen: boolean[] = [];
+    steps.reduce((covered, [state, prompting = false]) => {
+      const next = coverAfter(covered, state, prompting);
+      seen.push(next);
+      return next;
+    }, from);
+    return seen;
+  };
+
   test('covers in the background always, and inactive unless a prompt the app raised is up', () => {
-    expect(privacyCovered('background', false)).toBe(true);
-    expect(privacyCovered('background', true)).toBe(true);
-    expect(privacyCovered('inactive', false)).toBe(true);
-    // The paste permission over Send, or the camera's over the scan.
-    expect(privacyCovered('inactive', true)).toBe(false);
-    for (const prompting of [false, true]) {
-      expect(privacyCovered('active', prompting)).toBe(false);
-      expect(privacyCovered('unknown', prompting)).toBe(false);
-      expect(privacyCovered(null, prompting)).toBe(false);
+    for (const from of [false, true]) {
+      expect(coverAfter(from, 'background', false)).toBe(true);
+      expect(coverAfter(from, 'background', true)).toBe(true);
+      expect(coverAfter(from, 'inactive', false)).toBe(true);
+      expect(coverAfter(from, 'active', false)).toBe(false);
+      expect(coverAfter(from, 'active', true)).toBe(false);
     }
+    // The paste permission over Send, or the camera's over the scan.
+    expect(coverAfter(false, 'inactive', true)).toBe(false);
+    // In front, or unknown from the front, nothing covers.
+    expect(coverAfter(false, 'unknown', false)).toBe(false);
+    expect(coverAfter(false, null, false)).toBe(false);
+  });
+
+  test('once up it stays up, whatever comes, until the app is in front again', () => {
+    // The device pass (P12): switching to another app, the cover showed
+    // for three frames and then the wallet was drawn again in the outgoing
+    // card for about 300ms of the system's zoom.
+    // Leaving for another app: up with the first step out, and held.
+    expect(through([['inactive'], ['background'], ['active']])).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    // A prompt's window that opens on the way out lowers nothing.
+    expect(through([['inactive'], ['inactive', true], ['background']])).toEqual(
+      [true, true, true],
+    );
+    // Nor one still open as the app comes back through inactive.
+    expect(through([['background'], ['inactive', true], ['active']])).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    // Nor a state the app cannot name.
+    expect(through([['inactive'], ['unknown'], [null]])).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    // Behind a prompt the app raised the screen stays, and leaving from
+    // behind it covers all the same.
+    expect(
+      through([
+        ['inactive', true],
+        ['active'],
+        ['inactive', true],
+        ['background'],
+      ]),
+    ).toEqual([false, false, false, true]);
   });
 
   test('leaves the screen in place behind a prompt the app raised', async () => {
