@@ -173,7 +173,7 @@ export function ResultMark({
       >
         <Pressable
           ref={ref}
-          accessibilityRole={onPress ? 'button' : undefined}
+          accessibilityRole={onPress ? 'button' : 'none'}
           accessibilityLabel={accessibilityLabel}
           accessibilityValue={{ text: accessibilityValue }}
           accessibilityHint={accessibilityHint}

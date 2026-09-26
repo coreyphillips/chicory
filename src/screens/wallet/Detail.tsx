@@ -170,7 +170,7 @@ export function DetailScreen({
         <Reanimated.View
           entering={entering.ring}
           accessible
-          accessibilityRole={words.safety ? 'alert' : undefined}
+          accessibilityRole={words.safety ? 'alert' : 'none'}
           accessibilityLabel={words.label}
           accessibilityValue={{ text: words.value }}
           accessibilityLiveRegion={words.safety ? 'none' : 'polite'}

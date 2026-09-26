@@ -226,7 +226,7 @@ export function Working({
   return (
     <Reanimated.View
       accessible={labelled}
-      accessibilityRole={labelled ? 'progressbar' : undefined}
+      accessibilityRole={labelled ? 'progressbar' : 'none'}
       accessibilityLabel={accessibilityLabel}
       accessibilityState={labelled ? { busy: true } : undefined}
       accessibilityElementsHidden={!labelled}
@@ -1167,7 +1167,7 @@ export function Note({
   return (
     <Reanimated.View
       entering={riseIn(8)}
-      accessibilityRole={error ? 'alert' : undefined}
+      accessibilityRole={error ? 'alert' : 'none'}
       style={[styles.note, { backgroundColor: look.fill }]}
     >
       <View style={styles.noteGlyph}>
