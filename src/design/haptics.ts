@@ -8,9 +8,24 @@ import { haptic } from '../services/haptics';
  * Reduce Motion never silences these; with fewer words on screen they carry
  * more of the meaning. Only Settings > Haptics turns them off.
  */
+const pending = new Set<ReturnType<typeof setTimeout>>();
+
 const later = (ms: number, play: () => void) => {
-  setTimeout(play, ms);
+  const timer = setTimeout(() => {
+    pending.delete(timer);
+    play();
+  }, ms);
+  pending.add(timer);
 };
+
+/**
+ * Drops the later beats of patterns still playing. For tests only, so a
+ * pattern one test began is not felt in the next.
+ */
+export function forgetPendingHaptics() {
+  pending.forEach(clearTimeout);
+  pending.clear();
+}
 
 export const haptics = {
   /** Keys, chips, toggles and row taps. */

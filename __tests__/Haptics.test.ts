@@ -3,7 +3,7 @@ import { AccessibilityInfo, Platform, Vibration } from 'react-native';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
-import { haptics } from '../src/design/haptics';
+import { forgetPendingHaptics, haptics } from '../src/design/haptics';
 import { useMotionPrefs } from '../src/motion/useMotionPrefs';
 import { motionReduced } from '../src/services/motion';
 
@@ -55,6 +55,14 @@ test('held is a warning, repeated at 300ms', () => {
   expect(played()).toEqual(['notificationWarning']);
   jest.advanceTimersByTime(1);
   expect(played()).toEqual(['notificationWarning', 'notificationWarning']);
+});
+
+test('a pattern still playing can be forgotten, so it is not felt later', () => {
+  haptics.held();
+  haptics.incoming();
+  forgetPendingHaptics();
+  jest.advanceTimersByTime(1_000);
+  expect(played()).toEqual(['notificationWarning', 'notificationSuccess']);
 });
 
 test('the hold ramp ticks each quarter and thuds at the end', () => {

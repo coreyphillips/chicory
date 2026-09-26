@@ -8,6 +8,7 @@ import HapticFeedback from 'react-native-haptic-feedback';
 import type { SendResult, SendReview } from '@beignet/wallet-core';
 import { announce } from '../../../design/announce';
 import { copy } from '../../../design/copy';
+import { forgetPendingHaptics } from '../../../design/haptics';
 import { ExpiryRing } from '../../../glyphs/ExpiryRing';
 import { SendScreen } from '../../../screens/Send';
 import type { SendHandle } from '../../../screens/Send';
@@ -167,9 +168,11 @@ const focused = () =>
     );
 
 beforeEach(() => {
-  // A safety message one test left unheard is not said in the next, and a
-  // request one test held does not hold the next test's.
+  // A safety message one test left unheard is not said in the next, a
+  // request one test held does not hold the next test's, and the second
+  // warning of one test's held haptic is not felt in the next.
   forgetSafety();
+  forgetPendingHaptics();
   clearHeldRequests();
   said.mockClear();
   jest.mocked(HapticFeedback.trigger).mockClear();
