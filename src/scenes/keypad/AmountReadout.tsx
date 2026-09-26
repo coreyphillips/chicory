@@ -14,7 +14,7 @@ import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
-import { useShake } from '../../motion/effects';
+import { popIn, useShake } from '../../motion/effects';
 import { dropOut, riseIn, smooth } from '../../motion/presets';
 import { durations } from '../../motion/tokens';
 import { type as typography } from '../../theme';
@@ -31,8 +31,16 @@ const UNIT = 'sats';
 /** How far an amount and its unit grow with Dynamic Type. */
 const AMOUNT_SCALE = 1.2;
 
-/** The size of a mark beside the amount. */
+/** The size of the lock beside an amount set elsewhere. */
 const MARK = 16;
+
+/**
+ * A limit's glyph, and the soft disc it sits on beside the amount, in the
+ * tone's own fill: on a disc it reads as a state the amount is in, where a
+ * bare bang or clock beside the unit read as punctuation.
+ */
+export const STATE_GLYPH = 20;
+export const STATE_PIP = 32;
 
 /** A new digit rises this far into place, and a deleted one drops this far. */
 const RISE = 12;
@@ -43,6 +51,14 @@ const TONES: Record<AmountTone, string> = {
   'over-spendable': palette.honey,
   'over-total': palette.radish,
   under: palette.dust,
+};
+
+/** The disc under each tone's glyph. */
+const SOFT: Record<AmountTone, string> = {
+  plain: palette.mocha,
+  'over-spendable': palette.honeySoft,
+  'over-total': palette.radishSoft,
+  under: palette.mocha,
 };
 
 /**
@@ -60,23 +76,40 @@ const MARKS: Record<AmountTone, GlyphName | null> = {
 
 /** The sprout grows from its base with the reveal spring (REDESIGN.md 4). */
 const SPROUT: Stroke[] = [{ pop: { x: 12, y: 21 } }];
+const DRAW: Stroke[] = [{ duration: durations.draw }];
 
 /**
- * A mark beside the amount. The lock is still; the clock ticks while the
- * rest of the money arrives; the bang draws in as the amount goes past all
- * there is; the sprout grows in while there is not enough yet.
+ * A mark beside the amount. The lock is still, a small steam glyph. A limit
+ * is a state glyph on its tone's disc: the clock ticks while the rest of
+ * the money arrives; the bang draws in as the amount goes past all there
+ * is; the sprout grows in while there is not enough yet.
  */
-function Mark({ name, color }: { name: GlyphName; color: string }) {
-  if (name === 'clock') return <WaitingClock size={MARK} color={color} />;
-  if (name === 'bang') {
-    return <DrawnGlyph name="bang" size={MARK} color={color} strokes={BANG} />;
+function Mark({
+  name,
+  color,
+  tone,
+}: {
+  name: GlyphName;
+  color: string;
+  tone: AmountTone;
+}) {
+  if (name === 'lock') {
+    return <Glyph name={name} size={MARK} color={palette.steam} />;
   }
-  if (name === 'sprout') {
-    return (
-      <DrawnGlyph name="sprout" size={MARK} color={color} strokes={SPROUT} />
-    );
-  }
-  return <Glyph name={name} size={MARK} color={palette.steam} />;
+  return (
+    <View style={[styles.pip, { backgroundColor: SOFT[tone] }]}>
+      {name === 'clock' ? (
+        <WaitingClock size={STATE_GLYPH} color={color} />
+      ) : (
+        <DrawnGlyph
+          name={name}
+          size={STATE_GLYPH}
+          color={color}
+          strokes={name === 'bang' ? BANG : name === 'sprout' ? SPROUT : DRAW}
+        />
+      )}
+    </View>
+  );
 }
 
 export interface AmountReadoutProps {
@@ -270,9 +303,14 @@ export function AmountReadout({
             </Text>
           </Reanimated.View>
           {marks.map(mark => (
-            <Reanimated.View key={mark} layout={smooth()} style={styles.mark}>
+            <Reanimated.View
+              key={mark}
+              entering={mark === 'lock' ? undefined : popIn()}
+              layout={smooth()}
+              style={styles.mark}
+            >
               <Whisper label={hint ?? ''} enabled={!!hint}>
-                <Mark name={mark} color={color} />
+                <Mark name={mark} color={color} tone={tone} />
               </Whisper>
             </Reanimated.View>
           ))}
@@ -308,5 +346,13 @@ const styles = StyleSheet.create({
   empty: { color: palette.dust },
   face: { flexDirection: 'row', alignItems: 'center' },
   unit: { ...typography.heroUnit, color: palette.steam, marginLeft: 6 },
-  mark: { marginLeft: 6, alignSelf: 'center' },
+  // Centred on the amount's line, level with its figures.
+  mark: { marginLeft: 8, alignSelf: 'center' },
+  pip: {
+    width: STATE_PIP,
+    height: STATE_PIP,
+    borderRadius: STATE_PIP / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

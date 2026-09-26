@@ -7,9 +7,9 @@ import {
   View,
 } from 'react-native';
 import { act } from 'react-test-renderer';
-import type { ReactTestRenderer } from 'react-test-renderer';
+import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
-import { Path } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { AmountField } from '../../../components/AmountField';
 import { copy } from '../../../design/copy';
 import { GLYPHS } from '../../../design/glyphs';
@@ -19,7 +19,7 @@ import { Pane } from '../../../stage/panes/Pane';
 import { mount } from '../../../../test-support/guard';
 import { amountValue, enterAmount } from '../../../../test-support/keypad';
 import { find, press, visibleText } from '../../../../test-support/query';
-import { AmountReadout } from '../AmountReadout';
+import { AmountReadout, STATE_GLYPH, STATE_PIP } from '../AmountReadout';
 import { CLEAR_AFTER_MS } from '../Keypad';
 import type { AmountTone } from '../keys';
 
@@ -346,6 +346,45 @@ test.each([
       .map(node => node.props.d);
     if (mark) expect(marks).toContain(mark);
     else expect(marks).toEqual([]);
+    await act(async () => tree.unmount());
+  },
+);
+
+test.each([
+  ['honey', palette.honey, palette.honeySoft],
+  ['radish', palette.radish, palette.radishSoft],
+  ['dust', palette.dust, palette.mocha],
+] as const)(
+  "a %s limit's glyph is a state glyph on its tone's disc, level with the figures",
+  async (tone, color, soft) => {
+    const tree = await mount(
+      <AmountField value="42" onChangeText={jest.fn()} tone={tone} />,
+    );
+    const [pip] = readout(tree).findAll(
+      node =>
+        typeof node.type === 'string' &&
+        StyleSheet.flatten(node.props.style)?.backgroundColor === soft &&
+        StyleSheet.flatten(node.props.style)?.width === STATE_PIP,
+    );
+    expect(pip).toBeDefined();
+    const { height, borderRadius } = StyleSheet.flatten(pip.props.style);
+    expect(height).toBe(STATE_PIP);
+    expect(borderRadius).toBe(STATE_PIP / 2);
+    // A glyph of a readable size, in the tone, not a speck beside the unit.
+    const [glyph] = pip.findAllByType(Svg);
+    expect(glyph.props.width).toBe(STATE_GLYPH);
+    expect(STATE_GLYPH).toBeGreaterThanOrEqual(20);
+    expect(
+      pip.findAll(
+        node => node.props.stroke === color || node.props.color === color,
+      ),
+    ).not.toEqual([]);
+    // Centred on the amount's line, where the figures stand.
+    let at: ReactTestInstance | null = pip.parent;
+    while (at && StyleSheet.flatten(at.props.style)?.alignSelf !== 'center') {
+      at = at.parent;
+    }
+    expect(at).not.toBeNull();
     await act(async () => tree.unmount());
   },
 );

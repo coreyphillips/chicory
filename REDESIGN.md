@@ -521,7 +521,7 @@ On the canvas a payment that completes is felt once, by the canvas's `useIncomin
 - **Press.** A mocha disc springs in behind the key (snap) with a tick. It always springs back as the finger lifts, even from a key that went idle under it, as backspace does once holding it clears the amount.
 - **Digits.** A new digit rises 12pt as it enters. A removed digit drops 8pt as it leaves.
 - **Clear.** Long-pressing backspace for 450ms clears the amount, with a rigid haptic. A screen reader has it as backspace's `longpress` action, labelled `copy.keypad.clear` ("Clear the amount").
-- **Limits.**
+- **Limits.** The glyph that names a limit is a state glyph: 20pt on a 32pt disc in its tone's soft fill (honeySoft, radishSoft, mocha for dust), after the unit and centred on the amount's line, so it never reads as a stray mark of punctuation. It pops in with the tone, and its own motion plays on the disc.
   - Over what can be spent now, but covered by money on its way: honey, with a `clock`.
   - Over what can be spent now with nothing arriving that would cover it (the gap is the channel reserve, say), over the total, or over the offline cap: radish, and it shakes once. A screen reader hears how much can be sent now, or that the wallet holds less.
   - More than 16 digits: the key is refused. The amount flashes radish and shakes, with a rigid haptic, and a screen reader hears `copy.keypad.refused`.
