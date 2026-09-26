@@ -34,6 +34,7 @@ import { StatusRing, glyphRedraws, ringColor } from '../src/glyphs/StatusRing';
 import type { RingVisual } from '../src/glyphs/StatusRing';
 import {
   CHANNELIZE_MS,
+  HEIGHTS,
   SHEEN_PEAK,
   SLATE_GLASS,
   Vessel,
@@ -46,7 +47,7 @@ import { GLYPHS } from '../src/design/glyphs';
 import { palette } from '../src/design/palette';
 import * as loops from '../src/motion/loops';
 import { Pane } from '../src/stage/panes/Pane';
-import { MASK } from '../src/theme';
+import { MASK, radius } from '../src/theme';
 import { copyViolations } from '../test-support/copyGuard';
 import { a11yText, visibleText, whispers } from '../test-support/query';
 
@@ -1053,6 +1054,53 @@ describe('Vessel', () => {
         { translateX: 180 },
         { scaleX: expect.closeTo(0.3) },
       ]);
+    });
+
+    test('its hatch, like all the pill’s art, is drawn at the open pill’s height and clipped by the pill', async () => {
+      // The device pass (P12): the pill swells from the hairline on the UI
+      // thread, and a hatch sized "100%" kept the hairline's height, a
+      // dotted band 2pt tall along the top of the 8pt pill.
+      const art = async (reduced: boolean) => {
+        reducedMotion(reduced);
+        const tree = await away({
+          availableSats: 30_000,
+          pendingSats: 10_000,
+          totalSats: 100_000,
+        });
+        await act(async () =>
+          tree.root.findByProps({ accessible: true }).props.onLayout({
+            nativeEvent: { layout: { width: 300, height: 8 } },
+          }),
+        );
+        return tree;
+      };
+      const drawings = (tree: ReactTestRenderer) =>
+        tree.root
+          .findAllByType(Svg)
+          .filter(
+            svg =>
+              svg.findAllByType(Pattern).length > 0 ||
+              svg.findAllByType(LinearGradient).length > 0,
+          );
+      // The hatch out of reach and the sheen on the glass, and under Reduce
+      // Motion the glass's still hatch.
+      const moving = await art(false);
+      const still = await art(true);
+      expect(drawings(moving)).toHaveLength(2);
+      expect(drawings(still)).toHaveLength(2);
+      for (const svg of [...drawings(moving), ...drawings(still)]) {
+        expect(svg.props.height).toBe(HEIGHTS.open);
+        expect(typeof svg.props.width).toBe('number');
+      }
+      // The pill clips it to whatever height it is at.
+      const [pill] = hosts(
+        moving,
+        node =>
+          flat(node).overflow === 'hidden' &&
+          flat(node).borderRadius === radius.round,
+      );
+      expect(pill).toBeDefined();
+      reducedMotion(false);
     });
 
     test('with the primary connected it is held back in dust, and no channel is said to be away', async () => {
