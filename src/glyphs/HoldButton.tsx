@@ -78,6 +78,13 @@ export interface HoldButtonProps {
   test?: boolean;
   /** What sits in the circle instead of the send glyph. */
   children?: ReactNode;
+  /**
+   * Runs from 0 to 1 over a tick as the hold commits, on the UI thread with
+   * the flash, for what the commit ends to fade with it, such as the quote's
+   * ring: waiting for the payment's render, which a busy JavaScript thread
+   * can hold back, left it drawn and running down for 600ms (P12, 06d).
+   */
+  commit?: SharedValue<number>;
   /** The circle itself, for a screen that moves a screen reader to it. */
   ref?: Ref<ComponentRef<typeof View>>;
 }
@@ -124,6 +131,12 @@ const FADE = {
   reduceMotion: ReduceMotion.Never,
 };
 const FLIGHT = { duration: LAUNCH_MS, easing: curves.exit };
+/** What the commit ends fades as the flash rises, and under Reduce Motion. */
+const ENDED = {
+  duration: durations.tick,
+  easing: curves.standard,
+  reduceMotion: ReduceMotion.Never,
+};
 const BURST = { duration: BURST_MS, easing: curves.enter };
 
 /** The parts of the hold that move, driven from the UI thread. */
@@ -135,6 +148,8 @@ export interface HoldParts {
   burst: SharedValue<number>;
   /** Set as the hold commits, until the circle is ready to be held again. */
   sealed: SharedValue<boolean>;
+  /** The caller's, run to 1 as the hold commits (`commit`). */
+  commit?: SharedValue<number>;
 }
 
 /**
@@ -171,11 +186,12 @@ export function letGo(parts: HoldParts) {
 
 /**
  * The hold completes (REDESIGN.md 5, HoldButton): the ring is whole, a cream
- * flash rises and the circle pops to 1.06; as the flash peaks the arrow
- * launches, the sparks burst and the fill drains, so the orbit that runs
- * while the payment is sent has the track to itself. Under Reduce Motion the
- * arrow only fades and nothing pops or bursts. Returns false when the hold
- * had already committed, so it plays once.
+ * flash rises and the circle pops to 1.06, and what the commit ends fades as
+ * the flash rises; as the flash peaks the arrow launches, the sparks burst
+ * and the fill drains, so the orbit that runs while the payment is sent has
+ * the track to itself. Under Reduce Motion the arrow only fades and nothing
+ * pops or bursts. Returns false when the hold had already committed, so it
+ * plays once.
  */
 export function seal(parts: HoldParts, reduced: boolean): boolean {
   'worklet';
@@ -188,6 +204,7 @@ export function seal(parts: HoldParts, reduced: boolean): boolean {
   parts.flash.set(
     withSequence(withTiming(1, FLASH_IN), withTiming(0, FLASH_OUT)),
   );
+  parts.commit?.set(withTiming(1, ENDED));
   if (reduced) {
     parts.launch.set(
       withDelay(durations.tick, withTiming(1, FADE), ReduceMotion.Never),
@@ -248,6 +265,7 @@ export function HoldButton({
   busy = false,
   test = false,
   children,
+  commit,
   ref,
 }: HoldButtonProps) {
   const live = usePaneActive() && !disabled && !busy;
@@ -260,8 +278,8 @@ export function HoldButton({
   const burst = useSharedValue(0);
   const sealed = useSharedValue(false);
   const parts = useMemo<HoldParts>(
-    () => ({ fill, scale, flash, launch, burst, sealed }),
-    [fill, scale, flash, launch, burst, sealed],
+    () => ({ fill, scale, flash, launch, burst, sealed, commit }),
+    [fill, scale, flash, launch, burst, sealed, commit],
   );
   // One list for the button's life, emptied and refilled with each hold.
   const ramp = useRef<ReturnType<typeof setTimeout>[]>([]);

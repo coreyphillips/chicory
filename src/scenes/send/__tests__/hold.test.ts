@@ -33,6 +33,7 @@ function parts() {
     launch: [],
     burst: [],
     sealed: [],
+    commit: [],
   };
   const value = (part: Part, start: unknown) => {
     let at = start;
@@ -51,6 +52,7 @@ function parts() {
     launch: value('launch', 0),
     burst: value('burst', 0),
     sealed: value('sealed', false),
+    commit: value('commit', 0),
   } as unknown as HoldParts;
   return { held, set };
 }
@@ -81,6 +83,16 @@ describe('the complete', () => {
     expect(set.scale).toEqual([{ steps: [{ spring: 1.06 }, { spring: 1 }] }]);
     expect(set.launch).toEqual([afterFlash({ timing: 1, ms: 240 })]);
     expect(set.burst).toEqual([0, afterFlash({ timing: 1, ms: 700 })]);
+  });
+
+  test("what the commit ends, such as the quote's ring, fades as the flash rises, here and not a render later", () => {
+    // Left to the payment's render, the quote's ring stayed drawn and
+    // running down for 600ms after the flash (P12, 06d).
+    for (const reduced of [false, true]) {
+      const { held, set } = parts();
+      seal(held, reduced);
+      expect(set.commit).toEqual([{ timing: 1, ms: durations.tick }]);
+    }
   });
 
   test('under Reduce Motion nothing pops or bursts, and the arrow only fades after the flash', () => {

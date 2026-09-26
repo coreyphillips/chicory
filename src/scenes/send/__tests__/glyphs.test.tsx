@@ -19,6 +19,7 @@ import { durations } from '../../../motion/tokens';
 import { mount } from '../../../../test-support/guard';
 import { activate } from '../../../../test-support/query';
 import { GLYPHS } from '../../../design/glyphs';
+import { Commit } from '../Commit';
 import { QuoteRefresh } from '../Controls';
 import { BANG, DrawnGlyph } from '../DrawnGlyph';
 import { Orbit } from '../Orbit';
@@ -230,6 +231,87 @@ describe('ExpiryRing', () => {
     );
     expect(onExpired).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
+  });
+});
+
+describe('Commit', () => {
+  // Shared values live as long as their component, as on a device, where
+  // the mock makes a new one each render.
+  const made = Reanimated.useSharedValue;
+  beforeEach(() => {
+    jest
+      .spyOn(Reanimated, 'useSharedValue')
+      .mockImplementation(init => React.useState(() => made(init))[0]);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  /** The review's commit, on the canvas, with its quote run out or not. */
+  const commitOf = (expired = false) => (
+    <GestureHandlerRootView>
+      <Commit
+        accessibilityLabel={LABEL}
+        summary=""
+        expiresAt={Date.now() + 60_000}
+        createdAt={Date.now()}
+        warning={false}
+        expired={expired}
+        stale={false}
+        busy={false}
+        onCommit={jest.fn()}
+      />
+    </GestureHandlerRootView>
+  );
+
+  /** How much of the quote's ring is drawn, through the views round it. */
+  function ringShown(tree: ReactTestRenderer) {
+    let opacity = 1;
+    let at: ReactTestInstance | null = tree.root.findByType(ExpiryRing);
+    for (; at; at = at.parent) {
+      if (typeof at.type === 'string') {
+        opacity *= StyleSheet.flatten(at.props.style)?.opacity ?? 1;
+      }
+    }
+    return opacity;
+  }
+
+  /** Draws what the UI thread would: the mock reads styles as it renders. */
+  const drawn = (tree: ReactTestRenderer, expired = false) =>
+    act(async () => tree.update(commitOf(expired)));
+
+  test("the quote's ring fades as the hold commits, before the payment's render lets it go", async () => {
+    // Left to that render, which a busy JavaScript thread held back, the
+    // ring stayed drawn and running down for 600ms after the flash, beside
+    // the new orbit (P12, 06d).
+    const tree = await mount(commitOf());
+    try {
+      expect(ringShown(tree)).toBe(1);
+      await press.in(tree);
+      await press.complete(tree);
+      // Within a tick of the commit, while the payment has not yet rendered
+      // its going out, the ring has gone.
+      await act(async () => jest.advanceTimersByTime(durations.tick));
+      await drawn(tree);
+      expect(tree.root.findAllByType(ExpiryRing)).toHaveLength(1);
+      expect(ringShown(tree)).toBe(0);
+    } finally {
+      await act(async () => tree.unmount());
+    }
+  });
+
+  test('a quote that turns out not to be spent brings its ring back', async () => {
+    const tree = await mount(commitOf());
+    try {
+      await press.in(tree);
+      await press.complete(tree);
+      await drawn(tree);
+      expect(ringShown(tree)).toBe(0);
+      // It ran out as the hold completed, so nothing was sent on it.
+      await drawn(tree, true);
+      await drawn(tree, true);
+      expect(ringShown(tree)).toBe(1);
+    } finally {
+      await act(async () => tree.unmount());
+    }
   });
 });
 
