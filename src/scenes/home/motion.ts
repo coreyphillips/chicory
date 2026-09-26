@@ -217,37 +217,19 @@ export function landedAt(away: number, distance: number): boolean {
 }
 
 /**
- * How big the tapped circle's glyph is drawn, as a share of its own size,
- * `m` of the way to the control: `glyph` points on a circle `size` across,
- * to `to` points on the 88pt control it grows into, which its growth then
- * carries.
+ * The scale the tapped circle's glyph is drawn at inside the circle, `m` of
+ * the way to the control. The glyph is drawn once, at the size it lands at:
+ * the control's `to` points, the control drawn at `scale`, with the
+ * control's stroke. The circle grows from `size` into the control, drawn at
+ * `scale`, and carries the glyph with it, so the glyph is shrunk against
+ * that growth, and on screen it grows from `glyph` points at home to the
+ * control's glyph, in step with the circle. Its whole scale on screen is
+ * never above 1: a drawing is only ever shrunk, never a bitmap enlarged
+ * into a soft, heavy line, and its line keeps the control's weight for its
+ * size all the way, the control's own once it lands.
  */
-export function glyphMorph(
+export function glyphScale(
   m: number,
-  glyph: number,
-  size: number,
-  to: number,
-): number {
-  'worklet';
-  const landed = (to * size) / (glyph * PRIMARY_CONTROL);
-  return 1 + clamp01(m) * (landed - 1);
-}
-
-/** The glyph grid, in units a side. */
-const GRID = 24;
-
-/**
- * The stroke, in grid units, that draws the tapped circle's glyph `points`
- * wide `m` of the way to the control: counter-scaled against both its growth
- * into the control's glyph (`glyphMorph`) and the circle's own growth from
- * `size` into the control, drawn at `scale`, which it travels with. So its
- * line keeps the weight it is meant to have all the way, rather than
- * swelling with the circle to twice the control's and thinning as it hands
- * over. `glyph` and `to` are as for `glyphMorph`.
- */
-export function glyphStroke(
-  m: number,
-  points: number,
   glyph: number,
   size: number,
   to: number,
@@ -255,9 +237,10 @@ export function glyphStroke(
 ): number {
   'worklet';
   const t = clamp01(m);
+  const landed = to * scale;
+  const shown = glyph + (landed - glyph) * t;
   const grown = 1 + ((PRIMARY_CONTROL * scale) / size - 1) * t;
-  const drawn = (glyph / GRID) * glyphMorph(t, glyph, size, to) * grown;
-  return drawn > 0 ? points / drawn : 0;
+  return shown / (landed * grown);
 }
 
 /**
