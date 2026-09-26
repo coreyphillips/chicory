@@ -12,6 +12,7 @@ import { Bloom } from '../src/glyphs/Bloom';
 import { HERO_SIZES, Odometer, unitScaleFor } from '../src/glyphs/Odometer';
 import { ActionCircle } from '../src/scenes/home/ActionCircle';
 import { BackupTile } from '../src/scenes/home/BackupTile';
+import { HomePane } from '../src/scenes/home/HomePane';
 import { StatusRow } from '../src/scenes/home/StatusRow';
 import {
   LANDED_PT,
@@ -29,7 +30,7 @@ import { springStep } from '../src/motion/springMath';
 import { springs } from '../src/motion/tokens';
 import { ReceiveScreen, SendScreen } from '../src/screens/Payments';
 import { HomeScreen } from '../src/screens/Wallet';
-import { Canvas, useCanvasView } from '../src/stage/Canvas';
+import { Canvas, RISEN_BY, useCanvasView } from '../src/stage/Canvas';
 import {
   HERO_MINI,
   HOME,
@@ -831,6 +832,54 @@ describe('the circle becomes the control it lands on', () => {
         launchLook('send', { live, test }),
       );
       await act(async () => linked.unmount());
+    }
+  });
+});
+
+describe('coming home', () => {
+  /** The pane Home is drawn in on the canvas. */
+  const homePane = (tree: ReactTestRenderer) => {
+    let at = tree.root.findByType(HomePane).parent;
+    while (at && !(typeof at.type === 'string' && flat(at).top !== undefined)) {
+      at = at.parent;
+    }
+    return at!;
+  };
+
+  test('the circle that opened the scene is drawn over the rising sheet until the row is back', async () => {
+    // The device pass (P12): coming back from Send the sheet rose over the
+    // circle where it landed, the other two came up first, and it came out
+    // from behind the sheet's top edge about 170ms late.
+    jest.useFakeTimers();
+    try {
+      const tree = await mount(<OnCanvas />);
+      expect(flat(homePane(tree)).zIndex).toBeUndefined();
+      for (const open of [
+        () => stage.actions.openSend(),
+        () => stage.actions.openReceive(),
+      ]) {
+        await act(async () => open());
+        await act(async () => jest.advanceTimersByTime(RISEN_BY));
+        // Nothing to rise over while the scene is open.
+        expect(flat(homePane(tree)).zIndex).toBeUndefined();
+        await act(async () => stage.actions.home());
+        expect(flat(homePane(tree)).zIndex).toBe(1);
+        // Once the row is back it goes under the sheet again, as the sheet's
+        // drag and the list need it: as the row reports back, and by the
+        // time the move's lock lets go at the latest.
+        await act(async () => jest.advanceTimersByTime(RISEN_BY - 1));
+        expect(flat(homePane(tree)).zIndex).toBe(1);
+        await act(async () => jest.advanceTimersByTime(1));
+        expect(flat(homePane(tree)).zIndex).toBeUndefined();
+      }
+      // Back from the list, nothing was launched: it stays under.
+      await act(async () => stage.actions.openActivity());
+      await act(async () => jest.advanceTimersByTime(RISEN_BY));
+      await act(async () => stage.actions.home());
+      expect(flat(homePane(tree)).zIndex).toBeUndefined();
+      await act(async () => tree.unmount());
+    } finally {
+      jest.useRealTimers();
     }
   });
 });

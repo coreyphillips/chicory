@@ -10,6 +10,7 @@ import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import Reanimated, {
   ReduceMotion,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -28,6 +29,7 @@ import { SheetPane } from '../scenes/activity/SheetPane';
 import { DetailLayer } from '../scenes/detail/DetailLayer';
 import { Backdrop } from '../scenes/home/Backdrop';
 import { HomePane } from '../scenes/home/HomePane';
+import { rowBack } from '../scenes/home/motion';
 import { StatusRow } from '../scenes/home/StatusRow';
 import { isTestNetwork } from '../scenes/home/visual';
 import { ReceiveScene } from '../scenes/receive/ReceiveScene';
@@ -325,6 +327,33 @@ export function Canvas({
   const live = !overlay && !layout.covered;
   const home = shown === 'home';
 
+  // Coming home from Send or Receive, the circle that opened it comes back
+  // up where it landed, near the foot of the screen, where the sheet rises
+  // on its way home (REDESIGN.md 7). Drawn under the sheet, it went behind
+  // it and came out from its top edge late. So until the row is back, Home
+  // is drawn over the sheet and what the scene leaves: the two never
+  // overlap at rest, so only the circle is seen over it.
+  const [came, setCame] = useState(shown);
+  const [rising, setRising] = useState(false);
+  if (came !== shown) {
+    setCame(shown);
+    setRising(home && (came === 'send' || came === 'receive'));
+  }
+  useAnimatedReaction(
+    () => panes.bar.get(),
+    (bar, before) => {
+      if (rising && rowBack(bar, before)) scheduleOnRN(setRising, false);
+    },
+    [rising, panes.bar],
+  );
+  // Should the row never report back, it is back by the time the move's
+  // lock lets go at the latest.
+  useEffect(() => {
+    if (!rising) return;
+    const back = setTimeout(() => setRising(false), RISEN_BY);
+    return () => clearTimeout(back);
+  }, [rising]);
+
   // A payment's detail follows the live history, so a status that changes
   // while it is open changes on screen too.
   const opened = scene.name === 'detail' ? scene.item : null;
@@ -411,6 +440,7 @@ export function Canvas({
                 style={[
                   styles.home,
                   { top: belowStatus, height: panes.stops.home - belowStatus },
+                  rising ? styles.over : null,
                 ]}
               >
                 <PrimaryFor primaries={primaries} scene="home">
@@ -529,11 +559,21 @@ Canvas.displayName = 'Canvas';
  */
 export const HANDOVER_LATEST = 2 * PANE_SETTLE_MS;
 
+/**
+ * The latest the circle that opened Send or Receive is back in the row,
+ * coming home, in ms: the row waits for the scene's content to go
+ * (`rowWait`), then settles with the panes, and a long frame on the way
+ * holds the steady clock back by at most about as long again.
+ */
+export const RISEN_BY = 2 * (PANE_SETTLE_MS + durations.exit);
+
 const styles = StyleSheet.create({
   canvas: { flex: 1, overflow: 'hidden' },
   fill: StyleSheet.absoluteFill,
   flex: { flex: 1 },
   home: { position: 'absolute', left: 0, right: 0 },
+  // Over the sheet and the top slot, while the circle comes home.
+  over: { zIndex: 1 },
   // Its glyph sits where the page edge puts it; the target around it
   // reaches a little nearer the screen's edge.
   cornerAnchor: {
