@@ -194,6 +194,7 @@ export function SendScreen({
   masked = false,
   unit = 'sats',
   test = false,
+  leaving = false,
   ref,
 }: {
   client: WalletAdapter;
@@ -219,6 +220,12 @@ export function SendScreen({
   unit?: Unit;
   /** A test network, where slate stands in for bloom throughout. */
   test?: boolean;
+  /**
+   * Send is no longer the stage's scene and only fades out where it was.
+   * An answer arriving now is recorded, as for a Send that has gone, and
+   * nothing is felt, flashed or said for it over the screen that came next.
+   */
+  leaving?: boolean;
   ref?: Ref<SendHandle>;
 }) {
   const live = usePaneActive();
@@ -325,6 +332,11 @@ export function SendScreen({
       mounted.current = false;
     };
   }, []);
+  // A Send that has left the stage is gone to its answers, though it is
+  // still drawn while it fades, and back for them if the stage returns to it.
+  useLayoutEffect(() => {
+    mounted.current = !leaving;
+  }, [leaving]);
   useEffect(() => () => onBusy(false), [onBusy]);
   // Calls to the engine are numbered, so an answer only lets go of what its
   // own call took. `stageFor` is the call the stage is held busy for, never

@@ -22,7 +22,11 @@ import {
 import { isTestNetwork } from '../../home/visual';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
 import type { CanvasView } from '../../../stage/Canvas';
-import { clearHeldRequests, holdRequest } from '../../../stage/heldRequests';
+import {
+  clearHeldRequests,
+  heldRequest,
+  holdRequest,
+} from '../../../stage/heldRequests';
 import { ScanReveal } from '../../../stage/layers/ScanReveal';
 import {
   StageProvider,
@@ -386,6 +390,43 @@ test('a payment that does not answer lets the stage go after its grace, and its 
     expect(stage.state.scene).toMatchObject({ name: 'send', prefill: hung });
     expect(heldRing()).not.toEqual([]);
     expect(find(tree, copy.send.review)).toBeUndefined();
+    await act(async () => tree.unmount());
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a late answer to a Send that is fading out is only recorded, never felt, flashed or said', async () => {
+  // A closed Send stays drawn while it fades, and a payment answering in
+  // that moment still played its failure over Home.
+  jest.useFakeTimers();
+  try {
+    jest.spyOn(client, 'prepareSend').mockResolvedValue(quote);
+    let refuse!: (error: Error) => void;
+    jest.spyOn(client, 'send').mockReturnValue(
+      new Promise((_, reject) => {
+        refuse = reject;
+      }),
+    );
+    const erred = jest.spyOn(haptics, 'error');
+    const hung =
+      'bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=0.000042&label=scene-fading';
+    const tree = await mount(<OnCanvas />);
+    await act(async () => stage.actions.openSend(hung));
+    await press(tree, copy.send.review);
+    await activate(tree, copy.send.sendSats(4200));
+    await act(async () => jest.advanceTimersByTime(SEND_GRACE_MS));
+    await act(async () => stage.actions.home());
+    expect(stage.state.scene.name).toBe('home');
+    // Still fading out when the payment is refused.
+    expect(tree.root.findAllByType(SendScreen)).not.toEqual([]);
+    const flashed = stage.tint.read().flash;
+    await act(async () => refuse(new Error('no route')));
+    expect(erred).not.toHaveBeenCalled();
+    expect(stage.tint.read().flash).toEqual(flashed);
+    // Recorded all the same: a refusal lets the request go.
+    expect(heldRequest(hung)).toBeNull();
+    await act(async () => jest.advanceTimersByTime(durations.exit));
     await act(async () => tree.unmount());
   } finally {
     jest.useRealTimers();
