@@ -9,6 +9,7 @@ import { HoldConfirm } from '../scenes/settings/HoldConfirm';
 import { RecoveryWords } from '../scenes/settings/RecoveryWords';
 import { Action, Body, Note, Section } from '../scenes/settings/ui';
 import { requireUnlock } from '../services/lock';
+import { duringSystemPrompt } from '../stage/systemPrompt';
 import { space } from '../theme';
 
 const words = copy.settings.recovery;
@@ -81,7 +82,11 @@ export function RecoveryPhrase({
     setBusy(true);
     setError('');
     try {
-      const allowed = await requireUnlock(words.prompt);
+      // The biometric prompt is one the app raised, so the section stays in
+      // view behind it rather than going under the privacy cover.
+      const allowed = await duringSystemPrompt(() =>
+        requireUnlock(words.prompt),
+      );
       if (!allowed) {
         haptics.warning();
         setError(words.refused);

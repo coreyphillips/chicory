@@ -15,8 +15,15 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
-import type { StyleProp, TextInputProps, ViewStyle } from 'react-native';
+import type {
+  LayoutChangeEvent,
+  StyleProp,
+  TextInputProps,
+  TextLayoutEvent,
+  ViewStyle,
+} from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Reanimated, {
   cancelAnimation,
@@ -39,6 +46,7 @@ import { useFocus } from '../../motion/focus';
 import { riseIn, smooth, stagger } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
+import { PANE_SETTLE_MS } from '../../stage/layout';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { HIT_SLOP, fonts, radius, space, type } from '../../theme';
 import { drawPlan } from './motion';
@@ -56,9 +64,52 @@ import { drawPlan } from './motion';
  * Settings has no ceiling on text size (REDESIGN.md 3.3), so nothing here is
  * laid out for one size: a heading gives its accessory a line of its own
  * rather than a sliver of width, words wrap rather than run past their
- * control, and a row of pills breaks onto more lines rather than breaking a
- * word.
+ * control, a label shrinks a little rather than break a word, a row of pills
+ * breaks onto more lines, and the glyphs beside the words grow with them.
  */
+
+/** The most a glyph beside Settings' words grows with the text size. */
+export const GLYPH_SCALE_MAX = 2;
+
+/**
+ * How much the glyphs beside Settings' words grow at the text size
+ * `fontScale`: with the words, from their own size up to twice it, so a row's
+ * glyph still reads beside a large label without crowding it out. They never
+ * shrink below their own size.
+ */
+export const glyphScale = (fontScale: number): number =>
+  Math.min(Math.max(fontScale, 1), GLYPH_SCALE_MAX);
+
+/** `size` grown with the text size (`glyphScale`), to a whole point. */
+export function useGlyphSize(size: number): number {
+  const { fontScale } = useWindowDimensions();
+  return Math.round(size * glyphScale(fontScale));
+}
+
+/**
+ * Props that keep a short label's words whole at any text size. It wraps
+ * between its words, takes no more lines than it has words, and shrinks
+ * rather than take another: iOS breaks a word wider than its line wherever
+ * the line ends, so a word that no longer fits would otherwise go on
+ * without its last letters.
+ */
+export function wholeWords(text: string) {
+  return {
+    numberOfLines: Math.max(1, text.trim().split(/\s+/).length),
+    adjustsFontSizeToFit: true,
+    minimumFontScale: 0.5,
+  };
+}
+
+/** The smallest a control is drawn (REDESIGN.md 3.4). */
+const TOUCH = 48;
+
+/** A section heading's glyph disc, and how far its honey halo reaches past it. */
+const DISC = 32;
+const HALO_REACH = 5;
+
+/** The column a row's glyph sits in. */
+const ROW_GLYPH = 32;
 
 /** The accent a settings surface draws in, and the soft fill behind it. */
 export interface Accent {
@@ -334,7 +385,12 @@ export function Title({
 }) {
   const target = useFocus(focus);
   return (
-    <Text ref={target} accessibilityRole="header" style={styles.title}>
+    <Text
+      ref={target}
+      accessibilityRole="header"
+      {...wholeWords(children)}
+      style={styles.title}
+    >
       {children}
     </Text>
   );
@@ -351,6 +407,80 @@ export function Body({ children }: { children: string }) {
  */
 const CASCADE = 2;
 
+/** The space between a heading and its accessory when they share a line. */
+const ACCESSORY_GAP = space.sm;
+
+/**
+ * The text size past which a heading starts with its accessory below it,
+ * before anything is measured: the accessibility sizes, where the primary
+ * node's heading and its connection no longer share a phone's line. The
+ * measure then settles it either way (`accessoryBelow`); starting close to
+ * where it settles keeps the card from visibly changing height as Settings
+ * arrives.
+ */
+const BELOW_FROM_SCALE = 1.5;
+
+/** What a heading and its accessory measure, for `accessoryBelow`. */
+export interface HeadingFit {
+  /** The width the heading and its accessory share. */
+  room: number;
+  /** The accessory's own width. */
+  accessory: number;
+  /** The width of each line the heading was laid out in. */
+  lines: readonly number[];
+}
+
+/**
+ * How much to spare before an accessory comes back up beside its heading, so
+ * a line measured a fraction of a point wider beside it than alone does not
+ * send it straight back down.
+ */
+const RETURN_SLACK = 2;
+
+/**
+ * Whether a section heading's accessory takes the line below the heading.
+ * Beside the accessory, a heading that needs a second line is being
+ * squeezed, so the accessory drops. Below it, the accessory comes back up
+ * only once the heading's one line and the accessory fit the room together
+ * with a little to spare, so the two never trade places frame after frame.
+ * Until all three are measured it stays where it is.
+ *
+ * Yoga's own wrapping is not trusted with this: on the phone a wrapping row
+ * kept the accessory beside the heading and squeezed the heading to a
+ * column a letter wide.
+ */
+export function accessoryBelow(below: boolean, fit: HeadingFit): boolean {
+  const { room, accessory, lines } = fit;
+  if (room <= 0 || accessory <= 0 || lines.length === 0) return below;
+  if (!below) return lines.length > 1;
+  const together = lines[0] + ACCESSORY_GAP + accessory + RETURN_SLACK;
+  return !(lines.length === 1 && together <= room);
+}
+
+/**
+ * Where a heading's accessory goes (`accessoryBelow`), and the measures that
+ * decide it: the room the two share, the accessory's width, and the lines
+ * the heading takes.
+ */
+function useAccessoryPlace(on: boolean) {
+  const { fontScale } = useWindowDimensions();
+  const [below, setBelow] = useState(() => on && fontScale > BELOW_FROM_SCALE);
+  const fit = useRef<HeadingFit>({ room: 0, accessory: 0, lines: [] });
+  const measured = (next: Partial<HeadingFit>) => {
+    fit.current = { ...fit.current, ...next };
+    setBelow(at => accessoryBelow(at, fit.current));
+  };
+  return {
+    below,
+    onRoom: (event: LayoutChangeEvent) =>
+      measured({ room: event.nativeEvent.layout.width }),
+    onAccessory: (event: LayoutChangeEvent) =>
+      measured({ accessory: event.nativeEvent.layout.width }),
+    onHeading: (event: TextLayoutEvent) =>
+      measured({ lines: event.nativeEvent.lines.map(line => line.width) }),
+  };
+}
+
 /**
  * One group of settings: an espresso card led by its glyph and heading. It
  * rises into place `index` steps after Settings arrives, and grows or shrinks
@@ -365,8 +495,9 @@ const CASCADE = 2;
  *
  * The heading's accessory, such as the primary node's connection, sits at
  * the heading's right while both fit, and drops to a line of its own below
- * the heading once they do not, so a large text size never squeezes the
- * heading into a column a few letters wide.
+ * the heading once they do not (`accessoryBelow`), so a large text size
+ * never squeezes the heading into a column a few letters wide. The glyph and
+ * its disc grow with the text size (`glyphScale`).
  */
 export function Section({
   glyph,
@@ -387,6 +518,13 @@ export function Section({
   const honey = tone === 'honey';
   const heading = useFocus(focus);
   const { accent } = useAccent();
+  const disc = useGlyphSize(DISC);
+  const mark = useGlyphSize(18);
+  const place = useAccessoryPlace(!!accessory);
+  // Beside its accessory the heading wraps freely, so a squeezed heading
+  // shows as a second line and the accessory drops; on its own it keeps its
+  // words whole.
+  const beside = !!accessory && !place.below;
   return (
     <Reanimated.View
       entering={stagger(Math.min(index, CASCADE))}
@@ -396,31 +534,56 @@ export function Section({
       {title ? (
         <View style={styles.sectionHeader}>
           {glyph ? (
-            <View style={styles.sectionGlyph}>
+            <View style={[styles.sectionGlyph, { width: disc, height: disc }]}>
               {honey ? (
-                <Breathe on period={durations.halo} style={styles.halo}>
-                  <View style={styles.haloRing} />
+                <Breathe
+                  on
+                  period={durations.halo}
+                  style={[styles.halo, { margin: -HALO_REACH }]}
+                >
+                  <View
+                    style={[
+                      styles.haloRing,
+                      { borderRadius: disc / 2 + HALO_REACH },
+                    ]}
+                  />
                 </Breathe>
               ) : null}
-              <View style={[styles.disc, honey && styles.discHoney]}>
+              <View
+                style={[
+                  styles.disc,
+                  { width: disc, height: disc, borderRadius: disc / 2 },
+                  honey && styles.discHoney,
+                ]}
+              >
                 <Glyph
                   name={glyph}
-                  size={18}
+                  size={mark}
                   color={honey ? palette.honey : accent}
                 />
               </View>
             </View>
           ) : null}
-          <View style={styles.sectionWords}>
+          <View
+            onLayout={accessory ? place.onRoom : undefined}
+            style={[styles.sectionWords, place.below && styles.wordsBelow]}
+          >
             <Text
               ref={heading}
               accessibilityRole="header"
-              style={[styles.sectionTitle, honey && styles.sectionTitleHoney]}
+              onTextLayout={accessory ? place.onHeading : undefined}
+              {...(beside ? null : wholeWords(title))}
+              style={[
+                beside ? styles.sectionTitle : styles.sectionTitleAlone,
+                honey && styles.sectionTitleHoney,
+              ]}
             >
               {title}
             </Text>
             {accessory ? (
-              <View style={styles.accessory}>{accessory}</View>
+              <View onLayout={place.onAccessory} style={styles.accessory}>
+                {accessory}
+              </View>
             ) : null}
           </View>
         </View>
@@ -433,6 +596,7 @@ export function Section({
 /** A disclosure chevron that turns a quarter when what it opens is open. */
 function Chevron({ open }: { open?: boolean }) {
   const { reduced } = useMotionPrefs();
+  const size = useGlyphSize(16);
   const turn = useSharedValue(open ? 1 : 0);
   useEffect(() => {
     const target = open ? 1 : 0;
@@ -443,7 +607,7 @@ function Chevron({ open }: { open?: boolean }) {
   }));
   return (
     <Reanimated.View style={turning}>
-      <Glyph name="chevron" size={16} color={palette.dust} />
+      <Glyph name="chevron" size={size} color={palette.dust} />
     </Reanimated.View>
   );
 }
@@ -451,7 +615,9 @@ function Chevron({ open }: { open?: boolean }) {
 /**
  * A row that does something: its glyph, its label and a chevron.
  * `expanded`, when given, says the row opens something below it and whether
- * that is open now; the chevron turns to match.
+ * that is open now; the chevron turns to match. The label wraps between its
+ * words and shrinks rather than break one (`wholeWords`), and the glyphs grow
+ * with the text size.
  */
 export function Row({
   glyph,
@@ -469,6 +635,8 @@ export function Row({
   expanded?: boolean;
 }) {
   const live = usePaneActive();
+  const size = useGlyphSize(20);
+  const slot = useGlyphSize(ROW_GLYPH);
   return (
     <Pressable
       accessibilityRole="button"
@@ -487,21 +655,29 @@ export function Row({
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
       {glyph ? (
-        <View style={styles.rowGlyph}>
-          <Glyph name={glyph} size={20} color={palette.steam} />
+        <View style={[styles.rowGlyph, { width: slot }]}>
+          <Glyph name={glyph} size={size} color={palette.steam} />
         </View>
       ) : null}
-      <Text style={styles.rowLabel}>{label}</Text>
+      <Text {...wholeWords(label)} style={styles.rowLabel}>
+        {label}
+      </Text>
       <Chevron open={expanded} />
     </Pressable>
   );
 }
 
-/** A setting's value, shown and selectable but not a control. */
+/**
+ * A setting's value, shown and selectable but not a control. Its label keeps
+ * its words whole; its value, which may be data such as a server's address,
+ * wraps however it must rather than shrink or be cut short.
+ */
 export function Line({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.line}>
-      <Text style={styles.lineLabel}>{label}</Text>
+      <Text {...wholeWords(label)} style={styles.lineLabel}>
+        {label}
+      </Text>
       <Text selectable style={styles.lineValue}>
         {value}
       </Text>
@@ -514,31 +690,66 @@ const CREAM_TWIN = '#F3ECE0';
 
 /**
  * The thumb colour for a switch's `epoch`th showing on iOS. On iOS 26 a
- * switch's own thumb colour falls back to white: the device pass saw white
- * thumbs from the first, and it is known to happen each time the app comes
- * back to the front (react-native#53856). React Native sends the colour only
- * when it changes, so each showing alternates between cream and its twin,
- * and the switch is told again once it is on screen and after each return.
+ * switch's own thumb colour falls back to white (react-native#53856). React
+ * Native sends the colour only when it changes, so each showing alternates
+ * between cream and its twin, and the switch is told again (`useShowing`).
  */
 export const thumbTint = (epoch: number): string =>
   epoch % 2 === 1 ? palette.cream : CREAM_TWIN;
 
 /**
- * Counts the showings of a switch on iOS: one once it is on screen, and one
- * more each time the app comes back to the front. Android keeps its thumb
- * colour, so there it stays at its first.
+ * When a switch is told its thumb colour again after it is first laid out,
+ * in ms: once Settings has slid in, and once more after the slide's spring
+ * has come to rest and a slow first paint has landed. It is also told at
+ * once, and on the next frame.
+ *
+ * iOS 26 drops a colour a UISwitch is given before it has been drawn. The
+ * device pass saw it after a cold launch: the colour sent as the switch
+ * mounted, and again as the effect after mount ran, both arrived before the
+ * switch was on screen, and the thumb stayed white on every showing until
+ * the app had been to the background and back. A recycled switch that had
+ * already been drawn kept whatever it was told, which is why every showing
+ * after that return was cream. Layout is the first sign the switch is about
+ * to be drawn, so the colour is sent again from there, not from mount.
  */
-function useShowing(): number {
-  const [epoch, setEpoch] = useState(0);
+export const RETINT_AFTER_MS = [PANE_SETTLE_MS, 1000] as const;
+
+/**
+ * Counts the showings of a switch on iOS, so its thumb is told its colour
+ * again (`thumbTint`) once the switch is on screen: it starts at one, counts
+ * one as the switch is first laid out (`onShown`), one on the frame after,
+ * one at each of `RETINT_AFTER_MS`, and one each time the app comes back to
+ * the front. Android keeps its thumb colour, so there it stays at its first.
+ */
+function useShowing(): { epoch: number; onShown: () => void } {
+  const [epoch, setEpoch] = useState(1);
+  const shown = useRef(false);
+  // Cancels for what `onShown` schedules, one list for the switch's life.
+  const pending = useRef<(() => void)[]>([]);
   useEffect(() => {
+    const cancels = pending.current;
     if (Platform.OS !== 'ios') return;
-    setEpoch(1);
     const subscription = AppState.addEventListener('change', state => {
       if (state === 'active') setEpoch(at => at + 1);
     });
-    return () => subscription.remove();
+    return () => {
+      subscription.remove();
+      cancels.forEach(cancel => cancel());
+    };
   }, []);
-  return epoch;
+  const onShown = () => {
+    if (Platform.OS !== 'ios' || shown.current) return;
+    shown.current = true;
+    const again = () => setEpoch(at => at + 1);
+    again();
+    const frame = requestAnimationFrame(again);
+    pending.current.push(() => cancelAnimationFrame(frame));
+    for (const ms of RETINT_AFTER_MS) {
+      const timer = setTimeout(again, ms);
+      pending.current.push(() => clearTimeout(timer));
+    }
+  };
+  return { epoch, onShown };
 }
 
 /**
@@ -552,7 +763,8 @@ function useShowing(): number {
  * The colours are set for each platform: on both the track is the accent
  * when on and husk when off, with a cream thumb; iOS fills the off track with
  * its own grey unless given a background, so it takes husk as one, and its
- * thumb is told its colour again on each showing (`thumbTint`).
+ * thumb is told its colour again once it is laid out and on each return to
+ * the front (`useShowing`).
  */
 export function Toggle({
   label,
@@ -569,12 +781,14 @@ export function Toggle({
 }) {
   const live = usePaneActive();
   const { accent } = useAccent();
-  const epoch = useShowing();
+  const { epoch, onShown } = useShowing();
   const ios = Platform.OS === 'ios';
   return (
     <View style={styles.toggle}>
-      <Text style={styles.toggleLabel}>{label}</Text>
-      <View style={styles.switchBox}>
+      <Text {...wholeWords(label)} style={styles.toggleLabel}>
+        {label}
+      </Text>
+      <View onLayout={onShown} style={styles.switchBox}>
         <Switch
           accessibilityRole="switch"
           accessibilityLabel={accessibilityLabel}
@@ -601,24 +815,29 @@ export function Toggle({
 /**
  * A text field with its label above it, which is also its name for a screen
  * reader. Its edge lights in the accent while it has focus. `focus` lands a
- * screen reader on it without raising the keyboard.
+ * screen reader on it without raising the keyboard. `mono` sets what is typed
+ * in the mono face, for a value such as a node address that is shown in mono
+ * once saved.
  */
 export function Field({
   label,
   focus = false,
+  mono = false,
   onChangeText,
   onFocus,
   onBlur,
   multiline,
   ...props
-}: TextInputProps & { label: string; focus?: boolean }) {
+}: TextInputProps & { label: string; focus?: boolean; mono?: boolean }) {
   const live = usePaneActive();
   const { accent } = useAccent();
   const [focused, setFocused] = useState(false);
   const target = useFocus<ComponentRef<typeof TextInput>>(focus);
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text {...wholeWords(label)} style={styles.fieldLabel}>
+        {label}
+      </Text>
       <TextInput
         ref={target}
         accessibilityLabel={label}
@@ -638,6 +857,7 @@ export function Field({
         }}
         style={[
           styles.input,
+          mono && styles.inputMono,
           multiline && styles.multiline,
           focused && { borderColor: accent },
         ]}
@@ -675,6 +895,7 @@ export function Action({
   const { accent } = useAccent();
   const { reduced } = useMotionPrefs();
   const target = useFocus(focus);
+  const size = useGlyphSize(20);
   const scale = useSharedValue(1);
   const pressing = useAnimatedStyle(() => ({
     transform: [{ scale: scale.get() }],
@@ -717,11 +938,16 @@ export function Action({
         ]}
       >
         {busy ? (
-          <Working size={20} color={ink} />
+          <Working size={size} color={ink} />
         ) : glyph ? (
-          <Glyph name={glyph} size={20} color={ink} />
+          <Glyph name={glyph} size={size} color={ink} />
         ) : null}
-        <Text style={[styles.actionLabel, { color: ink }]}>{label}</Text>
+        <Text
+          {...wholeWords(label)}
+          style={[styles.actionLabel, { color: ink }]}
+        >
+          {label}
+        </Text>
       </Pressable>
     </Reanimated.View>
   );
@@ -750,6 +976,7 @@ export function Link({
   const live = usePaneActive();
   const { accent } = useAccent();
   const target = useFocus(focus);
+  const size = useGlyphSize(16);
   const ink =
     tone === 'radish'
       ? palette.radish
@@ -778,8 +1005,10 @@ export function Link({
         disabled && styles.inactive,
       ]}
     >
-      {glyph ? <Glyph name={glyph} size={16} color={ink} /> : null}
-      <Text style={[styles.linkLabel, { color: ink }]}>{label}</Text>
+      {glyph ? <Glyph name={glyph} size={size} color={ink} /> : null}
+      <Text {...wholeWords(label)} style={[styles.linkLabel, { color: ink }]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -787,11 +1016,17 @@ export function Link({
 /** Whether `network` is one whose coins have no value. */
 export const testNetwork = (network: string) => network !== 'mainnet';
 
+/** The glyph a network's pill leads with: a flask for play money. */
+export const networkGlyph = (network: string): GlyphName =>
+  testNetwork(network) ? 'flask' : 'bolt';
+
 /**
  * A choice of networks as pills. The chosen one fills with its network's
- * colour, bloom for mainnet and slate for a test network, which also carries
- * a flask so the difference is a shape as well as a colour, and says what a
- * test network is to a screen reader.
+ * colour, bloom for mainnet and slate for a test network. Each leads with its
+ * glyph in that colour (`networkGlyph`): a flask for a test network, so the
+ * difference is a shape as well as a colour, and mainnet's bolt, so every
+ * label sits on the same axis in its pill. A test network also says what it
+ * is to a screen reader.
  *
  * Only one can be chosen, so they are a radio group to a screen reader, the
  * chosen one checked. The pills share a line equally while their words fit,
@@ -812,12 +1047,14 @@ export function NetworkChoice<T extends string>({
   labelFor?: (option: T) => string;
 }) {
   const live = usePaneActive();
+  const size = useGlyphSize(14);
   return (
     <View accessibilityRole="radiogroup" style={styles.choice}>
       {options.map(option => {
         const selected = option === value;
         const test = testNetwork(option);
         const ink = selected ? palette.ink : palette.steam;
+        const tone = test ? palette.slate : palette.bloom;
         return (
           <Pressable
             key={option}
@@ -842,14 +1079,17 @@ export function NetworkChoice<T extends string>({
               disabled && styles.inactive,
             ]}
           >
-            {test ? (
-              <Glyph
-                name="flask"
-                size={14}
-                color={selected ? palette.ink : palette.slate}
-              />
-            ) : null}
-            <Text style={[styles.chipLabel, { color: ink }]}>{option}</Text>
+            <Glyph
+              name={networkGlyph(option)}
+              size={size}
+              color={selected ? palette.ink : tone}
+            />
+            <Text
+              {...wholeWords(option)}
+              style={[styles.chipLabel, { color: ink }]}
+            >
+              {option}
+            </Text>
           </Pressable>
         );
       })}
@@ -919,6 +1159,7 @@ export function Note({
   const look = noteLook(tone, useAccent());
   const shape = glyph ?? look.glyph;
   const target = useFocus(focus);
+  const size = useGlyphSize(18);
   const error = tone === 'error';
   useEffect(() => {
     if (error) announce(children);
@@ -931,11 +1172,11 @@ export function Note({
     >
       <View style={styles.noteGlyph}>
         {tone === 'pending' ? (
-          <Working size={18} color={look.ink} />
+          <Working size={size} color={look.ink} />
         ) : look.draw && !glyph ? (
-          <DrawnGlyph name={shape} size={18} color={look.ink} />
+          <DrawnGlyph name={shape} size={size} color={look.ink} />
         ) : (
-          <Glyph name={shape} size={18} color={look.ink} />
+          <Glyph name={shape} size={size} color={look.ink} />
         )}
       </View>
       <Text ref={target} style={styles.noteText}>
@@ -945,23 +1186,51 @@ export function Note({
   );
 }
 
+/** A zero-width space: somewhere a line may break that draws nothing. */
+const BREAK = '\u200B';
+
 /**
- * A value worth copying, such as a node address: shown whole in mono and
- * selectable, with a copy glyph that turns to a sage check for a moment. A
- * screen reader hears it was copied; nothing else says so.
+ * A node address (`pubkey@host:port`) as it is drawn: the key in mono groups
+ * of four (REDESIGN.md 3.3), which a line may break between, and a place to
+ * break after the `@` and before the `:port` that draws nothing. Mono text
+ * breaks wherever its line runs out otherwise, which split the host
+ * (`…@127` over `.0.0.1:19846`) and left a port's last digit on a line of its
+ * own. Anything that is not a node address is drawn as it is.
+ */
+export function nodeAddressText(uri: string): string {
+  const match = /^([0-9a-fA-F]{66})(?:@(.+?)(:\d+)?)?$/.exec(uri.trim());
+  if (!match) return uri;
+  const [, key, host, port] = match;
+  const groups = key.match(/.{1,4}/g)!.join(' ');
+  if (!host) return groups;
+  return `${groups}@${BREAK}${host}${port ? `${BREAK}${port}` : ''}`;
+}
+
+/**
+ * A value worth copying, such as a node address: shown whole in mono, with a
+ * copy glyph that turns to a sage check for a moment. A screen reader hears
+ * it was copied; nothing else says so. `shown` draws the value in a form
+ * easier to read than the one copied, such as a node address in groups
+ * (`nodeAddressText`); the copy glyph still copies `value` as it is, and the
+ * drawn form is not selectable, so its spaces and invisible breaks can never
+ * be copied in the value's place. A value drawn as it is stays selectable.
  */
 export function CopyLine({
   label,
   value,
+  shown,
   copyLabel,
   copiedLabel,
 }: {
   label: string;
   value: string;
+  shown?: string;
   copyLabel: string;
   copiedLabel: string;
 }) {
   const live = usePaneActive();
+  const size = useGlyphSize(18);
+  const target = useGlyphSize(TOUCH);
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -973,9 +1242,14 @@ export function CopyLine({
   return (
     <View style={styles.copyLine}>
       <View style={styles.flex}>
-        <Text style={styles.fieldLabel}>{label}</Text>
-        <Text selectable style={[styles.lineValue, styles.mono, styles.left]}>
-          {value}
+        <Text {...wholeWords(label)} style={styles.fieldLabel}>
+          {label}
+        </Text>
+        <Text
+          selectable={shown === undefined}
+          style={[styles.lineValue, styles.mono, styles.left]}
+        >
+          {shown ?? value}
         </Text>
       </View>
       <Pressable
@@ -994,20 +1268,21 @@ export function CopyLine({
               }
             : undefined
         }
-        style={({ pressed }) => [styles.copy, pressed && styles.pressed]}
+        style={({ pressed }) => [
+          styles.copy,
+          { width: target, height: target, borderRadius: target / 2 },
+          pressed && styles.pressed,
+        ]}
       >
         {copied ? (
-          <DrawnGlyph name="check" size={18} color={palette.sage} />
+          <DrawnGlyph name="check" size={size} color={palette.sage} />
         ) : (
-          <Glyph name="copy" size={18} color={palette.steam} />
+          <Glyph name="copy" size={size} color={palette.steam} />
         )}
       </Pressable>
     </View>
   );
 }
-
-/** The smallest a control is drawn (REDESIGN.md 3.4). */
-const TOUCH = 48;
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
@@ -1037,48 +1312,45 @@ const styles = StyleSheet.create({
     gap: space.sm,
     minHeight: 36,
   },
-  sectionGlyph: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  // The disc's size grows with the text (`glyphScale`), so it is set where
+  // it is drawn.
+  sectionGlyph: { alignItems: 'center', justifyContent: 'center' },
   disc: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
     backgroundColor: palette.mocha,
     alignItems: 'center',
     justifyContent: 'center',
   },
   discHoney: { backgroundColor: palette.honeySoft },
-  halo: { ...StyleSheet.absoluteFill, margin: -5 },
-  haloRing: {
-    flex: 1,
-    borderRadius: 21,
-    borderWidth: 1.5,
-    borderColor: palette.honey,
-  },
-  // The heading and its accessory share a line while both fit; the heading
-  // takes what the accessory leaves, and the accessory wraps below it once
-  // the heading needs the width.
+  halo: { ...StyleSheet.absoluteFill },
+  haloRing: { flex: 1, borderWidth: 1.5, borderColor: palette.honey },
+  // The heading and its accessory share a line while both fit, the heading
+  // taking what the accessory leaves; once they do not, the accessory takes
+  // the line below (`accessoryBelow`).
   sectionWords: {
     flex: 1,
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
-    columnGap: space.sm,
-    rowGap: space.xs,
+    gap: ACCESSORY_GAP,
   },
-  sectionTitle: {
+  wordsBelow: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: space.xs,
+  },
+  sectionTitle: { ...type.label, color: palette.steam, flex: 1 },
+  // Alone on its line, the heading has the whole width.
+  sectionTitleAlone: {
     ...type.label,
     color: palette.steam,
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 'auto',
+    alignSelf: 'stretch',
   },
   sectionTitleHoney: { color: palette.honey },
-  accessory: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  accessory: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    flexShrink: 0,
+  },
 
   row: {
     flexDirection: 'row',
@@ -1086,7 +1358,7 @@ const styles = StyleSheet.create({
     gap: space.sm,
     minHeight: 52,
   },
-  rowGlyph: { width: 32, alignItems: 'center' },
+  rowGlyph: { alignItems: 'center' },
   rowLabel: { ...type.body, color: palette.cream, flex: 1 },
 
   // A value that does not fit beside its label takes the line below.
@@ -1133,6 +1405,9 @@ const styles = StyleSheet.create({
     color: palette.cream,
     fontSize: 16,
   },
+  // Near the size of the address it will be shown as once saved, in the same
+  // face, and large enough to edit.
+  inputMono: { fontFamily: fonts.mono, fontSize: 14 },
   multiline: { minHeight: 96, textAlignVertical: 'top' },
 
   action: {

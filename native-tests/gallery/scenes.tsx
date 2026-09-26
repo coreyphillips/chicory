@@ -230,6 +230,9 @@ const settingsShots: Shot[] = [
   settings('having saved the primary node', () => ({
     steps: [press(words.primary.change), press(words.primary.save)],
   })),
+  settings('with a primary node still setting up', () => ({
+    snapshot: fresh({ primary: { connected: false, setup: 'pending' } }),
+  })),
   settings('with a primary node that failed setup', () => ({
     snapshot: fresh({
       primary: {

@@ -1,6 +1,6 @@
 import React from 'react';
 import type { PropsWithChildren } from 'react';
-import { StyleSheet, Switch, Text } from 'react-native';
+import { Dimensions, StyleSheet, Switch, Text } from 'react-native';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import * as Keychain from 'react-native-keychain';
@@ -22,7 +22,14 @@ import { StageProvider, useStageStore } from '../../../stage/StageContext';
 import { snapshotOf, walletOf } from '../../../../test-support/fixtures';
 import { mount } from '../../../../test-support/guard';
 import { SettingsLayer } from '../SettingsLayer';
-import { Action, SettingsNetwork, Toggle, accentFor, noteLook } from '../ui';
+import {
+  Action,
+  SettingsNetwork,
+  Toggle,
+  accentFor,
+  glyphScale,
+  noteLook,
+} from '../ui';
 
 /**
  * Test against mainnet is a safety state (REDESIGN.md rule 4), so on a test
@@ -106,6 +113,11 @@ const host = (tree: ReactTestRenderer, label: string) =>
       typeof node.type === 'string' && node.props.accessibilityLabel === label,
   );
 
+/** A heading's glyph, grown with Jest's text size as Settings grows it. */
+const HEADING_GLYPH = Math.round(
+  18 * glyphScale(Dimensions.get('window').fontScale),
+);
+
 /** The colour each section heading's glyph is drawn in, by glyph. */
 const headingGlyphs = (tree: ReactTestRenderer) =>
   Object.fromEntries(
@@ -113,7 +125,7 @@ const headingGlyphs = (tree: ReactTestRenderer) =>
       .findAll(
         node =>
           typeof node.type !== 'string' &&
-          node.props.size === 18 &&
+          node.props.size === HEADING_GLYPH &&
           typeof node.props.name === 'string' &&
           typeof node.props.color === 'string',
       )

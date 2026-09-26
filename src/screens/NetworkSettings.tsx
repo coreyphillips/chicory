@@ -173,6 +173,7 @@ export function NetworkSettings({
               value={profile.primaryUri}
               autoCapitalize="none"
               multiline
+              mono
               editable={!disabled}
               onChangeText={primaryUri => update({ primaryUri })}
             />
