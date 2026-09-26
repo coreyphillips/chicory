@@ -57,6 +57,31 @@ test('held is a warning, repeated at 300ms', () => {
   expect(played()).toEqual(['notificationWarning', 'notificationWarning']);
 });
 
+test('a held payment seen to complete is a success', () => {
+  haptics.held();
+  jest.advanceTimersByTime(1_000);
+  trigger.mockClear();
+  haptics.resolved();
+  expect(played()).toEqual(['notificationSuccess']);
+  jest.advanceTimersByTime(1_000);
+  expect(played()).toEqual(['notificationSuccess']);
+});
+
+test('completing while its held pattern still plays, the success takes the beat of its second warning', () => {
+  // A warning after the news would say it was held again, and a success
+  // straight after the first warning would crowd into its beat.
+  haptics.held();
+  jest.advanceTimersByTime(100);
+  haptics.resolved();
+  expect(played()).toEqual(['notificationWarning']);
+  jest.advanceTimersByTime(199);
+  expect(played()).toEqual(['notificationWarning']);
+  jest.advanceTimersByTime(1);
+  expect(played()).toEqual(['notificationWarning', 'notificationSuccess']);
+  jest.advanceTimersByTime(1_000);
+  expect(played()).toEqual(['notificationWarning', 'notificationSuccess']);
+});
+
 test('a pattern still playing can be forgotten, so it is not felt later', () => {
   haptics.held();
   haptics.incoming();

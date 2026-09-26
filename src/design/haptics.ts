@@ -16,7 +16,15 @@ const later = (ms: number, play: () => void) => {
     play();
   }, ms);
   pending.add(timer);
+  return timer;
 };
+
+/** How long after a held pattern's first warning its second plays. */
+export const HELD_BEAT_MS = 300;
+
+/** A held pattern's second warning, while it is still to play, and when. */
+let heldBeat: { timer: ReturnType<typeof setTimeout>; at: number } | null =
+  null;
 
 /**
  * Drops the later beats of patterns still playing. For tests only, so a
@@ -25,6 +33,7 @@ const later = (ms: number, play: () => void) => {
 export function forgetPendingHaptics() {
   pending.forEach(clearTimeout);
   pending.clear();
+  heldBeat = null;
 }
 
 export const haptics = {
@@ -50,7 +59,28 @@ export const haptics = {
   /** A payment held because its outcome is unknown: a warning, twice. */
   held: () => {
     haptic('warning');
-    later(300, () => haptic('warning'));
+    const timer = later(HELD_BEAT_MS, () => {
+      heldBeat = null;
+      haptic('warning');
+    });
+    heldBeat = { timer, at: Date.now() + HELD_BEAT_MS };
+  },
+  /**
+   * A held payment seen to complete: a success, the news the held ring was
+   * waiting for. A held pattern still playing gives its second warning up
+   * to it, and the success plays at that beat, so no warning follows the
+   * news and the two never crowd into one beat.
+   */
+  resolved: () => {
+    const beat = heldBeat;
+    if (!beat) {
+      haptic('success');
+      return;
+    }
+    heldBeat = null;
+    clearTimeout(beat.timer);
+    pending.delete(beat.timer);
+    later(Math.max(0, beat.at - Date.now()), () => haptic('success'));
   },
   /**
    * Hold to send, called as each quarter of the hold is reached (1 to 4): a
