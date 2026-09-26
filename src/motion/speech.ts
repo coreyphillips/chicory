@@ -55,6 +55,10 @@ export const SAFETY_CODE: Record<SafetyKind, string> = {
 };
 
 const waiting = new Map<string, number>();
+/** The kinds each waiting message speaks for. */
+const kindsOf = new Map<string, Set<SafetyKind>>();
+/** When a message of each kind was last said. */
+const heardAt = new Map<SafetyKind, number>();
 let queued: (() => void) | null = null;
 
 /**
@@ -66,9 +70,11 @@ export function announceSafety(message: string, kind: SafetyKind): () => void {
   if (!message) return () => {};
   const rank = SAFETY_ORDER[kind];
   waiting.set(message, Math.min(rank, waiting.get(message) ?? rank));
+  kindsOf.set(message, (kindsOf.get(message) ?? new Set()).add(kind));
   queued ??= whenSettled(speak);
   return () => {
     waiting.delete(message);
+    kindsOf.delete(message);
     if (waiting.size === 0) {
       queued?.();
       queued = null;
@@ -86,6 +92,17 @@ export function forgetSafety() {
   queued?.();
   queued = null;
   waiting.clear();
+  kindsOf.clear();
+  heardAt.clear();
+}
+
+/**
+ * Whether a message of `kind` has been said at `since` or after. A state
+ * felt on one surface whose words were withdrawn with it, as it went before
+ * they were heard, is still owed them by the next surface that shows it.
+ */
+export function heardSince(kind: SafetyKind, since: number): boolean {
+  return (heardAt.get(kind) ?? -Infinity) >= since;
 }
 
 function speak() {
@@ -93,7 +110,12 @@ function speak() {
   const said = [...waiting]
     .sort(([, a], [, b]) => a - b)
     .map(([message]) => message);
+  const now = Date.now();
+  for (const message of said) {
+    kindsOf.get(message)?.forEach(kind => heardAt.set(kind, now));
+  }
   waiting.clear();
+  kindsOf.clear();
   if (said.length > 0) announce(said.join(' '), { assertive: true });
 }
 

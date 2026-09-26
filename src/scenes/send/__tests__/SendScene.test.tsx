@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, View } from 'react-native';
+import { AccessibilityInfo, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
@@ -12,6 +12,7 @@ import type {
 import { copy } from '../../../design/copy';
 import { haptics } from '../../../design/haptics';
 import { Odometer } from '../../../glyphs/Odometer';
+import { forgetSafety } from '../../../motion/speech';
 import { durations } from '../../../motion/tokens';
 import { SendScreen } from '../../../screens/Send';
 import {
@@ -415,6 +416,38 @@ test('a balance that goes old while Send is open is felt once, by Send, and not 
   stale = true;
   await act(async () => tree.update(<OnCanvas />));
   expect(warned).toHaveBeenCalledTimes(2);
+  await act(async () => tree.unmount());
+});
+
+test('a balance that goes old in Send is said by Home when Send goes before its words are heard, and felt only once', async () => {
+  // Send marked the state felt and withdrew its words as it went, so Home
+  // owed nothing and the state was never said.
+  forgetSafety();
+  clearDiagnostics();
+  const warned = jest.spyOn(haptics, 'warning');
+  const spoken = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+  const spokenWith = jest.spyOn(
+    AccessibilityInfo,
+    'announceForAccessibilityWithOptions',
+  );
+  const heard = () =>
+    [...spoken.mock.calls, ...spokenWith.mock.calls]
+      .map(([text]) => text)
+      .filter(text => /not confirmed recently/.test(text));
+  const tree = await openSend();
+  stale = true;
+  await act(async () => tree.update(<OnCanvas />));
+  expect(warned).toHaveBeenCalledTimes(1);
+  // Closed at once, before the screen settles and its words are said.
+  await act(async () => stage.actions.home());
+  expect(heard()).toEqual([]);
+  await act(async () => {
+    await new Promise<void>(resolve => setTimeout(resolve, 1_500));
+  });
+  expect(heard()).toHaveLength(1);
+  expect(warned).toHaveBeenCalledTimes(1);
+  const logged = recentDiagnostics().filter(entry => entry.code === 'STALE');
+  expect(logged).toHaveLength(1);
   await act(async () => tree.unmount());
 });
 

@@ -157,22 +157,25 @@ function tintChannel(): TintChannel {
  */
 export interface FeltStates {
   has: (wallet: string, kind: SafetyKind) => boolean;
+  /** When the state was felt, while it has not ended since. */
+  since: (wallet: string, kind: SafetyKind) => number | undefined;
   set: (wallet: string, kind: SafetyKind, felt: boolean) => void;
   forget: () => void;
 }
 
 export function feltStates(): FeltStates {
   let owner = '';
-  const kinds = new Set<SafetyKind>();
+  const kinds = new Map<SafetyKind, number>();
   return {
     has: (wallet, kind) => wallet === owner && kinds.has(kind),
+    since: (wallet, kind) => (wallet === owner ? kinds.get(kind) : undefined),
     set: (wallet, kind, felt) => {
       if (wallet !== owner) {
         owner = wallet;
         kinds.clear();
       }
-      if (felt) kinds.add(kind);
-      else kinds.delete(kind);
+      if (!felt) kinds.delete(kind);
+      else if (!kinds.has(kind)) kinds.set(kind, Date.now());
     },
     forget: () => {
       owner = '';

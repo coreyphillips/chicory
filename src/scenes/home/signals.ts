@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { SAFETY_CODE, announceSafety } from '../../motion/speech';
+import { SAFETY_CODE, announceSafety, heardSince } from '../../motion/speech';
 import type { SafetyKind } from '../../motion/speech';
 import { recordDiagnostic } from '../../services/diagnosticLog';
 import { useStage } from '../../stage/StageContext';
@@ -57,6 +57,9 @@ export interface SignalPlace {
  * not with Home, which is drawn again after a relock or a spell offline: a
  * Home drawn again over a state already felt feels nothing (`signalStep`).
  * A state that begins while Home is not in front waits for it (`where`).
+ * Felt is not heard, though: a state felt on a surface that went, or by a
+ * Home torn down, before its words were said is said once more when Home
+ * is in front, without being felt or logged again.
  */
 export function useSafetySignal(
   on: boolean,
@@ -77,7 +80,19 @@ export function useSafetySignal(
       withdraw.current?.();
       withdraw.current = null;
     }
-    if (!step.play) return;
+    if (!step.play) {
+      const since = felt.since(wallet, kind);
+      if (
+        on &&
+        front &&
+        !withdraw.current &&
+        since !== undefined &&
+        !heardSince(kind, since)
+      ) {
+        withdraw.current = announceSafety(message, kind);
+      }
+      return;
+    }
     feel();
     recordDiagnostic({ phase: 'ui', message, code: SAFETY_CODE[kind] });
     withdraw.current?.();
