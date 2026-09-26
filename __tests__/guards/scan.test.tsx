@@ -18,6 +18,7 @@ import {
   CAUGHT_HOLD,
   CAUGHT_SCALE,
   REFUSAL_QUIET_MS,
+  SLATE_NIGHT,
   Scanner,
   TINT_MS,
   cornerPath,
@@ -32,7 +33,7 @@ import {
 import * as Announce from '../../src/design/announce';
 import { copy } from '../../src/design/copy';
 import { haptics } from '../../src/design/haptics';
-import { palette } from '../../src/design/palette';
+import { mixHex, palette } from '../../src/design/palette';
 import { Whisper } from '../../src/glyphs/Whisper';
 import * as Steady from '../../src/motion/steady';
 import { durations } from '../../src/motion/tokens';
@@ -1128,7 +1129,7 @@ describe('a test network', () => {
     const tree = await mount(reveal({ test: true }));
     // The disc's ground, and the cover over the camera it hands over to.
     expect(cameras(tree)).toHaveLength(1);
-    expect(rims(tree)).toEqual([bloomFor(true).night, bloomFor(true).night]);
+    expect(rims(tree)).toEqual([SLATE_NIGHT, SLATE_NIGHT]);
     expect(rims(tree).filter(rim => BLOOMS.includes(rim as never))).toEqual([]);
     expect(flasks(tree)).toEqual([palette.slate]);
     // The flask is drawing, sat in the status row's band, as the row's is.
@@ -1153,8 +1154,25 @@ describe('a test network', () => {
   test('with the camera switched off it is still slate, with the flask', async () => {
     denied();
     const tree = await mount(reveal({ test: true }));
-    expect(rims(tree)).toEqual([bloomFor(true).night]);
+    expect(rims(tree)).toEqual([SLATE_NIGHT]);
     expect(flasks(tree)).toEqual([palette.slate]);
     await act(async () => tree.unmount());
+  });
+
+  test('its ground is a deep slate night, not a grey fog round a black middle', () => {
+    // Slate's half step, about rgb 90 to 105 at the rim round a near black
+    // middle, read as dirty glass (P10, 52-scan-reveal-sheet).
+    const channels = (color: string) =>
+      color.startsWith('#')
+        ? [1, 3, 5].map(at => parseInt(color.slice(at, at + 2), 16))
+        : (color.match(/\d+/g) ?? []).map(Number);
+    const rim = channels(SLATE_NIGHT);
+    expect(rim).toHaveLength(3);
+    expect(Math.max(...rim)).toBeLessThanOrEqual(56);
+    expect(Math.max(...channels(bloomFor(true).night))).toBeGreaterThan(80);
+    // A step from roast toward slate, as the canvas's own test glow is, so
+    // it is slate's night and never bloom's.
+    expect(SLATE_NIGHT).toBe(mixHex(palette.roast, palette.slate, 0.2));
+    expect(BLOOMS).not.toContain(SLATE_NIGHT);
   });
 });

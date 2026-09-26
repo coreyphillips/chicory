@@ -23,6 +23,7 @@ import { TestNetwork, bloomFor } from '../scenes/receive/tone';
 import { useNow } from '../services/clock';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { usePaneActive } from '../stage/panes/Pane';
+import { duringSystemPrompt } from '../stage/systemPrompt';
 import { radius, space, type as typography } from '../theme';
 import type { WalletAdapter } from '../services/wallet';
 
@@ -139,7 +140,9 @@ export function ReceiveRequestDetails({
 
   async function paste() {
     const current = generation.current;
-    const text = await Clipboard.getString();
+    // iOS may ask whether to allow the paste: a prompt the app raised, which
+    // the privacy cover leaves the detail in place behind.
+    const text = await duringSystemPrompt(() => Clipboard.getString());
     if (current.active && text) setOriginal(text.trim());
   }
 

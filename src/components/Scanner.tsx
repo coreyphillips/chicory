@@ -14,10 +14,11 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  TurboModuleRegistry,
   View,
   useWindowDimensions,
 } from 'react-native';
-import type { LayoutChangeEvent } from 'react-native';
+import type { LayoutChangeEvent, TurboModule } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Reanimated, {
   ReduceMotion,
@@ -42,15 +43,15 @@ import { copy } from '../design/copy';
 import { Glyph } from '../design/glyphs';
 import type { GlyphName } from '../design/glyphs';
 import { haptics } from '../design/haptics';
-import { palette } from '../design/palette';
+import { mixHex, palette } from '../design/palette';
 import { Whisper } from '../glyphs/Whisper';
 import { riseIn, sceneOut } from '../motion/presets';
 import { steady } from '../motion/steady';
 import { curves, durations, overlap, shake, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
-import { bloomFor } from '../scenes/receive/tone';
 import { normalizePaymentLink } from '../services/links';
 import { STATUS_ROW } from '../stage/layout';
+import { duringSystemPrompt } from '../stage/systemPrompt';
 import { HIT_SLOP, space } from '../theme';
 
 /**
@@ -87,6 +88,26 @@ function loadCamera(): CameraModule | null {
     cameraKit = null;
   }
   return cameraKit;
+}
+
+/**
+ * camera-kit's own module, which asks iOS for the camera: whether it may be
+ * used (true, false, or -1 while it has never been asked), and asking.
+ */
+interface CameraAuthorization extends TurboModule {
+  checkDeviceCameraAuthorizationStatus: () => Promise<boolean | number>;
+  requestDeviceCameraAuthorization: () => Promise<boolean>;
+}
+
+/** That module, or null in a build without it, as under Jest. */
+export function cameraAuthorization(): CameraAuthorization | null {
+  try {
+    return (
+      TurboModuleRegistry.get<CameraAuthorization>('RNCameraKitModule') ?? null
+    );
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -276,6 +297,14 @@ function useForeground(): boolean {
 }
 
 /**
+ * Slate's night, the ground's corners on a test network: the step from roast
+ * toward slate the canvas's own test glow takes, deep and quiet. Slate's
+ * half step, a mid grey, ringed a near black middle and read as fog on dirty
+ * glass rather than as a night (P10, 52-scan-reveal-sheet).
+ */
+export const SLATE_NIGHT = mixHex(palette.roast, palette.slate, 0.2);
+
+/**
  * The ground the scan opens onto: roast at the centre, deepening to the
  * bloom's night at the corners, or on a test network to slate's (`test`,
  * REDESIGN.md 3.1), so play money never scans on mainnet's colour. The
@@ -309,7 +338,10 @@ export const ScanGround = memo(function ScanGroundSvg({
         >
           <Stop offset="0" stopColor={palette.roast} />
           <Stop offset="0.45" stopColor={palette.roast} />
-          <Stop offset="1" stopColor={bloomFor(test).night} />
+          <Stop
+            offset="1"
+            stopColor={test ? SLATE_NIGHT : palette.bloomNight}
+          />
         </RadialGradient>
       </Defs>
       <Rect width={width} height={height} fill="url(#scan-ground)" />
@@ -797,10 +829,15 @@ export function Scanner({
     [caught, sage, radish, nudge, pinch],
   );
 
+  // The camera is asked for while the scan opens. The system's prompt is
+  // one the app raised, so the privacy cover leaves the scan in place behind
+  // it (`duringSystemPrompt`): the person sees what the camera is for.
   useEffect(() => {
     if (Platform.OS !== 'android' || !Camera) return;
     let active = true;
-    PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA)
+    duringSystemPrompt(() =>
+      PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA),
+    )
       .then(result => {
         if (!active) return;
         setAccess(
@@ -808,6 +845,36 @@ export function Scanner({
         );
       })
       .catch(() => active && setAccess('denied'));
+    return () => {
+      active = false;
+    };
+  }, [Camera]);
+
+  // iOS asks as the camera mounts, where nothing marks the prompt as the
+  // app's. So a camera never asked for is asked for here, first, and the
+  // camera mounts once it is allowed; one already allowed or refused is
+  // known at once.
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !Camera) return;
+    const kit = cameraAuthorization();
+    if (!kit) return;
+    let active = true;
+    kit
+      .checkDeviceCameraAuthorizationStatus()
+      .then(status => {
+        if (!active || status === true) return;
+        if (status === false) {
+          setAccess('denied');
+          return;
+        }
+        setAccess('checking');
+        return duringSystemPrompt(() =>
+          kit.requestDeviceCameraAuthorization(),
+        ).then(granted => {
+          if (active) setAccess(granted ? 'granted' : 'denied');
+        });
+      })
+      .catch(() => {});
     return () => {
       active = false;
     };
@@ -917,7 +984,9 @@ export function Scanner({
     if (claimed.current) return;
     let value = '';
     try {
-      value = (await Clipboard.getString())?.trim() ?? '';
+      // iOS may ask whether to allow the paste: a prompt the app raised.
+      value =
+        (await duringSystemPrompt(() => Clipboard.getString()))?.trim() ?? '';
     } catch {
       refusePaste(copy.scan.clipboardUnreadable);
       return;

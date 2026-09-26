@@ -528,7 +528,8 @@ On the canvas a payment that completes is felt once, by the canvas's `useIncomin
 
 - **Disc.** Its diameter is 2 × the distance from the button to the farthest corner, and it scales up from the button size with the pane spring. The spring, and the clock that mounts the camera once the disc looks open, run on the steady clock (3.5), so the slow frame that mounts the overlay holds the reveal back rather than skipping it.
 - **Reticle.** Four 28pt corners fly in, 40ms apart, on the steady clock too.
-- **Test network.** The ground and the camera's cover are slate's night in place of bloom's, and a slate `flask` sits at the page edge in the status row's band, which the scan covers (rule 4). The canvas passes the wallet's network, and so does a Send that draws its camera itself.
+- **Test network.** The ground and the camera's cover are slate's night in place of bloom's, a deep step from roast toward slate (`SLATE_NIGHT`, the step the canvas's own test glow takes), so it reads as a night and not as a grey fog round a black middle, and a slate `flask` sits at the page edge in the status row's band, which the scan covers (rule 4). The canvas passes the wallet's network, and so does a Send that draws its camera itself.
+- **System prompts.** The camera is asked for as the scan opens (on iOS through camera-kit, before the camera mounts, when it has never been asked; on Android at runtime), and a paste reads the clipboard, each inside `duringSystemPrompt`, so the privacy cover leaves the scan in place behind the prompt. A payment's detail reads the clipboard the same way.
 - **Valid code.** The corners snap to .85 and turn sage.
 - **Invalid code.** A radish flash and a shake, and scanning continues.
 - **Denied or no camera.** `cameraOff`, `clipboard`, and on denial a `cog` that opens OS settings.
