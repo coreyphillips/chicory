@@ -52,8 +52,17 @@ export const COG_TURN = 120;
  * on the canvas the cog turns 120 degrees with Settings as it covers the
  * canvas, and back with it, the swipe that closes Settings included (T6).
  * Under Reduce Motion the two crossfade and the cog stays still.
+ *
+ * `scale` grows its target and glyph with the text, as Settings' close does
+ * (`glyphScale`), drawn at that size rather than scaled up from 48pt.
  */
-export function CornerControl({ home }: { home: boolean }) {
+export function CornerControl({
+  home,
+  scale = 1,
+}: {
+  home: boolean;
+  scale?: number;
+}) {
   const { state, actions } = useStage();
   const live = usePaneActive();
   const panes = useCanvasPanes();
@@ -75,6 +84,7 @@ export function CornerControl({ home }: { home: boolean }) {
           <CornerButton
             glyph="cog"
             label={copy.home.settings}
+            scale={scale}
             onPress={live ? actions.openSettings : undefined}
           />
         ) : (
@@ -82,6 +92,7 @@ export function CornerControl({ home }: { home: boolean }) {
             glyph="close"
             label={copy.home.close}
             disabled={state.busy}
+            scale={scale}
             onPress={live ? actions.back : undefined}
           />
         )}
@@ -91,18 +102,21 @@ export function CornerControl({ home }: { home: boolean }) {
 }
 
 /**
- * A plain glyph in a 48pt target, which dips as it is pressed. Like the
- * canvas's other controls, it takes no touches without an `onPress`.
+ * A plain glyph in a 48pt target, both grown by `scale`, which dips as it is
+ * pressed. Like the canvas's other controls, it takes no touches without an
+ * `onPress`.
  */
 function CornerButton({
   glyph,
   label,
   disabled = false,
+  scale,
   onPress,
 }: {
   glyph: GlyphName;
   label: string;
   disabled?: boolean;
+  scale: number;
   onPress?: () => void;
 }) {
   const { reduced } = useMotionPrefs();
@@ -128,9 +142,16 @@ function CornerButton({
             onPress();
           })
         }
-        style={[styles.target, disabled && styles.disabled]}
+        style={[
+          styles.target,
+          scale !== 1 && {
+            width: CORNER_TARGET * scale,
+            height: CORNER_TARGET * scale,
+          },
+          disabled && styles.disabled,
+        ]}
       >
-        <Icon name={glyph} size={GLYPH} color={palette.cream} />
+        <Icon name={glyph} size={GLYPH * scale} color={palette.cream} />
       </Pressable>
     </Reanimated.View>
   );

@@ -221,7 +221,9 @@ describe('at the largest text size', () => {
         typeof node.type === 'string' &&
         node.props.accessibilityLabel === copy.home.close,
     );
-    expect(flat(close).width).toBe(CORNER_TARGET);
+    // At least 48pt, grown with the text as its glyph is.
+    expect(flat(close).width).toBe(CORNER_TARGET * glyphScale(FONT_SCALE));
+    expect(flat(close).width).toBeGreaterThanOrEqual(CORNER_TARGET);
     await unmount(tree);
   });
 
@@ -456,8 +458,9 @@ describe('the glyphs beside the words', () => {
     expect(glyph('lock', grown(18)).length).toBeGreaterThan(0);
     expect(glyph('flask', grown(14)).length).toBeGreaterThan(0);
     expect(glyph('chevron', 16)).toHaveLength(0);
-    // The close is scaled whole, its target with its glyph, in a box that
-    // gives the bar the room it takes.
+    // The close grows whole, its target with its glyph, drawn at that size
+    // rather than scaled up from 48pt, in a box that gives the bar the room
+    // it takes.
     const size = CORNER_TARGET * glyphScale(FONT_SCALE);
     const box = tree.root.find(
       node =>
@@ -468,20 +471,23 @@ describe('the glyphs beside the words', () => {
           inner => inner.props.accessibilityLabel === copy.home.close,
         ).length > 0,
     );
-    const scaled = box.findAll(
+    const close = box.find(
       node =>
-        node.type === View &&
-        JSON.stringify(flat(node).transform) ===
-          JSON.stringify([{ scale: glyphScale(FONT_SCALE) }]),
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === copy.home.close,
     );
-    expect(scaled.length).toBeGreaterThan(0);
+    expect(flat(close)).toMatchObject({ width: size, height: size });
     expect(
-      scaled[0].findAll(
-        node =>
-          typeof node.type === 'string' &&
-          node.props.accessibilityLabel === copy.home.close,
-      ),
-    ).toHaveLength(1);
+      glyphs(close, 'close', 20 * glyphScale(FONT_SCALE)).length,
+    ).toBeGreaterThan(0);
+    expect(glyphs(close, 'close', 20)).toHaveLength(0);
+    // Nothing between the box and the close scales it again.
+    for (let at = close.parent; at && at !== box; at = at.parent) {
+      const scale = (flat(at).transform ?? []).find(
+        (step: Record<string, unknown>) => 'scale' in step,
+      );
+      expect(scale?.scale ?? 1).toBe(1);
+    }
     await unmount(tree);
   });
 

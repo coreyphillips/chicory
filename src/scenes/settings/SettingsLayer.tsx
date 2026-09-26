@@ -120,17 +120,16 @@ export function SettingsLayer({
         >
           {copy.settings.title}
         </Text>
-        {/* Scaled as a whole, so its glyph, its target and its spin grow
-        together; the box around it gives the bar the room it takes. */}
+        {/* Drawn at the text's scale, its glyph and its target together,
+        rather than scaled up from 48pt; the box around it gives the bar the
+        room it takes. */}
         <View
           style={[
             styles.close,
             { width: CORNER_TARGET * grow, height: CORNER_TARGET * grow },
           ]}
         >
-          <View style={{ transform: [{ scale: grow }] }}>
-            <CornerControl home={false} />
-          </View>
+          <CornerControl home={false} scale={grow} />
         </View>
         <TitleFade />
       </View>
