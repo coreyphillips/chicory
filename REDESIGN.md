@@ -213,7 +213,7 @@ G3 tints:
 | whisper      | 13/18                      | cream, the Whisper pill (rule 3)                                                                                                |
 
 - Settings keeps text styles: title 28/34 at 600, body 15/22, label 13/18 at 600.
-- `maxFontSizeMultiplier`: hero and amount 1.2, rows 1.4, Settings unlimited.
+- `maxFontSizeMultiplier`: hero and amount 1.2, rows 1.4, Settings unlimited. So Settings reflows rather than clips: a label keeps its words whole, taking no more lines than it has words and shrinking a little rather than break one (`wholeWords`); a heading's accessory drops below the heading once the heading, beside it, would need a second line (`accessoryBelow`, measured, not left to Yoga's wrapping); a node address breaks only between its key's groups of 4, after the `@` and before the `:port` (`nodeAddressText`), and is typed in mono as it is shown; and the glyphs beside the words, the close included, grow with the text up to twice their size (`glyphScale`).
 
 ### 3.4 Space and radius
 

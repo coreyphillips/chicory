@@ -1,5 +1,11 @@
 import React from 'react';
-import { RefreshControl, StyleSheet, Text, View } from 'react-native';
+import {
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { copy } from '../../design/copy';
@@ -7,10 +13,20 @@ import { palette } from '../../design/palette';
 import { SettingsScreen } from '../../screens/Settings';
 import type { RegionProps } from '../../stage/Canvas';
 import { STATUS_ROW } from '../../stage/layout';
-import { CORNER_REACH, CornerControl } from '../../stage/panes/CornerControl';
+import {
+  CORNER_REACH,
+  CORNER_TARGET,
+  CornerControl,
+} from '../../stage/panes/CornerControl';
 import { SceneSlot } from '../../stage/panes/SceneSlot';
 import { space, type } from '../../theme';
-import { Note, SettingsSurface, accentFor, testNetwork } from './ui';
+import {
+  Note,
+  SettingsSurface,
+  accentFor,
+  glyphScale,
+  testNetwork,
+} from './ui';
 
 /**
  * How far the fade under Settings' bar reaches down over the page: the
@@ -68,7 +84,8 @@ function TitleFade() {
  *
  * Its bar grows with the text size, which Settings does not cap: the title
  * keeps to its one word and gives way before the close control does, so the
- * close stays on screen at every size.
+ * close stays on screen at every size. The close grows with the text as the
+ * page's glyphs do (`glyphScale`), its target with it.
  *
  * The page scrolls under the bar into a short roast fade (`TitleFade`), and
  * under the home indicator to the screen's edge: the inset is room at the
@@ -86,6 +103,8 @@ export function SettingsLayer({
   // area. At the foot it runs to the screen's edge, and the home indicator's
   // inset is added to the end of the page instead.
   const { top, bottom } = useSafeAreaInsets();
+  const { fontScale } = useWindowDimensions();
+  const grow = glyphScale(fontScale);
   const { accent } = accentFor(testNetwork(snapshot.wallet.network));
   return (
     <SettingsSurface style={[styles.layer, { marginTop: top }]}>
@@ -101,7 +120,18 @@ export function SettingsLayer({
         >
           {copy.settings.title}
         </Text>
-        <CornerControl home={false} />
+        {/* Scaled as a whole, so its glyph, its target and its spin grow
+        together; the box around it gives the bar the room it takes. */}
+        <View
+          style={[
+            styles.close,
+            { width: CORNER_TARGET * grow, height: CORNER_TARGET * grow },
+          ]}
+        >
+          <View style={{ transform: [{ scale: grow }] }}>
+            <CornerControl home={false} />
+          </View>
+        </View>
         <TitleFade />
       </View>
       <SceneSlot
@@ -154,6 +184,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   title: { ...type.title, color: palette.cream, flexShrink: 1 },
+  close: { alignItems: 'center', justifyContent: 'center' },
   fade: {
     position: 'absolute',
     top: '100%',

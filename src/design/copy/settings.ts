@@ -57,7 +57,12 @@ export const settings = {
     connected: 'Connected',
     connecting: 'Connecting',
     setup: 'Setup',
+    /** No setup reported yet. */
     waiting: 'Waiting',
+    /** Where the setup is, in words rather than the engine's own value. */
+    setupPending: 'Setting up',
+    setupReady: 'Ready',
+    setupFailed: 'Failed',
     address: 'Node address',
     none: 'No primary configured',
     copy: 'Copy node address',

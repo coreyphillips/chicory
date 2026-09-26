@@ -304,6 +304,7 @@ export function CreateWalletScreen({
           value={primary}
           onChangeText={setPrimary}
           multiline
+          mono
           autoCapitalize="none"
           editable={!busy}
         />

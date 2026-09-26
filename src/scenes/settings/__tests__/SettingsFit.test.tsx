@@ -1,6 +1,6 @@
 import React from 'react';
 import type { PropsWithChildren } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { Stop } from 'react-native-svg';
 import { act } from 'react-test-renderer';
@@ -21,14 +21,21 @@ import { mount } from '../../../../test-support/guard';
 import { press } from '../../../../test-support/query';
 import { RecoveryWords } from '../RecoveryWords';
 import { SettingsLayer, TITLE_FADE } from '../SettingsLayer';
-import { NetworkChoice, Section } from '../ui';
+import {
+  GLYPH_SCALE_MAX,
+  NetworkChoice,
+  Section,
+  accessoryBelow,
+  glyphScale,
+} from '../ui';
 
 /**
  * Settings on the phone (the P7 and P10 device passes): it has no ceiling on
  * text size (REDESIGN.md 3.3), so its bar, headings and pills must reflow
- * rather than clip; its cards hold what rises into them, fade under the
- * title and run under the home indicator; and the network a wallet is on is
- * a checked radio, never a heading.
+ * rather than clip, its words never break inside a word, and its glyphs grow
+ * with the text; its cards hold what rises into them, fade under the title
+ * and run under the home indicator; and the network a wallet is on is a
+ * checked radio, never a heading.
  *
  * Jest lays nothing out, so the layout is held here as the styles that make
  * it, and the reasons are in the components.
@@ -93,6 +100,22 @@ function settings(snapshot: WalletSnapshot) {
     </SafeAreaInsetsContext.Provider>,
   );
 }
+
+/** The glyphs drawn under `node`, by name and size when given. */
+const glyphs = (node: ReactTestInstance, name?: string, size?: number) =>
+  node.findAll(
+    inner =>
+      typeof inner.type !== 'string' &&
+      typeof inner.props.name === 'string' &&
+      typeof inner.props.size === 'number' &&
+      typeof inner.props.color === 'string' &&
+      (name === undefined || inner.props.name === name) &&
+      (size === undefined || inner.props.size === size),
+  );
+
+/** Jest's window reports a font scale of 2, an accessibility size. */
+const FONT_SCALE = Dimensions.get('window').fontScale;
+const grown = (size: number) => Math.round(size * glyphScale(FONT_SCALE));
 
 const regtest = snapshotOf();
 
@@ -202,7 +225,10 @@ describe('at the largest text size', () => {
     await unmount(tree);
   });
 
-  test('a heading keeps its width and its accessory drops below it', async () => {
+  test('a heading starts with its accessory below it at an accessibility size', async () => {
+    // Jest's window has a font scale of 2, past BELOW_FROM_SCALE: the heading
+    // starts where it will settle, so the card does not change height as
+    // Settings arrives.
     const tree = await settings(regtest);
     const heading = tree.root.find(
       node =>
@@ -210,23 +236,119 @@ describe('at the largest text size', () => {
         node.props.accessibilityRole === 'header' &&
         node.props.children === copy.settings.primary.heading,
     );
-    // Not `flex: 1`, which starts the heading at no width and gives the
-    // accessory whatever it asks for.
-    expect(flat(heading)).toMatchObject({
-      flexGrow: 1,
-      flexShrink: 1,
-      flexBasis: 'auto',
-    });
-    expect(flat(heading.parent!)).toMatchObject({
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-    });
-    const words = heading.parent!.findAll(
-      node =>
-        node.type === Text &&
-        node.props.children === copy.settings.primary.connected,
+    expect(flat(heading.parent!).flexDirection).toBe('column');
+    expect(
+      heading.parent!.findAll(
+        node =>
+          node.type === Text &&
+          node.props.children === copy.settings.primary.connected,
+      ),
+    ).toHaveLength(1);
+    await unmount(tree);
+  });
+
+  test('a heading beside its accessory hands it the line below once the heading needs a second line', async () => {
+    const tree = await mount(
+      <Section
+        glyph="bolt"
+        title={copy.settings.primary.heading}
+        accessory={<Text>{copy.settings.primary.connected}</Text>}
+      >
+        <Text>row</Text>
+      </Section>,
     );
-    expect(words).toHaveLength(1);
+    const heading = () =>
+      tree.root.find(
+        node => node.type === Text && node.props.accessibilityRole === 'header',
+      );
+    const words = () => heading().parent!;
+    const accessory = () =>
+      words().find(
+        node =>
+          node.type === View &&
+          !!node.props.onLayout &&
+          node.findAll(
+            inner =>
+              inner.type === Text &&
+              inner.props.children === copy.settings.primary.connected,
+          ).length > 0,
+      );
+    const layout = (width: number) => ({
+      nativeEvent: { layout: { x: 0, y: 0, width, height: 20 } },
+    });
+    const lines = (...widths: number[]) => ({
+      nativeEvent: {
+        lines: widths.map(width => ({ width, height: 18, x: 0, y: 0 })),
+      },
+    });
+    const measure = async (heard: {
+      room?: number;
+      accessory?: number;
+      lines?: number[];
+    }) =>
+      act(async () => {
+        if (heard.room) words().props.onLayout(layout(heard.room));
+        if (heard.accessory)
+          accessory().props.onLayout(layout(heard.accessory));
+        if (heard.lines) heading().props.onTextLayout(lines(...heard.lines));
+      });
+    const below = () => flat(words()).flexDirection === 'column';
+
+    // Below it, at Jest's font scale, until the heading's one line and the
+    // accessory are measured to fit the room together.
+    expect(below()).toBe(true);
+    await measure({ room: 266, accessory: 120, lines: [240] });
+    expect(below()).toBe(true);
+    await measure({ lines: [90] });
+    expect(below()).toBe(false);
+    // Beside it, the heading takes what the accessory leaves and wraps
+    // freely, so being squeezed shows as a second line.
+    expect(flat(heading()).flex).toBe(1);
+    expect(heading().props.numberOfLines).toBeUndefined();
+    // The P10 device pass: 41pt wide, a letter or two a line.
+    await measure({ lines: [30, 28, 41, 25, 18, 30, 30, 30, 30, 25] });
+    expect(below()).toBe(true);
+    // Alone on its line it has the whole width, and keeps its words whole.
+    expect(flat(heading()).alignSelf).toBe('stretch');
+    expect(heading().props).toMatchObject({
+      numberOfLines: 2,
+      adjustsFontSizeToFit: true,
+    });
+    expect(flat(accessory()).flexShrink).toBe(0);
+    await unmount(tree);
+  });
+
+  test('a heading with no accessory measures nothing and keeps its words whole', async () => {
+    const tree = await mount(
+      <Section glyph="lock" title={copy.settings.phone.heading}>
+        <Text>row</Text>
+      </Section>,
+    );
+    const heading = tree.root.find(
+      node => node.type === Text && node.props.accessibilityRole === 'header',
+    );
+    expect(heading.props.onTextLayout).toBeUndefined();
+    expect(heading.parent!.props.onLayout).toBeUndefined();
+    expect(heading.props.numberOfLines).toBe(2);
+    await unmount(tree);
+  });
+
+  test('a label wraps between its words and shrinks rather than break one', async () => {
+    const tree = await settings(regtest);
+    const label = (words: string) =>
+      tree.root.find(
+        node => node.type === Text && node.props.children === words,
+      );
+    // "Diagnosti/cs" on the P10 device pass.
+    expect(label(copy.settings.diagnostics.heading).props).toMatchObject({
+      numberOfLines: 1,
+      adjustsFontSizeToFit: true,
+    });
+    expect(label(copy.settings.wallet.chooseAnother).props).toMatchObject({
+      numberOfLines: 3,
+      adjustsFontSizeToFit: true,
+    });
+    expect(label(copy.settings.phone.haptics).props.numberOfLines).toBe(1);
     await unmount(tree);
   });
 
@@ -283,6 +405,100 @@ describe('a section', () => {
       node => typeof node.type !== 'string' && !!node.props.layout,
     );
     expect(flat(card).overflow).toBe('hidden');
+    await unmount(tree);
+  });
+});
+
+describe('where a heading puts its accessory', () => {
+  const fit = (lines: number[], room = 266, accessory = 120) => ({
+    room,
+    accessory,
+    lines,
+  });
+
+  test('beside it, drops it once the heading takes a second line', () => {
+    expect(accessoryBelow(false, fit([90]))).toBe(false);
+    expect(accessoryBelow(false, fit([60, 40]))).toBe(true);
+  });
+
+  test('below it, brings it back only once the one line and it fit together', () => {
+    expect(accessoryBelow(true, fit([90]))).toBe(false);
+    // 240 + the gap + 120 is past 266.
+    expect(accessoryBelow(true, fit([240]))).toBe(true);
+    // Exactly the room, with nothing to spare, stays below.
+    expect(accessoryBelow(true, fit([134]))).toBe(true);
+    expect(accessoryBelow(true, fit([132]))).toBe(false);
+    expect(accessoryBelow(true, fit([150, 60]))).toBe(true);
+  });
+
+  test('stays where it is until everything is measured', () => {
+    expect(accessoryBelow(true, fit([90], 0))).toBe(true);
+    expect(accessoryBelow(false, fit([60, 40], 266, 0))).toBe(false);
+    expect(accessoryBelow(false, fit([]))).toBe(false);
+  });
+});
+
+describe('the glyphs beside the words', () => {
+  test('grow with the text size, from their own size to twice it', () => {
+    expect(glyphScale(0.82)).toBe(1);
+    expect(glyphScale(1)).toBe(1);
+    expect(glyphScale(1.353)).toBe(1.353);
+    // The largest accessibility size.
+    expect(glyphScale(3.571)).toBe(GLYPH_SCALE_MAX);
+  });
+
+  test("a row's glyph and chevron, a heading's disc, the pills' and the close's grow at a large size", async () => {
+    const tree = await settings(regtest);
+    const glyph = (name: string, size: number) => glyphs(tree.root, name, size);
+    // Diagnostics' info glyph and chevron (P10: 16 and 20 beside 50pt words).
+    expect(glyph('info', grown(20)).length).toBeGreaterThan(0);
+    expect(glyph('chevron', grown(16)).length).toBeGreaterThan(0);
+    expect(glyph('lock', grown(18)).length).toBeGreaterThan(0);
+    expect(glyph('flask', grown(14)).length).toBeGreaterThan(0);
+    expect(glyph('chevron', 16)).toHaveLength(0);
+    // The close is scaled whole, its target with its glyph, in a box that
+    // gives the bar the room it takes.
+    const size = CORNER_TARGET * glyphScale(FONT_SCALE);
+    const box = tree.root.find(
+      node =>
+        node.type === View &&
+        flat(node).width === size &&
+        flat(node).height === size &&
+        node.findAll(
+          inner => inner.props.accessibilityLabel === copy.home.close,
+        ).length > 0,
+    );
+    const scaled = box.findAll(
+      node =>
+        node.type === View &&
+        JSON.stringify(flat(node).transform) ===
+          JSON.stringify([{ scale: glyphScale(FONT_SCALE) }]),
+    );
+    expect(scaled.length).toBeGreaterThan(0);
+    expect(
+      scaled[0].findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.accessibilityLabel === copy.home.close,
+      ),
+    ).toHaveLength(1);
+    await unmount(tree);
+  });
+
+  test('every network pill leads with a glyph, so their words share an axis', async () => {
+    const tree = await mount(
+      <NetworkChoice
+        options={['mainnet', 'testnet', 'regtest'] as const}
+        value="regtest"
+        onChange={jest.fn()}
+      />,
+    );
+    const lead = (label: string) => glyphs(host(tree, label))[0]?.props.name;
+    // P10: mainnet had none, so its word sat off the flasks' axis.
+    expect(lead('mainnet')).toBe('bolt');
+    expect(lead('testnet')).toBe('flask');
+    expect(lead('regtest')).toBe('flask');
+    expect(glyphs(host(tree, 'mainnet'))[0].props.color).toBe(palette.bloom);
     await unmount(tree);
   });
 });

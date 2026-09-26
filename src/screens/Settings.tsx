@@ -25,7 +25,10 @@ import {
   Section,
   SettingsNetwork,
   Toggle,
+  nodeAddressText,
   testNetwork,
+  useGlyphSize,
+  wholeWords,
 } from '../scenes/settings/ui';
 import { duringSystemPrompt } from '../stage/systemPrompt';
 import { useHapticsPreference } from '../services/hapticsPreference';
@@ -167,20 +170,39 @@ function WalletSection({
   );
 }
 
-/** Whether the primary node is connected: a sage dot, or a breathing honey one. */
+/**
+ * Where the primary node's setup is, in words: ready, setting up or failed
+ * (REDESIGN.md 6, Wallet health), and waiting while the engine has reported
+ * nothing. Never the engine's own value, which is a lowercase code.
+ */
+export function setupWord(primary: WalletSnapshot['primary']): string {
+  const p = words.primary;
+  if (primary.setup === 'ready') return p.setupReady;
+  if (primary.setupError || primary.setup === 'failed') return p.setupFailed;
+  return primary.setup ? p.setupPending : p.waiting;
+}
+
+/**
+ * Whether the primary node is connected: a sage dot, or a breathing honey
+ * one. The dot grows with the words beside it.
+ */
 function Connection({ connected }: { connected: boolean }) {
+  const dot = useGlyphSize(DOT);
+  const state = connected ? words.primary.connected : words.primary.connecting;
   return (
     <View style={styles.connection}>
       <Breathe on={!connected}>
         <View
-          style={[
-            styles.dot,
-            { backgroundColor: connected ? palette.sage : palette.honey },
-          ]}
+          style={{
+            width: dot,
+            height: dot,
+            borderRadius: dot / 2,
+            backgroundColor: connected ? palette.sage : palette.honey,
+          }}
         />
       </Breathe>
-      <Text style={styles.connectionText}>
-        {connected ? words.primary.connected : words.primary.connecting}
+      <Text {...wholeWords(state)} style={styles.connectionText}>
+        {state}
       </Text>
     </View>
   );
@@ -231,7 +253,7 @@ function PrimarySection({
       index={index}
       accessory={<Connection connected={snapshot.primary.connected} />}
     >
-      <Line label={p.setup} value={snapshot.primary.setup || p.waiting} />
+      <Line label={p.setup} value={setupWord(snapshot.primary)} />
       {snapshot.primary.setupError ? (
         <Note tone="error">{snapshot.primary.setupError}</Note>
       ) : null}
@@ -248,6 +270,7 @@ function PrimarySection({
             onChangeText={setPrimary}
             autoCapitalize="none"
             multiline
+            mono
             editable={!busy}
             focus
           />
@@ -266,6 +289,11 @@ function PrimarySection({
           <CopyLine
             label={p.address}
             value={snapshot.primary.uri || p.none}
+            shown={
+              snapshot.primary.uri
+                ? nodeAddressText(snapshot.primary.uri)
+                : undefined
+            }
             copyLabel={p.copy}
             copiedLabel={p.copied}
           />
@@ -640,11 +668,13 @@ export function SettingsScreen({
   );
 }
 
+/** The connection dot at the standard text size; it grows with its words. */
+const DOT = 7;
+
 const styles = StyleSheet.create({
   page: { gap: space.md },
   stack: { gap: space.md },
   connection: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  dot: { width: 7, height: 7, borderRadius: 3.5 },
   connectionText: { ...type.meta, color: palette.steam },
   about: {
     ...type.meta,
