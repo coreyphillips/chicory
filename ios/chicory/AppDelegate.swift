@@ -18,8 +18,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
   /// The privacy cover while it is up (REDESIGN.md 6, app switcher).
   private var privacyCover: UIView?
-  /// The cover stood aside as the app went inactive for a prompt it raised.
-  private var skippedForPrompt = false
 
   func application(
     _ application: UIApplication,
@@ -61,42 +59,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     return true
   }
 
-  // The privacy cover (REDESIGN.md 6, app switcher). iOS starts the app
-  // switcher's animation from a picture it takes as the app goes inactive,
-  // before React can draw its own cover, so the balance showed in the
-  // outgoing card. A plain roast view put over the window in this same call
-  // is in that picture. Behind a prompt the app raised itself (paste, the
-  // camera, Face ID) the screen stays, so the person sees what they are
-  // answering for, and over the lock, which shows nothing of the wallet, its
-  // bud stays in view behind Face ID. JavaScript says when, through
-  // PrivacyCover.
-  func applicationWillResignActive(_ application: UIApplication) {
-    if PrivacyCover.systemPromptOpen {
-      skippedForPrompt = true
-      return
-    }
-    if PrivacyCover.lockShown {
-      return
-    }
-    showPrivacyCover()
-  }
-
-  // No prompt outlasts going to the background, so the cover is up there
-  // whatever JavaScript said.
+  // The privacy cover (REDESIGN.md 6, app switcher). The picture the app
+  // switcher keeps is taken once the app is in the background, and React's
+  // own cover reaches it only if JavaScript is free to draw in time. A plain
+  // roast view put over the window here, in the same call, is in that
+  // picture however busy JavaScript is. It is not put up as the app merely
+  // turns inactive: a prompt the app raised (paste, the camera, Face ID)
+  // does that too, and the screen stays behind those, and an app-to-app
+  // switch animates from a picture iOS takes before the app is told it is
+  // leaving, which no cover reaches (P16).
   func applicationDidEnterBackground(_ application: UIApplication) {
     showPrivacyCover()
   }
 
-  // A prompt answered has done its work, so the flag is let go at once
-  // rather than after JavaScript's settle: a switch away just after it, with
-  // a recovery phrase on screen, is covered.
   func applicationDidBecomeActive(_ application: UIApplication) {
     privacyCover?.removeFromSuperview()
     privacyCover = nil
-    if skippedForPrompt {
-      skippedForPrompt = false
-      PrivacyCover.promptAnswered()
-    }
   }
 
   /// Over everything in the window, at once: nothing fades that the switcher
