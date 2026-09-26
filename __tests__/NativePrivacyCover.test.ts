@@ -41,7 +41,21 @@ describe('the iOS app delegate', () => {
       'func applicationWillResignActive(_ application: UIApplication)',
     );
     expect(resign).toMatch(
-      /^\s*if PrivacyCover\.systemPromptOpen \|\| PrivacyCover\.lockShown \{\s*return\s*\}\s*showPrivacyCover\(\)\s*$/,
+      /^\s*if PrivacyCover\.systemPromptOpen \{\s*skippedForPrompt = true\s*return\s*\}\s*if PrivacyCover\.lockShown \{\s*return\s*\}\s*showPrivacyCover\(\)\s*$/,
+    );
+  });
+
+  test('lets the prompt flag go once the prompt it stood aside for is answered', () => {
+    const active = bodyOf(
+      CODE,
+      'func applicationDidBecomeActive(_ application: UIApplication)',
+    );
+    expect(active).toMatch(
+      /if skippedForPrompt \{\s*skippedForPrompt = false\s*PrivacyCover\.promptAnswered\(\)\s*\}/,
+    );
+    const module = read('ios', 'chicory', 'PrivacyCover.m');
+    expect(module).toMatch(
+      /\+ \(void\)promptAnswered\s*\{\s*atomic_store\(&promptFlag, false\);\s*\}/,
     );
   });
 

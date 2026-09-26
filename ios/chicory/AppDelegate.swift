@@ -18,6 +18,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
   /// The privacy cover while it is up (REDESIGN.md 6, app switcher).
   private var privacyCover: UIView?
+  /// The cover stood aside as the app went inactive for a prompt it raised.
+  private var skippedForPrompt = false
 
   func application(
     _ application: UIApplication,
@@ -69,7 +71,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   // bud stays in view behind Face ID. JavaScript says when, through
   // PrivacyCover.
   func applicationWillResignActive(_ application: UIApplication) {
-    if PrivacyCover.systemPromptOpen || PrivacyCover.lockShown {
+    if PrivacyCover.systemPromptOpen {
+      skippedForPrompt = true
+      return
+    }
+    if PrivacyCover.lockShown {
       return
     }
     showPrivacyCover()
@@ -81,9 +87,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     showPrivacyCover()
   }
 
+  // A prompt answered has done its work, so the flag is let go at once
+  // rather than after JavaScript's settle: a switch away just after it, with
+  // a recovery phrase on screen, is covered.
   func applicationDidBecomeActive(_ application: UIApplication) {
     privacyCover?.removeFromSuperview()
     privacyCover = nil
+    if skippedForPrompt {
+      skippedForPrompt = false
+      PrivacyCover.promptAnswered()
+    }
   }
 
   /// Over everything in the window, at once: nothing fades that the switcher

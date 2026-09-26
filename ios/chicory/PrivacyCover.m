@@ -33,6 +33,11 @@ RCT_EXPORT_MODULE(PrivacyCover)
   return atomic_load(&lockFlag);
 }
 
++ (void)promptAnswered
+{
+  atomic_store(&promptFlag, false);
+}
+
 RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(setSystemPromptOpen : (BOOL)open)
 {
   atomic_store(&promptFlag, open);

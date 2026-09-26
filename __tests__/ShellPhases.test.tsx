@@ -4,6 +4,7 @@ import {
   Dimensions,
   NativeModules,
   PixelRatio,
+  Platform,
   StyleSheet,
   Text,
 } from 'react-native';
@@ -293,7 +294,11 @@ describe('the app switcher', () => {
     await act(async () => change('inactive'));
     const [cover] = byTestID(tree, 'privacy-cover');
     expect(flat(cover)).toMatchObject({ backgroundColor: palette.roast });
-    expect(cover.findAllByType(Bloom)).toHaveLength(1);
+    // Plain on iOS, as the native cover the switcher shows is; the mark
+    // elsewhere.
+    expect(cover.findAllByType(Bloom)).toHaveLength(
+      Platform.OS === 'ios' ? 0 : 1,
+    );
     // Up at once: nothing fades that the switcher could catch half drawn,
     // and nothing of it, the mark's petals included, fades as it goes.
     expect(cover.props.entering).toBeUndefined();

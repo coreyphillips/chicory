@@ -31,13 +31,13 @@ function nativeCover(): PrivacyCoverModule | null {
 
 /**
  * Untold, the native cover goes up over the prompt or the lock, which hides
- * more rather than less, so a call that fails is let go.
+ * more rather than less, so a call that fails is let go, reaching the
+ * module included.
  */
 function tell(say: (module: PrivacyCoverModule) => void) {
-  const module = nativeCover();
-  if (!module) return;
   try {
-    say(module);
+    const module = nativeCover();
+    if (module) say(module);
   } catch {
     // Covered rather than shown: the side to be wrong on.
   }
@@ -52,3 +52,10 @@ export function tellSystemPromptOpen(open: boolean): void {
 export function tellLockShown(shown: boolean): void {
   tell(module => module.setLockShown(shown));
 }
+
+// The flags outlive a reload of the JavaScript runtime, which starts with no
+// prompt open and no lock drawn.
+tell(module => {
+  module.setSystemPromptOpen(false);
+  module.setLockShown(false);
+});

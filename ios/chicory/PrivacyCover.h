@@ -23,6 +23,12 @@ NS_ASSUME_NONNULL_BEGIN
 /** The lock is what the app draws, so nothing of the wallet shows. */
 @property (class, nonatomic, readonly) BOOL lockShown;
 
+/**
+ * The prompt the cover stood aside for has been answered and the app is in
+ * front again, so nothing more is stood aside for until JavaScript says so.
+ */
++ (void)promptAnswered;
+
 @end
 
 NS_ASSUME_NONNULL_END

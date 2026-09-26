@@ -9,6 +9,7 @@ import React, {
 import type { ReactNode } from 'react';
 import {
   AppState,
+  Platform,
   RefreshControl,
   StatusBar,
   StyleSheet,
@@ -443,10 +444,15 @@ export function Stage({
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
             >
-              <Bloom
-                size={SIZES.loader}
-                tone={bloomTone(activeProfile.network)}
-              />
+              {/* On iOS the native cover the switcher shows is plain, and
+                  this one is what shows for a moment on the way back, so it
+                  is plain there too: one look, not a step to the mark. */}
+              {Platform.OS === 'ios' ? null : (
+                <Bloom
+                  size={SIZES.loader}
+                  tone={bloomTone(activeProfile.network)}
+                />
+              )}
             </View>
           </LayoutAnimationConfig>
         ) : null}

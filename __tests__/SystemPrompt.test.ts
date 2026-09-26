@@ -111,6 +111,17 @@ describe("iOS's native cover", () => {
     await expect(duringSystemPrompt(() => Promise.resolve(2))).resolves.toBe(2);
     jest.advanceTimersByTime(PROMPT_SETTLE_MS);
     expect(systemPromptOpen()).toBe(false);
+    // Failing to be reached at all, as the interop building it might.
+    Object.defineProperty(NativeModules, 'PrivacyCover', {
+      configurable: true,
+      get() {
+        throw new Error('gone');
+      },
+    });
+    await expect(duringSystemPrompt(() => Promise.resolve(4))).resolves.toBe(4);
+    jest.advanceTimersByTime(PROMPT_SETTLE_MS);
+    expect(systemPromptOpen()).toBe(false);
+    delete NativeModules.PrivacyCover;
     // Android draws no native cover (its recents card is blank instead), so
     // nothing is told there.
     jest.replaceProperty(Platform, 'OS', 'android');
