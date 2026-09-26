@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { ComponentRef } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
@@ -65,6 +65,11 @@ export interface RequestEntryProps {
  *
  * It takes a text field's `value` and `onChangeText`, so the suites and the
  * screen read and set the request the same way whichever is showing.
+ *
+ * A refused request stays in the well shortened in the middle, as a chip
+ * shows one, on a line or two, until the well is touched to change it: the
+ * whole of a long one would fill the well with lines of code that say no
+ * more than the cross beside them. A screen reader still hears all of it.
  */
 export function RequestEntry({
   accessibilityLabel,
@@ -190,6 +195,11 @@ function Well({
     onPaste?.().then(taken => {
       if (!taken) missed.play();
     });
+  // While it is being changed the whole request shows; otherwise a refused
+  // one is folded to its short form, drawn under the field, which stays
+  // where it is to take the touch that opens it.
+  const [editing, setEditing] = useState(false);
+  const folded = !!refused && !editing && !!value.trim();
   return (
     <Reanimated.View
       entering={entering}
@@ -199,25 +209,42 @@ function Well({
         pointerEvents="none"
         style={[styles.edge, !!value && styles.edgeSteady, edge]}
       />
-      <TextInput
-        accessibilityLabel={accessibilityLabel}
-        accessibilityHint={value ? undefined : copy.send.requestEmpty}
-        value={value}
-        onChangeText={onChangeText}
-        onBlur={onCollapse}
-        onSubmitEditing={onCollapse}
-        submitBehavior="blurAndSubmit"
-        returnKeyType="done"
-        autoCapitalize="none"
-        autoCorrect={false}
-        spellCheck={false}
-        multiline
-        autoFocus={focus}
-        editable={live}
-        selectionColor={bloom.tone}
-        maxFontSizeMultiplier={REQUEST_SCALE}
-        style={styles.input}
-      />
+      <View style={styles.field}>
+        {folded ? (
+          <Text
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            numberOfLines={2}
+            maxFontSizeMultiplier={REQUEST_SCALE}
+            style={styles.folded}
+          >
+            {shortRequest(value)}
+          </Text>
+        ) : null}
+        <TextInput
+          accessibilityLabel={accessibilityLabel}
+          accessibilityHint={value ? undefined : copy.send.requestEmpty}
+          value={value}
+          onChangeText={onChangeText}
+          onFocus={() => setEditing(true)}
+          onBlur={() => {
+            setEditing(false);
+            onCollapse?.();
+          }}
+          onSubmitEditing={onCollapse}
+          submitBehavior="blurAndSubmit"
+          returnKeyType="done"
+          autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
+          multiline
+          autoFocus={focus}
+          editable={live}
+          selectionColor={bloom.tone}
+          maxFontSizeMultiplier={REQUEST_SCALE}
+          style={[styles.input, folded && styles.behind]}
+        />
+      </View>
       {refused ? <FailureMark failure={refused} /> : null}
       {onPaste ? (
         <Reanimated.View style={missed.style}>
@@ -227,6 +254,7 @@ function Well({
             onPress={live ? paste : undefined}
             disabled={busy}
             size={44}
+            ground={false}
           />
         </Reanimated.View>
       ) : null}
@@ -245,6 +273,7 @@ function Well({
             }
             disabled={busy}
             size={44}
+            ground={false}
           />
         </View>
       ) : null}
@@ -285,11 +314,15 @@ const styles = StyleSheet.create({
     borderColor: palette.bark,
   },
   edgeSteady: { borderStyle: 'solid', borderColor: palette.husk },
+  field: { flex: 1, justifyContent: 'center' },
   input: {
     ...typography.mono,
-    flex: 1,
     color: palette.cream,
     padding: 0,
     maxHeight: WELL * 2,
   },
+  folded: { ...typography.mono, color: palette.cream },
+  // Over the folded request, to take the touch that opens it, with its own
+  // text out of sight.
+  behind: { ...StyleSheet.absoluteFill, color: 'transparent' },
 });

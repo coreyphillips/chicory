@@ -95,7 +95,7 @@ test('a review and its result cap every figure and line they draw', async () => 
   const tree = await draw(
     <SendScreen
       client={client}
-      initialRequest="lnbc-type"
+      initialRequest="bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=0.000042&label=type"
       onActivity={jest.fn()}
       onRefresh={jest.fn()}
       onBusy={jest.fn()}

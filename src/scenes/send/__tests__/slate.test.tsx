@@ -134,10 +134,13 @@ describe.each([
       />,
     );
     // Typing, the well's caret. Each run pays a request of its own, since a
-    // pending payment holds the one it paid.
+    // pending payment holds the one it paid, and one that names its amount,
+    // so it can be reviewed.
     await act(async () => {
       field(tree, copy.send.request).props.onChangeText(
-        `lnbc1slate${onTest ? 'test' : 'main'}`,
+        `bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=0.000042&label=slate-${
+          onTest ? 'test' : 'main'
+        }`,
       );
     });
     expectTone(tree);

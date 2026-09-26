@@ -36,6 +36,10 @@ import { MASK } from '../../../theme';
  */
 const SCANNED = 'lnbcrt1scanned';
 
+/** A request the parser reads that fixes the 4,200 sats paid here. */
+const priced = (label: string) =>
+  `bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=0.000042&label=${label}`;
+
 let stage!: StageStore;
 let view!: CanvasView;
 let snapshot: WalletSnapshot;
@@ -171,7 +175,7 @@ test('back steps from the review to compose before Send closes', async () => {
   jest.spyOn(client, 'prepareSend').mockResolvedValue(quote);
   const tree = await openSend();
   await act(async () => {
-    field(tree, copy.send.request).props.onChangeText('lnbc-review');
+    field(tree, copy.send.request).props.onChangeText(priced('review'));
   });
   await press(tree, copy.send.review);
   expect(find(tree, copy.send.edit)).toBeDefined();
@@ -200,7 +204,7 @@ test('a completed payment goes home on its own', async () => {
     });
     const tree = await openSend();
     await act(async () => {
-      field(tree, copy.send.request).props.onChangeText('lnbc-home');
+      field(tree, copy.send.request).props.onChangeText(priced('home'));
     });
     await press(tree, copy.send.review);
     await activate(tree, copy.send.sendSats(4200));
@@ -228,7 +232,7 @@ test('amounts follow the balance, hidden and in its unit, except on a review', a
     view.setUnit('btc');
   });
   await act(async () => {
-    field(tree, copy.send.request).props.onChangeText('lnbc-masked');
+    field(tree, copy.send.request).props.onChangeText(priced('masked'));
   });
   await press(tree, copy.send.review);
   // Send's own, not the balance's in the mini strip.
@@ -290,7 +294,7 @@ test('an unknown outcome holds honey on the ground, and a failure flashes radish
   });
   const tree = await openSend();
   await act(async () => {
-    field(tree, copy.send.request).props.onChangeText('lnbc-tint-unknown');
+    field(tree, copy.send.request).props.onChangeText(priced('tint-unknown'));
   });
   await press(tree, copy.send.review);
   expect(stage.tint.read().held).toBeNull();
@@ -310,7 +314,7 @@ test('an unknown outcome holds honey on the ground, and a failure flashes radish
   });
   await act(async () => stage.actions.openSend());
   await act(async () => {
-    field(tree, copy.send.request).props.onChangeText('lnbc-tint-failed');
+    field(tree, copy.send.request).props.onChangeText(priced('tint-failed'));
   });
   await press(tree, copy.send.review);
   const before = stage.tint.read().flash?.key ?? 0;

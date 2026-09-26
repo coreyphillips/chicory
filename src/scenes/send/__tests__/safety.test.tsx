@@ -22,6 +22,7 @@ import {
   holdRequest,
 } from '../../../stage/heldRequests';
 import { activityOf } from '../../../../test-support/fixtures';
+import { enterAmount } from '../../../../test-support/keypad';
 import {
   activate,
   alerts,
@@ -174,10 +175,10 @@ afterEach(() => {
 
 describe('a held request', () => {
   test('typed into the well, is held as it is reviewed, and nothing is prepared', async () => {
-    holdRequest('lnbc-typed-held', { status: 'uncertain' });
+    holdRequest(priced('typed-held'), { status: 'uncertain' });
     const prepareSend = jest.fn();
     const tree = await draw({ prepareSend });
-    await type(tree, 'LIGHTNING:lnbc-typed-held');
+    await type(tree, priced('typed-held').replace('bitcoin:', 'BITCOIN:'));
     // Still being typed: the well stays, so a slip can be corrected.
     expect(meaning(tree)).not.toContain(copy.send.held);
     await press(tree, copy.send.review);
@@ -220,10 +221,10 @@ describe('a held request', () => {
     );
     expect(meaning(tree)).toContain(copy.send.onItsWay);
     await press(tree, copy.send.request);
-    await type(tree, 'lnbc-another');
+    await type(tree, priced('another'));
     await press(tree, copy.send.review);
     expect(prepareSend).toHaveBeenCalledWith({
-      request: 'lnbc-another',
+      request: priced('another'),
       amountSats: undefined,
     });
     expect(heldRequest(payable('chip-held'))).toEqual({ status: 'pending' });
@@ -234,12 +235,12 @@ describe('a held request', () => {
     const send = jest.fn();
     const tree = await draw(
       { prepareSend: jest.fn().mockResolvedValue(quote()), send },
-      { initialRequest: 'lnbc-held-late' },
+      { initialRequest: priced('held-late') },
     );
     await press(tree, copy.send.review);
     // Paid from elsewhere meanwhile, with its outcome unknown.
     await act(async () =>
-      holdRequest('lnbc-held-late', { status: 'uncertain' }),
+      holdRequest(priced('held-late'), { status: 'uncertain' }),
     );
     await activate(tree, HOLD);
     expect(send).not.toHaveBeenCalled();
@@ -254,10 +255,13 @@ describe('preparing', () => {
       .fn()
       .mockRejectedValueOnce(coded('RESULT_UNCERTAIN', 'No answer came.'))
       .mockResolvedValueOnce(quote());
-    const tree = await draw({ prepareSend }, { initialRequest: 'lnbc-flaky' });
+    const tree = await draw(
+      { prepareSend },
+      { initialRequest: priced('flaky') },
+    );
     await press(tree, copy.send.review);
     expect(alerts(tree)).toEqual(['No answer came.']);
-    expect(heldRequest('lnbc-flaky')).toBeNull();
+    expect(heldRequest(priced('flaky'))).toBeNull();
     expect(meaning(tree)).not.toContain(copy.send.held);
     await press(tree, copy.send.review);
     expect(holds(tree, HOLD)).toHaveLength(1);
@@ -268,9 +272,12 @@ describe('preparing', () => {
     const prepareSend = jest
       .fn()
       .mockRejectedValue(coded('ALREADY_SUBMITTED', 'Already submitted.'));
-    const tree = await draw({ prepareSend }, { initialRequest: 'lnbc-twice' });
+    const tree = await draw(
+      { prepareSend },
+      { initialRequest: priced('twice') },
+    );
     await press(tree, copy.send.review);
-    expect(heldRequest('lnbc-twice')).toEqual({ status: 'uncertain' });
+    expect(heldRequest(priced('twice'))).toEqual({ status: 'uncertain' });
     expect(meaning(tree)).toContain(copy.send.held);
     expect(pressableLabels(tree)).not.toContain(copy.send.review);
     expect(recentDiagnostics()).toContainEqual(
@@ -293,7 +300,7 @@ describe('a quote', () => {
           .fn()
           .mockResolvedValue(quote({ expiresAt: Date.now() + 15_000 })),
       },
-      { initialRequest: 'lnbc-clock' },
+      { initialRequest: priced('clock') },
     );
     await press(tree, copy.send.review);
     // The ring says nothing; the hold carries the time left, last.
@@ -325,7 +332,7 @@ describe('a quote', () => {
         prepareSend: jest.fn().mockResolvedValue(quote({ expiresAt })),
         send,
       },
-      { initialRequest: 'lnbc-late-hold' },
+      { initialRequest: priced('late-hold') },
     );
     await press(tree, copy.send.review);
     jest.spyOn(Date, 'now').mockReturnValue(expiresAt + 1);
@@ -408,7 +415,10 @@ describe('a quote', () => {
           fresh = resolve;
         }),
       );
-    const tree = await draw({ prepareSend }, { initialRequest: 'lnbc-again' });
+    const tree = await draw(
+      { prepareSend },
+      { initialRequest: priced('again') },
+    );
     await press(tree, copy.send.review);
     await press(tree, copy.send.refreshQuote);
     expect(tree.root.findAllByType(ReviewLines)).toHaveLength(1);
@@ -717,11 +727,13 @@ describe('a paid request', () => {
       send: jest.fn().mockResolvedValue(outcome('completed')),
     };
     const first = await draw(client, { initialRequest: address });
+    await enterAmount(first, '4200');
     await press(first, copy.send.review);
     await activate(first, HOLD);
     await act(async () => first.unmount());
     const again = await draw(client, { initialRequest: address });
     expect(meaning(again)).not.toContain(copy.send.paidAlready);
+    await enterAmount(again, '4200');
     await press(again, copy.send.review);
     expect(holds(again, HOLD)).toHaveLength(1);
     await act(async () => again.unmount());
@@ -744,7 +756,7 @@ describe('the stage', () => {
     const prepareSend = jest.fn(() => new Promise<SendReview>(() => {}));
     const tree = await draw(
       { prepareSend },
-      { initialRequest: 'lnbc-busy-review', onBusy },
+      { initialRequest: priced('busy-review'), onBusy },
     );
     onBusy.mockClear();
     // The review never lands, so the press is not waited on.
@@ -785,7 +797,7 @@ describe('the stage', () => {
     const send = jest.fn(() => new Promise<SendResult>(() => {}));
     const tree = await draw(
       { prepareSend: jest.fn().mockResolvedValue(quote()), send },
-      { initialRequest: 'lnbc-busy-send', onBusy },
+      { initialRequest: priced('busy-send'), onBusy },
     );
     await press(tree, copy.send.review);
     onBusy.mockClear();
@@ -803,7 +815,7 @@ test('a balance going stale closes the gate, felt, said and logged, and a tap re
   const send = jest.fn();
   const onRefresh = jest.fn();
   const client = { prepareSend: jest.fn().mockResolvedValue(quote()), send };
-  const props = { initialRequest: 'lnbc-aging', onRefresh };
+  const props = { initialRequest: priced('aging'), onRefresh };
   const tree = await draw(client, props);
   await press(tree, copy.send.review);
   expect(logged()).not.toContain('STALE');
@@ -838,7 +850,7 @@ test('a balance going stale closes the gate, felt, said and logged, and a tap re
 
 test('a balance fresh again before its staleness is heard is not said stale', async () => {
   const client = { prepareSend: jest.fn().mockResolvedValue(quote()) };
-  const props = { initialRequest: 'lnbc-blip' };
+  const props = { initialRequest: priced('blip') };
   const tree = await draw(client, props);
   await press(tree, copy.send.review);
   await arrive();
@@ -870,7 +882,7 @@ describe('a screen reader', () => {
   test('lands on the amount a review is for as it arrives, never on the hold, once in view', async () => {
     const tree = await draw(
       { prepareSend: jest.fn().mockResolvedValue(quote()) },
-      { initialRequest: 'lnbc-focus' },
+      { initialRequest: priced('focus') },
     );
     await press(tree, copy.send.review);
     // Still rising into view: nothing is moved yet.
@@ -893,7 +905,7 @@ describe('a screen reader', () => {
           }),
         ),
       },
-      { initialRequest: 'lnbc-words' },
+      { initialRequest: priced('words') },
     );
     await press(tree, copy.send.review);
     const [hold] = holds(tree, HOLD);
@@ -916,7 +928,7 @@ describe('a screen reader', () => {
     const expiresAt = Date.now() + 5_000;
     const tree = await draw(
       { prepareSend: jest.fn().mockResolvedValue(quote({ expiresAt })) },
-      { initialRequest: 'lnbc-focus-expiry' },
+      { initialRequest: priced('focus-expiry') },
     );
     await press(tree, copy.send.review);
     await arrive(true);
@@ -944,7 +956,7 @@ describe('a screen reader', () => {
         prepareSend: jest.fn().mockResolvedValue(quote()),
         send: jest.fn().mockResolvedValue(outcome('failed')),
       },
-      { initialRequest: 'lnbc-focus-back' },
+      { initialRequest: priced('focus-back') },
     );
     await press(tree, copy.send.review);
     await press(tree, copy.send.edit);
@@ -966,7 +978,7 @@ describe('a screen reader', () => {
         prepareSend: jest.fn().mockResolvedValue(quote()),
         send: jest.fn().mockResolvedValue(outcome('uncertain')),
       },
-      { initialRequest: 'lnbc-focus-unknown' },
+      { initialRequest: priced('focus-unknown') },
     );
     await press(tree, copy.send.review);
     await activate(tree, HOLD);
@@ -998,7 +1010,7 @@ describe('a completed payment', () => {
         prepareSend: jest.fn().mockResolvedValue(quote()),
         send: jest.fn().mockResolvedValue(outcome('completed')),
       },
-      { initialRequest: 'lnbc-home', onDone, ...props },
+      { initialRequest: priced('home'), onDone, ...props },
     );
     await press(tree, copy.send.review);
     await activate(tree, HOLD);
@@ -1059,7 +1071,7 @@ test('a failed payment touched and paid again still goes home once it completes'
     .mockResolvedValueOnce(outcome('completed'));
   const tree = await draw(
     { prepareSend: jest.fn().mockResolvedValue(quote()), send },
-    { initialRequest: 'lnbc-second-go', onDone },
+    { initialRequest: priced('second-go'), onDone },
   );
   await press(tree, copy.send.review);
   await activate(tree, HOLD);
