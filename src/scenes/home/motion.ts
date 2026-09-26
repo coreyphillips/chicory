@@ -1,6 +1,7 @@
 import { ReduceMotion } from 'react-native-reanimated';
 import type { WithTimingConfig } from 'react-native-reanimated';
-import { curves } from '../../motion/tokens';
+import { springStep } from '../../motion/springMath';
+import { curves, overlap, springs } from '../../motion/tokens';
 import {
   HERO_MINI,
   MINI_STRIP,
@@ -217,37 +218,19 @@ export function landedAt(away: number, distance: number): boolean {
 }
 
 /**
- * How big the tapped circle's glyph is drawn, as a share of its own size,
- * `m` of the way to the control: `glyph` points on a circle `size` across,
- * to `to` points on the 88pt control it grows into, which its growth then
- * carries.
+ * The scale the tapped circle's glyph is drawn at inside the circle, `m` of
+ * the way to the control. The glyph is drawn once, at the size it lands at:
+ * the control's `to` points, the control drawn at `scale`, with the
+ * control's stroke. The circle grows from `size` into the control, drawn at
+ * `scale`, and carries the glyph with it, so the glyph is shrunk against
+ * that growth, and on screen it grows from `glyph` points at home to the
+ * control's glyph, in step with the circle. Its whole scale on screen is
+ * never above 1: a drawing is only ever shrunk, never a bitmap enlarged
+ * into a soft, heavy line, and its line keeps the control's weight for its
+ * size all the way, the control's own once it lands.
  */
-export function glyphMorph(
+export function glyphScale(
   m: number,
-  glyph: number,
-  size: number,
-  to: number,
-): number {
-  'worklet';
-  const landed = (to * size) / (glyph * PRIMARY_CONTROL);
-  return 1 + clamp01(m) * (landed - 1);
-}
-
-/** The glyph grid, in units a side. */
-const GRID = 24;
-
-/**
- * The stroke, in grid units, that draws the tapped circle's glyph `points`
- * wide `m` of the way to the control: counter-scaled against both its growth
- * into the control's glyph (`glyphMorph`) and the circle's own growth from
- * `size` into the control, drawn at `scale`, which it travels with. So its
- * line keeps the weight it is meant to have all the way, rather than
- * swelling with the circle to twice the control's and thinning as it hands
- * over. `glyph` and `to` are as for `glyphMorph`.
- */
-export function glyphStroke(
-  m: number,
-  points: number,
   glyph: number,
   size: number,
   to: number,
@@ -255,16 +238,26 @@ export function glyphStroke(
 ): number {
   'worklet';
   const t = clamp01(m);
+  const landed = to * scale;
+  const shown = glyph + (landed - glyph) * t;
   const grown = 1 + ((PRIMARY_CONTROL * scale) / size - 1) * t;
-  const drawn = (glyph / GRID) * glyphMorph(t, glyph, size, to) * grown;
-  return drawn > 0 ? points / drawn : 0;
+  return shown / (landed * grown);
 }
 
+/** One frame at 60fps, in ms. */
+const FRAME_MS = 1000 / 60;
+
 /**
- * How much of the way the circles not tapped have faded by: two thirds,
- * which the pane spring reaches at about 140ms (REDESIGN.md 7, T1).
+ * How far along the pane spring the circles not tapped are gone: where it
+ * is a frame before the scene's content sets out (`overlap.enterDelay`),
+ * about 28% of the way at 63ms, so they are never drawn over what arrives
+ * (REDESIGN.md 7, T1). At two thirds, 140ms, they still showed at a third
+ * across Send's amount and Receive's chips.
  */
-const OTHERS_GONE = 2 / 3;
+export const OTHERS_GONE = springStep(
+  (overlap.enterDelay - FRAME_MS) / 1000,
+  springs.pane,
+);
 
 /** The last share of the way, over which the tapped circle hands over. */
 const HANDOVER = 0.3;
@@ -273,7 +266,8 @@ const HANDOVER = 0.3;
  * One circle's opacity as the row goes away, `away` running from 0 at home
  * to 1 once it has gone. With nothing launching it is the row's own fade,
  * which the sheet's drag shapes (T5). On the way to Send or Receive the
- * circles not tapped are gone within 140ms (T1), and the tapped one stays
+ * circles not tapped are gone before the scene's content enters (T1,
+ * `OTHERS_GONE`), and the tapped one stays
  * whole while it travels and grows. On the canvas it stays whole where it
  * lands, standing in for the scene's own control, until `handover` (0 to 1)
  * says the control has come in over it; drawn on its own it hands over

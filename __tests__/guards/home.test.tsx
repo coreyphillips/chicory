@@ -28,6 +28,7 @@ import { barFor } from '../../src/scenes/activity/sheet';
 import { ActionCircle } from '../../src/scenes/home/ActionCircle';
 import { Backdrop, glowBleed } from '../../src/scenes/home/Backdrop';
 import { HomePane, LIVE_OVERDUE_MS } from '../../src/scenes/home/HomePane';
+import { signalStep } from '../../src/scenes/home/signals';
 import {
   LAUNCH_DROP,
   MINI_IN_ROW,
@@ -48,12 +49,15 @@ import { StatusRow } from '../../src/scenes/home/StatusRow';
 import {
   backdropVisual,
   healthText,
+  isTestNetwork,
   markVisual,
   setupOf,
 } from '../../src/scenes/home/visual';
 import type { HealthInput } from '../../src/scenes/home/visual';
 import { HomeScreen } from '../../src/screens/Wallet';
 import { FOCUS_SETTLE_MS } from '../../src/motion/speech';
+import { springStep } from '../../src/motion/springMath';
+import { overlap, springs } from '../../src/motion/tokens';
 import {
   clearDiagnostics,
   recentDiagnostics,
@@ -72,7 +76,11 @@ import { Pane, PanesProvider } from '../../src/stage/panes/Pane';
 import type { Panes } from '../../src/stage/panes/Pane';
 import { STALE_AFTER_MS } from '../../src/services/useWalletSession';
 import { useStale } from '../../src/stage/Stage';
-import { StageProvider, useStageStore } from '../../src/stage/StageContext';
+import {
+  StageProvider,
+  feltStates,
+  useStageStore,
+} from '../../src/stage/StageContext';
 import type { HeldTint, StageStore } from '../../src/stage/StageContext';
 import { arrivals, seenIn, useIncoming } from '../../src/stage/useIncoming';
 import type { Unit } from '../../src/theme';
@@ -133,6 +141,8 @@ let panes!: Panes;
 
 interface Drawn {
   snapshot: WalletSnapshot;
+  /** A stage kept outside them, as the app keeps it across a relock. */
+  store?: StageStore;
   stale?: boolean;
   session?: CanvasSession;
   backup?: Backup | null;
@@ -147,6 +157,7 @@ interface Drawn {
  */
 function HomeRegions({
   snapshot,
+  store,
   stale = false,
   session: live = session(),
   backup = null,
@@ -154,7 +165,8 @@ function HomeRegions({
   unit = 'sats',
   shown = 'home',
 }: Drawn) {
-  stage = useStageStore();
+  const own = useStageStore();
+  stage = store ?? own;
   const view = { ...useCanvasView(), hidden, unit };
   panes = {
     seam: useSharedValue(0),
@@ -678,11 +690,20 @@ describe('the motion', () => {
     expect(vesselOpacity(0)).toBe(0);
   });
 
-  test('on the way to a scene the rest are gone in 140ms, and the tapped circle stays whole', () => {
-    // The pane spring is two thirds of the way at about 140ms.
+  test('on the way to a scene the rest are gone before its content enters, and the tapped circle stays whole', () => {
+    // The device pass (P14): gone at two thirds of the pane spring, about
+    // 140ms, the Scan circle still showed at a third across Send's amount,
+    // and Scan and Send across Receive's chips, for two frames.
+    const pane = (ms: number) => springStep(ms / 1000, springs.pane);
     for (const launch of ['send', 'receive'] as const) {
       expect(circleOpacity(0, false, launch)).toBe(1);
-      expect(circleOpacity(2 / 3, false, launch)).toBe(0);
+      // Fading over the frames before the content sets out, not cut.
+      expect(circleOpacity(pane(1000 / 30), false, launch)).toBeGreaterThan(0);
+      expect(circleOpacity(pane(1000 / 30), false, launch)).toBeLessThan(1);
+      // Gone a frame before it, and from then on.
+      for (let ms = overlap.enterDelay - 1000 / 60; ms <= 400; ms += 1) {
+        expect(circleOpacity(pane(ms), false, launch)).toBe(0);
+      }
       expect(circleOpacity(0.7, true, launch)).toBe(1);
       expect(circleOpacity(0.85, true, launch)).toBeCloseTo(0.5);
       expect(circleOpacity(1, true, launch)).toBe(0);
@@ -1291,6 +1312,162 @@ describe('safety states', () => {
     expect(assertive()).toEqual([said.join(' ')]);
     await act(async () => tree.unmount());
     jest.useRealTimers();
+  });
+
+  test('a state is felt once as it begins, not again as Home is drawn anew or the app comes back', () => {
+    // Each step of one state's signal: whether it holds, and whether it is
+    // in front of the person, frame by frame, as `useSafetySignal` keeps it.
+    const plays = (frames: [on: boolean, front: boolean][]) => {
+      let felt = false;
+      return frames.map(([on, front]) => {
+        const step = signalStep(felt, on, front);
+        felt = step.felt;
+        return step.play;
+      });
+    };
+    // The device pass (P14): a test network, felt as the wallet opens, was
+    // felt again on every return and after every relock. Into the
+    // switcher, back, and Home drawn anew after a relock: once.
+    expect(
+      plays([
+        [true, true],
+        [true, false],
+        [true, true],
+        [true, true],
+      ]),
+    ).toEqual([true, false, false, false]);
+    // A balance that goes old while the app is away is not felt as it
+    // leaves, and is felt once it is back in front: not again as the
+    // relock draws Home anew.
+    expect(
+      plays([
+        [false, true],
+        [false, false],
+        [true, false],
+        [true, true],
+        [true, true],
+      ]),
+    ).toEqual([false, false, false, true, false]);
+    // One that goes old as the app leaves, and is fresh again before it is
+    // back, is never felt.
+    expect(
+      plays([
+        [true, false],
+        [false, false],
+        [false, true],
+      ]),
+    ).toEqual([false, false, false]);
+    // Only a state that ends can begin, and be felt, again.
+    expect(
+      plays([
+        [true, true],
+        [false, true],
+        [true, true],
+      ]),
+    ).toEqual([true, false, true]);
+  });
+
+  test('the stage keeps what its wallet has felt, and another wallet starts afresh', () => {
+    const felt = feltStates();
+    felt.set('a', 'stale', true);
+    felt.set('a', 'testNetwork', true);
+    expect(felt.has('a', 'stale')).toBe(true);
+    felt.set('a', 'stale', false);
+    expect(felt.has('a', 'stale')).toBe(false);
+    expect(felt.has('a', 'testNetwork')).toBe(true);
+    // Another wallet's states are its own, and the last one's are gone.
+    expect(felt.has('b', 'testNetwork')).toBe(false);
+    felt.set('b', 'backup', true);
+    expect(felt.has('a', 'testNetwork')).toBe(false);
+    felt.forget();
+    expect(felt.has('b', 'backup')).toBe(false);
+  });
+
+  /** Home over a stage that outlives it, as the app's does a relock. */
+  function Kept({
+    mounted,
+    ...drawn
+  }: Omit<Drawn, 'store'> & { mounted: boolean }) {
+    const store = useStageStore();
+    return mounted ? <HomeRegions {...drawn} store={store} /> : null;
+  }
+
+  test('Home drawn anew over states already felt, as after a relock, feels and logs nothing more', async () => {
+    clearDiagnostics();
+    const warned = jest.spyOn(haptics, 'warning');
+    const ticked = jest.spyOn(haptics, 'tick');
+    const snapshot = snapshotOf();
+    expect(isTestNetwork(snapshot.wallet.network)).toBe(true);
+    const tree = await mount(<Kept mounted snapshot={snapshot} stale />);
+    expect(warned).toHaveBeenCalledTimes(1);
+    expect(ticked).toHaveBeenCalledTimes(1);
+    // The relock takes the canvas away and draws it anew as it opens.
+    await act(async () =>
+      tree.update(<Kept mounted={false} snapshot={snapshot} stale />),
+    );
+    await act(async () =>
+      tree.update(<Kept mounted snapshot={snapshot} stale />),
+    );
+    expect(warned).toHaveBeenCalledTimes(1);
+    expect(ticked).toHaveBeenCalledTimes(1);
+    const logged = (code: string) =>
+      recentDiagnostics().filter(entry => entry.code === code);
+    expect(logged('STALE')).toHaveLength(1);
+    expect(logged('TEST_NETWORK')).toHaveLength(1);
+    // Another wallet opening on a test network feels its own.
+    const other = { ...snapshot, wallet: { ...snapshot.wallet, id: 'other' } };
+    await act(async () => tree.update(<Kept mounted snapshot={other} />));
+    expect(ticked).toHaveBeenCalledTimes(2);
+    await act(async () => tree.unmount());
+  });
+
+  test('a balance that goes old while the app is away is felt once it is back, never as it leaves', async () => {
+    clearDiagnostics();
+    const warned = jest.spyOn(haptics, 'warning');
+    const listeners = new Set<(state: string) => void>();
+    jest
+      .spyOn(AppState, 'addEventListener')
+      .mockImplementation((kind, listener) => {
+        const heard = listener as (state: string) => void;
+        if (kind === 'change') listeners.add(heard);
+        return { remove: () => listeners.delete(heard) } as never;
+      });
+    const change = (to: string) =>
+      [...listeners].forEach(listener => listener(to));
+    const snapshot = snapshotOf({ wallet: MAINNET });
+    const tree = await mount(<Kept mounted snapshot={snapshot} />);
+    // The device pass (P14): it went old as the app went into the
+    // switcher, where no old look was drawn, and was felt there.
+    await act(async () => change('inactive'));
+    await act(async () =>
+      tree.update(<Kept mounted snapshot={snapshot} stale />),
+    );
+    await act(async () => change('background'));
+    expect(warned).not.toHaveBeenCalled();
+    // Back in front and drawn old: felt once.
+    await act(async () => change('active'));
+    expect(warned).toHaveBeenCalledTimes(1);
+    // The relock draws Home anew, still old, and the switcher comes and
+    // goes: nothing more.
+    await act(async () =>
+      tree.update(<Kept mounted={false} snapshot={snapshot} stale />),
+    );
+    await act(async () =>
+      tree.update(<Kept mounted snapshot={snapshot} stale />),
+    );
+    await act(async () => change('inactive'));
+    await act(async () => change('active'));
+    expect(warned).toHaveBeenCalledTimes(1);
+    expect(
+      recentDiagnostics().filter(entry => entry.code === 'STALE'),
+    ).toHaveLength(1);
+    // A read lands, and the balance goes old again later: that is felt.
+    await act(async () => tree.update(<Kept mounted snapshot={snapshot} />));
+    await act(async () =>
+      tree.update(<Kept mounted snapshot={snapshot} stale />),
+    );
+    expect(warned).toHaveBeenCalledTimes(2);
+    await act(async () => tree.unmount());
   });
 
   test('a state that ends before it is heard is not said', async () => {

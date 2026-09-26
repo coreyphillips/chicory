@@ -166,9 +166,19 @@ const flat = (node: ReactTestInstance) =>
 const transformOf = (node: ReactTestInstance, key: string) =>
   flat(node).transform?.find(step => key in step)?.[key];
 
-/** The panes in tree order: the canvas, the home pane and the sheet. */
+/**
+ * The canvas, the home pane and the sheet. The scene in the top slot is in
+ * a pane of its own, between the home pane and the sheet, so the sheet is
+ * the pane that holds the sheet's face.
+ */
 function panes(tree: ReactTestRenderer) {
-  const [canvas, home, sheet] = tree.root.findAllByType(Pane);
+  const [canvas, home, ...rest] = tree.root.findAllByType(Pane);
+  const sheet = rest.find(
+    pane =>
+      pane.findAll(
+        node => typeof node.type === 'string' && node.props.testID === 'sheet',
+      ).length > 0,
+  )!;
   return { canvas, home, sheet };
 }
 

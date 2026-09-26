@@ -21,16 +21,17 @@ import {
   MINI_IN_BAND,
   MINI_IN_ROW,
   figureShown,
-  glyphMorph,
-  glyphStroke,
+  glyphScale,
   landedAt,
   launchPose,
   launchTravel,
 } from '../src/scenes/home/motion';
 import { isTestNetwork } from '../src/scenes/home/visual';
+import { ReceiveScene } from '../src/scenes/receive/ReceiveScene';
 import { reviewOpensLive } from '../src/scenes/send/model';
+import { SendScene } from '../src/scenes/send/SendScene';
 import { springStep } from '../src/motion/springMath';
-import { springs } from '../src/motion/tokens';
+import { curves, durations, springs } from '../src/motion/tokens';
 import { ReceiveScreen, SendScreen } from '../src/screens/Payments';
 import { HomeScreen } from '../src/screens/Wallet';
 import { Canvas, RISEN_BY, useCanvasView } from '../src/stage/Canvas';
@@ -46,12 +47,15 @@ import {
 } from '../src/stage/layout';
 import { rowWait } from '../src/stage/panes/usePaneMotion';
 import { CORNER_TARGET, CornerControl } from '../src/stage/panes/CornerControl';
+import { Arriving } from '../src/stage/panes/Arriving';
 import {
   LaunchProvider,
+  Launched,
   SETTLED_PT,
   samePlace,
   useLaunchLanding,
 } from '../src/stage/panes/Launch';
+import { SceneLeave, leavePose, leaveTiming } from '../src/stage/panes/Leaving';
 import type { Launch } from '../src/stage/panes/Launch';
 import { clearHeldRequests, holdRequest } from '../src/stage/heldRequests';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
@@ -650,8 +654,12 @@ describe('the circle becomes the control it lands on', () => {
   test('it takes on the look of the control it becomes', () => {
     // Send's review, empty: its 32pt dust arrow on the 88pt control.
     const quiet = launchLook('send', { live: false, test: false });
-    expect(glyphMorph(0, 24, 56, quiet.glyph)).toBe(1);
-    expect(24 * glyphMorph(1, 24, 56, quiet.glyph) * (88 / 56)).toBeCloseTo(32);
+    const onScreen = (m: number) =>
+      32 *
+      glyphScale(m, 24, 56, quiet.glyph, quiet.scale) *
+      (1 + m * (88 / 56 - 1));
+    expect(onScreen(0)).toBeCloseTo(24);
+    expect(onScreen(1)).toBeCloseTo(32);
     // Receive's Continue, held back, is drawn at full size, as Send's review
     // is: the circle grows to 88.
     const held = launchLook('receive', { live: false, test: false });
@@ -659,37 +667,39 @@ describe('the circle becomes the control it lands on', () => {
     expect(landed.scale * 56).toBeCloseTo(88);
   });
 
-  test('its glyph keeps the weight of its line all the way, the control’s once it is the control', () => {
-    // The device pass (P12): the arrow grew with the circle, 56 to 88, to
-    // a 2.9pt line, and thinned to the control's as it handed over.
+  test('its glyph is the control’s all the way, shrunk and never enlarged', () => {
+    // The device passes (P12, P14): the arrow was the home glyph scaled up
+    // with the circle, 56 to 88, a soft line about 3pt wide, which thinned
+    // to the control's 2pt as it handed over. Its stroke, animated to hold
+    // it back, never reached the device.
     for (const look of [
       launchLook('send', { live: true, test: false }),
       launchLook('receive', { live: false, test: false }),
     ]) {
-      const home = strokeFor(24);
-      const control = (strokeFor(look.glyph) * look.glyph * look.scale) / 24;
-      for (let away = 0; away <= 1; away += 0.05) {
-        // Points a grid unit is drawn at, as the glyph grows toward the
-        // control's and the circle grows into it, `m` of the way there.
+      // Drawn once at the size it lands at, with the control's stroke.
+      const landed = look.glyph * look.scale;
+      let before = 0;
+      for (let away = 0; away <= 1.0001; away += 0.05) {
         const m = launchTravel(away);
         const pose = launchPose(away, true, 'send', 0, 0, 88 * look.scale);
-        const drawn = glyphMorph(m, 24, 56, look.glyph) * pose.scale;
-        expect(
-          glyphStroke(m, control, 24, 56, look.glyph, look.scale) * drawn,
-        ).toBeCloseTo(control);
-        expect(
-          glyphStroke(m, home, 24, 56, look.glyph, look.scale) * drawn,
-        ).toBeCloseTo(home);
+        // Its whole scale on screen: its own inside the circle's growth.
+        const whole =
+          glyphScale(m, 24, 56, look.glyph, look.scale) * pose.scale;
+        // Never a drawing enlarged, and growing all the way.
+        expect(whole).toBeLessThanOrEqual(1 + 1e-9);
+        expect(whole).toBeGreaterThanOrEqual(before);
+        before = whole;
+        // On screen it grows from the home glyph's 24pt to the control's
+        // in step with the circle. Its line, the control's stroke on that
+        // drawing, keeps the control's weight for its size.
+        expect(landed * whole).toBeCloseTo(24 + (landed - 24) * m);
       }
-      // Landed, it is drawn with the control's own stroke at the control's
-      // own size: its twin.
-      expect(
-        glyphStroke(1, control, 24, 56, look.glyph, look.scale),
-      ).toBeCloseTo(strokeFor(look.glyph));
+      // Landed, it is drawn at its own size: the control's glyph, whole.
+      expect(before).toBeCloseTo(1);
     }
   });
 
-  test('the travelling circle draws its glyph with that line, not scaled from its own', async () => {
+  test('the travelling circle draws the control’s glyph and shrinks it, its stroke fixed', async () => {
     const look = launchLook('send', { live: true, test: false });
     function Travelling({ m }: { m: number }) {
       const toward = Reanimated.useSharedValue(m);
@@ -704,16 +714,34 @@ describe('the circle becomes the control it lands on', () => {
         />
       );
     }
-    const tree = await mount(<Travelling m={1} />);
-    // Not the grid's glyph scaled up with the circle, whose line swells
-    // with it, but its strokes drawn with a line of their own
-    // (`glyphStroke`): its own glyph and the control's over it.
-    const drawings = tree.root.findAllByType(Svg);
-    const send = GLYPHS.send.map(part => part.d);
-    expect(
-      drawings.map(svg => svg.findAllByType(Path).map(path => path.props.d)),
-    ).toEqual([send, send]);
-    for (const svg of drawings) expect(svg.props.strokeWidth).toBeUndefined();
+    for (const m of [0, 0.5, 1]) {
+      const tree = await mount(<Travelling m={m} />);
+      // Its own glyph and the control's over it, each drawn at the size it
+      // lands at with the control's stroke, not the grid's glyph scaled up
+      // with the circle, and no stroke animated.
+      const drawings = tree.root.findAllByType(Svg);
+      const send = GLYPHS.send.map(part => part.d);
+      expect(
+        drawings.map(svg => svg.findAllByType(Path).map(path => path.props.d)),
+      ).toEqual([send, send]);
+      for (const svg of drawings) {
+        expect(svg.props.width).toBe(look.glyph);
+        expect(svg.props.strokeWidth).toBe(strokeFor(look.glyph));
+        for (const path of svg.findAllByType(Path)) {
+          expect(path.props.animatedProps).toBeUndefined();
+        }
+      }
+      // The view it is drawn in shrinks it, never enlarges it.
+      const grows = drawings[0].parent!;
+      let view: ReactTestInstance | null = grows;
+      while (view && transformOf(view, 'scale') === undefined) {
+        view = view.parent;
+      }
+      const shrunk = transformOf(view!, 'scale') as number;
+      expect(shrunk).toBeCloseTo(glyphScale(m, 24, 56, look.glyph, look.scale));
+      expect(shrunk).toBeLessThan(1);
+      await act(async () => tree.unmount());
+    }
     // At rest, with nowhere to go, it is the grid's glyph.
     const resting = await mount(
       <ActionCircle
@@ -725,8 +753,8 @@ describe('the circle becomes the control it lands on', () => {
       />,
     );
     const [still] = resting.root.findAllByType(Svg);
+    expect(still.props.width).toBe(24);
     expect(still.props.strokeWidth).toBe(strokeFor(24));
-    await act(async () => tree.unmount());
     await act(async () => resting.unmount());
   });
 
@@ -1016,6 +1044,128 @@ describe('coming home', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('the scene leaving', () => {
+  test('fades and settles back, or under Reduce Motion only fades, over the exit', () => {
+    expect(leavePose(0, false)).toEqual({
+      opacity: 1,
+      transform: [{ scale: 1 }],
+    });
+    expect(leavePose(1, false).opacity).toBe(0);
+    expect(leavePose(1, false).transform[0].scale).toBeCloseTo(0.98);
+    expect(leavePose(1, true)).toEqual({
+      opacity: 0,
+      transform: [{ scale: 1 }],
+    });
+    expect(leaveTiming(false)).toEqual({
+      duration: durations.exit,
+      easing: curves.exit,
+    });
+    expect(leaveTiming(true)).toMatchObject({
+      duration: durations.crossfade / 2,
+      reduceMotion: Reanimated.ReduceMotion.Never,
+    });
+  });
+
+  test('stays in the top slot, under the sheet and Home, until it has faded, with no layout exit', async () => {
+    // The device pass (P14): Send's fading keypad was drawn on the rising
+    // sheet's face, and over the growing hero, as a layout exit drew it.
+    const faded: ((finished?: boolean) => void)[] = [];
+    // Shared values live as long as their component, as on a device.
+    const made = Reanimated.useSharedValue;
+    jest
+      .spyOn(Reanimated, 'useSharedValue')
+      .mockImplementation(init => React.useState(() => made(init))[0]);
+    const timed = Reanimated.withTiming;
+    jest
+      .spyOn(Reanimated, 'withTiming')
+      .mockImplementation((to, config, callback) => {
+        if (config?.easing === curves.exit && callback) {
+          faded.push(callback);
+          return to;
+        }
+        return timed(to, config, callback);
+      });
+    for (const open of [
+      () => stage.actions.openSend(),
+      () => stage.actions.openReceive(),
+    ]) {
+      const tree = await mount(<OnCanvas />);
+      await act(async () => open());
+      const scene = () =>
+        tree.root.findAll(
+          node => node.type === SendScene || node.type === ReceiveScene,
+        );
+      expect(scene()).toHaveLength(1);
+      // Arriving, it enters; it never leaves by a layout exit.
+      const arriving = tree.root.findByType(Arriving);
+      const [own] = arriving.findAll(node => node.props.entering !== undefined);
+      expect(own.props.exiting).toBeUndefined();
+      faded.length = 0;
+      await act(async () => stage.actions.home());
+      // Gone from the stage, still drawn where it was while it fades.
+      expect(stage.state.scene.name).toBe('home');
+      expect(scene()).toHaveLength(1);
+      const leave = tree.root.findByType(SceneLeave);
+      expect(leave.props.leaving).toBe(true);
+      const [slot] = byTestID(tree, 'slot-top');
+      expect(slot.findAllByType(SceneLeave)).toEqual([leave]);
+      // The slot is drawn before the sheet, so the sheet is over it, and
+      // Home is over both while the circle comes home.
+      const order = tree.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          ['slot-top', 'sheet'].includes(node.props.testID),
+      );
+      expect(order.map(node => node.props.testID)).toEqual([
+        'slot-top',
+        'sheet',
+      ]);
+      // Faded by a style of its own, out of use, and it plays no exits of
+      // what it draws as it is let go.
+      await act(async () => tree.update(<OnCanvas />));
+      const face = tree.root
+        .findByType(SceneLeave)
+        .findAll(node => typeof node.type === 'string')[0];
+      expect(flatStyle(face.props.style).opacity).toBe(0);
+      expect(face.props.pointerEvents).toBe('none');
+      expect(face.props.accessibilityElementsHidden).toBe(true);
+      expect(
+        leave.findAllByType(Reanimated.LayoutAnimationConfig)[0].props
+          .skipExiting,
+      ).toBe(true);
+      // Once it has faded, it goes.
+      expect(faded.length).toBeGreaterThan(0);
+      await act(async () => faded.forEach(done => done(true)));
+      expect(scene()).toHaveLength(0);
+      await act(async () => tree.unmount());
+    }
+  });
+
+  test('hands the circle back as it starts to leave, not once it has gone', async () => {
+    const timed = Reanimated.withTiming;
+    const held: ((finished?: boolean) => void)[] = [];
+    jest
+      .spyOn(Reanimated, 'withTiming')
+      .mockImplementation((to, config, callback) => {
+        if (config?.easing === curves.exit && callback) {
+          held.push(callback);
+          return to;
+        }
+        return timed(to, config, callback);
+      });
+    const tree = await mount(<OnCanvas />);
+    await act(async () => stage.actions.openSend());
+    const launch = tree.root.findByType(Launched);
+    expect(launch.props.leaving).toBe(false);
+    held.length = 0;
+    await act(async () => stage.actions.home());
+    expect(tree.root.findByType(Launched).props.leaving).toBe(true);
+    await act(async () => held.forEach(done => done(true)));
+    expect(tree.root.findAllByType(Launched)).toHaveLength(0);
+    await act(async () => tree.unmount());
   });
 });
 

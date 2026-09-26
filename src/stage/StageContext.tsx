@@ -11,6 +11,7 @@ import React, {
 } from 'react';
 import type { Dispatch, PropsWithChildren, RefObject } from 'react';
 import type { Activity } from '@beignet/wallet-core';
+import type { SafetyKind } from '../motion/speech';
 import { initialStage, stageReducer } from './scene';
 import type { Rect, StageAction, StageState } from './scene';
 
@@ -146,6 +147,40 @@ function tintChannel(): TintChannel {
   };
 }
 
+/**
+ * Which safety states have been felt and not ended since, for the wallet
+ * they belong to (`useSafetySignal` in scenes/home/signals). The stage keeps
+ * them rather than Home, which is drawn again after a relock or a spell
+ * offline, so a state is felt once however often Home is drawn. Another
+ * wallet's states start afresh, and the stage forgets them all as the
+ * wallet closes.
+ */
+export interface FeltStates {
+  has: (wallet: string, kind: SafetyKind) => boolean;
+  set: (wallet: string, kind: SafetyKind, felt: boolean) => void;
+  forget: () => void;
+}
+
+export function feltStates(): FeltStates {
+  let owner = '';
+  const kinds = new Set<SafetyKind>();
+  return {
+    has: (wallet, kind) => wallet === owner && kinds.has(kind),
+    set: (wallet, kind, felt) => {
+      if (wallet !== owner) {
+        owner = wallet;
+        kinds.clear();
+      }
+      if (felt) kinds.add(kind);
+      else kinds.delete(kind);
+    },
+    forget: () => {
+      owner = '';
+      kinds.clear();
+    },
+  };
+}
+
 export interface StageStore {
   state: StageState;
   dispatch: Dispatch<StageAction>;
@@ -157,6 +192,7 @@ export interface StageStore {
   panes: RefObject<PaneMotion | null>;
   responders: Responders;
   tint: TintChannel;
+  felt: FeltStates;
 }
 
 const StageContext = createContext<StageStore | null>(null);
@@ -175,6 +211,7 @@ export function useStageStore(): StageStore {
     scan: new Set(),
   }));
   const [tint] = useState(tintChannel);
+  const [felt] = useState(feltStates);
   // The state as of the last tap, ahead of React while a render is pending,
   // so two taps in one tick each start from where the one before led. A scan
   // started inside Send also reads it, to hand its code to that Send.
@@ -238,8 +275,8 @@ export function useStageStore(): StageStore {
     };
   }, []);
   return useMemo(
-    () => ({ state, dispatch, actions, panes, responders, tint }),
-    [state, actions, responders, tint],
+    () => ({ state, dispatch, actions, panes, responders, tint, felt }),
+    [state, actions, responders, tint, felt],
   );
 }
 

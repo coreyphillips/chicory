@@ -102,9 +102,9 @@ const ROW_HEIGHT = HOME.row;
  * so it is never drawn twice. While Send or Receive is open it shows what
  * can be spent (`spendable`): a different figure rather than money moving,
  * so it changes in place, where money moving rolls. `bar` carries the action
- * row away: the circles not tapped shrink and are gone within 140ms, and the
- * tapped one travels and grows toward the scene it opens, whole until it
- * hands over to the scene's own control. Drawn on its own it rests at home. The activity it once
+ * row away: the circles not tapped shrink and are gone before the scene's
+ * content enters, and the tapped one travels and grows toward the scene it
+ * opens, whole until it hands over to the scene's own control. Drawn on its own it rests at home. The activity it once
  * previewed is the sheet's now; `onActivity` and `onDetail` stay for the
  * callers that still pass them.
  */

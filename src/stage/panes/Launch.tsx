@@ -114,21 +114,35 @@ export function samePlace(
 /**
  * A scene an action circle opens, Send or Receive, which tells the hand-over
  * as it comes and goes: `onOpen` as it opens, before anything else of it
- * runs, and `onLeave` as it goes.
+ * runs, and `onLeave` once, as it goes: as it starts `leaving`, while the
+ * canvas fades it out where it was, or else as it is taken away.
  */
 export function Launched({
   onOpen,
   onLeave,
+  leaving = false,
   children,
-}: PropsWithChildren<{ onOpen: () => void; onLeave: () => void }>) {
+}: PropsWithChildren<{
+  onOpen: () => void;
+  onLeave: () => void;
+  leaving?: boolean;
+}>) {
   const calls = useRef({ onOpen, onLeave });
   useLayoutEffect(() => {
     calls.current = { onOpen, onLeave };
   });
+  const left = useRef(false);
   useLayoutEffect(() => {
     const { current } = calls;
     current.onOpen();
-    return () => current.onLeave();
+    return () => {
+      if (!left.current) current.onLeave();
+    };
   }, []);
+  useLayoutEffect(() => {
+    if (!leaving || left.current) return;
+    left.current = true;
+    calls.current.onLeave();
+  }, [leaving]);
   return <>{children}</>;
 }

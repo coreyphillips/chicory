@@ -62,6 +62,7 @@ import {
 import { EdgeBack } from './panes/EdgeBack';
 import { LaunchProvider, Launched } from './panes/Launch';
 import type { Launch } from './panes/Launch';
+import { SceneLeave } from './panes/Leaving';
 import { Pane, PanesProvider } from './panes/Pane';
 import { PrimaryFor, usePrimaryFocus } from './panes/Primary';
 import type { Primaries } from './panes/Primary';
@@ -401,24 +402,49 @@ export function Canvas({
     [dispatch],
   );
 
-  let top: ReactNode = null;
-  if (scene.name === 'send') {
-    top = (
-      <PrimaryFor key={scene.key} primaries={primaries} scene="send">
-        <Launched onOpen={launchOpen} onLeave={launchLeave}>
-          <SendScene {...region} sceneKey={scene.key} prefill={scene.prefill} />
-        </Launched>
-      </PrimaryFor>
-    );
-  } else if (scene.name === 'receive') {
-    top = (
-      <PrimaryFor key={scene.key} primaries={primaries} scene="receive">
-        <Launched onOpen={launchOpen} onLeave={launchLeave}>
-          <ReceiveScene {...region} sceneKey={scene.key} />
-        </Launched>
-      </PrimaryFor>
-    );
+  // The top slot draws Send or Receive, and keeps one that has gone drawn
+  // where it was, with what it last showed, while it fades out there
+  // (`SceneLeave`): under the sheet and Home as they come back, which a
+  // layout exit drew it over on the device. Out of use, it names no
+  // primary element, so a scene opened while it fades claims its own.
+  const topScene =
+    scene.name === 'send' || scene.name === 'receive' ? scene : null;
+  const [drawnTop, setDrawnTop] = useState<TopScene | null>(topScene);
+  const [leaving, setLeaving] = useState<Leaving[]>([]);
+  if (drawnTop?.key !== topScene?.key) {
+    setDrawnTop(topScene);
+    if (drawnTop) {
+      const left = { scene: drawnTop, region };
+      setLeaving(list => [...list, left]);
+    }
   }
+  const [nowhere] = useState<Primaries>(() => new Map());
+  const letGo = useCallback(
+    (key: number) =>
+      setLeaving(list => list.filter(item => item.scene.key !== key)),
+    [],
+  );
+  const drawTop = (at: TopScene, drawn: RegionProps, gone: boolean) => (
+    <PrimaryFor
+      key={at.key}
+      primaries={gone ? nowhere : primaries}
+      scene={at.name}
+    >
+      <SceneLeave leaving={gone} onGone={() => letGo(at.key)}>
+        <Launched onOpen={launchOpen} onLeave={launchLeave} leaving={gone}>
+          {at.name === 'send' ? (
+            <SendScene {...drawn} sceneKey={at.key} prefill={at.prefill} />
+          ) : (
+            <ReceiveScene {...drawn} sceneKey={at.key} />
+          )}
+        </Launched>
+      </SceneLeave>
+    </PrimaryFor>
+  );
+  const top: ReactNode[] = leaving.map(item =>
+    drawTop(item.scene, item.region, true),
+  );
+  if (topScene) top.push(drawTop(topScene, region, false));
 
   return (
     <PanesProvider value={panes}>
@@ -551,6 +577,15 @@ export function Canvas({
   );
 }
 Canvas.displayName = 'Canvas';
+
+/** A scene the top slot draws. */
+type TopScene = Extract<Scene, { name: 'send' | 'receive' }>;
+
+/** A scene that has gone from the top slot, fading out with what it showed. */
+interface Leaving {
+  scene: TopScene;
+  region: RegionProps;
+}
 
 /**
  * The latest the launched circle hands over to the scene's control, in ms

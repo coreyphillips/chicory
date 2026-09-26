@@ -99,6 +99,22 @@ export function derivePhase(input: PhaseInput): Phase {
   return { kind: 'wallet', error: input.error };
 }
 
+/**
+ * Whether a wallet is open in the phase `kind`: shown, loading, offline,
+ * or behind the lock. Anywhere else, the picker, a switch or a close
+ * included, none is, and what the stage kept of the last one's safety
+ * states is forgotten (`StageStore.felt`), so the wallet opened next feels
+ * its own as it opens.
+ */
+export function walletOpen(kind: Phase['kind']): boolean {
+  return (
+    kind === 'wallet' ||
+    kind === 'loading' ||
+    kind === 'offline' ||
+    kind === 'locked'
+  );
+}
+
 export function phaseInput(
   lock: Pick<Lock, 'locked' | 'prompting' | 'error'>,
   session: Pick<

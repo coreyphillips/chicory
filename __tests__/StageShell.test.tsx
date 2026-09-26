@@ -8,6 +8,7 @@ import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import { RecoveryPhrase } from '../src/components/RecoveryPhrase';
 import { copy } from '../src/design/copy';
+import { haptics } from '../src/design/haptics';
 import * as ambient from '../src/motion/ambient';
 import { wakeOnTouch } from '../src/motion/ambient';
 import { palette } from '../src/design/palette';
@@ -21,6 +22,7 @@ import { Canvas } from '../src/stage/Canvas';
 import { BackupPanel } from '../src/stage/layers/BackupPanel';
 import { CreateSheet } from '../src/stage/layers/CreateSheet';
 import { SceneSlot } from '../src/stage/panes/SceneSlot';
+import { walletOpen } from '../src/stage/phase';
 import type { Phase } from '../src/stage/phase';
 import { Stage } from '../src/stage/Stage';
 import {
@@ -337,6 +339,41 @@ describe('decoration', () => {
       tree.update(<Staged phase={OFFLINE} session={session} />),
     );
     expect(woken).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe("the wallet's safety states", () => {
+  const WALLET: Phase = { kind: 'wallet', error: '' };
+
+  test('are felt once while the wallet stays open, a relock included, and afresh once it has closed', async () => {
+    // The device pass (P14): every return that relocked the app drew the
+    // canvas anew, and its Home felt and logged the test network, and an
+    // old balance, as if the wallet had just opened.
+    const ticked = jest.spyOn(haptics, 'tick');
+    const session = sessionOf({ snapshot: snapshotOf() });
+    const tree = await mount(<Staged phase={WALLET} session={session} />);
+    expect(ticked).toHaveBeenCalledTimes(1);
+    await act(async () =>
+      tree.update(<Staged phase={LOCKED} session={session} />),
+    );
+    await act(async () =>
+      tree.update(<Staged phase={WALLET} session={session} />),
+    );
+    expect(ticked).toHaveBeenCalledTimes(1);
+    // Offline or loading, the wallet is still the one open.
+    expect(walletOpen('offline')).toBe(true);
+    expect(walletOpen('loading')).toBe(true);
+    // Closed, by way of the picker, and opened again: it opens in it.
+    expect(walletOpen('picker')).toBe(false);
+    expect(walletOpen('transit')).toBe(false);
+    await act(async () =>
+      tree.update(<Staged phase={PICKER} session={session} />),
+    );
+    await act(async () =>
+      tree.update(<Staged phase={WALLET} session={session} />),
+    );
+    expect(ticked).toHaveBeenCalledTimes(2);
     await act(async () => tree.unmount());
   });
 });

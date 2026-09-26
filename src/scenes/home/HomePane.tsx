@@ -29,6 +29,7 @@ import type { Point } from './ActionCircle';
 import { rowBack } from './motion';
 import type { Launch } from './motion';
 import { useOverdue, useSafetySignal } from './signals';
+import { useAppActive } from './useAppActive';
 import { isTestNetwork } from './visual';
 
 /**
@@ -38,14 +39,16 @@ import { isTestNetwork } from './visual';
  *
  * It also holds what Home's safety states owe beyond the screen (REDESIGN.md
  * rule 4): an old balance, a recovery phrase still to save and a test
- * network are each felt, spoken and logged as they begin, and spoken once
- * focus has landed, together and in order of how much they matter. A
- * refresh that fails is spoken too, politely, since the notice that once
- * said so is now the mark's value.
+ * network are each felt, spoken and logged as they begin, once however
+ * often Home is drawn again or the app comes back while they last, and
+ * spoken once focus has landed, together and in order of how much they
+ * matter. A state that begins while the app is away, or as it leaves, is
+ * felt once the app is in front again. A refresh that fails is spoken too,
+ * politely, since the notice that once said so is now the mark's value.
  *
  * An old balance is spoken for by the scene in front: while Send or Receive
  * is open it is theirs to warn about, so Home stays quiet rather than warn
- * twice.
+ * twice, and one Home has felt is not felt again as they close.
  *
  * A cached launch opens on old figures while the wallet starts. The dormant,
  * ratcheting mark says so, and the gate holds the actions. The live figures
@@ -159,20 +162,31 @@ export function HomePane({
     build && !hidden && !reduced ? build.beats.hero : undefined,
   );
 
+  // Each safety state is felt once as it begins, while the app is in front,
+  // and not again as Home is drawn anew or the app comes back while it
+  // lasts (`signalStep`). An old balance waits while Send or Receive, which
+  // warn about it themselves, is in front.
+  const active = useAppActive();
+  const wallet = snapshot.wallet.id;
   const overdue = useOverdue(stale && session.connecting, LIVE_OVERDUE_MS);
-  const aged = stale && (!session.connecting || overdue) && !spending;
-  useSafetySignal(aged, copy.health.stale, haptics.warning, 'stale');
+  const aged = stale && (!session.connecting || overdue);
+  useSafetySignal(aged, copy.health.stale, haptics.warning, 'stale', {
+    wallet,
+    front: active && !spending,
+  });
   useSafetySignal(
     !!backup?.pending,
     copy.health.backupPending,
     haptics.warning,
     'backup',
+    { wallet, front: active },
   );
   useSafetySignal(
     isTestNetwork(network),
     copy.health.testNetwork(network),
     haptics.tick,
     'testNetwork',
+    { wallet, front: active },
   );
   useEffect(() => {
     if (session.error) announce(copy.health.refreshFailedDetail(session.error));

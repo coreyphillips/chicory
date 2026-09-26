@@ -49,7 +49,7 @@ import type { Backup } from './Canvas';
 import { BackupPanel } from './layers/BackupPanel';
 import { CreateSheet } from './layers/CreateSheet';
 import { SceneSlot } from './panes/SceneSlot';
-import { backupPending } from './phase';
+import { backupPending, walletOpen } from './phase';
 import type { Phase } from './phase';
 import type { Arrival } from './layout';
 import { systemPromptOpen } from './systemPrompt';
@@ -72,8 +72,14 @@ export function Stage({
   session: Session;
   onUnlock: () => void;
 }) {
-  const { state, actions } = useStage();
+  const { state, actions, felt } = useStage();
   useBackHandler(phase.kind);
+  // The safety states the open wallet has felt are kept while it stays
+  // open, locked or offline included, and forgotten once none is.
+  const open = walletOpen(phase.kind);
+  useEffect(() => {
+    if (!open) felt.forget();
+  }, [open, felt]);
   const view = useCanvasView();
   const {
     snapshot,
