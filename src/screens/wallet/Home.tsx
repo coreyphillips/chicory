@@ -20,7 +20,9 @@ import type {
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import type { PanGestureConfig } from 'react-native-gesture-handler';
 import Reanimated, {
+  useAnimatedReaction,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withSequence,
   withSpring,
@@ -35,15 +37,19 @@ import { Odometer } from '../../glyphs/Odometer';
 import { Vessel } from '../../glyphs/Vessel';
 import { popIn } from '../../motion/effects';
 import { drawIn, dropOut, fadeIn } from '../../motion/presets';
+import { steady } from '../../motion/steady';
 import { curves, durations, overlap, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { ActionCircle } from '../../scenes/home/ActionCircle';
 import type { Point } from '../../scenes/home/ActionCircle';
 import {
+  LAUNCH_DROP,
   PULL_TRIGGER,
   circleOpacity,
   heroPose,
+  landedAt,
   launchPose,
+  launchTravel,
   miniLanding,
   pullOffset,
   stripOpacity,
@@ -51,8 +57,13 @@ import {
 } from '../../scenes/home/motion';
 import type { HeroFrame, Launch } from '../../scenes/home/motion';
 import { isTestNetwork } from '../../scenes/home/visual';
-import { HOME, heroBox, veilOpacity } from '../../stage/layout';
-import type { BuildBeats } from '../../stage/layout';
+import {
+  HOME,
+  PRIMARY_CONTROL,
+  heroBox,
+  veilOpacity,
+} from '../../stage/layout';
+import type { BuildBeats, ControlLook } from '../../stage/layout';
 import { useLaunch } from '../../stage/panes/Launch';
 import type { Launch as Landing } from '../../stage/panes/Launch';
 import type { Panes } from '../../stage/panes/Pane';
@@ -106,6 +117,7 @@ export function HomeScreen({
   heroSats,
   progress,
   launching = 'none',
+  lands = null,
   arrived = 0,
   build,
 }: {
@@ -133,6 +145,11 @@ export function HomeScreen({
     Partial<Pick<Panes, 'pull' | 'veil'>>;
   /** The scene the canvas is heading to, when one of the circles opens it. */
   launching?: Launch;
+  /**
+   * The look of the control the launching circle lands on, which it takes
+   * on as it travels (`launchLook` in stage/layout).
+   */
+  lands?: ControlLook | null;
   /** A count that rises with each read that brought money in. */
   arrived?: number;
   /**
@@ -258,14 +275,9 @@ export function HomeScreen({
   }));
   // Reduce Motion keeps the circles where they are while the row fades,
   // under the veil with the balance.
-  const row = {
-    bar,
-    gate,
-    middle,
-    veil,
-    landing,
-    launching: reduced ? 'none' : launching,
-  };
+  const flying: Launch = reduced ? 'none' : launching;
+  const size = PRIMARY_CONTROL * (lands?.scale ?? 1);
+  const row = { bar, gate, middle, veil, landing, launching: flying, size };
   const sendLaunch = useLaunchStyle(row, 'send', sendAt, sendRest.place);
   const scanLaunch = useLaunchStyle(row, null);
   const receiveLaunch = useLaunchStyle(
@@ -273,6 +285,43 @@ export function HomeScreen({
     'receive',
     receiveAt,
     receiveRest.place,
+  );
+  // How far each circle has taken on the look of the control it becomes.
+  const sendToward = useDerivedValue(
+    () => (flying === 'send' ? launchTravel(1 - bar.get()) : 0),
+    [flying],
+  );
+  const receiveToward = useDerivedValue(
+    () => (flying === 'receive' ? launchTravel(1 - bar.get()) : 0),
+    [flying],
+  );
+  const morphOf = (toward: SharedValue<number>) =>
+    lands ? { look: lands, toward } : undefined;
+  // The circle hands over to the scene's control once it is on it, not on
+  // a clock: the move can start late, and the spring's tail is long.
+  const flyingAt = flying === 'receive' ? receiveAt : sendAt;
+  const flyingRest = flying === 'receive' ? receiveRest.place : sendRest.place;
+  useAnimatedReaction(
+    () => {
+      if (!landing || flying === 'none') return false;
+      const from = flyingRest.get();
+      const measured = from.y > 0;
+      const across = measured
+        ? landing.x.get() - from.x
+        : middle.get() - flyingAt.get();
+      const down = measured ? landing.y.get() - from.y : LAUNCH_DROP;
+      const growth = (size - HOME.circle) / 2;
+      return landedAt(1 - bar.get(), Math.hypot(across, down) + growth);
+    },
+    (now, before) => {
+      if (!landing || !now || before !== false) return;
+      landing.handover.set(
+        steady(
+          withTiming(1, { duration: durations.exit, easing: curves.standard }),
+        ),
+      );
+    },
+    [landing, flying, size],
   );
 
   // How each part enters as the canvas builds in, read once as Home mounts,
@@ -474,6 +523,7 @@ export function HomeScreen({
                     stale={stale}
                     onAct={whileLive(onSend)}
                     onRefresh={refresh}
+                    morph={morphOf(sendToward)}
                   />
                 </Reanimated.View>
               </View>
@@ -516,6 +566,7 @@ export function HomeScreen({
                     stale={stale}
                     onAct={whileLive(onReceive)}
                     onRefresh={refresh}
+                    morph={morphOf(receiveToward)}
                   />
                 </Reanimated.View>
               </View>
@@ -562,6 +613,7 @@ function useLaunchStyle(
     veil,
     landing,
     launching,
+    size,
   }: {
     bar: SharedValue<number>;
     gate: SharedValue<number>;
@@ -569,6 +621,8 @@ function useLaunchStyle(
     veil?: SharedValue<number>;
     landing: Landing | null;
     launching: Launch;
+    /** How big the control the tapped circle grows into is drawn. */
+    size: number;
   },
   own: Launch | null,
   at?: SharedValue<number>,
@@ -585,7 +639,7 @@ function useLaunchStyle(
       ? middle.get() - at.get()
       : 0;
     const drop = measured ? landing.y.get() - from.y : undefined;
-    const pose = launchPose(away, tapped, launching, toCentre, drop);
+    const pose = launchPose(away, tapped, launching, toCentre, drop, size);
     const handover = landing ? landing.handover.get() : undefined;
     return {
       opacity:
@@ -597,7 +651,7 @@ function useLaunchStyle(
         { scale: pose.scale * gate.get() },
       ],
     };
-  }, [launching, own, landing, veil]);
+  }, [launching, own, landing, veil, size]);
 }
 
 const styles = StyleSheet.create({

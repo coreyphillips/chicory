@@ -36,6 +36,20 @@ const FADE = {
 const SETTLE = { duration: PANE_SETTLE_MS, easing: curves.linear };
 
 /**
+ * How long the action row waits, coming home from `before` to `next`,
+ * before it rises: from Send or Receive, as long as the scene's content
+ * takes to leave (`sceneOut`), so the circles never grow over what it still
+ * draws, such as a result's mark, and the one that opened the scene comes
+ * back up where it landed first. Anything else, at once.
+ */
+export function rowWait(
+  before: Pick<CanvasLayout, 'seam' | 'bar'>,
+  next: Pick<CanvasLayout, 'seam' | 'bar'>,
+): number {
+  return before.seam === 'gone' && next.bar > before.bar ? durations.exit : 0;
+}
+
+/**
  * Under Reduce Motion nothing travels: the sheet and the balance fade out
  * over the first half of a crossfade, jump to where they belong while
  * unseen, and fade back in over the second (REDESIGN.md 8). The veil is
@@ -169,12 +183,13 @@ export function usePaneMotion(
           scan.set(steady(withTiming(scanning, FADE)));
         };
       } else {
-        end = begin(PANE_SETTLE_MS + STALL_ALLOWANCE);
+        end = begin(PANE_SETTLE_MS + rowWait(before, next) + STALL_ALLOWANCE);
         const settled = () => {
           'worklet';
           scheduleOnRN(end);
         };
         const velocity = fling?.velocity ?? 0;
+        const wait = rowWait(before, next);
         start = () => {
           seam.set(
             steady(
@@ -185,13 +200,21 @@ export function usePaneMotion(
             ),
           );
           hero.set(steady(withSpring(next.hero, springs.pane)));
-          bar.set(steady(withSpring(next.bar, springs.pane)));
+          bar.set(steady(withDelay(wait, withSpring(next.bar, springs.pane))));
           cover.set(steady(withSpring(covered, springs.pane)));
           scan.set(steady(withSpring(scanning, springs.pane)));
           // Restarting the clock cuts the last one short, which ends its
-          // lock.
+          // lock. A row that waits holds it that much longer.
           settling.set(0);
-          settling.set(steady(withTiming(1, SETTLE, settled)));
+          settling.set(
+            steady(
+              withTiming(
+                1,
+                { ...SETTLE, duration: SETTLE.duration + wait },
+                settled,
+              ),
+            ),
+          );
         };
       }
       // A move asked for again before it started is replaced whole, and the

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import {
   useAnimatedReaction,
@@ -15,7 +15,7 @@ import { steady } from '../../motion/steady';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { HomeScreen } from '../../screens/wallet/Home';
 import type { RegionProps } from '../../stage/Canvas';
-import { canvasScene } from '../../stage/layout';
+import { canvasScene, launchLook } from '../../stage/layout';
 import { useBuild } from '../../stage/panes/Build';
 import { usePanes } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
@@ -85,6 +85,26 @@ export function HomePane({
     : 'none';
   if (launching !== launched) setLaunched(launching);
   const returning = shown === 'home' && launching !== 'none';
+  // What the control the circle lands on looks like as its scene opens: a
+  // review that has a request, or a Continue an empty amount can take, is
+  // live; otherwise it waits in dust. Kept while the circle comes home, so
+  // it leaves from the look it landed with.
+  const test = isTestNetwork(network);
+  const [landsOn, setLandsOn] = useState<{ live: boolean } | null>(null);
+  if (spending && state.scene.name === shown) {
+    const live =
+      state.scene.name === 'send'
+        ? !stale && state.scene.prefill.trim() !== ''
+        : !stale && snapshot.balance.receivableSats > 0;
+    if (landsOn?.live !== live) setLandsOn({ live });
+  }
+  const lands = useMemo(
+    () =>
+      launching === 'none' || !landsOn
+        ? null
+        : launchLook(launching, { live: landsOn.live, test }),
+    [launching, landsOn, test],
+  );
   useAnimatedReaction(
     () => panes.bar.get(),
     (bar, before) => {
@@ -174,6 +194,7 @@ export function HomePane({
         build={beats}
         progress={panes}
         launching={launching}
+        lands={lands}
         arrived={arrived}
         onSend={openSend}
         onReceive={actions.openReceive}

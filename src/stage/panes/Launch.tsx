@@ -7,7 +7,7 @@ import React, {
 } from 'react';
 import type { PropsWithChildren } from 'react';
 import type { HostInstance } from 'react-native';
-import { withSpring } from 'react-native-reanimated';
+import { useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
 import { steady } from '../../motion/steady';
 import { springs } from '../../motion/tokens';
@@ -22,7 +22,9 @@ import { springs } from '../../motion/tokens';
  * `x` and `y` are that control's centre in window points: the bottom centre
  * of the slot (`launchLanding` in stage/layout) until the scene measures its
  * own (`useLaunchLanding`). `handover` runs from 0, while the circle is on
- * its way, to 1 once the control has taken over.
+ * its way, to 1 once the control has taken over: Home starts it as the
+ * circle arrives on the control (`landedAt`), and the canvas only makes
+ * sure it comes, and turns it back to 0 as the scene leaves.
  */
 export interface Launch {
   x: SharedValue<number>;
@@ -42,10 +44,17 @@ export function useLaunch(): Launch | null {
 /**
  * For a scene's primary control: a ref and an `onLayout` for the view that
  * holds it, so the circle that opened the scene lands on it exactly rather
- * than on the slot's bottom centre. Off the canvas both do nothing.
+ * than on the slot's bottom centre, and a `style` for an animated view
+ * around it that holds the control unseen until the circle has landed and
+ * hands over, so the two are never drawn apart. Off the canvas the ref and
+ * the layout do nothing and the style shows the control.
  */
 export function useLaunchLanding() {
   const launch = useLaunch();
+  const style = useAnimatedStyle(
+    () => ({ opacity: launch ? launch.handover.get() : 1 }),
+    [launch],
+  );
   const ref = useRef<HostInstance>(null);
   const onLayout = useCallback(() => {
     if (!launch) return;
@@ -55,7 +64,7 @@ export function useLaunchLanding() {
       launch.y.set(steady(withSpring(y + height / 2, springs.pane)));
     });
   }, [launch]);
-  return { ref, onLayout };
+  return { ref, onLayout, style };
 }
 
 /**

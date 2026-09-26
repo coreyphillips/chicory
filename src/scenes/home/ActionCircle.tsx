@@ -8,6 +8,7 @@ import Reanimated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import type { SharedValue } from 'react-native-reanimated';
 import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
@@ -17,12 +18,23 @@ import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
 import { shake, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
-import { REFUSED, tintTiming } from './motion';
+import { PRIMARY_CONTROL } from '../../stage/layout';
+import type { ControlLook } from '../../stage/layout';
+import { REFUSED, glyphMorph, tintTiming } from './motion';
 
 /** A point in the window, where the scan reveal grows from. */
 export type Point = { x: number; y: number };
 
 const PRESSED = 0.92;
+
+/**
+ * The control a circle becomes as it opens its scene, and how far it has
+ * taken on its look: 0 at home, 1 where it lands (REDESIGN.md 7, T1).
+ */
+export interface Morph {
+  look: ControlLook;
+  toward: SharedValue<number>;
+}
 
 /**
  * One circle of Home's action row: Send and Receive at 56pt, Scan at 76.
@@ -35,6 +47,11 @@ const PRESSED = 0.92;
  *
  * Its props are named apart from the pressable's own, so a suite that finds
  * the control by its label reaches the one that holds the gate.
+ *
+ * Given `morph`, the circle takes on the look of the control it becomes as
+ * it travels to it: that control's fill and ring fade in over its own, and
+ * its glyph turns to that control's colour and size, so it lands looking
+ * like what it hands over to rather than popping into it.
  */
 export function ActionCircle({
   glyph,
@@ -46,6 +63,7 @@ export function ActionCircle({
   stale,
   onAct,
   onRefresh,
+  morph,
 }: {
   glyph: GlyphName;
   size: 56 | 76;
@@ -60,6 +78,8 @@ export function ActionCircle({
   onAct?: (origin?: Point) => void;
   /** Starts a refresh, for a tap on a gated circle. */
   onRefresh?: () => void;
+  /** The control this circle becomes as it opens its scene. */
+  morph?: Morph;
 }) {
   const { reduced } = useMotionPrefs();
   const view = useRef<HostInstance>(null);
@@ -111,6 +131,23 @@ export function ActionCircle({
     transform: [{ translateX: nudge.get() }, { scale: press.get() }],
   }));
   const refused = useAnimatedStyle(() => ({ opacity: tint.get() }));
+  const glyphSize = size === 76 ? 30 : 24;
+  const toward = morph?.toward;
+  const to = morph?.look.glyph ?? glyphSize;
+  const becoming = useAnimatedStyle(
+    () => ({ opacity: toward ? toward.get() : 0 }),
+    [toward],
+  );
+  const growing = useAnimatedStyle(
+    () => ({
+      transform: [
+        {
+          scale: toward ? glyphMorph(toward.get(), glyphSize, size, to) : 1,
+        },
+      ],
+    }),
+    [toward, glyphSize, size, to],
+  );
 
   const bloom = test ? palette.slate : palette.bloom;
   const fill = stale ? 'transparent' : primary ? bloom : palette.mocha;
@@ -152,7 +189,32 @@ export function ActionCircle({
           pointerEvents="none"
           style={[styles.refused, { borderRadius: size / 2 }, refused]}
         />
-        <Glyph name={glyph} size={size === 76 ? 30 : 24} color={ink} />
+        {morph ? (
+          // The control's disc and ring, in its own points shrunk to this
+          // circle's, over the circle's own, so the growth carries it to
+          // the control's size exactly.
+          <Reanimated.View
+            pointerEvents="none"
+            style={[
+              styles.becoming,
+              {
+                borderRadius: size / 2,
+                backgroundColor: morph.look.fill,
+                borderColor: morph.look.ring,
+                borderWidth: (morph.look.ringWidth * size) / PRIMARY_CONTROL,
+              },
+              becoming,
+            ]}
+          />
+        ) : null}
+        <Reanimated.View style={morph ? growing : undefined}>
+          <Glyph name={glyph} size={glyphSize} color={ink} />
+          {morph ? (
+            <Reanimated.View style={[styles.over, becoming]}>
+              <Glyph name={glyph} size={glyphSize} color={morph.look.ink} />
+            </Reanimated.View>
+          ) : null}
+        </Reanimated.View>
       </Pressable>
     </Reanimated.View>
   );
@@ -172,4 +234,13 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   refused: { ...StyleSheet.absoluteFill, backgroundColor: palette.radishSoft },
+  // Over the hairline border too, so its ring is the circle's outer edge.
+  becoming: {
+    position: 'absolute',
+    top: -StyleSheet.hairlineWidth,
+    left: -StyleSheet.hairlineWidth,
+    right: -StyleSheet.hairlineWidth,
+    bottom: -StyleSheet.hairlineWidth,
+  },
+  over: StyleSheet.absoluteFill,
 });
