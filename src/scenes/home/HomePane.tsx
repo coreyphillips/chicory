@@ -1,20 +1,25 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import {
-  useAnimatedReaction,
-  useSharedValue,
-  withDelay,
-  withTiming,
-} from 'react-native-reanimated';
+import { useAnimatedReaction } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
 import { haptics } from '../../design/haptics';
-import { steady } from '../../motion/steady';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { HomeScreen } from '../../screens/wallet/Home';
 import type { RegionProps } from '../../stage/Canvas';
+import {
+  heldRequest,
+  heldVersion,
+  subscribeHeld,
+} from '../../stage/heldRequests';
 import { canvasScene, launchLook } from '../../stage/layout';
 import { useBuild } from '../../stage/panes/Build';
 import { usePanes } from '../../stage/panes/Pane';
@@ -91,18 +96,43 @@ export function HomePane({
   // (`reviewOpensLive`), or a Continue an empty amount can take, is live;
   // otherwise it waits in dust. Kept while the circle comes home, so it
   // leaves from the look it landed with.
+  //
+  // A request that is held, or already paid, never reaches a review: Send
+  // takes it straight to the held ring or its paid mark, which draw no
+  // control (REDESIGN.md rule 6). So the circle has nowhere to land, and a
+  // live pay control must never be seen over that screen: it goes with the
+  // other two instead (`landless`). Settled as the scene opens, so a
+  // payment that answers while it shows moves nothing on Home.
+  useSyncExternalStore(subscribeHeld, heldVersion);
   const test = isTestNetwork(network);
-  const [landsOn, setLandsOn] = useState<{ live: boolean } | null>(null);
+  const [landsOn, setLandsOn] = useState<{
+    live: boolean;
+    landless: boolean;
+    key: number;
+  } | null>(null);
   if (spending && state.scene.name === shown) {
+    const scene = state.scene;
+    const landless =
+      landsOn?.key === scene.key
+        ? landsOn.landless
+        : scene.name === 'send' &&
+          heldRequest(scene.prefill, snapshot.activity) !== null;
     const live =
-      state.scene.name === 'send'
-        ? !stale && reviewOpensLive(state.scene.prefill)
+      scene.name === 'send'
+        ? !stale && reviewOpensLive(scene.prefill)
         : !stale && snapshot.balance.receivableSats > 0;
-    if (landsOn?.live !== live) setLandsOn({ live });
+    if (
+      landsOn?.live !== live ||
+      landsOn.landless !== landless ||
+      landsOn.key !== scene.key
+    ) {
+      setLandsOn({ live, landless, key: scene.key });
+    }
   }
+  const landless = launching !== 'none' && !!landsOn?.landless;
   const lands = useMemo(
     () =>
-      launching === 'none' || !landsOn
+      launching === 'none' || !landsOn || landsOn.landless
         ? null
         : launchLook(launching, { live: landsOn.live, test }),
     [launching, landsOn, test],
@@ -117,31 +147,17 @@ export function HomePane({
 
   // As the canvas builds in, the hero counts up from 0 on its beat (R-1):
   // it holds 0 until then, unseen, and rolls to the balance as it fades
-  // in. A hidden balance, and one under Reduce Motion, simply shows.
+  // in. The count is set going as the hero mounts, and waits for its beat
+  // on the UI thread on the steady clock, as the fade does, so the two set
+  // out together: a count that waited for the JavaScript thread to hear
+  // the beat left the hero faded up on "0 sats" for a second of a cold
+  // launch. A hidden balance, and one under Reduce Motion, simply shows.
   const { reduced } = useMotionPrefs();
   const build = useBuild();
   const [beats] = useState(() => build?.beats);
-  const [counting, setCounting] = useState(
-    () => !!build && !hidden && !reduced,
+  const [countUp] = useState(() =>
+    build && !hidden && !reduced ? build.beats.hero : undefined,
   );
-  const counted = useSharedValue(0);
-  useEffect(() => {
-    if (!counting || !beats) return;
-    // On the steady clock, as the hero's fade is, so the count starts as
-    // the balance is seen rather than during a first frame that is slow to
-    // paint (see `steady`).
-    counted.set(
-      steady(
-        withDelay(
-          beats.hero,
-          withTiming(1, { duration: 0 }, done => {
-            'worklet';
-            if (done) scheduleOnRN(setCounting, false);
-          }),
-        ),
-      ),
-    );
-  }, [counting, beats, counted]);
 
   const overdue = useOverdue(stale && session.connecting, LIVE_OVERDUE_MS);
   const aged = stale && (!session.connecting || overdue) && !spending;
@@ -190,12 +206,13 @@ export function HomePane({
         hidden={hidden}
         unit={unit}
         stale={stale}
-        heroSats={counting ? 0 : undefined}
+        countUp={countUp}
         spendable={spending}
         build={beats}
         progress={panes}
         launching={launching}
         lands={lands}
+        landless={landless}
         arrived={arrived}
         onSend={openSend}
         onReceive={actions.openReceive}

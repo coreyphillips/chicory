@@ -182,6 +182,25 @@ const odometers: Shot[] = [
       <Odometer sats={sats} unit="sats" variant="amount" duration={900} />
     )),
   ),
+  // Places grow as the count reaches them, never a leading 0 or a
+  // separator before the first digit.
+  changing('odometer, counting up from 0 to a balance', () =>
+    [0, 65_446].map(sats => hero({ sats })),
+  ),
+  changing('odometer, counting up a receipt with its sign', () =>
+    [0, 888, 5_000].map(sats => (
+      <Odometer
+        sats={sats}
+        unit="sats"
+        variant="amount"
+        sign="+"
+        duration={700}
+      />
+    )),
+  ),
+  changing('odometer, a new place rolling in and away', () =>
+    [9_999, 10_000, 9_999].map(sats => hero({ sats })),
+  ),
 ];
 
 // The vessel.
@@ -274,6 +293,11 @@ const vessels: Shot[] = [
       availableSats: availableSats + 7_500,
       pendingSats: pendingSats - 7_500,
     }),
+  ]),
+  // The pill swells from its hairline with its hatch drawn full height.
+  changing('vessel, swelling into money out of reach', () => [
+    vessel({}, { availableSats: totalSats, pendingSats: 0 }),
+    vessel({}, { availableSats: 28_929, pendingSats: 0, totalSats: 120_963 }),
   ]),
   changing('vessel, a wait that changes', () => [
     vessel({}),

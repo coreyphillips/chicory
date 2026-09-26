@@ -34,6 +34,7 @@ import { StatusRing, glyphRedraws, ringColor } from '../src/glyphs/StatusRing';
 import type { RingVisual } from '../src/glyphs/StatusRing';
 import {
   CHANNELIZE_MS,
+  HEIGHTS,
   SHEEN_PEAK,
   SLATE_GLASS,
   Vessel,
@@ -46,7 +47,7 @@ import { GLYPHS } from '../src/design/glyphs';
 import { palette } from '../src/design/palette';
 import * as loops from '../src/motion/loops';
 import { Pane } from '../src/stage/panes/Pane';
-import { MASK } from '../src/theme';
+import { MASK, radius } from '../src/theme';
 import { copyViolations } from '../test-support/copyGuard';
 import { a11yText, visibleText, whispers } from '../test-support/query';
 
@@ -562,6 +563,65 @@ describe('Odometer', () => {
     expect(visibleText(tree).join('')).toBe('999sats');
   });
 
+  test('a place a roll brings in has no entrance of its own, and nothing slides across the figures', async () => {
+    // The device pass (P12): a count up drew "+0,888", its new cells grew
+    // on a clock of their own to a sliver of a 0, and the ones slid across
+    // the cells beside them on a layout transition, two figures in a cell.
+    // Now a new place opens on the UI thread with the roll, shut and blank
+    // below it (OdometerMath, a figure mid-roll).
+    const tree = await render(
+      <Odometer sats={999} unit="sats" variant="line" />,
+    );
+    act(() =>
+      tree.update(<Odometer sats={1_000} unit="sats" variant="line" />),
+    );
+    const cells = hosts(tree, node => flat(node).overflow === 'hidden');
+    expect(cells).toHaveLength(5);
+    const [thousands, comma] = cells;
+    expect(thousands.props.entering).toBeUndefined();
+    expect(comma.props.entering).toBeUndefined();
+    expect(hosts(tree, node => node.props.layout !== undefined)).toEqual([]);
+    // The ones measure a figure's width for the cells that open.
+    expect(typeof cells[4].props.onLayout).toBe('function');
+    expect(cells.slice(0, 4).map(cell => cell.props.onLayout)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    await act(async () => {});
+    expect(visibleText(tree).join('')).toBe('1,000sats');
+    // At rest every cell takes its own width.
+    for (const cell of hosts(tree, node => flat(node).overflow === 'hidden')) {
+      expect(flat(cell).width).not.toBe(0);
+    }
+  });
+
+  test('given countUp, it counts up from 0 as it mounts, setting out on the UI thread after the wait', async () => {
+    const delays = jest.spyOn(Reanimated, 'withDelay');
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    const tree = await render(
+      <Odometer sats={65_446} unit="sats" variant="hero" countUp={80} />,
+    );
+    // From its first frame it draws columns, rolling from 0.
+    const index = timings.mock.calls.findIndex(([to]) => to === 65_446);
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(timings.mock.calls[index][1]?.duration).toBe(rollDuration(65_446));
+    const roll = timings.mock.results[index].value;
+    expect(delays.mock.calls).toContainEqual([80, roll]);
+    // It always says the amount it counts to.
+    expect(a11yText(tree)).toEqual(['65,446 sats']);
+    // Hidden, or at 0, it simply shows.
+    delays.mockClear();
+    for (const quiet of [
+      <Odometer sats={65_446} unit="sats" variant="hero" countUp={80} masked />,
+      <Odometer sats={0} unit="sats" variant="hero" countUp={80} />,
+    ]) {
+      await render(quiet);
+    }
+    expect(delays).not.toHaveBeenCalled();
+  });
+
   test('a new unit swaps the cells without rolling', async () => {
     const tree = await render(
       <Odometer sats={120_000} unit="sats" variant="hero" />,
@@ -1053,6 +1113,53 @@ describe('Vessel', () => {
         { translateX: 180 },
         { scaleX: expect.closeTo(0.3) },
       ]);
+    });
+
+    test('its hatch, like all the pill’s art, is drawn at the open pill’s height and clipped by the pill', async () => {
+      // The device pass (P12): the pill swells from the hairline on the UI
+      // thread, and a hatch sized "100%" kept the hairline's height, a
+      // dotted band 2pt tall along the top of the 8pt pill.
+      const art = async (reduced: boolean) => {
+        reducedMotion(reduced);
+        const tree = await away({
+          availableSats: 30_000,
+          pendingSats: 10_000,
+          totalSats: 100_000,
+        });
+        await act(async () =>
+          tree.root.findByProps({ accessible: true }).props.onLayout({
+            nativeEvent: { layout: { width: 300, height: 8 } },
+          }),
+        );
+        return tree;
+      };
+      const drawings = (tree: ReactTestRenderer) =>
+        tree.root
+          .findAllByType(Svg)
+          .filter(
+            svg =>
+              svg.findAllByType(Pattern).length > 0 ||
+              svg.findAllByType(LinearGradient).length > 0,
+          );
+      // The hatch out of reach and the sheen on the glass, and under Reduce
+      // Motion the glass's still hatch.
+      const moving = await art(false);
+      const still = await art(true);
+      expect(drawings(moving)).toHaveLength(2);
+      expect(drawings(still)).toHaveLength(2);
+      for (const svg of [...drawings(moving), ...drawings(still)]) {
+        expect(svg.props.height).toBe(HEIGHTS.open);
+        expect(typeof svg.props.width).toBe('number');
+      }
+      // The pill clips it to whatever height it is at.
+      const [pill] = hosts(
+        moving,
+        node =>
+          flat(node).overflow === 'hidden' &&
+          flat(node).borderRadius === radius.round,
+      );
+      expect(pill).toBeDefined();
+      reducedMotion(false);
     });
 
     test('with the primary connected it is held back in dust, and no channel is said to be away', async () => {

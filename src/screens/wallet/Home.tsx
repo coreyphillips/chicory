@@ -20,7 +20,6 @@ import type {
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import type { PanGestureConfig } from 'react-native-gesture-handler';
 import Reanimated, {
-  LayoutAnimationConfig,
   useAnimatedReaction,
   useAnimatedStyle,
   useDerivedValue,
@@ -47,6 +46,7 @@ import {
   LAUNCH_DROP,
   PULL_TRIGGER,
   circleOpacity,
+  figureShown,
   heroPose,
   landedAt,
   launchPose,
@@ -59,6 +59,7 @@ import type { HeroFrame, Launch } from '../../scenes/home/motion';
 import { isTestNetwork } from '../../scenes/home/visual';
 import {
   HOME,
+  PANE_SETTLE_MS,
   PRIMARY_CONTROL,
   heroBox,
   veilOpacity,
@@ -118,11 +119,12 @@ export function HomeScreen({
   onToggleUnit,
   onToggleHidden,
   onRefresh,
-  heroSats,
+  countUp,
   spendable = false,
   progress,
   launching = 'none',
   lands = null,
+  landless = false,
   arrived = 0,
   build,
 }: {
@@ -140,8 +142,12 @@ export function HomeScreen({
   onToggleHidden?: () => void;
   /** Refreshes the wallet, for the pull and for a tap on a gated action. */
   onRefresh?: () => void;
-  /** What the hero shows in place of its figure, as while it counts up. */
-  heroSats?: number;
+  /**
+   * How long after it mounts the hero counts up from 0 to the total, on the
+   * steady clock, as the canvas builds in (REDESIGN.md 7, R-1). Left out,
+   * it simply shows.
+   */
+  countUp?: number;
   /**
    * The hero shows what can be spent now rather than the total, as it does
    * while Send or Receive is open.
@@ -160,6 +166,12 @@ export function HomeScreen({
    * on as it travels (`launchLook` in stage/layout).
    */
   lands?: ControlLook | null;
+  /**
+   * The scene opens with no control for the circle to land on, as Send does
+   * on a held request's ring or a paid one's mark: the circle that opened
+   * it goes with the other two rather than travel to where nothing is drawn.
+   */
+  landless?: boolean;
   /** A count that rises with each read that brought money in. */
   arrived?: number;
   /**
@@ -286,8 +298,20 @@ export function HomeScreen({
   // Reduce Motion keeps the circles where they are while the row fades,
   // under the veil with the balance.
   const flying: Launch = reduced ? 'none' : launching;
+  // With no control to land on, no circle travels: all three go as the two
+  // not tapped do.
+  const travels = !landless;
   const size = PRIMARY_CONTROL * (lands?.scale ?? 1);
-  const row = { bar, gate, middle, veil, landing, launching: flying, size };
+  const row = {
+    bar,
+    gate,
+    middle,
+    veil,
+    landing,
+    launching: flying,
+    travels,
+    size,
+  };
   const sendLaunch = useLaunchStyle(row, 'send', sendAt, sendRest.place);
   const scanLaunch = useLaunchStyle(row, null);
   const receiveLaunch = useLaunchStyle(
@@ -313,7 +337,7 @@ export function HomeScreen({
   const flyingRest = flying === 'receive' ? receiveRest.place : sendRest.place;
   useAnimatedReaction(
     () => {
-      if (!landing || flying === 'none') return false;
+      if (!landing || flying === 'none' || !travels) return false;
       const from = flyingRest.get();
       const measured = from.y > 0;
       const across = measured
@@ -331,7 +355,7 @@ export function HomeScreen({
         ),
       );
     },
-    [landing, flying, size],
+    [landing, flying, travels, size],
   );
 
   // How each part enters as the canvas builds in, read once as Home mounts,
@@ -377,12 +401,41 @@ export function HomeScreen({
   const figuresStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pop.get() }],
   }));
-  // Which figure the hero shows: the total, or what can be spent. Each is
-  // its own odometer, so a change between them is a new figure in place,
-  // at once and with nothing fading, while a change of either one rolls.
-  const quantity = spendable ? 'spendable' : 'total';
-  const figure =
-    heroSats ?? (spendable ? balance.availableSats : balance.totalSats);
+  // Which figure the hero shows: the total, or what can be spent. Each is an
+  // odometer of its own, both drawn in the one place and only one ever
+  // seen, so a change of either rolls and a change between them is a new
+  // figure in place. That change is made on the UI thread in the first
+  // frame the hero moves toward the scene that wants it (`figureShown`):
+  // under the move, never before it starts, where the full balance would
+  // read as money gone, and never after it ends. Neither figure mounts or
+  // fades for it, so it never blinks.
+  const want = spendable ? 1 : 0;
+  const figureAt = useSharedValue(want);
+  useAnimatedReaction(
+    () => ({ hero: hero.get(), landing: landingAt.get() }),
+    (now, before) => {
+      const next = figureShown(figureAt.get(), want, now, before);
+      if (next !== figureAt.get()) figureAt.set(next);
+    },
+    [want],
+  );
+  // Drawn on its own nothing moves it, so it changes at once. On the canvas
+  // a move that never came leaves it changed by when one would have landed.
+  const onCanvas = !!progress;
+  useEffect(() => {
+    if (!onCanvas) {
+      figureAt.set(want);
+      return;
+    }
+    const late = setTimeout(() => figureAt.set(want), FIGURE_LATEST);
+    return () => clearTimeout(late);
+  }, [want, onCanvas, figureAt]);
+  const totalShown = useAnimatedStyle(() => ({
+    opacity: figureAt.get() === 1 ? 0 : 1,
+  }));
+  const spendableShown = useAnimatedStyle(() => ({
+    opacity: figureAt.get() === 1 ? 1 : 0,
+  }));
   const measureRow = (event: LayoutChangeEvent) =>
     middle.set(event.nativeEvent.layout.width / 2);
   const centreOf = (at: SharedValue<number>) => (event: LayoutChangeEvent) => {
@@ -463,13 +516,10 @@ export function HomeScreen({
                     entering={arrive.hero}
                     exiting={heroOut}
                   >
-                    <LayoutAnimationConfig
-                      key={quantity}
-                      skipEntering
-                      skipExiting
-                    >
+                    <Reanimated.View testID="home-total" style={totalShown}>
                       <Odometer
-                        sats={figure}
+                        sats={balance.totalSats}
+                        countUp={countUp}
                         unit={unit}
                         masked={hidden}
                         stale={stale}
@@ -478,7 +528,22 @@ export function HomeScreen({
                         scaled={heroScale}
                         accessibilityLabel={label}
                       />
-                    </LayoutAnimationConfig>
+                    </Reanimated.View>
+                    <Reanimated.View
+                      testID="home-spendable"
+                      style={[styles.over, spendableShown]}
+                    >
+                      <Odometer
+                        sats={balance.availableSats}
+                        unit={unit}
+                        masked={hidden}
+                        stale={stale}
+                        variant="hero"
+                        room={room}
+                        scaled={heroScale}
+                        accessibilityLabel={label}
+                      />
+                    </Reanimated.View>
                   </Reanimated.View>
                 </Reanimated.View>
               </Pressable>
@@ -578,6 +643,12 @@ export function HomeScreen({
   );
 }
 
+/**
+ * The latest the hero changes figure on the canvas, should no move come to
+ * change it under: well past where a move lands, as HANDOVER_LATEST is.
+ */
+const FIGURE_LATEST = 2 * PANE_SETTLE_MS;
+
 /** A point in the window. */
 type Place = { x: number; y: number };
 
@@ -613,6 +684,7 @@ function useLaunchStyle(
     veil,
     landing,
     launching,
+    travels,
     size,
   }: {
     bar: SharedValue<number>;
@@ -621,6 +693,8 @@ function useLaunchStyle(
     veil?: SharedValue<number>;
     landing: Landing | null;
     launching: Launch;
+    /** Whether the tapped circle travels, having a control to land on. */
+    travels: boolean;
     /** How big the control the tapped circle grows into is drawn. */
     size: number;
   },
@@ -630,7 +704,7 @@ function useLaunchStyle(
 ) {
   return useAnimatedStyle(() => {
     const away = 1 - bar.get();
-    const tapped = launching === own;
+    const tapped = travels && launching === own;
     const from = rest ? rest.get() : null;
     const measured = !!landing && !!from && from.y > 0;
     const toCentre = measured
@@ -651,7 +725,7 @@ function useLaunchStyle(
         { scale: pose.scale * gate.get() },
       ],
     };
-  }, [launching, own, landing, veil, size]);
+  }, [launching, own, landing, veil, travels, size]);
 }
 
 const styles = StyleSheet.create({
@@ -672,6 +746,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   balance: { alignItems: 'center', paddingVertical: HOME.heroPad },
+  // What can be spent, drawn where the total is, the two centred alike.
+  over: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   vessel: { paddingHorizontal: HOME.vesselInset },
   bar: {
     flexDirection: 'row',

@@ -112,6 +112,33 @@ export function heroPose(
   };
 }
 
+/** Where the hero stands in a frame: how far expanded, and where it lands. */
+export interface HeroStand {
+  hero: number;
+  landing: number;
+}
+
+/**
+ * Which of the hero's two figures is drawn, 0 the total and 1 what can be
+ * spent (REDESIGN.md 7, T1): `want` once the move toward it is under way,
+ * which it knows by the hero standing somewhere else this frame, `now`,
+ * than the frame before, and `shown` until then. So the full balance never
+ * changes its figure before anything moves, where it reads as money gone,
+ * and the strip never changes it while the scene it belongs to is still
+ * drawn whole. `before` is null for the first frame looked at.
+ */
+export function figureShown(
+  shown: number,
+  want: number,
+  now: HeroStand,
+  before: HeroStand | null,
+): number {
+  'worklet';
+  if (shown === want || !before) return shown;
+  const moved = now.hero !== before.hero || now.landing !== before.landing;
+  return moved ? want : shown;
+}
+
 /**
  * The vessel under the hero fades over the first .3 of the way to the mini
  * strip (REDESIGN.md 7, T5), so it is gone before the hero has shrunk much.
@@ -204,6 +231,33 @@ export function glyphMorph(
   'worklet';
   const landed = (to * size) / (glyph * PRIMARY_CONTROL);
   return 1 + clamp01(m) * (landed - 1);
+}
+
+/** The glyph grid, in units a side. */
+const GRID = 24;
+
+/**
+ * The stroke, in grid units, that draws the tapped circle's glyph `points`
+ * wide `m` of the way to the control: counter-scaled against both its growth
+ * into the control's glyph (`glyphMorph`) and the circle's own growth from
+ * `size` into the control, drawn at `scale`, which it travels with. So its
+ * line keeps the weight it is meant to have all the way, rather than
+ * swelling with the circle to twice the control's and thinning as it hands
+ * over. `glyph` and `to` are as for `glyphMorph`.
+ */
+export function glyphStroke(
+  m: number,
+  points: number,
+  glyph: number,
+  size: number,
+  to: number,
+  scale: number,
+): number {
+  'worklet';
+  const t = clamp01(m);
+  const grown = 1 + ((PRIMARY_CONTROL * scale) / size - 1) * t;
+  const drawn = (glyph / GRID) * glyphMorph(t, glyph, size, to) * grown;
+  return drawn > 0 ? points / drawn : 0;
 }
 
 /**

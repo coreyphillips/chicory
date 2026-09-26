@@ -34,7 +34,12 @@ import { Welcome } from '../scenes/phases/Welcome';
 import { Picker } from '../scenes/phases/Picker';
 import { OpeningWallet } from '../scenes/phases/Loading';
 import { OfflineWallet } from '../scenes/phases/Offline';
-import { bloomTone, QUIET_MS, SIZES } from '../scenes/phases/visual';
+import {
+  bloomTone,
+  openingNetwork,
+  QUIET_MS,
+  SIZES,
+} from '../scenes/phases/visual';
 import { BackupTile } from '../scenes/home/BackupTile';
 import { vesselVisual } from '../scenes/home/visual';
 import { useAppActive } from '../scenes/home/useAppActive';
@@ -85,6 +90,15 @@ export function Stage({
     activeProfile,
   } = session;
   const stale = useStale(snapshot?.updatedAt);
+  // The network the launch restore opens on, once it is known: until then
+  // the session's profile is a stand-in for mainnet, and the loader holds
+  // back rather than chase in bloom and turn slate midway.
+  const [firstProfile] = useState(activeProfile);
+  const opensOn = openingNetwork(
+    session.rememberedSession,
+    activeProfile,
+    firstProfile,
+  );
   const savedWallet = useMemo(
     () => wallets.find(wallet => wallet.id === walletId),
     [wallets, walletId],
@@ -158,7 +172,12 @@ export function Stage({
       );
       break;
     case 'opening':
-      content = <Opening network={activeProfile.network} />;
+      content = (
+        <Opening
+          network={opensOn ?? activeProfile.network}
+          known={opensOn !== null}
+        />
+      );
       break;
     case 'saved':
       content = (
@@ -395,9 +414,10 @@ export function Stage({
             switcher's picture of the app holds no balance. Behind a prompt
             the app raised itself, paste or the camera, the screen stays,
             so the person sees what they are answering for
-            (`privacyCovered`). It is up and down at once, the mark's petals
-            too, with no fade: the picture is taken as the app leaves. The
-            lock hides the wallet itself. */}
+            (`coverAfter`). Once up it stays up until the app is in front
+            again. It is up and down at once, the mark's petals too, with no
+            fade: the picture is taken as the app leaves. The lock hides the
+            wallet itself. */}
         {covered && !locked ? (
           <LayoutAnimationConfig skipEntering skipExiting>
             <View
@@ -431,36 +451,42 @@ export function arrivalFrom(before: Phase['kind'], lockedFor: number): Arrival {
 }
 
 /**
- * Whether the privacy cover is up while the app is in `state`, with
- * `prompting` true while a system prompt the app raised may be up
- * (`systemPromptOpen`). The background always covers, since that is where
- * the app switcher takes its picture. Inactive covers too, since the
- * switcher starts there, except behind a prompt the app asked for, which
- * makes the app inactive as well: the paste permission over Send, or the
- * camera's over the scan, where the screen behind is what the person is
- * answering for. In front, or unknown, nothing covers.
+ * Whether the privacy cover is up once the app's state changes to `state`,
+ * given whether it was (`covered`) and whether a system prompt the app
+ * raised may be up (`prompting`, `systemPromptOpen`). It goes up with the
+ * first step out of the front: the background always, since that is where
+ * the app switcher takes its picture, and inactive, since the switcher and
+ * its animation start there, except behind a prompt the app asked for,
+ * which makes the app inactive as well: the paste permission over Send, or
+ * the camera's over the scan, where the screen behind is what the person is
+ * answering for. Once up it stays up until the app is in front again: no
+ * later step on the way out or back lowers it, a prompt's window included,
+ * nor a state the app cannot name. Only `active` does.
  */
-export function privacyCovered(
+export function coverAfter(
+  covered: boolean,
   state: AppStateStatus | string | null | undefined,
   prompting: boolean,
 ): boolean {
+  if (state === 'active') return false;
   if (state === 'background') return true;
-  if (state === 'inactive') return !prompting;
-  return false;
+  if (state === 'inactive') return covered || !prompting;
+  return covered;
 }
 
 /**
- * Whether the privacy cover is up, decided as each change of the app's
+ * Whether the privacy cover is up, stepped on as each change of the app's
  * state arrives, when whether a prompt the app raised is up can be read.
  */
 function usePrivacyCover(): boolean {
   const [covered, setCovered] = useState(() =>
-    privacyCovered(AppState.currentState, systemPromptOpen()),
+    coverAfter(false, AppState.currentState, systemPromptOpen()),
   );
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', state =>
-      setCovered(privacyCovered(state, systemPromptOpen())),
-    );
+    const subscription = AppState.addEventListener('change', state => {
+      const prompting = systemPromptOpen();
+      setCovered(was => coverAfter(was, state, prompting));
+    });
     return () => subscription.remove();
   }, []);
   return covered;

@@ -461,10 +461,19 @@ function WaitGlyph({
   );
 }
 
+/**
+ * How tall the pill's art is drawn: the open pill's height, whatever height
+ * the pill is passing through, and the pill clips it. The pill's height is
+ * animated on the UI thread, and an SVG sized by a percentage of it keeps
+ * the height it was first drawn at: out of reach drawn as the hairline
+ * swelled stayed a band 2pt tall along the top of the 8pt pill.
+ */
+export const ART_HEIGHT = HEIGHTS.open;
+
 /** Under Reduce Motion the glass holds a still 45 degree hatch instead. */
-function Hatch() {
+function Hatch({ width }: { width: number }) {
   return (
-    <Svg style={StyleSheet.absoluteFill}>
+    <Svg width={width} height={ART_HEIGHT}>
       <Defs>
         <Pattern
           id="vesselHatch"
@@ -501,7 +510,7 @@ function AwayArt({
 }) {
   const tone = AWAY_TONES[reach];
   return (
-    <Svg width={width} height="100%">
+    <Svg width={width} height={ART_HEIGHT}>
       <Defs>
         <Pattern
           id="vesselAway"
@@ -528,7 +537,7 @@ function AwayArt({
 
 function SheenArt() {
   return (
-    <Svg width={SHEEN_WIDTH} height="100%">
+    <Svg width={SHEEN_WIDTH} height={ART_HEIGHT}>
       <Defs>
         <LinearGradient id="vesselSheen" x1="0" y1="0" x2="1" y2="0">
           <Stop offset="0" stopColor={palette.cream} stopOpacity={0} />
@@ -897,7 +906,12 @@ export function Vessel({
                 },
               ]}
             >
-              <Hatch />
+              <Hatch
+                width={
+                  segmentWidths(visual.unreachable + visual.solid, width)
+                    .arriving
+                }
+              />
             </View>
           ) : null}
           {sheening && !reduced && width > 0 ? (

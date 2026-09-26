@@ -2,20 +2,27 @@ import React from 'react';
 import { Dimensions, PixelRatio, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Reanimated from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../src/design/copy';
+import { GLYPHS, strokeFor } from '../src/design/glyphs';
 import { palette } from '../src/design/palette';
 import { Bloom } from '../src/glyphs/Bloom';
 import { HERO_SIZES, Odometer, unitScaleFor } from '../src/glyphs/Odometer';
 import { ActionCircle } from '../src/scenes/home/ActionCircle';
 import { BackupTile } from '../src/scenes/home/BackupTile';
+import { HomePane } from '../src/scenes/home/HomePane';
 import { StatusRow } from '../src/scenes/home/StatusRow';
 import {
   LANDED_PT,
+  MINI_IN_BAND,
+  MINI_IN_ROW,
+  figureShown,
   glyphMorph,
+  glyphStroke,
   landedAt,
   launchPose,
   launchTravel,
@@ -26,7 +33,7 @@ import { springStep } from '../src/motion/springMath';
 import { springs } from '../src/motion/tokens';
 import { ReceiveScreen, SendScreen } from '../src/screens/Payments';
 import { HomeScreen } from '../src/screens/Wallet';
-import { Canvas, useCanvasView } from '../src/stage/Canvas';
+import { Canvas, RISEN_BY, useCanvasView } from '../src/stage/Canvas';
 import {
   HERO_MINI,
   HOME,
@@ -39,8 +46,14 @@ import {
 } from '../src/stage/layout';
 import { rowWait } from '../src/stage/panes/usePaneMotion';
 import { CORNER_TARGET, CornerControl } from '../src/stage/panes/CornerControl';
-import { LaunchProvider, useLaunchLanding } from '../src/stage/panes/Launch';
+import {
+  LaunchProvider,
+  SETTLED_PT,
+  samePlace,
+  useLaunchLanding,
+} from '../src/stage/panes/Launch';
 import type { Launch } from '../src/stage/panes/Launch';
+import { clearHeldRequests, holdRequest } from '../src/stage/heldRequests';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
 import type { StageStore } from '../src/stage/StageContext';
 import { snapshotOf } from '../test-support/fixtures';
@@ -161,6 +174,7 @@ function HomeAt({
   veil,
   launching = 'none',
   landing,
+  landless,
   unit = 'sats',
 }: {
   hero?: number;
@@ -168,6 +182,7 @@ function HomeAt({
   veil?: number;
   launching?: 'none' | 'send' | 'receive';
   landing?: Launch;
+  landless?: boolean;
   unit?: 'sats' | 'btc';
 }) {
   const panes = {
@@ -185,6 +200,7 @@ function HomeAt({
       onDetail={jest.fn()}
       progress={panes}
       launching={launching}
+      landless={landless}
     />
   );
   return (
@@ -210,15 +226,30 @@ const circles = (tree: ReactTestRenderer) =>
 describe('the mini strip', () => {
   const odometers = (tree: ReactTestRenderer) =>
     tree.root.findByType(HomeScreen).findAllByType(Odometer);
+  /** The figure the hero shows, of the two it keeps in one place. */
+  const seen = (tree: ReactTestRenderer) => {
+    const drawn = ['home-total', 'home-spendable'].filter(
+      id => flat(byTestID(tree, id)[0]).opacity !== 0,
+    );
+    expect(drawn).toHaveLength(1);
+    return byTestID(tree, drawn[0])[0].findByType(Odometer);
+  };
 
   test('is the hero itself, one element all the way, its unit readable', async () => {
     // The device pass (P10): a second odometer crossfaded in over the hero,
     // 8 to 12pt off it and rolling on a clock of its own, so for six frames
-    // two balances showed.
+    // two balances showed. The total and what can be spent are both drawn
+    // in the hero's one place, under its one scale, and only one is seen.
     const tree = await mount(<HomeAt hero={0} bar={0} />);
     const shown = odometers(tree);
-    expect(shown).toHaveLength(1);
-    expect(shown[0].props.variant).toBe('hero');
+    expect(shown).toHaveLength(2);
+    for (const odometer of shown) {
+      expect(odometer.props.variant).toBe('hero');
+      expect(
+        byTestID(tree, 'home-figures')[0].findAllByType(Odometer),
+      ).toContain(odometer);
+    }
+    expect(seen(tree)).toBe(shown[0]);
     expect(byTestID(tree, 'home-strip')).toEqual([]);
     // Shrunk to a third, its unit is grown back to its 15pt.
     const unit = shown[0].find(
@@ -273,15 +304,16 @@ describe('the mini strip', () => {
     const rolls = (to: number) =>
       timings.mock.calls.filter(([value]) => value === to).length;
     const tree = await mount(home(false));
-    expect(odometers(tree)[0].props.sats).toBe(read.balance.totalSats);
+    expect(seen(tree).props.sats).toBe(read.balance.totalSats);
     // Opening Send: what can be spent, in place. It never rolls down from
     // the total, which reads as money leaving.
     timings.mockClear();
     await act(async () => tree.update(home(true)));
-    expect(odometers(tree)[0].props.sats).toBe(read.balance.availableSats);
+    expect(seen(tree).props.sats).toBe(read.balance.availableSats);
     expect(rolls(read.balance.availableSats)).toBe(0);
     // Back home: the total again, in place, never rolling up.
     await act(async () => tree.update(home(false)));
+    expect(seen(tree).props.sats).toBe(read.balance.totalSats);
     expect(rolls(read.balance.totalSats)).toBe(0);
     // Money that moves rolls.
     const paid = snapshotOf({
@@ -296,6 +328,25 @@ describe('the mini strip', () => {
 });
 
 describe('the hero', () => {
+  test('changes figure under the move, never before it starts or once it has landed', () => {
+    // The device pass (P12): the full hero swapped 123,963 to 122,433 a
+    // frame before anything moved, reading as a drop, and coming back the
+    // strip swapped to the total while Send was still drawn whole.
+    const at = (hero: number, landing = MINI_IN_BAND) => ({ hero, landing });
+    // T1: the frame the scene is drawn, nothing has moved yet.
+    expect(figureShown(0, 1, at(1, MINI_IN_ROW), null)).toBe(0);
+    expect(figureShown(0, 1, at(1, MINI_IN_ROW), at(1, MINI_IN_ROW))).toBe(0);
+    // The first frame the hero shrinks, what can be spent.
+    expect(figureShown(0, 1, at(0.98), at(1, MINI_IN_ROW))).toBe(1);
+    // Coming back, the strip keeps what can be spent until it grows.
+    expect(figureShown(1, 0, at(0, MINI_IN_BAND), at(0, MINI_IN_BAND))).toBe(1);
+    expect(figureShown(1, 0, at(0.02, MINI_IN_ROW), at(0))).toBe(0);
+    // From the list to Send the hero stays a strip, and moves to the band.
+    expect(figureShown(0, 1, at(0, -20), at(0, MINI_IN_ROW))).toBe(1);
+    // Once changed, nothing moves it back.
+    expect(figureShown(1, 1, at(0.5), at(0.6))).toBe(1);
+  });
+
   test('keeps its line box when it steps down, so nothing under it moves', async () => {
     const tree = await mount(<HomeAt />);
     const [hero] = byTestID(tree, 'home-hero');
@@ -458,6 +509,61 @@ describe('Send and Receive open from their circle', () => {
     }
   });
 
+  test('follows the control while an entrance still moves it, until two readings agree', async () => {
+    // The device pass (P12): Receive's Continue was read once as it was laid
+    // out, while its row still rose into place, and the circle landed 6pt
+    // below it and snapped up at the hand-over.
+    jest.useFakeTimers();
+    const made = Reanimated.useSharedValue;
+    let launch!: Launch;
+    let landing!: ReturnType<typeof useLaunchLanding>;
+    function Control() {
+      landing = useLaunchLanding();
+      return <View ref={landing.ref} collapsable={false} />;
+    }
+    function Launching() {
+      launch = React.useState<Launch>(() => ({
+        x: made(201),
+        y: made(764),
+        handover: made(0),
+      }))[0];
+      return (
+        <LaunchProvider value={launch}>
+          <Control />
+        </LaunchProvider>
+      );
+    }
+    try {
+      const tree = await mount(<Launching />);
+      const holder = tree.root.find(
+        node => node.type === View && node.props.collapsable === false,
+      );
+      // Its row rising 12pt into place, then at rest.
+      const tops = [720, 714, 710, 708, 708, 708];
+      const read = jest.mocked(holder.instance.measureInWindow);
+      read.mockClear();
+      read.mockImplementation(
+        (done: (x: number, y: number, w: number, h: number) => void) =>
+          done(157, tops.shift() ?? 708, 88, 88),
+      );
+      await act(async () => landing.onLayout());
+      expect(launch.y.get()).toBe(764);
+      for (let frame = 0; frame < 6; frame++) {
+        await act(async () => jest.advanceTimersByTime(16));
+      }
+      expect(launch.y.get()).toBe(752);
+      // Two readings agreed, so it stopped reading.
+      expect(read).toHaveBeenCalledTimes(5);
+      expect(samePlace({ x: 0, y: 0 }, { x: SETTLED_PT, y: -SETTLED_PT })).toBe(
+        true,
+      );
+      await act(async () => tree.unmount());
+      read.mockReset();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('on the canvas the circle hands over once Send has opened, and comes back with home', async () => {
     const tree = await mount(<OnCanvas />);
     await act(async () => stage.actions.openSend());
@@ -550,6 +656,77 @@ describe('the circle becomes the control it lands on', () => {
     const held = launchLook('receive', { live: false, test: false });
     const landed = launchPose(1, true, 'receive', 0, 0, 88 * held.scale);
     expect(landed.scale * 56).toBeCloseTo(88 * 0.94);
+  });
+
+  test('its glyph keeps the weight of its line all the way, the control’s once it is the control', () => {
+    // The device pass (P12): the arrow grew with the circle, 56 to 88, to
+    // a 2.9pt line, and thinned to the control's as it handed over.
+    for (const look of [
+      launchLook('send', { live: true, test: false }),
+      launchLook('receive', { live: false, test: false }),
+    ]) {
+      const home = strokeFor(24);
+      const control = (strokeFor(look.glyph) * look.glyph * look.scale) / 24;
+      for (let away = 0; away <= 1; away += 0.05) {
+        // Points a grid unit is drawn at, as the glyph grows toward the
+        // control's and the circle grows into it, `m` of the way there.
+        const m = launchTravel(away);
+        const pose = launchPose(away, true, 'send', 0, 0, 88 * look.scale);
+        const drawn = glyphMorph(m, 24, 56, look.glyph) * pose.scale;
+        expect(
+          glyphStroke(m, control, 24, 56, look.glyph, look.scale) * drawn,
+        ).toBeCloseTo(control);
+        expect(
+          glyphStroke(m, home, 24, 56, look.glyph, look.scale) * drawn,
+        ).toBeCloseTo(home);
+      }
+      // Landed, it is drawn with the control's own stroke at the control's
+      // own size: its twin.
+      expect(
+        glyphStroke(1, control, 24, 56, look.glyph, look.scale),
+      ).toBeCloseTo(strokeFor(look.glyph));
+    }
+  });
+
+  test('the travelling circle draws its glyph with that line, not scaled from its own', async () => {
+    const look = launchLook('send', { live: true, test: false });
+    function Travelling({ m }: { m: number }) {
+      const toward = Reanimated.useSharedValue(m);
+      return (
+        <ActionCircle
+          glyph="send"
+          size={56}
+          label="Send"
+          hint=""
+          stale={false}
+          morph={{ look, toward }}
+        />
+      );
+    }
+    const tree = await mount(<Travelling m={1} />);
+    // Not the grid's glyph scaled up with the circle, whose line swells
+    // with it, but its strokes drawn with a line of their own
+    // (`glyphStroke`): its own glyph and the control's over it.
+    const drawings = tree.root.findAllByType(Svg);
+    const send = GLYPHS.send.map(part => part.d);
+    expect(
+      drawings.map(svg => svg.findAllByType(Path).map(path => path.props.d)),
+    ).toEqual([send, send]);
+    for (const svg of drawings) expect(svg.props.strokeWidth).toBeUndefined();
+    // At rest, with nowhere to go, it is the grid's glyph.
+    const resting = await mount(
+      <ActionCircle
+        glyph="send"
+        size={56}
+        label="Send"
+        hint=""
+        stale={false}
+      />,
+    );
+    const [still] = resting.root.findAllByType(Svg);
+    expect(still.props.strokeWidth).toBe(strokeFor(24));
+    await act(async () => tree.unmount());
+    await act(async () => resting.unmount());
   });
 
   test("the look is the one Send's and Receive's controls draw", async () => {
@@ -790,6 +967,108 @@ describe('the circle becomes the control it lands on', () => {
       );
       await act(async () => linked.unmount());
     }
+  });
+});
+
+describe('coming home', () => {
+  /** The pane Home is drawn in on the canvas. */
+  const homePane = (tree: ReactTestRenderer) => {
+    let at = tree.root.findByType(HomePane).parent;
+    while (at && !(typeof at.type === 'string' && flat(at).top !== undefined)) {
+      at = at.parent;
+    }
+    return at!;
+  };
+
+  test('the circle that opened the scene is drawn over the rising sheet until the row is back', async () => {
+    // The device pass (P12): coming back from Send the sheet rose over the
+    // circle where it landed, the other two came up first, and it came out
+    // from behind the sheet's top edge about 170ms late.
+    jest.useFakeTimers();
+    try {
+      const tree = await mount(<OnCanvas />);
+      expect(flat(homePane(tree)).zIndex).toBeUndefined();
+      for (const open of [
+        () => stage.actions.openSend(),
+        () => stage.actions.openReceive(),
+      ]) {
+        await act(async () => open());
+        await act(async () => jest.advanceTimersByTime(RISEN_BY));
+        // Nothing to rise over while the scene is open.
+        expect(flat(homePane(tree)).zIndex).toBeUndefined();
+        await act(async () => stage.actions.home());
+        expect(flat(homePane(tree)).zIndex).toBe(1);
+        // Once the row is back it goes under the sheet again, as the sheet's
+        // drag and the list need it: as the row reports back, and by the
+        // time the move's lock lets go at the latest.
+        await act(async () => jest.advanceTimersByTime(RISEN_BY - 1));
+        expect(flat(homePane(tree)).zIndex).toBe(1);
+        await act(async () => jest.advanceTimersByTime(1));
+        expect(flat(homePane(tree)).zIndex).toBeUndefined();
+      }
+      // Back from the list, nothing was launched: it stays under.
+      await act(async () => stage.actions.openActivity());
+      await act(async () => jest.advanceTimersByTime(RISEN_BY));
+      await act(async () => stage.actions.home());
+      expect(flat(homePane(tree)).zIndex).toBeUndefined();
+      await act(async () => tree.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('a request that is held or already paid', () => {
+  afterEach(() => clearHeldRequests());
+
+  test('opens Send with no control for the circle to land on', async () => {
+    // The device pass (P12): a link to a held request, and to a paid one,
+    // sent the circle in the live review's look to a review the held ring
+    // and the paid mark never draw, over their history glyph for 270ms.
+    const read = snapshotOf();
+    const opened = async (prefill: string) => {
+      const tree = await mount(<OnCanvas read={read} />);
+      await act(async () => stage.actions.openSend(prefill));
+      await act(async () => tree.update(<OnCanvas read={read} />));
+      const { lands, landless } = tree.root.findByType(HomeScreen).props;
+      await act(async () => tree.unmount());
+      return { lands, landless };
+    };
+    // A request that can be paid lands on its live review.
+    expect(await opened(PRICED)).toEqual({
+      lands: launchLook('send', {
+        live: true,
+        test: isTestNetwork(read.wallet.network),
+      }),
+      landless: false,
+    });
+    // Its payment still under way: the held ring, and nowhere to land.
+    holdRequest(PRICED, { status: 'pending', calling: true });
+    expect(await opened(PRICED)).toEqual({ lands: null, landless: true });
+    // Paid: its mark at rest, however it is spelled, and nowhere to land.
+    holdRequest(PRICED, { status: 'completed' });
+    expect(await opened(PRICED.toUpperCase())).toEqual({
+      lands: null,
+      landless: true,
+    });
+  });
+
+  test('sends no circle travelling: all three go as the two not tapped do', async () => {
+    const tree = await mount(
+      <HomeAt hero={0} bar={0} launching="send" landless />,
+    );
+    const [send, scan, receive] = circles(tree);
+    for (const circle of [send, scan, receive]) {
+      expect(transformOf(circle, 'translateX')).toBe(0);
+      expect(transformOf(circle, 'translateY')).toBe(0);
+      expect(transformOf(circle, 'scale')).toBeCloseTo(0.8);
+      expect(flat(circle).opacity).toBe(0);
+    }
+    // Where it has somewhere to land, it travels there.
+    const landing = await mount(<HomeAt hero={0} bar={0} launching="send" />);
+    expect(transformOf(circles(landing)[0], 'translateY')).not.toBe(0);
+    await act(async () => tree.unmount());
+    await act(async () => landing.unmount());
   });
 });
 

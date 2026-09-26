@@ -21,13 +21,14 @@ import { WhisperProvider } from '../src/glyphs/Whisper';
 import { OpeningWallet } from '../src/scenes/phases/Loading';
 import { Opening } from '../src/scenes/phases/Opening';
 import { Picker } from '../src/scenes/phases/Picker';
+import { TONE_WAIT_MS, openingNetwork } from '../src/scenes/phases/visual';
 import { defaultProfile } from '../src/services/networks';
 import type { useWalletSession } from '../src/services/useWalletSession';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import { HOME, STATUS_ROW, heroBox, stops } from '../src/stage/layout';
 import { Pane } from '../src/stage/panes/Pane';
 import type { Phase } from '../src/stage/phase';
-import { Stage, privacyCovered } from '../src/stage/Stage';
+import { Stage, coverAfter } from '../src/stage/Stage';
 import * as systemPrompt from '../src/stage/systemPrompt';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
 import type { StageStore } from '../src/stage/StageContext';
@@ -158,17 +159,74 @@ function Staged({ phase, live }: { phase: Phase; live: Session }) {
 }
 
 describe('the app switcher', () => {
+  /**
+   * The cover after each of `steps`, a change of the app's state and
+   * whether a prompt the app raised was up as it came, from the front.
+   */
+  const through = (
+    steps: Array<[string | null, boolean?]>,
+    from = false,
+  ): boolean[] => {
+    const seen: boolean[] = [];
+    steps.reduce((covered, [state, prompting = false]) => {
+      const next = coverAfter(covered, state, prompting);
+      seen.push(next);
+      return next;
+    }, from);
+    return seen;
+  };
+
   test('covers in the background always, and inactive unless a prompt the app raised is up', () => {
-    expect(privacyCovered('background', false)).toBe(true);
-    expect(privacyCovered('background', true)).toBe(true);
-    expect(privacyCovered('inactive', false)).toBe(true);
-    // The paste permission over Send, or the camera's over the scan.
-    expect(privacyCovered('inactive', true)).toBe(false);
-    for (const prompting of [false, true]) {
-      expect(privacyCovered('active', prompting)).toBe(false);
-      expect(privacyCovered('unknown', prompting)).toBe(false);
-      expect(privacyCovered(null, prompting)).toBe(false);
+    for (const from of [false, true]) {
+      expect(coverAfter(from, 'background', false)).toBe(true);
+      expect(coverAfter(from, 'background', true)).toBe(true);
+      expect(coverAfter(from, 'inactive', false)).toBe(true);
+      expect(coverAfter(from, 'active', false)).toBe(false);
+      expect(coverAfter(from, 'active', true)).toBe(false);
     }
+    // The paste permission over Send, or the camera's over the scan.
+    expect(coverAfter(false, 'inactive', true)).toBe(false);
+    // In front, or unknown from the front, nothing covers.
+    expect(coverAfter(false, 'unknown', false)).toBe(false);
+    expect(coverAfter(false, null, false)).toBe(false);
+  });
+
+  test('once up it stays up, whatever comes, until the app is in front again', () => {
+    // The device pass (P12): switching to another app, the cover showed
+    // for three frames and then the wallet was drawn again in the outgoing
+    // card for about 300ms of the system's zoom.
+    // Leaving for another app: up with the first step out, and held.
+    expect(through([['inactive'], ['background'], ['active']])).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    // A prompt's window that opens on the way out lowers nothing.
+    expect(through([['inactive'], ['inactive', true], ['background']])).toEqual(
+      [true, true, true],
+    );
+    // Nor one still open as the app comes back through inactive.
+    expect(through([['background'], ['inactive', true], ['active']])).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    // Nor a state the app cannot name.
+    expect(through([['inactive'], ['unknown'], [null]])).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    // Behind a prompt the app raised the screen stays, and leaving from
+    // behind it covers all the same.
+    expect(
+      through([
+        ['inactive', true],
+        ['active'],
+        ['inactive', true],
+        ['background'],
+      ]),
+    ).toEqual([false, false, false, true]);
   });
 
   test('leaves the screen in place behind a prompt the app raised', async () => {
@@ -263,6 +321,72 @@ describe('the app switcher', () => {
 });
 
 describe('the opening loader', () => {
+  test('knows the network it opens on from the saved session, or the profile the restore settles on', () => {
+    const first = defaultProfile('mainnet');
+    // Nothing read yet: the session's profile is a stand-in.
+    expect(openingNetwork(null, first, first)).toBeNull();
+    // The saved session is read first, and names it.
+    expect(openingNetwork({ network: 'regtest' }, first, first)).toBe(
+      'regtest',
+    );
+    // With none saved, the profile the restore settles on does.
+    expect(openingNetwork(null, defaultProfile('regtest'), first)).toBe(
+      'regtest',
+    );
+    expect(openingNetwork(null, defaultProfile('mainnet'), first)).toBe(
+      'mainnet',
+    );
+  });
+
+  test('holds back until it knows the network, so a test network never chases in bloom', async () => {
+    // The device pass (P12): on a regtest wallet the chase was bloom blue
+    // until the saved profile was read, then turned slate mid-chase.
+    jest.useFakeTimers();
+    try {
+      const first = defaultProfile('mainnet');
+      const staged = (over: Partial<Session>) => (
+        <Staged
+          phase={{ kind: 'opening' }}
+          live={sessionOf({
+            client: null,
+            initializing: true,
+            activeProfile: first,
+            ...over,
+          })}
+        />
+      );
+      const tree = await mount(staged({}));
+      const blooms = () => tree.root.findAllByType(Bloom);
+      expect(blooms()).toEqual([]);
+      // The saved session is read, and it chases in slate from its first
+      // frame.
+      await act(async () =>
+        tree.update(
+          staged({
+            rememberedSession: {
+              mode: 'device',
+              network: 'regtest',
+              locked: false,
+            },
+          }),
+        ),
+      );
+      expect(blooms().map(bloom => bloom.props.tone)).toEqual(['test']);
+      await act(async () => tree.unmount());
+      // A network never known holds it back only so long.
+      const slow = await mount(staged({}));
+      await act(async () => jest.advanceTimersByTime(TONE_WAIT_MS - 1));
+      expect(slow.root.findAllByType(Bloom)).toEqual([]);
+      await act(async () => jest.advanceTimersByTime(1));
+      expect(
+        slow.root.findAllByType(Bloom).map(bloom => bloom.props.tone),
+      ).toEqual(['live']);
+      await act(async () => slow.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('chases in the network’s tone, slate off mainnet', async () => {
     const tree = await mount(
       <GestureHandlerRootView>

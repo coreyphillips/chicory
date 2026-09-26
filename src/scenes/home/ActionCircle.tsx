@@ -2,6 +2,7 @@ import React, { useCallback, useRef } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 import type { HostInstance } from 'react-native';
 import Reanimated, {
+  useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
   withSequence,
@@ -9,9 +10,10 @@ import Reanimated, {
   withTiming,
 } from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
-import { Glyph } from '../../design/glyphs';
+import { GLYPHS, Glyph, strokeFor } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
@@ -20,7 +22,7 @@ import { shake, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { PRIMARY_CONTROL } from '../../stage/layout';
 import type { ControlLook } from '../../stage/layout';
-import { REFUSED, glyphMorph, tintTiming } from './motion';
+import { REFUSED, glyphMorph, glyphStroke, tintTiming } from './motion';
 
 /** A point in the window, where the scan reveal grows from. */
 export type Point = { x: number; y: number };
@@ -149,6 +151,18 @@ export function ActionCircle({
     [toward, glyphSize, size, to],
   );
 
+  // On the way the glyph's line is counter-scaled against its growth: its
+  // own glyph keeps the weight it has at home, and the control's the
+  // weight the control draws it at, so the one it hands over to is its
+  // twin rather than half as heavy (REDESIGN.md 4, stroke width by size).
+  const line = morph
+    ? {
+        home: (strokeFor(glyphSize) * glyphSize) / GRID,
+        control: (strokeFor(to) * to * morph.look.scale) / GRID,
+        scale: morph.look.scale,
+      }
+    : null;
+
   const bloom = test ? palette.slate : palette.bloom;
   const fill = stale ? 'transparent' : primary ? bloom : palette.mocha;
   const ink = stale ? palette.dust : primary ? palette.ink : palette.cream;
@@ -208,10 +222,32 @@ export function ActionCircle({
           />
         ) : null}
         <Reanimated.View style={morph ? growing : undefined}>
-          <Glyph name={glyph} size={glyphSize} color={ink} />
-          {morph ? (
+          {toward && line ? (
+            <MorphGlyph
+              name={glyph}
+              size={glyphSize}
+              color={ink}
+              toward={toward}
+              points={line.home}
+              circle={size}
+              to={to}
+              scale={line.scale}
+            />
+          ) : (
+            <Glyph name={glyph} size={glyphSize} color={ink} />
+          )}
+          {morph && toward && line ? (
             <Reanimated.View style={[styles.over, becoming]}>
-              <Glyph name={glyph} size={glyphSize} color={morph.look.ink} />
+              <MorphGlyph
+                name={glyph}
+                size={glyphSize}
+                color={morph.look.ink}
+                toward={toward}
+                points={line.control}
+                circle={size}
+                to={to}
+                scale={line.scale}
+              />
             </Reanimated.View>
           ) : null}
         </Reanimated.View>
@@ -224,6 +260,71 @@ export function ActionCircle({
     <Whisper label={copy.health.stale} enabled={stale}>
       {circle}
     </Whisper>
+  );
+}
+
+/** The glyph grid, in units a side. */
+const GRID = 24;
+
+const AnimatedPath = Reanimated.createAnimatedComponent(Path);
+
+interface MorphLine {
+  toward: SharedValue<number>;
+  /** How wide its line is drawn, in points, all the way. */
+  points: number;
+  size: number;
+  /** The circle's own size, which grows into the control's. */
+  circle: number;
+  /** The control's glyph size, in its own points. */
+  to: number;
+  /** How far the control is scaled, as the circle grows to match. */
+  scale: number;
+}
+
+/** One stroke of a travelling glyph, counter-scaled (`glyphStroke`). */
+function MorphPart({
+  d,
+  toward,
+  points,
+  size,
+  circle,
+  to,
+  scale,
+}: MorphLine & { d: string }) {
+  const props = useAnimatedProps(
+    () => ({
+      strokeWidth: glyphStroke(toward.get(), points, size, circle, to, scale),
+    }),
+    [points, size, circle, to, scale],
+  );
+  return <AnimatedPath d={d} animatedProps={props} />;
+}
+
+/**
+ * The circle's glyph while it travels to the control it becomes: drawn as
+ * `Glyph` draws it, its line held `points` wide however the circle grows.
+ */
+function MorphGlyph({
+  name,
+  color,
+  ...line
+}: MorphLine & { name: GlyphName; color: string }) {
+  return (
+    <Svg
+      width={line.size}
+      height={line.size}
+      viewBox={`0 0 ${GRID} ${GRID}`}
+      fill="none"
+      stroke={color}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      {GLYPHS[name].map(part => (
+        <MorphPart key={part.id} d={part.d} {...line} />
+      ))}
+    </Svg>
   );
 }
 
