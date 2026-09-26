@@ -310,19 +310,20 @@ describe('a result', () => {
     );
   });
 
-  test('a request paid before rests, and one seen to complete on its held ring resolves, worded as sent', () => {
+  test('a request paid before rests, and one seen to complete on its held ring resolves, worded as sent and going home', () => {
     expect(heldVisual('completed')).toMatchObject({
       shape: 'disc',
       title: copy.send.paidAlready,
       resting: true,
       returnsHome: false,
     });
+    // Seen to go, it is a completed result: home on its own too.
     const watched = heldVisual('completed', true);
     expect(watched).toMatchObject({
       shape: 'disc',
       title: copy.send.sent,
       resolves: true,
-      returnsHome: false,
+      returnsHome: true,
     });
     expect(watched.resting).toBeFalsy();
     // Held, watched or not, it is the ring: only paid resolves.

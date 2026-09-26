@@ -99,6 +99,14 @@ const shownIn = (sats: number, unit: Unit) => {
   return `${value} ${suffix}`;
 };
 
+/** The payment `result` is, once the history shows it. */
+const paymentOf = (result: SendResult, activity: Activity[] = []) =>
+  activity.find(
+    payment =>
+      (!!result.paymentHash && payment.paymentHash === result.paymentHash) ||
+      (!!result.txid && payment.txid === result.txid),
+  ) ?? null;
+
 /**
  * The control under a result that opens the history. An orbit there would
  * read as money still moving, under a payment that is done or held, so it
@@ -156,7 +164,8 @@ function quoteExpired(): () => void {
  * A payment holds the stage busy for SEND_GRACE_MS at most. One still out
  * after that lets the stage go and moves to the held ring, so Close works
  * and the history is a tap away while the call goes on; its answer is
- * recorded whenever it comes, and shown here if the held ring still is.
+ * recorded whenever it comes, and shown here if the held ring still is:
+ * a payment that completed resolves the ring where it stands.
  *
  * On the canvas, `onScan` opens the scan overlay and the Send scene hands the
  * code back through `receive`. Rendered on its own, with no `onScan`, the
@@ -235,9 +244,10 @@ export function SendScreen({
   );
   // Each refusal of the amount shakes it, the same one again included.
   const [amountShakes, setAmountShakes] = useState(0);
-  // A completed payment goes home on its own unless the screen is touched or
-  // focused, and never while a screen reader is running: its user reaches
-  // the result a swipe at a time, and no timer should take it away.
+  // A completed payment, or a held ring seen to resolve into one, goes home
+  // on its own unless the screen is touched or focused, and never while a
+  // screen reader is running: its user reaches the result a swipe at a
+  // time, and no timer should take it away.
   const [stayed, setStayed] = useState(false);
   const reader = useScreenReader();
   // A request that names its amount sets it and locks it, so the amount
@@ -251,8 +261,30 @@ export function SendScreen({
   // that happens: a payment an earlier Send left going out answers into the
   // same set.
   useSyncExternalStore(subscribeHeld, heldVersion);
-  const held =
+  const known =
     review || result || !collapsed ? null : heldRequest(request, activity);
+  // A payment this screen saw complete past its grace, while its held ring
+  // was on screen, which the ring resolves into in place. The held set says
+  // so of a request paid once; this says it of one that may be paid again,
+  // which the set lets go, for as long as its ring is still what shows.
+  const [paidHere, setPaidHere] = useState<{
+    request: string;
+    outcome: SendResult;
+  } | null>(null);
+  const [ringFor, setRingFor] = useState('');
+  const seen =
+    !review &&
+    !result &&
+    collapsed &&
+    paidHere !== null &&
+    paidHere.request === request.trim() &&
+    paidHere.request === ringFor
+      ? {
+          status: 'completed' as const,
+          item: paymentOf(paidHere.outcome, activity) ?? undefined,
+        }
+      : null;
+  const held = known?.status === 'completed' ? known : seen ?? known;
   // The request whose held ring is on screen, if one is, for a payment's
   // late answer to follow.
   const watching = useRef('');
@@ -369,12 +401,17 @@ export function SendScreen({
   const heldFor = held && held.status !== 'completed' ? request.trim() : '';
   // The request whose held ring this screen has shown, for as long as it
   // shows it or the paid mark it turns into. A payment that completes while
-  // its ring is on screen is one seen to go: the ring resolves into the paid
-  // mark, worded as sent, rather than cutting to the mark a request paid
-  // before rests on (P12, 06k).
-  const [ringFor, setRingFor] = useState('');
+  // its ring is on screen is one seen to go, whether this screen sent it or
+  // came back to it: the ring resolves into the paid mark in place, worded
+  // as sent, rather than cutting to the mark a request paid before rests on
+  // (P12, 06k) or to a result laid out afresh, with two amounts drawn at
+  // once (P14, 05h). A touch on a result before the ring came keeps
+  // nothing here from going home.
   const shownFor = heldFor || (held ? ringFor : '');
-  if (shownFor !== ringFor) setRingFor(shownFor);
+  if (shownFor !== ringFor) {
+    setRingFor(shownFor);
+    if (shownFor) setStayed(false);
+  }
   const resolved =
     held?.status === 'completed' && !!ringFor && ringFor === request.trim();
   useEffect(() => {
@@ -387,13 +424,14 @@ export function SendScreen({
 
   // A request paid before lands on its paid mark at rest: nothing is played
   // or felt for a payment that was seen before, and a screen reader lands on
-  // the mark and hears it. One seen to complete here is heard as sent, and
-  // is not felt either: its payment was felt as it was held, and this is
-  // not the celebration of one sent a moment ago.
+  // the mark and hears it. One seen to complete here is the news its held
+  // ring was waiting for: felt once, as a success, heard as sent, and home
+  // on its own a moment later, as a completed result goes.
   const paidFor = held?.status === 'completed' ? request.trim() : '';
   useEffect(() => {
     if (!paidFor) return;
     land(mark);
+    if (resolved) haptics.resolved();
     say(resolved ? copy.send.sent : copy.send.paidAlready);
   }, [paidFor, resolved, land, say]);
 
@@ -437,11 +475,12 @@ export function SendScreen({
     return withdraw;
   }, [result, flash, land, say]);
 
+  const done = result?.status === 'completed' || resolved;
   useEffect(() => {
-    if (result?.status !== 'completed' || !onDone || stayed || reader) return;
+    if (!done || !onDone || stayed || reader) return;
     const timer = setTimeout(onDone, HOME_AFTER_MS);
     return () => clearTimeout(timer);
-  }, [result, onDone, stayed, reader]);
+  }, [done, onDone, stayed, reader]);
 
   const stay = () => setStayed(true);
 
@@ -743,10 +782,16 @@ export function SendScreen({
     if (!mounted.current) return;
     if (late) {
       // Past its grace the screen moved on to the held ring, and follows the
-      // payment only while that is still what it shows. A refusal this late
-      // is shown as the payment failing, since the review it came from has
-      // gone.
+      // payment only while that is still what it shows. Completed, the ring
+      // resolves into the done disc where it stands, as it does for a Send
+      // that came back to it. A refusal this late is shown as the payment
+      // failing, since the review it came from has gone, and an unknown
+      // outcome as its own result.
       if (watching.current !== paying.trim()) return;
+      if (outcome?.status === 'completed') {
+        setPaidHere({ request: paying.trim(), outcome });
+        return;
+      }
       show(
         outcome ?? {
           id: quote.id,
@@ -868,13 +913,7 @@ export function SendScreen({
   if (result) {
     const visual = resultVisual(result.status);
     const reference = result.txid || result.paymentHash;
-    const item =
-      activity?.find(
-        payment =>
-          (!!result.paymentHash &&
-            payment.paymentHash === result.paymentHash) ||
-          (!!result.txid && payment.txid === result.txid),
-      ) ?? null;
+    const item = paymentOf(result, activity);
     const failed = result.status === 'failed';
     const uncertain = result.status === 'uncertain';
     content = (
@@ -953,6 +992,9 @@ export function SendScreen({
     const shown = item?.amountSats ?? fixedSats ?? (Number(amount) || null);
     const visual = heldVisual(held.status, resolved);
     const paid = held.status === 'completed';
+    // Paid for good, or seen to complete here for a request that may be
+    // paid again, which is not said to be held for good.
+    const once = held === known;
     // Once the history shows the payment, the way to it is the payment
     // itself; until then, the history it will show in.
     const openItem =
@@ -966,7 +1008,7 @@ export function SendScreen({
             accessibilityLabel={visual.title}
             accessibilityValue={statusLabel(held.status)}
             accessibilityHint={[
-              paid ? copy.send.paid : copy.send.held,
+              !paid ? copy.send.held : once ? copy.send.paid : null,
               openItem ? copy.send.showPayment : null,
             ]
               .filter(Boolean)
@@ -1158,8 +1200,8 @@ export function SendScreen({
           entering={sceneIn()}
           exiting={sceneOut()}
           layout={smooth()}
-          onTouchStart={result ? stay : undefined}
-          onFocus={result ? stay : undefined}
+          onTouchStart={result || resolved ? stay : undefined}
+          onFocus={result || resolved ? stay : undefined}
           style={styles.step}
         >
           {content}

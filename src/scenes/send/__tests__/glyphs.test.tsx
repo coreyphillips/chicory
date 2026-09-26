@@ -33,7 +33,7 @@ import {
 import { FailureMark } from '../FailureMark';
 import { heldVisual, sendFailure } from '../model';
 import type { ResultVisual } from '../model';
-import { RESOLVE_FROM, ResultMark } from '../ResultMark';
+import { RESOLVE_FROM, ResultMark, resolveOutMs } from '../ResultMark';
 
 /**
  * The hold and the countdown around it (REDESIGN.md 5, HoldButton and
@@ -366,20 +366,39 @@ describe('ResultMark', () => {
       return at;
     };
     const tree = await mount(markOf(heldVisual('pending')));
-    // The ring's layer fades as it goes.
+    // Held and no more, the ring's layer fades as it goes.
     expect(layerOf(tree.root.findByType(Orbit))?.props.exiting).toEqual(
       expect.any(Function),
     );
     await act(async () => tree.update(markOf(heldVisual('completed', true))));
-    expect(tree.root.findAllByType(Orbit)).toEqual([]);
     // The disc pops up from the ring's inside, and its check draws in.
     expect(RESOLVE_FROM).toBeCloseTo((120 - 2 * 5) / 120);
-    const [check] = drawnOf(tree, DrawnGlyph);
-    expect(check.props.name).toBe('check');
+    const check = drawnOf(tree, DrawnGlyph).find(
+      glyph => glyph.props.name === 'check',
+    );
     const disc = layerOf(check);
     expect(disc?.props.entering).toEqual(expect.any(Function));
     // Its own layer inside the mark, not the mark arriving as a whole.
     expect(StyleSheet.flatten(disc?.props.style).position).toBe('absolute');
+    // The ring stays where it was, under the disc, as it fades: left to fade
+    // as a layer leaving, it was drawn over the filling disc on iOS, its
+    // pause and orbit showing through (P14, 05r). A layer later in the
+    // mark is drawn over one before it.
+    const pause = drawnOf(tree, DrawnGlyph).find(
+      glyph => glyph.props.name === 'pause',
+    );
+    const ring = layerOf(tree.root.findByType(Orbit));
+    expect(layerOf(pause)).toBe(ring);
+    expect(ring?.props.exiting).toBeUndefined();
+    const drawn = tree.root.findAll(() => true);
+    expect(drawn.indexOf(ring!)).toBeGreaterThanOrEqual(0);
+    expect(drawn.indexOf(ring!)).toBeLessThan(drawn.indexOf(disc!));
+    // Faded, it goes.
+    await act(async () => jest.advanceTimersByTime(resolveOutMs()));
+    expect(tree.root.findAllByType(Orbit)).toEqual([]);
+    expect(drawnOf(tree, DrawnGlyph).map(glyph => glyph.props.name)).toEqual([
+      'check',
+    ]);
     // A request paid before is simply there: nothing pops, nothing draws.
     await act(async () => tree.update(markOf(heldVisual('completed'))));
     expect(drawnOf(tree, DrawnGlyph)).toEqual([]);

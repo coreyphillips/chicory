@@ -394,7 +394,7 @@ export interface ResultVisual {
   /**
    * Grown out of the held ring it replaces, for a payment seen to complete
    * while its ring was on screen: the ring gives way to the disc and the
-   * check draws, with nothing felt.
+   * check draws, felt once as a success.
    */
   resolves?: boolean;
 }
@@ -439,21 +439,27 @@ export function resultVisual(status: SendResult['status']): ResultVisual {
 /**
  * The mark of a request that cannot be paid now (REDESIGN.md rule 6): the
  * held ring, with an orbit inside it while its payment is still under way,
- * and the done disc once the request is paid, with no way home on its own.
- * A request paid before rests on its disc, with nothing played for a
- * payment that was seen before. One whose held ring was `watched` on screen
- * as its payment completed resolves into the disc instead, and is worded as
- * the payment it saw go: sent, not already paid.
+ * and the done disc once the request is paid. A request paid before rests
+ * on its disc, with nothing played for a payment that was seen before and
+ * no way home on its own. One whose held ring was `watched` on screen as
+ * its payment completed resolves into the disc instead, and is the payment
+ * it saw go, as a completed result is: worded as sent, not already paid,
+ * and home on its own a moment later.
  */
 export function heldVisual(
   status: Held['status'],
   watched = false,
 ): ResultVisual {
   if (status === 'completed') {
-    const done = { ...resultVisual('completed'), returnsHome: false };
+    const done = resultVisual('completed');
     return watched
       ? { ...done, resolves: true }
-      : { ...done, title: copy.send.paidAlready, resting: true };
+      : {
+          ...done,
+          title: copy.send.paidAlready,
+          resting: true,
+          returnsHome: false,
+        };
   }
   const held = resultVisual('uncertain');
   return status === 'pending'

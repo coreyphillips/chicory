@@ -12,10 +12,14 @@ import Reanimated, {
   ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import type { EntryExitAnimationFunction } from 'react-native-reanimated';
+import type {
+  EntryExitAnimationFunction,
+  LayoutAnimationFunction,
+} from 'react-native-reanimated';
 import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
@@ -24,7 +28,7 @@ import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
 import { popIn, useShake } from '../../motion/effects';
-import { riseIn, smooth } from '../../motion/presets';
+import { riseIn } from '../../motion/presets';
 import { steady } from '../../motion/steady';
 import { curves, durations } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
@@ -32,7 +36,7 @@ import { space, type as typography } from '../../theme';
 import { BANG, DrawnGlyph } from '../send/DrawnGlyph';
 import type { Stroke } from '../send/DrawnGlyph';
 import { WaitingClock } from '../send/LoopingGlyphs';
-import { AMOUNT_SIZES, amountLine, amountSize } from './fit';
+import { AMOUNT_SIZES, amountLine, amountSize, easeFrom } from './fit';
 import { Keypad } from './Keypad';
 import { amountCells, digitsOnly, grouped, isBlank, pressKey } from './keys';
 import type { AmountTone, KeyName } from './keys';
@@ -97,6 +101,79 @@ export function leave(): EntryExitAnimationFunction {
       animations: {
         opacity: steady(withTiming(0, LEAVE_FADE)),
         transform: [{ translateY: steady(withTiming(DROP, LEAVE_DROP)) }],
+      },
+    };
+  };
+}
+
+/**
+ * The row easing to where its new width centres it, as `smooth` moves a
+ * step, from where it stood but held inside its field, `room` wide
+ * (`easeFrom`), so a new digit never carries the unit or a mark past the
+ * field's edge on the way. Under Reduce Motion it fades out where it stood
+ * and in where it lands, as `smooth` does then, held inside the same way.
+ */
+export function rowMove(room: number): LayoutAnimationFunction {
+  if (motionReduced()) {
+    const half = {
+      duration: durations.crossfade / 2,
+      reduceMotion: ReduceMotion.Never,
+    };
+    return values => {
+      'worklet';
+      const land = (to: number) =>
+        withDelay(
+          half.duration,
+          withTiming(to, { duration: 0 }),
+          ReduceMotion.Never,
+        );
+      return {
+        initialValues: {
+          opacity: 1,
+          originX: easeFrom(
+            values.currentOriginX,
+            values.targetOriginX,
+            values.targetWidth,
+            room,
+          ),
+          originY: values.currentOriginY,
+          width: values.currentWidth,
+          height: values.currentHeight,
+        },
+        animations: {
+          opacity: withSequence(
+            ReduceMotion.Never,
+            withTiming(0, half),
+            withTiming(1, half),
+          ),
+          originX: land(values.targetOriginX),
+          originY: land(values.targetOriginY),
+          width: land(values.targetWidth),
+          height: land(values.targetHeight),
+        },
+      };
+    };
+  }
+  const ease = { duration: durations.move, easing: curves.standard };
+  return values => {
+    'worklet';
+    return {
+      initialValues: {
+        originX: easeFrom(
+          values.currentOriginX,
+          values.targetOriginX,
+          values.targetWidth,
+          room,
+        ),
+        originY: values.currentOriginY,
+        width: values.currentWidth,
+        height: values.currentHeight,
+      },
+      animations: {
+        originX: withTiming(values.targetOriginX, ease),
+        originY: withTiming(values.targetOriginY, ease),
+        width: withTiming(values.targetWidth, ease),
+        height: withTiming(values.targetHeight, ease),
       },
     };
   };
@@ -215,7 +292,7 @@ export interface AmountReadoutProps {
  * The amount moves as one: its figures, separators, unit and marks are laid
  * out afresh at once, so a comma moves with the digits it groups and the
  * unit is out of the way before a new digit shows, and only the row as a
- * whole eases to where its new width centres it.
+ * whole eases to where its new width centres it, never past its field.
  * Holding backspace clears the amount. A 17th digit is refused: the amount
  * flashes radish and shakes, with a rigid tap, and a screen reader is told
  * why.
@@ -320,13 +397,14 @@ export function AmountReadout({
     const measured = event.nativeEvent.layout.width;
     setRoom(last => (last === measured ? last : measured));
   }, []);
+  const field = room ?? width - 2 * space.xl;
   const size = amountSize(
     {
       figures: Math.max(1, cells.length),
       separators: cells.filter(cell => cell.text.endsWith(',')).length,
       marks: marks.map(mark => MARK_GAP + (mark === 'lock' ? MARK : STATE_PIP)),
     },
-    room ?? width - 2 * space.xl,
+    field,
     Math.min(fontScale, AMOUNT_SCALE),
   );
   const sized =
@@ -355,7 +433,7 @@ export function AmountReadout({
           pointerEvents="none"
           style={[styles.wash, flashStyle]}
         />
-        <Reanimated.View layout={smooth()} style={styles.amount}>
+        <Reanimated.View layout={rowMove(field)} style={styles.amount}>
           {cells.length ? (
             cells.map(cell => (
               <Reanimated.View

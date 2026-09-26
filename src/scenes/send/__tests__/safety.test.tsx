@@ -34,7 +34,8 @@ import {
   press,
   pressableLabels,
 } from '../../../../test-support/query';
-import { SEND_GRACE_MS } from '../model';
+import { Amount } from '../Amount';
+import { HOME_AFTER_MS, SEND_GRACE_MS } from '../model';
 import { ResultMark } from '../ResultMark';
 import { ReviewLines } from '../ReviewLines';
 import { stepInMs } from '../useLanding';
@@ -182,7 +183,38 @@ beforeEach(() => {
 afterEach(() => {
   jest.restoreAllMocks();
   jest.useRealTimers();
+  delete (globalThis as { requestIdleCallback?: unknown }).requestIdleCallback;
 });
+
+/**
+ * Idle callbacks as React Native runs them: back to back, and back to the
+ * JavaScript thread's timers only once none is left. Jest has none, and a
+ * timeout stands in (motion/idle), under which a callback that keeps asking
+ * for another still lets every timer fire. `idle()` runs what is queued as
+ * a device would, and is false when it would never stop.
+ */
+function nativeIdle() {
+  const queue: (() => void)[] = [];
+  Object.assign(globalThis, {
+    requestIdleCallback: (callback: () => void) => queue.push(callback),
+  });
+  return {
+    idle: async () => {
+      let stopped = true;
+      await act(async () => {
+        for (let ran = 0; queue.length > 0; ran += 1) {
+          if (ran > 1_000) {
+            stopped = false;
+            queue.length = 0;
+            return;
+          }
+          queue.shift()?.();
+        }
+      });
+      return stopped;
+    },
+  };
+}
 
 describe('a held request', () => {
   test('typed into the well, is held as it is reviewed, and nothing is prepared', async () => {
@@ -444,7 +476,8 @@ describe('a quote', () => {
 describe('a payment whose call does not answer', () => {
   /**
    * `request` reviewed and held to send, under fake timers, with a call to
-   * pay it that answers only when the test says.
+   * pay it that answers only when the test says. A request that names no
+   * amount is paid 4,200 sats, keyed in.
    */
   async function hanging(request: string, props: Props = {}) {
     jest.useFakeTimers();
@@ -463,6 +496,7 @@ describe('a payment whose call does not answer', () => {
       { prepareSend, send },
       { initialRequest: request, onBusy, ...props },
     );
+    if (!request.includes('amount=')) await enterAmount(tree, '4200');
     await press(tree, copy.send.review);
     await activate(tree, HOLD);
     expect(send).toHaveBeenCalledTimes(1);
@@ -526,6 +560,31 @@ describe('a payment whose call does not answer', () => {
     await act(async () => tree.unmount());
   });
 
+  test('moved to the held ring past its grace, is felt twice on a device too', async () => {
+    // Only the first warning played there (P14): the ring's landing waited
+    // on a timer, its safety message asked again at every idle moment, and
+    // a device, which runs idle callbacks back to back, never got back to
+    // its timers, the haptic's second beat among them.
+    const device = nativeIdle();
+    const { tree } = await hanging(priced('grace-device'));
+    expect(await device.idle()).toBe(true);
+    jest.mocked(HapticFeedback.trigger).mockClear();
+    await past(SEND_GRACE_MS);
+    expect(await device.idle()).toBe(true);
+    await past(300);
+    expect(felt()).toEqual(['notificationWarning', 'notificationWarning']);
+    // Landed on the ring, and heard once the landing has settled.
+    await past(stepInMs());
+    expect(await device.idle()).toBe(true);
+    expect(focused()).toContain(copy.send.onItsWay);
+    await past(FOCUS_SETTLE_MS);
+    expect(await device.idle()).toBe(true);
+    expect(said).toHaveBeenCalledWith(copy.send.heldAnnouncement, {
+      assertive: true,
+    });
+    await act(async () => tree.unmount());
+  });
+
   test.each([
     ['completed', copy.send.sent],
     ['uncertain', copy.send.unknown],
@@ -559,7 +618,7 @@ describe('a payment whose call does not answer', () => {
     await act(async () => tree.unmount());
   });
 
-  test('completing while its held ring shows in a Send entered again, resolves the ring into the paid mark it watched, heard as sent and felt as nothing new', async () => {
+  test('completing while its held ring shows in a Send entered again, resolves the ring into the paid mark it watched, felt once, heard as sent and home on its own', async () => {
     // It cut in one frame to the mark a request paid before rests on,
     // "Already paid." (P12, 06k).
     const request = priced('resolves');
@@ -580,20 +639,122 @@ describe('a payment whose call does not answer', () => {
     expect(mark.props.visual).toMatchObject({
       shape: 'disc',
       resolves: true,
-      returnsHome: false,
+      returnsHome: true,
     });
     expect(mark.props.visual.resting).toBeFalsy();
     expect(meaning(again)).toContain(copy.send.sent);
     expect(meaning(again)).not.toContain(copy.send.paidAlready);
+    // The news its ring was waiting for, felt once.
+    expect(felt()).toEqual(['notificationSuccess']);
     await arrive(true);
     expect(said).toHaveBeenCalledWith(copy.send.sent);
     expect(said).not.toHaveBeenCalledWith(copy.send.paidAlready);
-    // No celebration for a payment felt as it was held, and no way home on
-    // its own.
-    await past(10_000);
-    expect(felt()).toEqual([]);
+    // Home a moment later, as a completed result goes.
     expect(onDone).not.toHaveBeenCalled();
+    await past(HOME_AFTER_MS);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(felt()).toEqual(['notificationSuccess']);
     await act(async () => again.unmount());
+  });
+
+  test.each([
+    ['a request paid once', priced('late-paid'), true],
+    ['a request that may be paid again', payable('late-paid-again'), false],
+  ])(
+    'completing past its grace with %s, resolves the ring where it stands, as a Send entered again does',
+    async (_, request, once) => {
+      // It cut to the completed result laid out afresh, its disc 80pt
+      // higher and two amounts drawn at once, with a success after the held
+      // warnings (P14, 05h).
+      const onDone = jest.fn();
+      const { tree, answer } = await hanging(request, { onDone });
+      await past(SEND_GRACE_MS);
+      await heard(true);
+      const [ring] = tree.root.findAllByType(ResultMark);
+      jest.mocked(HapticFeedback.trigger).mockClear();
+      said.mockClear();
+      await answer(outcome('completed'));
+      // The same mark resolving where it stands, and the one amount under it.
+      const [mark] = tree.root.findAllByType(ResultMark);
+      expect(mark).toBe(ring);
+      expect(mark.props.visual).toMatchObject({
+        shape: 'disc',
+        resolves: true,
+        returnsHome: true,
+      });
+      expect(tree.root.findAllByType(Amount)).toHaveLength(1);
+      expect(meaning(tree)).toContain(copy.send.sent);
+      expect(meaning(tree)).not.toContain(copy.send.paidAlready);
+      // Only a request paid once is said to be held for good.
+      expect(meaning(tree).includes(copy.send.paid)).toBe(once);
+      expect(felt()).toEqual(['notificationSuccess']);
+      await arrive(true);
+      expect(said).toHaveBeenCalledWith(copy.send.sent);
+      expect(onDone).not.toHaveBeenCalled();
+      await past(HOME_AFTER_MS);
+      expect(onDone).toHaveBeenCalledTimes(1);
+      expect(felt()).toEqual(['notificationSuccess']);
+      await act(async () => tree.unmount());
+    },
+  );
+
+  test('completing within a beat of its held ring, the success takes the held haptic second warning', async () => {
+    const { tree, answer } = await hanging(priced('late-soon'));
+    jest.mocked(HapticFeedback.trigger).mockClear();
+    await past(SEND_GRACE_MS);
+    await past(100);
+    await answer(outcome('completed'));
+    expect(felt()).toEqual(['notificationWarning']);
+    await past(1_000);
+    expect(felt()).toEqual(['notificationWarning', 'notificationSuccess']);
+    await act(async () => tree.unmount());
+  });
+
+  test('resolved, stays once touched', async () => {
+    const onDone = jest.fn();
+    const { tree, answer } = await hanging(priced('late-stays'), { onDone });
+    await past(SEND_GRACE_MS);
+    await answer(outcome('completed'));
+    await act(async () => {
+      tree.root
+        .findAll(node => typeof node.props.onTouchStart === 'function')[0]
+        .props.onTouchStart();
+    });
+    await past(10_000);
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('a failed payment touched, paid again and resolved past its grace still goes home', async () => {
+    jest.useFakeTimers();
+    const onDone = jest.fn();
+    let answer!: (result: SendResult) => void;
+    const send = jest
+      .fn()
+      .mockResolvedValueOnce(outcome('failed'))
+      .mockImplementationOnce(
+        () => new Promise<SendResult>(resolve => (answer = resolve)),
+      );
+    const tree = await draw(
+      { prepareSend: jest.fn().mockResolvedValue(quote()), send },
+      { initialRequest: priced('late-second-go'), onDone },
+    );
+    await press(tree, copy.send.review);
+    await activate(tree, HOLD);
+    await act(async () => {
+      tree.root
+        .findAll(node => typeof node.props.onTouchStart === 'function')[0]
+        .props.onTouchStart();
+    });
+    await press(tree, copy.send.failed);
+    await press(tree, copy.send.review);
+    await activate(tree, HOLD);
+    await past(SEND_GRACE_MS);
+    await act(async () => answer(outcome('completed')));
+    expect(meaning(tree)).toContain(copy.send.sent);
+    await past(HOME_AFTER_MS);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
   });
 
   test('answered after Send has gone, is recorded all the same and draws nothing', async () => {
