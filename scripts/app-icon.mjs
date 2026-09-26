@@ -190,6 +190,9 @@ function render(svg, px, out, flatten = false) {
       'remove',
       '-alpha',
       'off',
+      // No timestamps, so drawing the same icon again changes no file.
+      '-define',
+      'png:exclude-chunks=date,time',
       out,
     ]);
   }
