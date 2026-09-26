@@ -234,7 +234,18 @@ const vessels: Shot[] = [
   glyph('vessel, a channel confirming on a test network', () =>
     vessel(decided('wait', 'channel-pending'), { test: true }),
   ),
-  glyph('vessel, out of reach while a channel is away', () =>
+  glyph('vessel, out of reach while the primary is away', () =>
+    vessel(
+      {},
+      {
+        availableSats: 0,
+        pendingSats: 0,
+        totalSats: 84_488,
+        connected: false,
+      },
+    ),
+  ),
+  glyph('vessel, held back with the primary connected', () =>
     vessel({}, { availableSats: 0, pendingSats: 0, totalSats: 84_488 }),
   ),
   glyph('vessel, part out of reach and part arriving', () =>

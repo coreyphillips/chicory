@@ -490,6 +490,7 @@ export function HomeScreen({
                   pendingSats={balance.pendingSats}
                   totalSats={balance.totalSats}
                   lfbw={snapshot.wallet.lfbw}
+                  connected={snapshot.primary.connected}
                   unit={unit}
                   masked={hidden}
                   stale={stale}

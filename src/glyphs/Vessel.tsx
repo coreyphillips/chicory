@@ -75,6 +75,11 @@ export interface VesselProps {
    */
   totalSats?: number;
   lfbw?: WalletRecord['lfbw'];
+  /**
+   * Whether the primary is connected. Only a disconnection says the money
+   * out of reach is in a channel that is away (`VesselVisual['reach']`).
+   */
+  connected?: boolean;
   unit: Unit;
   masked?: boolean;
   stale?: boolean;
@@ -151,7 +156,11 @@ export function glassFill(look: VesselVisual['fill'], test: boolean): string {
 }
 
 /** The out-of-reach share: a honey hatch over a faint honey wash. */
-const AWAY_WASH = alpha(palette.honey, 0.14);
+/** The out-of-reach hatch: honey while unplugged, dust while held back. */
+const AWAY_TONES = {
+  unplugged: { stroke: palette.honey, wash: alpha(palette.honey, 0.14) },
+  held: { stroke: palette.dust, wash: alpha(palette.dust, 0.12) },
+};
 const AWAY_HATCH = 4;
 
 /** The pill's height, from nothing in flight to opened by a tap. */
@@ -483,7 +492,14 @@ function Hatch() {
  * The money out of reach: honey stripes over a faint honey wash, drawn
  * `width` wide and still while the clip around it moves.
  */
-function AwayArt({ width }: { width: number }) {
+function AwayArt({
+  width,
+  reach,
+}: {
+  width: number;
+  reach: 'unplugged' | 'held';
+}) {
+  const tone = AWAY_TONES[reach];
   return (
     <Svg width={width} height="100%">
       <Defs>
@@ -499,12 +515,12 @@ function AwayArt({ width }: { width: number }) {
             y1="0"
             x2="0"
             y2={AWAY_HATCH}
-            stroke={palette.honey}
+            stroke={tone.stroke}
             strokeWidth="1.5"
           />
         </Pattern>
       </Defs>
-      <Rect width="100%" height="100%" fill={AWAY_WASH} />
+      <Rect width="100%" height="100%" fill={tone.wash} />
       <Rect width="100%" height="100%" fill="url(#vesselAway)" />
     </Svg>
   );
@@ -552,6 +568,7 @@ export function Vessel({
   pendingSats,
   totalSats,
   lfbw,
+  connected = true,
   unit,
   masked = false,
   stale = false,
@@ -561,7 +578,7 @@ export function Vessel({
   const awake = useAwake();
   const active = usePaneActive();
   const balance = { availableSats, pendingSats, totalSats };
-  const visual = vesselVisual(balance, lfbw);
+  const visual = vesselVisual(balance, lfbw, connected);
   const away = unreachableSats(balance);
   // Everything in flight moving into the channel at once would take the
   // pill straight to its hairline, and the solid segment's growth would
@@ -824,13 +841,19 @@ export function Vessel({
     [],
   );
   const glyph = visual.glyph && !masked && !opened ? visual.glyph : null;
-  // Money out of reach wears the unplug on the pill's left end while it
-  // lasts, as the channel is away.
-  const unplugged = visual.unreachable > 0 && !masked && !opened;
+  // Money out of reach wears the unplug on the pill's left end while the
+  // primary is away. Held back with the primary connected, it wears nothing:
+  // the totals cannot say why (`VesselVisual['reach']`).
+  const unplugged = visual.reach === 'unplugged' && !masked && !opened;
   // A hidden balance hides the wait with the split. The value names what
   // is out of reach first, then why the rest waits.
   const wait = masked ? null : vesselWords(visual);
-  const reachWords = masked || !away ? null : copy.home.outOfReach;
+  const reachWords =
+    masked || !away
+      ? null
+      : visual.reach === 'unplugged'
+      ? copy.home.outOfReach
+      : copy.home.heldBack;
   const words = [reachWords, wait].filter(Boolean).join(' ') || null;
   const tone = visual.tone === 'bloom' ? spendable : TONES[visual.tone];
   const available = amountIn(availableSats, unit);
@@ -860,7 +883,7 @@ export function Vessel({
           {split && visual.unreachable > 0 && width > 0 ? (
             <Reanimated.View style={[styles.away, awayClip]}>
               <Reanimated.View style={[styles.away, awayStill]}>
-                <AwayArt width={width} />
+                <AwayArt width={width} reach={visual.reach ?? 'held'} />
               </Reanimated.View>
             </Reanimated.View>
           ) : null}

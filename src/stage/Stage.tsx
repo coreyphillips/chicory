@@ -482,7 +482,7 @@ export function shownBy(snapshot: WalletSnapshot): string {
     balance.totalSats,
     balance.availableSats,
     balance.pendingSats,
-    vesselVisual(balance, lfbw),
+    vesselVisual(balance, lfbw, primary.connected),
     primary.connected,
     primary.setup,
     primary.setupError ?? null,

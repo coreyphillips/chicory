@@ -32,6 +32,13 @@ export const home = {
    */
   outOfReach:
     'Part of the balance is in a channel that is not connected right now. It can be sent once the channel reconnects.',
+  /**
+   * Part of the balance cannot be sent with the primary connected: a
+   * channel's reserve, or a channel with another peer. The totals do not
+   * say which, so neither is claimed.
+   */
+  heldBack:
+    'Part of the balance cannot be sent right now. A channel keeps some in reserve, and a channel with another node needs that node online.',
   send: 'Send',
   sendHint: 'Paste or scan a payment request.',
   receive: 'Receive',

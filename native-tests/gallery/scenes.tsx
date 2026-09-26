@@ -84,7 +84,8 @@ const homes: Shot[] = [
     snapshot: onMainnet({ balance: { totalSats: 250_000, pendingSats: 0 } }),
   })),
   // A channel whose peer is away holds most of the balance, as after a
-  // switch of primary node before the old one reconnects.
+  // switch of primary node before the old one reconnects. The primary is
+  // connected, so the vessel holds the share back without naming why.
   wallet('home, part of the balance out of reach', () => ({
     snapshot: onMainnet({
       balance: { totalSats: 123_963, availableSats: 28_929, pendingSats: 0 },

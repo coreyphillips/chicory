@@ -33,6 +33,7 @@ const GLASS: VesselVisual = {
   weight: 'swollen',
   solid: 0.75,
   unreachable: 0,
+  reach: null,
   fill: 'glass',
   sheen: 'sweep',
   glyph: null,
@@ -216,8 +217,11 @@ describe('money out of reach', () => {
       ...GLASS,
       solid: 0,
       unreachable: 1,
+      reach: 'held',
       sheen: 'none',
     });
+    // Only a disconnected primary says the money is in a channel away.
+    expect(vesselVisual(away, undefined, false).reach).toBe('unplugged');
     // After a cold launch, before the old peer reconnected.
     const split = { totalSats: 123_963, availableSats: 28_929, pendingSats: 0 };
     expect(unreachableSats(split)).toBe(95_034);
@@ -253,6 +257,18 @@ describe('money out of reach', () => {
     ).toBe('hairline');
   });
 
+  test('a large channel the wallet holds little of is held back, never said to be away', () => {
+    // A 1,000,000 sat just-in-time channel holding 20,000: its 1% reserve is
+    // half of what the wallet holds, with the peer right there.
+    const jit = { totalSats: 20_000, availableSats: 10_000, pendingSats: 0 };
+    expect(unreachableSats(jit)).toBe(10_000);
+    expect(vesselVisual(jit, undefined, true)).toMatchObject({
+      weight: 'swollen',
+      reach: 'held',
+      glyph: null,
+    });
+  });
+
   test('the threshold sits just past what a reserve explains, on both sides', () => {
     const total = 100_000;
     const limit = RESERVE_SHARE * total + RESERVE_FLOOR_SATS;
@@ -277,6 +293,7 @@ describe('money out of reach', () => {
       ...GLASS,
       solid: 0.4,
       unreachable: 0.3,
+      reach: 'held',
       sheen: 'slow',
       glyph: 'clock',
     });

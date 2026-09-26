@@ -18,12 +18,21 @@ export interface VesselVisual {
   /** The spendable share of the pill, drawn solid bloom, from 0 to 1. */
   solid: number;
   /**
-   * The share that cannot be sent now and is not on its way either: money
-   * in a channel whose peer is away (`unreachableSats`). Drawn honey and
-   * hatched at the pill's left end, under an unplug. 0 when the gap is no
-   * more than a channel reserve.
+   * The share that cannot be sent now and is not on its way either
+   * (`unreachableSats`), drawn hatched at the pill's left end. 0 when the
+   * gap is no more than a channel reserve.
    */
   unreachable: number;
+  /**
+   * Why that share cannot be sent, as far as the snapshot tells:
+   * `unplugged` while the primary is not connected, drawn honey under an
+   * unplug; otherwise `held`, drawn in dust with no glyph. The totals alone
+   * cannot tell a peer that is away from the reserve a large channel keeps
+   * (1% of a channel the wallet holds little of can be much of what it
+   * holds), so without a disconnection the vessel only shows the share and
+   * never says a channel is away. Null when nothing is out of reach.
+   */
+  reach: 'unplugged' | 'held' | null;
   /**
    * The arriving share: bloom glass, dust seeds below the channel floor,
    * honey or radish glass when it is held up, or a sage wash once a splice
@@ -119,7 +128,11 @@ export const CHANNEL_FLOOR_SATS = 25_000;
  * share of it beside the spendable part and the glass. What the glass looks
  * like still answers only for the money in flight.
  */
-export function vesselVisual(balance: Balance, lfbw: Lfbw): VesselVisual {
+export function vesselVisual(
+  balance: Balance,
+  lfbw: Lfbw,
+  connected = true,
+): VesselVisual {
   const available = Math.max(0, balance.availableSats);
   const pending = Math.max(0, balance.pendingSats);
   const away = unreachableSats(balance);
@@ -129,6 +142,7 @@ export function vesselVisual(balance: Balance, lfbw: Lfbw): VesselVisual {
     weight: inFlight || away > 0 ? 'swollen' : 'hairline',
     solid: whole > 0 ? available / whole : 1,
     unreachable: whole > 0 ? away / whole : 0,
+    reach: away > 0 ? (connected ? 'held' : 'unplugged') : null,
     fill: 'glass',
     sheen: inFlight ? 'sweep' : 'none',
     glyph: null,

@@ -976,13 +976,15 @@ describe('Vessel', () => {
   describe('money out of reach', () => {
     // The device pass (P10): the old channel's peer was away, and Home drew
     // the hairline of everything spendable over 84,488 that could not be
-    // sent.
+    // sent. Here the primary is away too, which is what lets the vessel say
+    // a channel is not connected.
     const away = (over: object = {}) =>
       render(
         <Vessel
           availableSats={0}
           pendingSats={0}
           totalSats={84_488}
+          connected={false}
           unit="sats"
           {...over}
         />,
@@ -1051,6 +1053,31 @@ describe('Vessel', () => {
         { translateX: 180 },
         { scaleX: expect.closeTo(0.3) },
       ]);
+    });
+
+    test('with the primary connected it is held back in dust, and no channel is said to be away', async () => {
+      // As in the pass, where the new primary was connected: the totals
+      // cannot tell the old peer being away from a large channel's reserve.
+      const tree = await away({ connected: true });
+      const root = tree.root.findByProps({ accessible: true });
+      expect(root.props.accessibilityLabel).toBe(
+        '0 sats ready to send, 84,488 sats out of reach',
+      );
+      expect(root.props.accessibilityValue).toEqual({
+        text: copy.home.heldBack,
+      });
+      expect(whispers(tree)).toEqual([]);
+      expect(tree.root.findAllByType(Path).map(path => path.props.d)).toEqual(
+        expect.not.arrayContaining(GLYPHS.unplug.map(part => part.d)),
+      );
+      await act(async () =>
+        root.props.onLayout({
+          nativeEvent: { layout: { width: 300, height: 8 } },
+        }),
+      );
+      const hatches = tree.root.findAllByType(Pattern);
+      expect(hatches).toHaveLength(1);
+      expect(hatches[0].findByType(Line).props.stroke).toBe(palette.dust);
     });
 
     test('a channel reserve alone draws nothing out of reach', async () => {
