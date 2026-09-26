@@ -38,11 +38,31 @@ describe('a request', () => {
     expect(requestRail('lnbc-typed')).toBeNull();
   });
 
-  test('shows where it pays, grouped and shortened in the middle', () => {
+  test('shows where it pays, its prefix whole, grouped and shortened in the middle', () => {
+    // As every chip draws a value (`chipText`): grouped from the first
+    // character, a link's invoice read "lnbc rt30 …" on Send's chip (P10,
+    // 23b-link-send-prefilled).
     expect(shortRequest(`bitcoin:${ADDRESS}?amount=0.001`)).toBe(
-      'bc1q ar0s … zzwf 5mdq',
+      'bc1 qar0 … zzwf 5mdq',
     );
-    expect(shortRequest(INVOICE)).toBe('lnbc 2442 … qqw5 3adf');
+    expect(shortRequest(INVOICE)).toBe('lnbc244250n1 qqqq … qqw5 3adf');
+    expect(shortRequest(`lightning:${INVOICE}`)).toBe(shortRequest(INVOICE));
+    expect(shortRequest(`bitcoin:${ADDRESS}?lightning=${INVOICE}`)).toBe(
+      'bc1 qar0 … zzwf 5mdq',
+    );
+    for (const request of [
+      `bitcoin:${ADDRESS}?amount=0.001`,
+      INVOICE,
+      `lightning:${INVOICE}`,
+    ]) {
+      expect(shortRequest(request)).not.toMatch(/^(bitc|lnbc )/);
+    }
+    // The regtest invoice the finding saw, read or not.
+    const regtest = `lnbcrt30u1p4td83kp${'x'.repeat(40)}qpw5f2ku`;
+    expect(shortRequest(`lightning:${regtest}`)).toBe(
+      'lnbcrt30u1 p4td … qpw5 f2ku',
+    );
+    // What does not read as a request is grouped from its first character.
     expect(shortRequest(' lnbc-typed ')).toBe('lnbc -typ ed');
   });
 });

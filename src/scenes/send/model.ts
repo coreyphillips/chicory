@@ -5,6 +5,7 @@ import type {
   WalletSnapshot,
 } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
+import { chipText } from '../../glyphs/chipText';
 import type { GlyphName } from '../../design/glyphs';
 import type { Held } from '../../stage/heldRequests';
 import type { AmountTone } from '../keypad/keys';
@@ -139,13 +140,10 @@ export function reviewWords(review: SendReview): string {
     .join(' ');
 }
 
-/** Characters kept at each end of a shortened request. */
-const KEEP = 8;
-const groups = (text: string) => text.match(/.{1,4}/g)?.join(' ') ?? '';
-
 /**
  * Where a request pays, as the chip shows it: the address or the invoice,
- * without its scheme, in groups of four and shortened in the middle.
+ * without its scheme, as every chip draws a value (`chipText`): its prefix
+ * whole, the rest in groups of four, shortened in the middle.
  */
 export function shortRequest(request: string): string {
   const payment = parsed(request);
@@ -157,10 +155,7 @@ export function shortRequest(request: string): string {
       : payment?.kind === 'bolt12'
       ? payment.offer
       : request.trim().replace(/^(lightning|bitcoin):/i, '');
-  if (destination.length <= KEEP * 2 + 4) return groups(destination);
-  return `${groups(destination.slice(0, KEEP))} … ${groups(
-    destination.slice(-KEEP),
-  )}`;
+  return chipText(destination);
 }
 
 /**
