@@ -182,7 +182,38 @@ beforeEach(() => {
 afterEach(() => {
   jest.restoreAllMocks();
   jest.useRealTimers();
+  delete (globalThis as { requestIdleCallback?: unknown }).requestIdleCallback;
 });
+
+/**
+ * Idle callbacks as React Native runs them: back to back, and back to the
+ * JavaScript thread's timers only once none is left. Jest has none, and a
+ * timeout stands in (motion/idle), under which a callback that keeps asking
+ * for another still lets every timer fire. `idle()` runs what is queued as
+ * a device would, and is false when it would never stop.
+ */
+function nativeIdle() {
+  const queue: (() => void)[] = [];
+  Object.assign(globalThis, {
+    requestIdleCallback: (callback: () => void) => queue.push(callback),
+  });
+  return {
+    idle: async () => {
+      let stopped = true;
+      await act(async () => {
+        for (let ran = 0; queue.length > 0; ran += 1) {
+          if (ran > 1_000) {
+            stopped = false;
+            queue.length = 0;
+            return;
+          }
+          queue.shift()?.();
+        }
+      });
+      return stopped;
+    },
+  };
+}
 
 describe('a held request', () => {
   test('typed into the well, is held as it is reviewed, and nothing is prepared', async () => {
@@ -523,6 +554,31 @@ describe('a payment whose call does not answer', () => {
     // The history is a tap away, and nothing on the screen pays.
     expect(find(tree, copy.send.viewActivity)).toBeDefined();
     expect(holds(tree, HOLD)).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+
+  test('moved to the held ring past its grace, is felt twice on a device too', async () => {
+    // Only the first warning played there (P14): the ring's landing waited
+    // on a timer, its safety message asked again at every idle moment, and
+    // a device, which runs idle callbacks back to back, never got back to
+    // its timers, the haptic's second beat among them.
+    const device = nativeIdle();
+    const { tree } = await hanging(priced('grace-device'));
+    expect(await device.idle()).toBe(true);
+    jest.mocked(HapticFeedback.trigger).mockClear();
+    await past(SEND_GRACE_MS);
+    expect(await device.idle()).toBe(true);
+    await past(300);
+    expect(felt()).toEqual(['notificationWarning', 'notificationWarning']);
+    // Landed on the ring, and heard once the landing has settled.
+    await past(stepInMs());
+    expect(await device.idle()).toBe(true);
+    expect(focused()).toContain(copy.send.onItsWay);
+    await past(FOCUS_SETTLE_MS);
+    expect(await device.idle()).toBe(true);
+    expect(said).toHaveBeenCalledWith(copy.send.heldAnnouncement, {
+      assertive: true,
+    });
     await act(async () => tree.unmount());
   });
 

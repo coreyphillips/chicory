@@ -3,6 +3,7 @@ import type { RefObject } from 'react';
 import type { HostInstance } from 'react-native';
 import { announce } from '../../design/announce';
 import { focusAfterTransition } from '../../motion/focus';
+import { beginTransition } from '../../motion/idle';
 import { durations, overlap } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
 
@@ -30,6 +31,15 @@ const speak = (text: string, assertive: boolean) =>
  * its way from the moment it is asked for, so a safety message, which Send
  * says through `announceSafety`, waits for it to land and settle.
  *
+ * The rise is marked as a transition (`beginTransition`) for as long as it
+ * runs, so the move, and whatever waits for it, is held with the other work
+ * that waits for the stage to be still. Waiting on a timer of its own
+ * instead, the move left a safety message asking again at every idle
+ * moment until it was made; React Native runs idle callbacks back to back,
+ * so the JavaScript thread never got back to its timers, the move's own
+ * among them, and nothing on one fired until the next touch: the held
+ * haptic's second warning never played (P14).
+ *
  * `say(text)` speaks once the landing on its way has been made, and at once
  * when none is on its way. Nothing waiting is lost: whatever is still
  * unsaid as Send goes is said then.
@@ -47,13 +57,20 @@ export function useLanding() {
   const land = useCallback(
     (target: Landing) => {
       cancel.current?.();
-      cancel.current = focusAfterTransition(() => target.current, {
-        delay: stepInMs(),
+      const ms = stepInMs();
+      const rising = beginTransition(ms);
+      const risen = setTimeout(rising, ms);
+      const move = focusAfterTransition(() => target.current, {
         then: () => {
           cancel.current = null;
           flush();
         },
       });
+      cancel.current = () => {
+        move();
+        clearTimeout(risen);
+        rising();
+      };
     },
     [flush],
   );
