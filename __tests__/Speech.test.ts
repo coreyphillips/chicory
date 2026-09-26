@@ -1,4 +1,6 @@
+import type { HostInstance } from 'react-native';
 import { announce, forgetSpoken } from '../src/design/announce';
+import { focusAfterTransition } from '../src/motion/focus';
 import {
   FOCUS_SETTLE_MS,
   announceSafety,
@@ -44,6 +46,44 @@ test('a message withdrawn before it is heard is not said', () => {
   withdraw();
   settle();
   expect(said).not.toHaveBeenCalled();
+});
+
+test('a message waiting on a focus move that waits on a timer never keeps a device from its timers', () => {
+  // Idle callbacks as React Native runs them: back to back, and back to the
+  // JavaScript thread's timers only once none is left. Jest has none, and a
+  // timeout stands in (motion/idle), under which asking again at once still
+  // lets every timer fire, so this runs them as a device would.
+  const queue: (() => void)[] = [];
+  Object.assign(globalThis, {
+    requestIdleCallback: (callback: () => void) => queue.push(callback),
+  });
+  const drains = () => {
+    for (let ran = 0; queue.length > 0; ran += 1) {
+      if (ran > 1_000) return false;
+      queue.shift()?.();
+    }
+    return true;
+  };
+  const moved = jest.fn();
+  const node = {} as HostInstance;
+  let move = () => {};
+  try {
+    move = focusAfterTransition(() => node, { delay: 300, then: moved });
+    announceSafety('Payment held.', 'held');
+    expect(drains()).toBe(true);
+    jest.advanceTimersByTime(300);
+    expect(drains()).toBe(true);
+    expect(moved).toHaveBeenCalledTimes(1);
+    expect(said).not.toHaveBeenCalled();
+    // Heard once the move is made, as ever.
+    jest.advanceTimersByTime(FOCUS_SETTLE_MS);
+    expect(drains()).toBe(true);
+    expect(said.mock.calls).toEqual([['Payment held.', { assertive: true }]]);
+  } finally {
+    move();
+    delete (globalThis as { requestIdleCallback?: unknown })
+      .requestIdleCallback;
+  }
 });
 
 test('forgetting drops what is waiting, and what comes next is said on its own', () => {

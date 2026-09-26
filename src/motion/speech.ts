@@ -98,15 +98,29 @@ function speak() {
 }
 
 /**
+ * How long a safety message waits before looking again at a focus move
+ * still on its way.
+ */
+const FOCUS_RETRY_MS = 50;
+
+/**
  * Runs `fn` once no transition is running, no focus move is waiting, and
  * the last move has had FOCUS_SETTLE_MS to land. Returns a cancel.
+ *
+ * A move still on its way is waited for on a timer, never by asking for the
+ * next idle moment at once. React Native runs idle callbacks back to back,
+ * so asking again from inside one keeps the JavaScript thread from its
+ * timers, and a move that waits on one (`focusAfterTransition` with a
+ * delay) would never be made: nothing on a timer would fire until the next
+ * touch.
  */
 function whenSettled(fn: () => void): () => void {
   let stop = () => {};
   const attempt = () => {
     stop = afterTransition(() => {
       if (focusPending()) {
-        attempt();
+        const timer = setTimeout(attempt, FOCUS_RETRY_MS);
+        stop = () => clearTimeout(timer);
         return;
       }
       const wait = lastFocusMove() + FOCUS_SETTLE_MS - Date.now();
