@@ -25,6 +25,11 @@ import type { Activity, PaymentStatus } from '@beignet/wallet-core';
  * never while this app's own call to pay it has not answered: an older
  * attempt the history shows says nothing about the one still going out.
  *
+ * A request is held under one key however it was copied: the invoice it
+ * carries, bare or inside a Bitcoin link, or else its address and the
+ * amount it names. A label, a message or the order of its parameters does
+ * not make it another request.
+ *
  * The set is not per wallet. An invoice or address paid from one wallet
  * while the outcome is unknown is just as unsafe to pay from another.
  */
@@ -44,6 +49,11 @@ interface Entry {
   txid?: string;
   /** This app's call to pay it has not answered yet. */
   calling?: boolean;
+  /**
+   * When this app's attempt began, for a payment that may still land. The
+   * history speaks for that attempt only through rows no older than it.
+   */
+  since?: number;
 }
 
 /** What paying a request came to, as far as this app has seen. */
@@ -164,6 +174,21 @@ export function paymentHashOf(request: string): string | null {
   return null;
 }
 
+/**
+ * The key a request is held under: the Lightning invoice it is or carries,
+ * or else its address and the amount it names, in sats so that 0.001 and
+ * 0.00100 are one amount. `request` may be spelled any way it is copied.
+ */
+export function requestKey(request: string): string {
+  const text = normalizeRequest(request);
+  const invoice = invoiceIn(text);
+  if (invoice) return invoice;
+  const [address, query = ''] = text.split('?', 2);
+  const amount = /(?:^|&)amount=([^&]*)/.exec(query)?.[1];
+  const sats = amount ? Math.round(Number(amount) * 1e8) : 0;
+  return sats > 0 ? `${address}?amount=${sats}` : address;
+}
+
 /** A BOLT 11 invoice's prefix: lnbc, lntb, lntbs, lnbcrt or lnsb. */
 const BOLT11 = /^ln(bc|tb|sb)/;
 
@@ -189,19 +214,23 @@ export function paidOnce(request: string): boolean {
  * request that may be paid again, lets it go.
  */
 export function holdRequest(request: string, outcome: HeldOutcome) {
-  const key = normalizeRequest(request);
+  const key = requestKey(request);
   if (!key) return;
   const { status } = outcome;
+  const before = held.get(key);
   if (
     status === 'pending' ||
     status === 'uncertain' ||
     (status === 'completed' && paidOnce(request))
   ) {
+    const open = status !== 'completed';
     held.set(key, {
       status,
       paymentHash: outcome.paymentHash || paymentHashOf(request) || undefined,
       txid: outcome.txid || undefined,
       calling: (status === 'pending' && outcome.calling) || undefined,
+      // An answer to the call keeps the time the attempt began.
+      since: open ? before?.since ?? Date.now() : undefined,
     });
   } else {
     held.delete(key);
@@ -218,13 +247,15 @@ const unsettled = (payment: Activity) =>
  * and completed once it is paid for good. Paid, as the history or this app
  * knows it, wins; a payment the history shows as failed, or completed for a
  * request that may be paid again, lets the request go, unless this app's
- * own call to pay it has not answered yet.
+ * own call to pay it has not answered yet, or the row is older than this
+ * app's attempt: an earlier attempt that failed says nothing about the one
+ * that may still land.
  */
 export function heldRequest(
   request: string,
   activity: readonly Activity[] = [],
 ): Held | null {
-  const key = normalizeRequest(request);
+  const key = requestKey(request);
   if (!key) return null;
   const entry = held.get(key);
   const hash = entry?.paymentHash ?? paymentHashOf(request);
@@ -252,7 +283,16 @@ export function heldRequest(
   }
   const open = payments.find(unsettled);
   if (open) return { status: open.status as HeldStatus, item: open };
-  if (payments.length && !entry?.calling) {
+  // The transaction this app paid with is this attempt's own; a payment
+  // hash is shared by every attempt at the invoice.
+  const since = entry?.since;
+  const current = since
+    ? payments.filter(
+        payment =>
+          (txid && payment.txid === txid) || payment.timestamp >= since,
+      )
+    : payments;
+  if (current.length && !entry?.calling) {
     held.delete(key);
     return null;
   }

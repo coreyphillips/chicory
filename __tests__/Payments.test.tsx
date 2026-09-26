@@ -61,6 +61,14 @@ const priced = (name: string) =>
   `bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=0.000042&label=${name}`;
 
 /**
+ * A request for the same 4,200 sats to another address. A label does not
+ * make another request: the held set knows a Bitcoin request by its address
+ * and amount.
+ */
+const pricedElsewhere = (name: string) =>
+  `bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4?amount=0.000042&label=${name}`;
+
+/**
  * Send draws inside the gesture root, as the app does, so a long press can
  * show what a glyph means.
  */
@@ -681,7 +689,9 @@ test('a completed payment goes home a moment later, unless the screen is touched
             prepareSend: jest.fn().mockResolvedValue(quote),
             send,
           })}
-          initialRequest={priced(`done-${touched}`)}
+          initialRequest={
+            touched ? pricedElsewhere('done-touched') : priced('done')
+          }
           onActivity={jest.fn()}
           onRefresh={jest.fn()}
           onBusy={onBusy}

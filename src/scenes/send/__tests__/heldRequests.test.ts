@@ -185,7 +185,9 @@ test('the history lets go of a request once it shows the payment failed', () => 
   holdRequest(request, { status: 'uncertain', paymentHash: hash });
   const item = activityOf('sent', 'uncertain', { paymentHash: hash });
   expect(heldRequest(request, [item])).toEqual({ status: 'uncertain', item });
-  expect(heldRequest(request, [{ ...item, status: 'failed' }])).toBeNull();
+  // The row as it reads once the attempt has failed, which is after it began.
+  const failed = { ...item, status: 'failed' as const, timestamp: Date.now() };
+  expect(heldRequest(request, [failed])).toBeNull();
   // Settled for good: without the history, it stays let go.
   expect(heldRequest(request)).toBeNull();
 });
@@ -235,6 +237,57 @@ test('a payment going out is held against an earlier attempt the history shows s
   // Its answer is what lets it go.
   holdRequest(request, { status: 'failed' });
   expect(heldRequest(request, [earlier])).toBeNull();
+});
+
+test('an answered attempt is held against an older failed attempt the history still shows', () => {
+  for (const status of ['pending', 'uncertain'] as const) {
+    clearHeldRequests();
+    const hash = hex(16);
+    const request = invoice(hash, 16);
+    // The usual retry: the history shows the attempt that failed before.
+    const earlier = activityOf('sent', 'failed', {
+      paymentHash: hash,
+      timestamp: Date.now() - 60_000,
+    });
+    holdRequest(request, { status: 'pending', calling: true });
+    holdRequest(request, { status });
+    expect(heldRequest(request, [earlier])).toEqual({ status });
+    expect(heldRequest(request, [])).toEqual({ status });
+    // A row as new as this attempt speaks for it.
+    const now = { ...earlier, timestamp: Date.now() };
+    expect(heldRequest(request, [now])).toBeNull();
+  }
+});
+
+test('an invoice is one request bare, with its scheme, or inside a Bitcoin link', () => {
+  const hash = hex(17);
+  const bare = invoice(hash, 17);
+  const unified = `bitcoin:bcrt1qunified?amount=0.00001&lightning=${bare}`;
+  holdRequest(unified, { status: 'pending', calling: true });
+  expect(heldRequest(bare)).toEqual({ status: 'pending' });
+  expect(heldRequest(`LIGHTNING:${bare.toUpperCase()}`)).toEqual({
+    status: 'pending',
+  });
+  holdRequest(unified, { status: 'completed' });
+  expect(heldRequest(bare)).toEqual({ status: 'completed' });
+  clearHeldRequests();
+  holdRequest(bare, { status: 'completed' });
+  expect(heldRequest(unified)).toEqual({ status: 'completed' });
+});
+
+test('a Bitcoin request is its address and amount, whatever its label or order', () => {
+  const priced = 'bitcoin:bcrt1qpricedkey?amount=0.0001';
+  holdRequest(priced, { status: 'uncertain' });
+  for (const spelling of [
+    'bitcoin:bcrt1qpricedkey?label=coffee&amount=0.0001',
+    'BITCOIN:BCRT1QPRICEDKEY?amount=0.00010000&message=hi',
+    'bcrt1qpricedkey?amount=.0001',
+  ]) {
+    expect(heldRequest(spelling)).toEqual({ status: 'uncertain' });
+  }
+  // Another amount, or the bare address, is another request.
+  expect(heldRequest('bitcoin:bcrt1qpricedkey?amount=0.0002')).toBeNull();
+  expect(heldRequest('bcrt1qpricedkey')).toBeNull();
 });
 
 test('a screen is told each time this app holds or lets go of a request', () => {

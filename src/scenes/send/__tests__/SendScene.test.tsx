@@ -40,6 +40,14 @@ const SCANNED = 'lnbcrt1scanned';
 const priced = (label: string) =>
   `bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=0.000042&label=${label}`;
 
+/**
+ * A request for the same 4,200 sats to another address. A label does not
+ * make another request: the held set knows a Bitcoin request by its address
+ * and amount.
+ */
+const pricedElsewhere = (label: string) =>
+  `bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4?amount=0.000042&label=${label}`;
+
 let stage!: StageStore;
 let view!: CanvasView;
 let snapshot: WalletSnapshot;
@@ -314,7 +322,9 @@ test('an unknown outcome holds honey on the ground, and a failure flashes radish
   });
   await act(async () => stage.actions.openSend());
   await act(async () => {
-    field(tree, copy.send.request).props.onChangeText(priced('tint-failed'));
+    field(tree, copy.send.request).props.onChangeText(
+      pricedElsewhere('tint-failed'),
+    );
   });
   await press(tree, copy.send.review);
   const before = stage.tint.read().flash?.key ?? 0;

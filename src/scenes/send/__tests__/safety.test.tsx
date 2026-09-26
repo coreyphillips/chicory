@@ -61,6 +61,14 @@ const payable = (label: string) =>
 const priced = (label: string) =>
   `bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=0.000042&label=${label}`;
 
+/**
+ * A request for the same 4,200 sats to another address. A label does not
+ * make another request: the held set knows a Bitcoin request by its address
+ * and amount.
+ */
+const pricedElsewhere = (label: string) =>
+  `bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4?amount=0.000042&label=${label}`;
+
 const said = jest.mocked(announce);
 const felt = () =>
   jest.mocked(HapticFeedback.trigger).mock.calls.map(([kind]) => kind);
@@ -221,10 +229,10 @@ describe('a held request', () => {
     );
     expect(meaning(tree)).toContain(copy.send.onItsWay);
     await press(tree, copy.send.request);
-    await type(tree, priced('another'));
+    await type(tree, pricedElsewhere('another'));
     await press(tree, copy.send.review);
     expect(prepareSend).toHaveBeenCalledWith({
-      request: priced('another'),
+      request: pricedElsewhere('another'),
       amountSats: undefined,
     });
     expect(heldRequest(payable('chip-held'))).toEqual({ status: 'pending' });
@@ -558,7 +566,7 @@ describe('a payment whose call does not answer', () => {
     expect(heldRequest(unknown)).toEqual({ status: 'uncertain' });
     expect(logged()).toContain('UNCERTAIN');
 
-    const refused = priced('gone-refused');
+    const refused = pricedElsewhere('gone-refused');
     const second = await hanging(refused);
     await act(async () => second.tree.unmount());
     await second.refuse(coded('NO_ROUTE'));
@@ -573,11 +581,13 @@ describe('a payment whose call does not answer', () => {
     await past(SEND_GRACE_MS);
     // Opened from its chip, to take another request.
     await press(tree, copy.send.request);
-    await type(tree, priced('another'));
+    await type(tree, pricedElsewhere('another'));
     await answer(outcome('uncertain'));
     expect(heldRequest(request)).toEqual({ status: 'uncertain' });
     expect(meaning(tree)).not.toContain(copy.send.unknown);
-    expect(field(tree, copy.send.request).props.value).toBe(priced('another'));
+    expect(field(tree, copy.send.request).props.value).toBe(
+      pricedElsewhere('another'),
+    );
     await act(async () => tree.unmount());
   });
 });
