@@ -9,6 +9,7 @@ import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
 import { popIn, useShake } from '../../motion/effects';
 import { useLoop, wave } from '../../motion/loops';
+import { fadeOut } from '../../motion/presets';
 import { durations } from '../../motion/tokens';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { CONTROL } from './Controls';
@@ -21,6 +22,23 @@ import { useBloom } from './tone';
 const SIZE = 120;
 const STROKE = 5;
 const R = (SIZE - STROKE) / 2;
+
+/**
+ * The orbit of a held payment still under way, on a track of its own inside
+ * the honey ring, a clear gap in from it, in cream at part strength. Drawn
+ * on the ring itself, honey on honey, it could not be seen, and a payment
+ * still going out looked exactly like one whose outcome is unknown (P12,
+ * 06d4).
+ */
+export const HELD_ORBIT = { stroke: 3, gap: 4, alpha: 0.6 };
+/** Across the held orbit's outer edge, just inside the ring and its gap. */
+const HELD_ORBIT_SIZE = SIZE - 2 * (STROKE + HELD_ORBIT.gap);
+
+/**
+ * How big the disc starts as the held ring resolves into it: the ring's
+ * inside, so it grows out of the ring as the ring fades.
+ */
+export const RESOLVE_FROM = (SIZE - 2 * STROKE) / SIZE;
 
 /** The pause bars pop in one after the other, then hold still. */
 const PAUSE: Stroke[] = [
@@ -84,8 +102,9 @@ function Moving() {
 /**
  * Held: a steady honey ring, a halo breathing round it and the pause bars.
  * Nothing about it moves toward done, because nothing is known to be. While
- * the payment is still under way a honey orbit runs round the ring, the
- * motion that says money is moving (REDESIGN.md 3.5), and never rests.
+ * the payment is still under way an orbit runs just inside the ring, in
+ * cream against its honey, the motion that says money is moving (REDESIGN.md
+ * 3.5), and never rests. An outcome that is unknown has none.
  */
 function Held({ visual }: FaceProps) {
   // Out and back once each 1600ms.
@@ -102,7 +121,16 @@ function Held({ visual }: FaceProps) {
       <Reanimated.View style={[styles.layer, styles.halo, haloStyle]} />
       <Ring color={palette.honey} />
       {visual.orbit ? (
-        <Orbit size={SIZE} stroke={STROKE} color={palette.honey} />
+        <View style={[styles.layer, styles.centred]}>
+          <View style={styles.inside}>
+            <Orbit
+              size={HELD_ORBIT_SIZE}
+              stroke={HELD_ORBIT.stroke}
+              color={palette.cream}
+              alpha={HELD_ORBIT.alpha}
+            />
+          </View>
+        </View>
       ) : null}
       <DrawnGlyph
         name="pause"
@@ -134,7 +162,9 @@ const FACES: Record<ResultVisual['shape'], (props: FaceProps) => ReactNode> = {
 /**
  * How a payment ended, as a 120pt mark grown from the control it was sent
  * with (REDESIGN.md 6, Send). A failure shakes as it lands. A mark at rest
- * (`visual.resting`), for a payment seen before, is simply there.
+ * (`visual.resting`), for a payment seen before, is simply there. The held
+ * ring, seen to complete (`visual.resolves`), fades as the disc grows out
+ * of it and its check draws, rather than cutting to the disc in a frame.
  *
  * The mark carries the words: `accessibilityLabel` for what happened,
  * `accessibilityValue` for the status, and `accessibilityHint` for the
@@ -188,7 +218,16 @@ export function ResultMark({
           }
           style={styles.face}
         >
-          <Face visual={visual} />
+          {/* Each shape is a layer of its own, so the held ring can give
+              way to the disc it resolves into. */}
+          <Reanimated.View
+            key={visual.shape}
+            entering={visual.resolves ? popIn(RESOLVE_FROM) : undefined}
+            exiting={visual.shape === 'held' ? fadeOut() : undefined}
+            style={[styles.layer, styles.centred]}
+          >
+            <Face visual={visual} />
+          </Reanimated.View>
           <Reanimated.View
             pointerEvents="none"
             style={[styles.layer, styles.tint, refusal.tint]}
@@ -208,6 +247,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   layer: { position: 'absolute', top: 0, left: 0, width: SIZE, height: SIZE },
+  centred: { alignItems: 'center', justifyContent: 'center' },
+  inside: { width: HELD_ORBIT_SIZE, height: HELD_ORBIT_SIZE },
   disc: {
     width: SIZE,
     height: SIZE,

@@ -19,6 +19,7 @@ import { durations } from '../../../motion/tokens';
 import { mount } from '../../../../test-support/guard';
 import { activate } from '../../../../test-support/query';
 import { GLYPHS } from '../../../design/glyphs';
+import { Commit } from '../Commit';
 import { QuoteRefresh } from '../Controls';
 import { BANG, DrawnGlyph } from '../DrawnGlyph';
 import { Orbit } from '../Orbit';
@@ -30,7 +31,9 @@ import {
   FlashingBolt,
 } from '../ErrorGlyphs';
 import { FailureMark } from '../FailureMark';
-import { sendFailure } from '../model';
+import { heldVisual, sendFailure } from '../model';
+import type { ResultVisual } from '../model';
+import { RESOLVE_FROM, ResultMark } from '../ResultMark';
 
 /**
  * The hold and the countdown around it (REDESIGN.md 5, HoldButton and
@@ -228,6 +231,164 @@ describe('ExpiryRing', () => {
       />,
     );
     expect(onExpired).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('Commit', () => {
+  // Shared values live as long as their component, as on a device, where
+  // the mock makes a new one each render.
+  const made = Reanimated.useSharedValue;
+  beforeEach(() => {
+    jest
+      .spyOn(Reanimated, 'useSharedValue')
+      .mockImplementation(init => React.useState(() => made(init))[0]);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  /** The review's commit, on the canvas, with its quote run out or not. */
+  const commitOf = (expired = false) => (
+    <GestureHandlerRootView>
+      <Commit
+        accessibilityLabel={LABEL}
+        summary=""
+        expiresAt={Date.now() + 60_000}
+        createdAt={Date.now()}
+        warning={false}
+        expired={expired}
+        stale={false}
+        busy={false}
+        onCommit={jest.fn()}
+      />
+    </GestureHandlerRootView>
+  );
+
+  /** How much of the quote's ring is drawn, through the views round it. */
+  function ringShown(tree: ReactTestRenderer) {
+    let opacity = 1;
+    let at: ReactTestInstance | null = tree.root.findByType(ExpiryRing);
+    for (; at; at = at.parent) {
+      if (typeof at.type === 'string') {
+        opacity *= StyleSheet.flatten(at.props.style)?.opacity ?? 1;
+      }
+    }
+    return opacity;
+  }
+
+  /** Draws what the UI thread would: the mock reads styles as it renders. */
+  const drawn = (tree: ReactTestRenderer, expired = false) =>
+    act(async () => tree.update(commitOf(expired)));
+
+  test("the quote's ring fades as the hold commits, before the payment's render lets it go", async () => {
+    // Left to that render, which a busy JavaScript thread held back, the
+    // ring stayed drawn and running down for 600ms after the flash, beside
+    // the new orbit (P12, 06d).
+    const tree = await mount(commitOf());
+    try {
+      expect(ringShown(tree)).toBe(1);
+      await press.in(tree);
+      await press.complete(tree);
+      // Within a tick of the commit, while the payment has not yet rendered
+      // its going out, the ring has gone.
+      await act(async () => jest.advanceTimersByTime(durations.tick));
+      await drawn(tree);
+      expect(tree.root.findAllByType(ExpiryRing)).toHaveLength(1);
+      expect(ringShown(tree)).toBe(0);
+    } finally {
+      await act(async () => tree.unmount());
+    }
+  });
+
+  test('a quote that turns out not to be spent brings its ring back', async () => {
+    const tree = await mount(commitOf());
+    try {
+      await press.in(tree);
+      await press.complete(tree);
+      await drawn(tree);
+      expect(ringShown(tree)).toBe(0);
+      // It ran out as the hold completed, so nothing was sent on it.
+      await drawn(tree, true);
+      await drawn(tree, true);
+      expect(ringShown(tree)).toBe(1);
+    } finally {
+      await act(async () => tree.unmount());
+    }
+  });
+});
+
+describe('ResultMark', () => {
+  /** The held ring for a payment `status`, as a request held on it is. */
+  const heldRing = (status: 'pending' | 'uncertain') =>
+    mount(
+      <ResultMark
+        visual={heldVisual(status)}
+        accessibilityLabel="Held"
+        accessibilityValue=""
+        accessibilityHint=""
+      />,
+    );
+
+  test('a held payment still under way orbits inside its ring, apart from it and in a tone of its own', async () => {
+    // Honey on the honey ring, at its radius and stroke, the orbit could
+    // not be seen: a payment going out looked unknown (P12, 06d4).
+    const tree = await heldRing('pending');
+    const ring = tree.root
+      .findAllByType(Circle)
+      .find(circle => circle.props.stroke === palette.honey)!;
+    const [orbit] = tree.root.findAllByType(Orbit);
+    const ringInside = ring.props.r - ring.props.strokeWidth / 2;
+    expect(orbit.props.size / 2).toBeLessThanOrEqual(ringInside - 3);
+    expect(orbit.props.color).not.toBe(ring.props.stroke);
+    expect(orbit.props.color).toBe(palette.cream);
+    expect(orbit.props.alpha).toBeLessThan(1);
+    // Its arc is drawn at the part strength, round a circle of its own.
+    const [arc] = orbit.findAllByType(Circle);
+    expect(arc.props.strokeOpacity).toBe(orbit.props.alpha);
+    await act(async () => tree.unmount());
+  });
+
+  test('seen to complete, the held ring gives way to a disc growing out of it, its check drawing', async () => {
+    // It cut in one frame to the disc at rest (P12, 06k).
+    const markOf = (visual: ResultVisual) => (
+      <ResultMark
+        visual={visual}
+        accessibilityLabel="Held"
+        accessibilityValue=""
+        accessibilityHint=""
+      />
+    );
+    /** The layer round `node` that enters or leaves as the face changes. */
+    const layerOf = (node: ReactTestInstance | undefined) => {
+      let at: ReactTestInstance | null = node ?? null;
+      while (at && at.props.entering === undefined && !at.props.exiting) {
+        at = at.parent;
+      }
+      return at;
+    };
+    const tree = await mount(markOf(heldVisual('pending')));
+    // The ring's layer fades as it goes.
+    expect(layerOf(tree.root.findByType(Orbit))?.props.exiting).toEqual(
+      expect.any(Function),
+    );
+    await act(async () => tree.update(markOf(heldVisual('completed', true))));
+    expect(tree.root.findAllByType(Orbit)).toEqual([]);
+    // The disc pops up from the ring's inside, and its check draws in.
+    expect(RESOLVE_FROM).toBeCloseTo((120 - 2 * 5) / 120);
+    const [check] = drawnOf(tree, DrawnGlyph);
+    expect(check.props.name).toBe('check');
+    const disc = layerOf(check);
+    expect(disc?.props.entering).toEqual(expect.any(Function));
+    // Its own layer inside the mark, not the mark arriving as a whole.
+    expect(StyleSheet.flatten(disc?.props.style).position).toBe('absolute');
+    // A request paid before is simply there: nothing pops, nothing draws.
+    await act(async () => tree.update(markOf(heldVisual('completed'))));
+    expect(drawnOf(tree, DrawnGlyph)).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+
+  test('an outcome that is unknown keeps its ring steady, with no orbit', async () => {
+    const tree = await heldRing('uncertain');
+    expect(tree.root.findAllByType(Orbit)).toEqual([]);
     await act(async () => tree.unmount());
   });
 });

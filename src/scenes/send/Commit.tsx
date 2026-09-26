@@ -1,11 +1,20 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import type { ComponentRef, Ref } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Reanimated from 'react-native-reanimated';
+import Reanimated, {
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import type {
+  EntryExitAnimationFunction,
+  SharedValue,
+} from 'react-native-reanimated';
 import { copy } from '../../design/copy';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
 import { HoldButton } from '../../glyphs/HoldButton';
-import { fadeOut } from '../../motion/presets';
+import { curves, durations } from '../../motion/tokens';
 import { useNow } from '../../services/clock';
 import { CONTROL, CircleControl, QuoteRefresh } from './Controls';
 import { useTestNetwork } from './tone';
@@ -14,16 +23,39 @@ import { useTestNetwork } from './tone';
 const RING = CONTROL + 16;
 
 /**
+ * The quote's ring leaving as the payment's render lets it go: from where
+ * the commit's fade has taken it, which is gone by then on a phone, on to
+ * gone within a tick, so it never comes back to be faded again.
+ */
+function ringOut(commit: SharedValue<number>): EntryExitAnimationFunction {
+  return () => {
+    'worklet';
+    const shown = 1 - commit.get();
+    return {
+      initialValues: { opacity: shown },
+      animations: {
+        opacity: withTiming(0, {
+          duration: durations.tick * shown,
+          easing: curves.standard,
+          reduceMotion: ReduceMotion.Never,
+        }),
+      },
+    };
+  };
+}
+
+/**
  * Where a review is committed (REDESIGN.md 5 and 6, Send): the hold inside
  * the quote's ring. The ring stays through the quote running out, so it
  * retracts round the refresh that takes the hold's place. While the balance
  * is too old to spend against, the hold gives way to a dust control whose
  * tap shakes and refreshes the balance instead.
  *
- * Once the hold commits (`spent`) the quote is used: its ring fades away and
- * nothing it could say applies to the payment any more, so the hold stays,
- * with its orbit, whatever the quote's clock or the balance's age would
- * have made of it. Money is going out.
+ * Once the hold commits the quote is used: its ring fades away as the flash
+ * rises, on the UI thread with the hold, rather than once the payment's
+ * render comes (`spent`), and nothing it could say applies to the payment
+ * any more, so the hold stays, with its orbit, whatever the quote's clock
+ * or the balance's age would have made of it. Money is going out.
  *
  * A screen reader commits the hold with one action, so the hold says the
  * whole review with it: `summary`, the total, the fee and every engine
@@ -63,6 +95,14 @@ export function Commit({
   ref?: Ref<ComponentRef<typeof View>>;
 }) {
   const test = useTestNetwork();
+  // How far the hold's commit has taken the quote's ring away. A quote
+  // that turns out not to be spent after all, refused as it was sent or
+  // run out as the hold completed, brings its ring back.
+  const commit = useSharedValue(0);
+  useEffect(() => {
+    if (!spent) commit.set(0);
+  }, [spent, expired, commit]);
+  const ringStyle = useAnimatedStyle(() => ({ opacity: 1 - commit.get() }));
   const refresh = expired && !spent;
   const gated = stale && !spent && !refresh;
   // Only the words need the second: the ring runs down on its own timing.
@@ -72,9 +112,9 @@ export function Commit({
     <View style={styles.commit}>
       {spent ? null : (
         <Reanimated.View
-          exiting={fadeOut()}
+          exiting={ringOut(commit)}
           pointerEvents="none"
-          style={styles.ring}
+          style={[styles.ring, ringStyle]}
         >
           <ExpiryRing
             size={RING}
@@ -108,6 +148,7 @@ export function Commit({
             warning={warning}
             busy={busy || spent}
             test={test}
+            commit={commit}
           />
         )}
       </View>
