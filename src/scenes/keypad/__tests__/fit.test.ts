@@ -3,6 +3,7 @@ import {
   SHAKE_TRAVEL,
   amountLine,
   amountSize,
+  easeFrom,
   readoutWidth,
 } from '../fit';
 import { STATE_PIP } from '../AmountReadout';
@@ -86,4 +87,27 @@ test('each size keeps the amount line in step, 56 on 48', () => {
   for (const size of AMOUNT_SIZES) {
     expect(amountLine(size) / size).toBeCloseTo(56 / 48, 1);
   }
+});
+
+describe('the row easing to where its new width centres it', () => {
+  test('starts where it stood while that keeps it inside its field', () => {
+    // 220pt wide at 67, a digit makes it 260: from 67 it ends at 327.
+    expect(easeFrom(67, 47, 260, FIELD)).toBe(67);
+    // Narrowing, it starts where it stood too.
+    expect(easeFrom(47, 67, 220, FIELD)).toBe(47);
+  });
+
+  test('starts no further along than keeps it inside its field', () => {
+    // Laid out 284pt wide from where the narrower row stood, at 86, the
+    // disc went past the field's right edge before the row eased back
+    // (P14, 06d, 06j).
+    const start = easeFrom(86, 35, 284, FIELD);
+    expect(start + 284).toBeLessThanOrEqual(FIELD);
+    expect(start).toBe(FIELD - 284);
+    expect(easeFrom(-6, 20, 300, FIELD)).toBe(0);
+  });
+
+  test('a row wider than its field starts where it lands', () => {
+    expect(easeFrom(0, -10, FIELD + 20, FIELD)).toBe(-10);
+  });
 });

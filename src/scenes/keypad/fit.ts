@@ -78,3 +78,24 @@ export function amountLine(size: number): number {
   const { fontSize = 48, lineHeight = 56 } = typography.amount;
   return Math.round((size * lineHeight) / fontSize);
 }
+
+/**
+ * Where the row starts its ease from as its width changes (REDESIGN.md 5,
+ * Keypad): where it stood, `from`, unless the row, laid out afresh at its
+ * new `width`, would stick out of a field `room` wide from there, when it
+ * starts as far along as fits. It eases on to `to`, where its width centres
+ * it. Started where it stood, each new digit laid a long row out past the
+ * field's right edge before it eased back, so its unit or its disc was cut
+ * off for up to 8 frames (P14, 06d, 06j). A row wider than its field starts
+ * where it lands.
+ */
+export function easeFrom(
+  from: number,
+  to: number,
+  width: number,
+  room: number,
+): number {
+  'worklet';
+  const last = room - width;
+  return last < 0 ? to : Math.min(Math.max(from, 0), last);
+}

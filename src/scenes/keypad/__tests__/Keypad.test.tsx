@@ -193,6 +193,48 @@ test('the amount moves as one: only its row eases, and nothing in it slides past
   await act(async () => tree.unmount());
 });
 
+test('a row widening as a digit arrives eases from where it stood, never past its field', async () => {
+  // Laid out afresh from where the narrower row stood, a long amount went
+  // past the field's right edge before it eased back to centre: "sats" was
+  // cut to "s" in Receive, and Send's disc went past the screen (P14, 06d,
+  // 06j).
+  const FIELD = 354;
+  const tree = await mount(
+    <AmountField value="9999999" onChangeText={jest.fn()} tone="radish" />,
+  );
+  await act(async () =>
+    readout(tree).props.onLayout({
+      nativeEvent: { layout: { x: 0, y: 0, width: FIELD, height: 96 } },
+    }),
+  );
+  const [row] = readout(tree).findAll(
+    node =>
+      typeof node.type !== 'string' &&
+      node.props.layout !== undefined &&
+      StyleSheet.flatten(node.props.style)?.flexDirection === 'row',
+  );
+  const { layout } = row.props;
+  const move = typeof layout === 'function' ? layout : layout.build();
+  /** Where the row starts, grown from `from` wide to `to`, centred. */
+  const startOf = (from: number, to: number) =>
+    move({
+      currentOriginX: (FIELD - from) / 2,
+      currentOriginY: 0,
+      currentWidth: from,
+      currentHeight: 56,
+      targetOriginX: (FIELD - to) / 2,
+      targetOriginY: 0,
+      targetWidth: to,
+      targetHeight: 56,
+    }).initialValues.originX;
+  // A long row that widens starts no further along than fits.
+  expect(startOf(290, 330) + 330).toBeLessThanOrEqual(FIELD);
+  expect(startOf(290, 330)).toBeGreaterThanOrEqual(0);
+  // With room to spare it starts where it stood, and eases on to centre.
+  expect(startOf(150, 180)).toBe((FIELD - 150) / 2);
+  await act(async () => tree.unmount());
+});
+
 /** How a deleted digit leaves: where it starts, and each timing it runs. */
 function leaving() {
   const timings = jest.spyOn(Reanimated, 'withTiming');
