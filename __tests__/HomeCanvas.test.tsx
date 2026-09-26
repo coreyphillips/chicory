@@ -29,6 +29,7 @@ import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import {
   HERO_MINI,
   HOME,
+  PANE_SETTLE_MS,
   PRIMARY_CONTROL,
   SLOT_PADDING,
   heroBox,
@@ -516,6 +517,22 @@ describe('the circle becomes the control it lands on', () => {
     expect(rowWait(at('gone', 0), at('home', 1))).toBe(140);
     expect(rowWait(at('compact', 0), at('home', 1))).toBe(0);
     expect(rowWait(at('home', 1), at('gone', 0))).toBe(0);
+  });
+
+  test('on the canvas, the row rises only once Send has gone, and the lock holds as long', async () => {
+    const tree = await mount(<OnCanvas />);
+    await act(async () => stage.actions.openSend());
+    const delays = jest.spyOn(Reanimated, 'withDelay');
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    await act(async () => stage.actions.back());
+    expect(stage.state.scene.name).toBe('home');
+    expect(delays).toHaveBeenCalledWith(140, expect.anything());
+    expect(
+      timings.mock.calls.some(
+        ([, config]) => config?.duration === PANE_SETTLE_MS + 140,
+      ),
+    ).toBe(true);
+    await act(async () => tree.unmount());
   });
 
   test('it takes on the look of the control it becomes', () => {
