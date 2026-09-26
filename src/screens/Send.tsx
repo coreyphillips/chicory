@@ -58,6 +58,7 @@ import type { Origin } from '../scenes/send/RequestEntry';
 import { ResultMark } from '../scenes/send/ResultMark';
 import { LINE_SCALE, ReviewLines } from '../scenes/send/ReviewLines';
 import { useLanding } from '../scenes/send/useLanding';
+import { untilInFront } from '../scenes/send/untilInFront';
 import { useScreenReader } from '../scenes/send/useScreenReader';
 import { TestNetwork } from '../scenes/send/tone';
 import type { Landing } from '../scenes/send/useLanding';
@@ -73,6 +74,7 @@ import {
 import { useLaunchLanding } from '../stage/panes/Launch';
 import { usePaneActive } from '../stage/panes/Pane';
 import { useFlashTint, useHoldTint } from '../stage/StageContext';
+import { duringSystemPrompt } from '../stage/systemPrompt';
 import {
   MASK,
   amountIn,
@@ -778,7 +780,15 @@ export function SendScreen({
 
   async function paste(): Promise<boolean> {
     try {
-      const pasted = (await Clipboard.getString())?.trim();
+      // Reading the clipboard can raise the system's paste prompt, which
+      // makes the app inactive: marked as a prompt the app asked for, Send
+      // stays in view behind it rather than the privacy cover. What the
+      // paste brings lands once the app is in front again, so a refusal's
+      // cross draws, and its haptic plays, where they are seen and felt.
+      const text = await duringSystemPrompt(() => Clipboard.getString());
+      await untilInFront();
+      if (!mounted.current) return false;
+      const pasted = text?.trim();
       if (!pasted) {
         haptics.error();
         say(copy.send.clipboardEmpty);
@@ -788,6 +798,8 @@ export function SendScreen({
       if (accept(pasted)) say(copy.send.pasted);
       return true;
     } catch (e) {
+      await untilInFront();
+      if (!mounted.current) return false;
       fail(e);
       return false;
     }

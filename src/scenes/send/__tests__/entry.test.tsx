@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, TextInput } from 'react-native';
+import { AppState, StyleSheet, Text, TextInput } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
@@ -20,6 +20,10 @@ import {
   recentDiagnostics,
 } from '../../../services/diagnosticLog';
 import type { WalletAdapter } from '../../../services/wallet';
+import {
+  PROMPT_SETTLE_MS,
+  systemPromptOpen,
+} from '../../../stage/systemPrompt';
 import { clearHeldRequests, holdRequest } from '../../../stage/heldRequests';
 import { enterAmount } from '../../../../test-support/keypad';
 import {
@@ -144,6 +148,67 @@ describe('a request the parser refuses', () => {
     expect(alerts(tree)).toEqual([refusalOf('demo')]);
     await leave(tree);
     expect(felt().filter(kind => kind === 'notificationError')).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('a paste', () => {
+  const state = Object.getOwnPropertyDescriptor(AppState, 'currentState');
+  afterEach(() => {
+    if (state) Object.defineProperty(AppState, 'currentState', state);
+  });
+
+  test('is read as a prompt the app raised, so Send stays in view behind it', async () => {
+    // The span of a paste an earlier test made closes a moment after it.
+    await act(
+      () => new Promise<void>(done => setTimeout(done, PROMPT_SETTLE_MS + 50)),
+    );
+    jest.useFakeTimers();
+    try {
+      let answer!: (text: string) => void;
+      jest.mocked(Clipboard.getString).mockReturnValueOnce(
+        new Promise<string>(resolve => {
+          answer = resolve;
+        }),
+      );
+      const tree = await draw();
+      expect(systemPromptOpen()).toBe(false);
+      await act(async () => {
+        find(tree, copy.send.paste)!.props.onPress();
+      });
+      expect(systemPromptOpen()).toBe(true);
+      await act(async () => answer(ADDRESS));
+      await act(async () => jest.advanceTimersByTime(PROMPT_SETTLE_MS));
+      expect(systemPromptOpen()).toBe(false);
+      expect(chipped(tree)).toBe(true);
+      await act(async () => tree.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('lands once the app is in front again, so its refusal is seen and felt', async () => {
+    // The system's paste prompt has made the app inactive, and the answer
+    // comes back before the prompt has gone.
+    Object.defineProperty(AppState, 'currentState', {
+      configurable: true,
+      value: 'inactive',
+    });
+    const listen = jest.mocked(AppState.addEventListener);
+    listen.mockClear();
+    jest.mocked(Clipboard.getString).mockResolvedValueOnce(LNURL);
+    const tree = await draw();
+    await act(async () => {
+      find(tree, copy.send.paste)!.props.onPress();
+    });
+    expect(alerts(tree)).toEqual([]);
+    expect(felt()).not.toContain('notificationError');
+    const [, back] = listen.mock.calls
+      .filter(([kind]) => kind === 'change')
+      .at(-1)!;
+    await act(async () => (back as (next: string) => void)('active'));
+    expect(alerts(tree)).toEqual([refusalOf(LNURL)]);
+    expect(felt()).toContain('notificationError');
     await act(async () => tree.unmount());
   });
 });
