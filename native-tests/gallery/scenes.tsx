@@ -11,6 +11,7 @@ import type { StageAction } from '../../src/stage/scene';
 import {
   activityOf,
   everyActivity,
+  hex,
   requestOf,
   walletOf,
 } from '../../test-support/fixtures';
@@ -241,6 +242,14 @@ const settingsShots: Shot[] = [
         setup: 'failed',
         setupError: 'Liquidity provider is unavailable.',
       },
+    }),
+  })),
+  // A host as long as a v3 onion's is wider than the card at any text size:
+  // the copy control drops below the address, which shrinks to keep the host
+  // whole (`copyFit`), as a shorter one does at the largest text size.
+  settings('with a primary node on an onion host', () => ({
+    snapshot: fresh({
+      primary: { uri: `02${hex(7, 64)}@${hex(8, 56)}.onion:9735` },
     }),
   })),
   settings('offering an app lock', () => {
