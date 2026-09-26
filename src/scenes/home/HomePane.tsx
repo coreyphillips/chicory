@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useAnimatedReaction } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +15,11 @@ import { haptics } from '../../design/haptics';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { HomeScreen } from '../../screens/wallet/Home';
 import type { RegionProps } from '../../stage/Canvas';
+import {
+  heldRequest,
+  heldVersion,
+  subscribeHeld,
+} from '../../stage/heldRequests';
 import { canvasScene, launchLook } from '../../stage/layout';
 import { useBuild } from '../../stage/panes/Build';
 import { usePanes } from '../../stage/panes/Pane';
@@ -85,18 +96,43 @@ export function HomePane({
   // (`reviewOpensLive`), or a Continue an empty amount can take, is live;
   // otherwise it waits in dust. Kept while the circle comes home, so it
   // leaves from the look it landed with.
+  //
+  // A request that is held, or already paid, never reaches a review: Send
+  // takes it straight to the held ring or its paid mark, which draw no
+  // control (REDESIGN.md rule 6). So the circle has nowhere to land, and a
+  // live pay control must never be seen over that screen: it goes with the
+  // other two instead (`landless`). Settled as the scene opens, so a
+  // payment that answers while it shows moves nothing on Home.
+  useSyncExternalStore(subscribeHeld, heldVersion);
   const test = isTestNetwork(network);
-  const [landsOn, setLandsOn] = useState<{ live: boolean } | null>(null);
+  const [landsOn, setLandsOn] = useState<{
+    live: boolean;
+    landless: boolean;
+    key: number;
+  } | null>(null);
   if (spending && state.scene.name === shown) {
+    const scene = state.scene;
+    const landless =
+      landsOn?.key === scene.key
+        ? landsOn.landless
+        : scene.name === 'send' &&
+          heldRequest(scene.prefill, snapshot.activity) !== null;
     const live =
-      state.scene.name === 'send'
-        ? !stale && reviewOpensLive(state.scene.prefill)
+      scene.name === 'send'
+        ? !stale && reviewOpensLive(scene.prefill)
         : !stale && snapshot.balance.receivableSats > 0;
-    if (landsOn?.live !== live) setLandsOn({ live });
+    if (
+      landsOn?.live !== live ||
+      landsOn.landless !== landless ||
+      landsOn.key !== scene.key
+    ) {
+      setLandsOn({ live, landless, key: scene.key });
+    }
   }
+  const landless = launching !== 'none' && !!landsOn?.landless;
   const lands = useMemo(
     () =>
-      launching === 'none' || !landsOn
+      launching === 'none' || !landsOn || landsOn.landless
         ? null
         : launchLook(launching, { live: landsOn.live, test }),
     [launching, landsOn, test],
@@ -176,6 +212,7 @@ export function HomePane({
         progress={panes}
         launching={launching}
         lands={lands}
+        landless={landless}
         arrived={arrived}
         onSend={openSend}
         onReceive={actions.openReceive}

@@ -44,6 +44,7 @@ import { rowWait } from '../src/stage/panes/usePaneMotion';
 import { CORNER_TARGET, CornerControl } from '../src/stage/panes/CornerControl';
 import { LaunchProvider, useLaunchLanding } from '../src/stage/panes/Launch';
 import type { Launch } from '../src/stage/panes/Launch';
+import { clearHeldRequests, holdRequest } from '../src/stage/heldRequests';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
 import type { StageStore } from '../src/stage/StageContext';
 import { snapshotOf } from '../test-support/fixtures';
@@ -164,6 +165,7 @@ function HomeAt({
   veil,
   launching = 'none',
   landing,
+  landless,
   unit = 'sats',
 }: {
   hero?: number;
@@ -171,6 +173,7 @@ function HomeAt({
   veil?: number;
   launching?: 'none' | 'send' | 'receive';
   landing?: Launch;
+  landless?: boolean;
   unit?: 'sats' | 'btc';
 }) {
   const panes = {
@@ -188,6 +191,7 @@ function HomeAt({
       onDetail={jest.fn()}
       progress={panes}
       launching={launching}
+      landless={landless}
     />
   );
   return (
@@ -828,6 +832,60 @@ describe('the circle becomes the control it lands on', () => {
       );
       await act(async () => linked.unmount());
     }
+  });
+});
+
+describe('a request that is held or already paid', () => {
+  afterEach(() => clearHeldRequests());
+
+  test('opens Send with no control for the circle to land on', async () => {
+    // The device pass (P12): a link to a held request, and to a paid one,
+    // sent the circle in the live review's look to a review the held ring
+    // and the paid mark never draw, over their history glyph for 270ms.
+    const read = snapshotOf();
+    const opened = async (prefill: string) => {
+      const tree = await mount(<OnCanvas read={read} />);
+      await act(async () => stage.actions.openSend(prefill));
+      await act(async () => tree.update(<OnCanvas read={read} />));
+      const { lands, landless } = tree.root.findByType(HomeScreen).props;
+      await act(async () => tree.unmount());
+      return { lands, landless };
+    };
+    // A request that can be paid lands on its live review.
+    expect(await opened(PRICED)).toEqual({
+      lands: launchLook('send', {
+        live: true,
+        test: isTestNetwork(read.wallet.network),
+      }),
+      landless: false,
+    });
+    // Its payment still under way: the held ring, and nowhere to land.
+    holdRequest(PRICED, { status: 'pending', calling: true });
+    expect(await opened(PRICED)).toEqual({ lands: null, landless: true });
+    // Paid: its mark at rest, however it is spelled, and nowhere to land.
+    holdRequest(PRICED, { status: 'completed' });
+    expect(await opened(PRICED.toUpperCase())).toEqual({
+      lands: null,
+      landless: true,
+    });
+  });
+
+  test('sends no circle travelling: all three go as the two not tapped do', async () => {
+    const tree = await mount(
+      <HomeAt hero={0} bar={0} launching="send" landless />,
+    );
+    const [send, scan, receive] = circles(tree);
+    for (const circle of [send, scan, receive]) {
+      expect(transformOf(circle, 'translateX')).toBe(0);
+      expect(transformOf(circle, 'translateY')).toBe(0);
+      expect(transformOf(circle, 'scale')).toBeCloseTo(0.8);
+      expect(flat(circle).opacity).toBe(0);
+    }
+    // Where it has somewhere to land, it travels there.
+    const landing = await mount(<HomeAt hero={0} bar={0} launching="send" />);
+    expect(transformOf(circles(landing)[0], 'translateY')).not.toBe(0);
+    await act(async () => tree.unmount());
+    await act(async () => landing.unmount());
   });
 });
 

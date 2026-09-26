@@ -124,6 +124,7 @@ export function HomeScreen({
   progress,
   launching = 'none',
   lands = null,
+  landless = false,
   arrived = 0,
   build,
 }: {
@@ -165,6 +166,12 @@ export function HomeScreen({
    * on as it travels (`launchLook` in stage/layout).
    */
   lands?: ControlLook | null;
+  /**
+   * The scene opens with no control for the circle to land on, as Send does
+   * on a held request's ring or a paid one's mark: the circle that opened
+   * it goes with the other two rather than travel to where nothing is drawn.
+   */
+  landless?: boolean;
   /** A count that rises with each read that brought money in. */
   arrived?: number;
   /**
@@ -291,8 +298,20 @@ export function HomeScreen({
   // Reduce Motion keeps the circles where they are while the row fades,
   // under the veil with the balance.
   const flying: Launch = reduced ? 'none' : launching;
+  // With no control to land on, no circle travels: all three go as the two
+  // not tapped do.
+  const travels = !landless;
   const size = PRIMARY_CONTROL * (lands?.scale ?? 1);
-  const row = { bar, gate, middle, veil, landing, launching: flying, size };
+  const row = {
+    bar,
+    gate,
+    middle,
+    veil,
+    landing,
+    launching: flying,
+    travels,
+    size,
+  };
   const sendLaunch = useLaunchStyle(row, 'send', sendAt, sendRest.place);
   const scanLaunch = useLaunchStyle(row, null);
   const receiveLaunch = useLaunchStyle(
@@ -318,7 +337,7 @@ export function HomeScreen({
   const flyingRest = flying === 'receive' ? receiveRest.place : sendRest.place;
   useAnimatedReaction(
     () => {
-      if (!landing || flying === 'none') return false;
+      if (!landing || flying === 'none' || !travels) return false;
       const from = flyingRest.get();
       const measured = from.y > 0;
       const across = measured
@@ -336,7 +355,7 @@ export function HomeScreen({
         ),
       );
     },
-    [landing, flying, size],
+    [landing, flying, travels, size],
   );
 
   // How each part enters as the canvas builds in, read once as Home mounts,
@@ -665,6 +684,7 @@ function useLaunchStyle(
     veil,
     landing,
     launching,
+    travels,
     size,
   }: {
     bar: SharedValue<number>;
@@ -673,6 +693,8 @@ function useLaunchStyle(
     veil?: SharedValue<number>;
     landing: Landing | null;
     launching: Launch;
+    /** Whether the tapped circle travels, having a control to land on. */
+    travels: boolean;
     /** How big the control the tapped circle grows into is drawn. */
     size: number;
   },
@@ -682,7 +704,7 @@ function useLaunchStyle(
 ) {
   return useAnimatedStyle(() => {
     const away = 1 - bar.get();
-    const tapped = launching === own;
+    const tapped = travels && launching === own;
     const from = rest ? rest.get() : null;
     const measured = !!landing && !!from && from.y > 0;
     const toCentre = measured
@@ -703,7 +725,7 @@ function useLaunchStyle(
         { scale: pose.scale * gate.get() },
       ],
     };
-  }, [launching, own, landing, veil, size]);
+  }, [launching, own, landing, veil, travels, size]);
 }
 
 const styles = StyleSheet.create({
