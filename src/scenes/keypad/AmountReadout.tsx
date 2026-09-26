@@ -1,6 +1,13 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { ComponentRef, ReactNode, Ref } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import type { LayoutChangeEvent } from 'react-native';
 import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
@@ -20,10 +27,11 @@ import { dropOut, riseIn, smooth } from '../../motion/presets';
 import { steady } from '../../motion/steady';
 import { curves, durations } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
-import { type as typography } from '../../theme';
+import { space, type as typography } from '../../theme';
 import { BANG, DrawnGlyph } from '../send/DrawnGlyph';
 import type { Stroke } from '../send/DrawnGlyph';
 import { WaitingClock } from '../send/LoopingGlyphs';
+import { AMOUNT_SIZES, amountLine, amountSize } from './fit';
 import { Keypad } from './Keypad';
 import { amountCells, digitsOnly, grouped, isBlank, pressKey } from './keys';
 import type { AmountTone, KeyName } from './keys';
@@ -36,6 +44,8 @@ const AMOUNT_SCALE = 1.2;
 
 /** The size of the lock beside an amount set elsewhere. */
 const MARK = 16;
+/** The gap before each mark after the unit. */
+const MARK_GAP = 8;
 
 /**
  * A limit's glyph, and the soft disc it sits on beside the amount, in the
@@ -174,7 +184,10 @@ export interface AmountReadoutProps {
 
 /**
  * An amount entered on the keypad (REDESIGN.md 5, Keypad): the digits at
- * 48pt, the keypad under them, and whatever the caller puts between.
+ * 48pt, the keypad under them, and whatever the caller puts between. A long
+ * amount steps down a size at a time until it fits its field with its unit,
+ * its marks and a shake either side (`amountSize`), and never shrinks to fit
+ * by the frame.
  *
  * It takes the props a text field would, and reports what a key does the way
  * one would, so a screen can swap it in for a field and keep its state. Each
@@ -277,10 +290,34 @@ export function AmountReadout({
   const marks = [editable ? null : 'lock', MARKS[tone]].filter(
     (mark): mark is GlyphName => mark !== null,
   );
+
+  // The row fits the field it sits in, marks, unit and a shake included,
+  // stepping down a size at a time (fit.ts). Until the field has measured
+  // itself it is taken as the page between its edges.
+  const { width, fontScale } = useWindowDimensions();
+  const [room, setRoom] = useState<number | null>(null);
+  const measure = useCallback((event: LayoutChangeEvent) => {
+    const measured = event.nativeEvent.layout.width;
+    setRoom(last => (last === measured ? last : measured));
+  }, []);
+  const size = amountSize(
+    {
+      figures: Math.max(1, cells.length),
+      separators: cells.filter(cell => cell.text.endsWith(',')).length,
+      marks: marks.map(mark => MARK_GAP + (mark === 'lock' ? MARK : STATE_PIP)),
+    },
+    room ?? width - 2 * space.xl,
+    Math.min(fontScale, AMOUNT_SCALE),
+  );
+  const sized =
+    size === AMOUNT_SIZES[0]
+      ? null
+      : { fontSize: size, lineHeight: amountLine(size) };
   return (
     <>
       <Reanimated.View
         ref={ref}
+        onLayout={measure}
         accessible
         accessibilityLabel={accessibilityLabel}
         accessibilityValue={{
@@ -307,7 +344,7 @@ export function AmountReadout({
                 exiting={leave()}
               >
                 <Text
-                  style={[styles.digits, { color }]}
+                  style={[styles.digits, sized, { color }]}
                   maxFontSizeMultiplier={AMOUNT_SCALE}
                 >
                   {cell.text}
@@ -318,7 +355,7 @@ export function AmountReadout({
             <View style={styles.face}>{empty}</View>
           ) : (
             <Text
-              style={[styles.digits, styles.empty]}
+              style={[styles.digits, sized, styles.empty]}
               maxFontSizeMultiplier={AMOUNT_SCALE}
             >
               0
@@ -356,8 +393,11 @@ export function AmountReadout({
 }
 
 const styles = StyleSheet.create({
+  // Across the whole field whatever its parent aligns, since the amount is
+  // sized to fit what it measures.
   readout: {
     flexGrow: 1,
+    alignSelf: 'stretch',
     minHeight: 96,
     alignItems: 'center',
     justifyContent: 'center',
@@ -373,7 +413,7 @@ const styles = StyleSheet.create({
   face: { flexDirection: 'row', alignItems: 'center' },
   unit: { ...typography.heroUnit, color: palette.steam, marginLeft: 6 },
   // Centred on the amount's line, level with its figures.
-  mark: { marginLeft: 8, alignSelf: 'center' },
+  mark: { marginLeft: MARK_GAP, alignSelf: 'center' },
   pip: {
     width: STATE_PIP,
     height: STATE_PIP,

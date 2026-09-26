@@ -93,6 +93,9 @@ const sends: Shot[] = [
   send('an amount keyed in', () => ({ steps: keyed('4200') })),
   send('more than can be sent now', () => ({ steps: keyed('255000') })),
   send('more than the wallet holds', () => ({ steps: keyed('300000') })),
+  send('the longest amount, past what the wallet holds', () => ({
+    steps: keyed('9999999999999999'),
+  })),
   send('a stale balance', () => ({
     snapshot: stale(onMainnet()),
   })),
@@ -219,6 +222,21 @@ const TXID = hex(400);
 const onlyAmount = (receivableSats: number) =>
   onMainnet({ balance: { receivableSats } });
 
+/** `digits` keyed in, and refused as more than the primary funds at once. */
+const pastCap = (name: string, digits: string) =>
+  receive(name, () => ({
+    snapshot: onlyAmount(0),
+    client: {
+      quoteReceive: async () => {
+        throw refusal(
+          'the provider funds at most 1000000 sats for one receive',
+          'RECEIVE_UNAVAILABLE',
+        );
+      },
+    },
+    steps: [...keyed(digits), CONTINUE],
+  }));
+
 const receives: Shot[] = [
   receive('any amount'),
   receive('an amount keyed in', () => ({ steps: AMOUNT })),
@@ -250,18 +268,8 @@ const receives: Shot[] = [
     },
     steps: [CONTINUE],
   })),
-  receive('the amount refused, past what the primary funds', () => ({
-    snapshot: onlyAmount(0),
-    client: {
-      quoteReceive: async () => {
-        throw refusal(
-          'the provider funds at most 1000000 sats for one receive',
-          'RECEIVE_UNAVAILABLE',
-        );
-      },
-    },
-    steps: [...keyed('2000000'), CONTINUE],
-  })),
+  pastCap('the amount refused, past what the primary funds', '2000000'),
+  pastCap('nine figures refused, stepped down to fit', '999999999'),
   receive('the primary node away', () => ({
     client: {
       quoteReceive: async () => {

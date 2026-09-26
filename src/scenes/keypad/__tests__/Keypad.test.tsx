@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   AccessibilityInfo,
+  Dimensions,
   StyleSheet,
   Text,
   TextInput,
@@ -20,6 +21,7 @@ import { mount } from '../../../../test-support/guard';
 import { amountValue, enterAmount } from '../../../../test-support/keypad';
 import { find, press, visibleText } from '../../../../test-support/query';
 import { AmountReadout, STATE_GLYPH, STATE_PIP } from '../AmountReadout';
+import { amountSize } from '../fit';
 import { CLEAR_AFTER_MS } from '../Keypad';
 import type { AmountTone } from '../keys';
 
@@ -197,6 +199,46 @@ test('the amount and its unit stop growing at 1.2', async () => {
     .map(node => node.props.maxFontSizeMultiplier);
   expect(caps.length).toBeGreaterThan(1);
   expect(caps.every(cap => cap === 1.2)).toBe(true);
+  await act(async () => tree.unmount());
+});
+
+test('a long amount steps down to fit its field with its unit and its disc, and never shrinks by the frame', async () => {
+  // 999,999,999 in radish with its 32pt disc ran past a 354pt field: the
+  // first 9 and half the disc were cut off (P12, 09d).
+  const FIELD = 354;
+  const scale = Math.min(Dimensions.get('window').fontScale, 1.2);
+  const field = (value: string, tone?: 'radish') => (
+    <AmountField value={value} onChangeText={jest.fn()} tone={tone} />
+  );
+  const tree = await mount(field('999999999', 'radish'));
+  await act(async () =>
+    readout(tree).props.onLayout({
+      nativeEvent: { layout: { x: 0, y: 0, width: FIELD, height: 96 } },
+    }),
+  );
+  const sizes = () =>
+    readout(tree)
+      .findAllByType(Text)
+      .filter(node => /\d/.test(String(node.props.children)))
+      .map(node => StyleSheet.flatten(node.props.style).fontSize);
+  const row = (marks: number[]) => ({ figures: 9, separators: 2, marks });
+  const radish = amountSize(row([8 + STATE_PIP]), FIELD, scale);
+  expect(radish).toBeLessThan(48);
+  expect(sizes()).toEqual(Array(9).fill(radish));
+  // Stepped, never shrunk per figure by the system.
+  expect(
+    readout(tree)
+      .findAllByType(Text)
+      .some(node => node.props.adjustsFontSizeToFit),
+  ).toBe(false);
+  // In cream, with no disc, the same figures fit without it.
+  await act(async () => tree.update(field('999999999')));
+  const cream = amountSize(row([]), FIELD, scale);
+  expect(cream).toBeGreaterThanOrEqual(radish);
+  expect(sizes()).toEqual(Array(9).fill(cream));
+  // And a short amount keeps the full 48.
+  await act(async () => tree.update(field('4200')));
+  expect(sizes()).toEqual([48, 48, 48, 48]);
   await act(async () => tree.unmount());
 });
 
