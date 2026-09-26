@@ -1,8 +1,8 @@
 # Chicory
 
-> **Experimental redesign branch.** Not for merging into main. The design this branch builds is in [REDESIGN.md](REDESIGN.md).
-
 A Lightning-first wallet for iOS and Android, running the Beignet engine on the phone itself, built on React Native 0.87.1. One balance, Send, Receive, Activity with details, and Settings. Payment requests and Bitcoin addresses share one send flow with an explicit amount and fee review. Receive produces a unified request QR after showing the receive fee.
+
+The app's design, from its product rules to its motion, is specified in [REDESIGN.md](REDESIGN.md).
 
 App version 0.4.0 (Android `versionCode` 4). The version shown in Settings comes from `package.json`; `android/app/build.gradle` and the Xcode `MARKETING_VERSION` are kept in step with it.
 

@@ -1,6 +1,6 @@
 # Chicory redesign
 
-This branch (`redesign`) is an experimental redesign of the Chicory app. It is not meant to be merged into main. This document is the source of truth for everything the redesign builds: product rules, architecture, tokens, glyphs, the state-to-visual map, choreography, reduced motion and accessibility.
+This document is the source of truth for the design of the Chicory app, as redesigned on the `redesign` branch and merged into main: product rules, architecture, tokens, glyphs, the state-to-visual map, choreography, reduced motion and accessibility.
 
 ## 1. Product rules
 
