@@ -49,6 +49,7 @@ import {
   resultVisual,
   reviewRail,
   requestRefusal,
+  reviewWaiting,
   reviewWords,
   sendFailure,
 } from '../scenes/send/model';
@@ -1035,13 +1036,11 @@ export function SendScreen({
       : amountTone(Number(shownAmount) || 0, balance);
     // What the review waits for, if anything: a request, one that can be
     // paid, and an amount. Until then it is drawn and told as disabled.
-    const waiting = !request.trim()
-      ? copy.send.reviewWaits
-      : failure?.target === 'request'
-      ? copy.send.reviewRefused
-      : Number(shownAmount) > 0
-      ? null
-      : copy.send.amountWaits;
+    const waiting = reviewWaiting(
+      request,
+      failure?.target === 'request',
+      Number(shownAmount) || 0,
+    );
     const hint = [
       fixedSats === null ? null : copy.amount.fixed,
       amountWords(tone, Number(shownAmount) || 0, balance),

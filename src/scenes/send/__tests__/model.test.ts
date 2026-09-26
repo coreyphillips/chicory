@@ -10,7 +10,9 @@ import {
   requestRail,
   requestRefusal,
   resultVisual,
+  reviewOpensLive,
   reviewRail,
+  reviewWaiting,
   sendFailure,
   shortRequest,
 } from '../model';
@@ -143,6 +145,28 @@ describe('a request as it is entered', () => {
     expect(requestRefusal(` ${ADDRESS} `)).toBeNull();
     expect(requestRefusal('')).toBeNull();
     expect(requestRefusal('   ')).toBeNull();
+  });
+
+  test('holds the review back until it can be paid and has an amount', () => {
+    expect(reviewWaiting('', false, 0)).toBe(copy.send.reviewWaits);
+    expect(reviewWaiting('  ', false, 500)).toBe(copy.send.reviewWaits);
+    expect(reviewWaiting(LNURL, true, 500)).toBe(copy.send.reviewRefused);
+    expect(reviewWaiting(ADDRESS, false, 0)).toBe(copy.send.amountWaits);
+    expect(reviewWaiting(ADDRESS, false, 500)).toBeNull();
+  });
+
+  test('opens on a live review only when it names its own amount', () => {
+    // Send opens with the amount empty, so only a request's own amount
+    // counts; Home draws the landing circle from this.
+    expect(reviewOpensLive(INVOICE)).toBe(true);
+    expect(reviewOpensLive(`bitcoin:${ADDRESS}?amount=0.001`)).toBe(true);
+    expect(reviewOpensLive(`bitcoin:${ADDRESS}?lightning=${INVOICE}`)).toBe(
+      true,
+    );
+    expect(reviewOpensLive(ADDRESS)).toBe(false);
+    expect(reviewOpensLive(LNURL)).toBe(false);
+    expect(reviewOpensLive('demo')).toBe(false);
+    expect(reviewOpensLive('')).toBe(false);
   });
 });
 

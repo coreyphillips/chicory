@@ -19,6 +19,7 @@ import { canvasScene, launchLook } from '../../stage/layout';
 import { useBuild } from '../../stage/panes/Build';
 import { usePanes } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
+import { reviewOpensLive } from '../send/model';
 import type { Point } from './ActionCircle';
 import { rowBack } from './motion';
 import type { Launch } from './motion';
@@ -86,15 +87,16 @@ export function HomePane({
   if (launching !== launched) setLaunched(launching);
   const returning = shown === 'home' && launching !== 'none';
   // What the control the circle lands on looks like as its scene opens: a
-  // review that has a request, or a Continue an empty amount can take, is
-  // live; otherwise it waits in dust. Kept while the circle comes home, so
-  // it leaves from the look it landed with.
+  // review whose request can be paid and names its amount
+  // (`reviewOpensLive`), or a Continue an empty amount can take, is live;
+  // otherwise it waits in dust. Kept while the circle comes home, so it
+  // leaves from the look it landed with.
   const test = isTestNetwork(network);
   const [landsOn, setLandsOn] = useState<{ live: boolean } | null>(null);
   if (spending && state.scene.name === shown) {
     const live =
       state.scene.name === 'send'
-        ? !stale && state.scene.prefill.trim() !== ''
+        ? !stale && reviewOpensLive(state.scene.prefill)
         : !stale && snapshot.balance.receivableSats > 0;
     if (landsOn?.live !== live) setLandsOn({ live });
   }

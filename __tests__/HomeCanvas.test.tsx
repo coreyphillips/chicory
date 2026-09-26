@@ -21,6 +21,7 @@ import {
   launchTravel,
 } from '../src/scenes/home/motion';
 import { isTestNetwork } from '../src/scenes/home/visual';
+import { reviewOpensLive } from '../src/scenes/send/model';
 import { springStep } from '../src/motion/springMath';
 import { springs } from '../src/motion/tokens';
 import { ReceiveScreen, SendScreen } from '../src/screens/Payments';
@@ -75,6 +76,11 @@ afterEach(() => jest.restoreAllMocks());
 /*
  * The canvas, as the stage draws it.
  */
+
+/** A request the parser reads that names no amount. */
+const ADDRESS = 'bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
+/** The same request naming its amount, 4,200 sats. */
+const PRICED = `${ADDRESS}?amount=0.000042`;
 
 const client = new DemoWalletClient();
 const session: React.ComponentProps<typeof Canvas>['session'] = {
@@ -582,12 +588,19 @@ describe('the circle becomes the control it lands on', () => {
         onBusy={noop}
       />
     );
-    expect(await drawn(copy.send.review, send(''))).toEqual(
-      launchLook('send', { live: false, test: false }),
-    );
-    expect(await drawn(copy.send.review, send('lnbc1'))).toEqual(
-      launchLook('send', { live: true, test: false }),
-    );
+    // Live only for a request that can be paid and names its amount, since
+    // the amount starts empty: the rule Home reads (`reviewOpensLive`).
+    for (const request of ['', 'lnbc1', ADDRESS, PRICED]) {
+      expect(await drawn(copy.send.review, send(request))).toEqual(
+        launchLook('send', { live: reviewOpensLive(request), test: false }),
+      );
+    }
+    expect([PRICED, ADDRESS, 'lnbc1', ''].map(reviewOpensLive)).toEqual([
+      true,
+      false,
+      false,
+      false,
+    ]);
     const receive = (receivableSats: number) => (
       <ReceiveScreen
         client={none}
@@ -680,16 +693,29 @@ describe('the circle becomes the control it lands on', () => {
 
   test('on the canvas, Home is told the look of the control Send lands on', async () => {
     const read = snapshotOf();
+    const test = isTestNetwork(read.wallet.network);
     const tree = await mount(<OnCanvas read={read} />);
     await act(async () => stage.actions.openSend());
     await act(async () => tree.update(<OnCanvas read={read} />));
     expect(tree.root.findByType(HomeScreen).props.lands).toEqual(
-      launchLook('send', {
-        live: false,
-        test: isTestNetwork(read.wallet.network),
-      }),
+      launchLook('send', { live: false, test }),
     );
     await act(async () => tree.unmount());
+    // A link that brings a request naming its amount lands on a live
+    // review; one without an amount, or one refused, on a review in dust.
+    for (const [prefill, live] of [
+      [PRICED, true],
+      [ADDRESS, false],
+      ['lnbc1', false],
+    ] as const) {
+      const linked = await mount(<OnCanvas read={read} />);
+      await act(async () => stage.actions.openSend(prefill));
+      await act(async () => linked.update(<OnCanvas read={read} />));
+      expect(linked.root.findByType(HomeScreen).props.lands).toEqual(
+        launchLook('send', { live, test }),
+      );
+      await act(async () => linked.unmount());
+    }
   });
 });
 

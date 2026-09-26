@@ -307,6 +307,37 @@ export function requestRefusal(request: string): Failure | null {
   ]);
 }
 
+/**
+ * What the review waits for, as its hint, or null when it is live: a
+ * request, one that can be paid (`refused` is whether it was refused), and
+ * an amount above zero. Until then it is drawn and told as disabled.
+ */
+export function reviewWaiting(
+  request: string,
+  refused: boolean,
+  amountSats: number,
+): string | null {
+  if (!request.trim()) return copy.send.reviewWaits;
+  if (refused) return copy.send.reviewRefused;
+  return amountSats > 0 ? null : copy.send.amountWaits;
+}
+
+/**
+ * Whether the review is live as Send opens on `request`, before anything is
+ * typed: the amount starts empty, so only a request that names its own
+ * amount has one. Home draws the circle that lands on the review in this
+ * look (`launchLook` in stage/layout), so the two agree.
+ */
+export function reviewOpensLive(request: string): boolean {
+  return (
+    reviewWaiting(
+      request,
+      requestRefusal(request) !== null,
+      fixedAmount(request) ?? 0,
+    ) === null
+  );
+}
+
 export function sendFailure(
   error: unknown,
   context: { message: string; amountSats: number | null; balance?: Balance },
