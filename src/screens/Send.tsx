@@ -1070,33 +1070,37 @@ export function SendScreen({
         />
         <View style={styles.controls}>
           <View style={styles.side} />
-          {/* Home's Send circle lands exactly on it (REDESIGN.md 7, T1). */}
+          {/* Home's Send circle lands exactly on it (REDESIGN.md 7, T1),
+              and it is unseen until the circle hands over, so the two are
+              never drawn apart. */}
           <View
             ref={launchLanding.ref}
             onLayout={launchLanding.onLayout}
             collapsable={false}
           >
-            <CircleControl
-              accessibilityLabel={copy.send.review}
-              accessibilityHint={
-                disabled
-                  ? copy.send.stale
-                  : busy
-                  ? copy.send.preparing
-                  : waiting ?? undefined
-              }
-              onPress={
-                !live || busy
-                  ? undefined
-                  : disabled
-                  ? onRefresh
-                  : waiting
-                  ? undefined
-                  : prepare
-              }
-              busy={busy}
-              stale={disabled}
-            />
+            <Reanimated.View style={launchLanding.style}>
+              <CircleControl
+                accessibilityLabel={copy.send.review}
+                accessibilityHint={
+                  disabled
+                    ? copy.send.stale
+                    : busy
+                    ? copy.send.preparing
+                    : waiting ?? undefined
+                }
+                onPress={
+                  !live || busy
+                    ? undefined
+                    : disabled
+                    ? onRefresh
+                    : waiting
+                    ? undefined
+                    : prepare
+                }
+                busy={busy}
+                stale={disabled}
+              />
+            </Reanimated.View>
           </View>
           <View style={[styles.side, styles.end]}>
             {failure && failure.target !== 'request' ? (

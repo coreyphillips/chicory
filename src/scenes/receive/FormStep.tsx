@@ -192,22 +192,26 @@ export function FormStep({
   const controls = (
     <Reanimated.View entering={stagger(3)} style={styles.controls}>
       <View style={styles.side} />
-      {/* Home's Receive circle lands exactly on it (REDESIGN.md 7, T2). */}
+      {/* Home's Receive circle lands exactly on it (REDESIGN.md 7, T2), and
+          it is unseen until the circle hands over, so the two are never
+          drawn apart. */}
       <View ref={landing.ref} onLayout={landing.onLayout} collapsable={false}>
-        <GlyphButton
-          glyph="receive"
-          label={copy.receive.continue}
-          hint={stale ? copy.receive.stale : undefined}
-          size={CONTROL}
-          tone="primary"
-          disabled={!stale && (!ready || refusedAmount)}
-          blocked={stale}
-          busy={busy}
-          shake={shake}
-          onPress={onContinue}
-          onBlocked={onBlocked}
-          focusRef={focus}
-        />
+        <Reanimated.View style={landing.style}>
+          <GlyphButton
+            glyph="receive"
+            label={copy.receive.continue}
+            hint={stale ? copy.receive.stale : undefined}
+            size={CONTROL}
+            tone="primary"
+            disabled={!stale && (!ready || refusedAmount)}
+            blocked={stale}
+            busy={busy}
+            shake={shake}
+            onPress={onContinue}
+            onBlocked={onBlocked}
+            focusRef={focus}
+          />
+        </Reanimated.View>
       </View>
       <View style={styles.side}>
         {error ? <ErrorPip message={error.message} code={error.code} /> : null}

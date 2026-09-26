@@ -691,6 +691,80 @@ describe('the circle becomes the control it lands on', () => {
     expect(seen).toEqual([0, 1, 1]);
   });
 
+  test("Send's review and Receive's Continue stay unseen until the circle hands over", async () => {
+    const made = Reanimated.useSharedValue;
+    const noop = () => {};
+    const none = {} as never;
+    const scenes: [string, React.ReactElement][] = [
+      [
+        copy.send.review,
+        <SendScreen
+          client={none}
+          initialRequest={PRICED}
+          onActivity={noop}
+          onRefresh={noop}
+          onBusy={noop}
+        />,
+      ],
+      [
+        copy.receive.continue,
+        <ReceiveScreen
+          client={none}
+          receivableSats={10_000}
+          onActivity={noop}
+          onBusy={noop}
+        />,
+      ],
+    ];
+    function Launching({
+      handover,
+      children,
+    }: React.PropsWithChildren<{ handover?: number }>) {
+      const launch = React.useState<Launch>(() => ({
+        x: made(201),
+        y: made(764),
+        handover: made(handover ?? 0),
+      }))[0];
+      return handover === undefined ? (
+        <>{children}</>
+      ) : (
+        <LaunchProvider value={launch}>{children}</LaunchProvider>
+      );
+    }
+    for (const [label, scene] of scenes) {
+      const seen: unknown[] = [];
+      for (const handover of [0, 1, undefined]) {
+        const tree = await mount(
+          <GestureHandlerRootView>
+            <Launching handover={handover}>{scene}</Launching>
+          </GestureHandlerRootView>,
+        );
+        const control = tree.root.find(
+          node =>
+            typeof node.type === 'string' &&
+            node.props.accessibilityLabel === label,
+        );
+        // The view the scene measures holds the one that fades, so the
+        // circle still lands where the control is drawn.
+        const measured = tree.root.find(
+          node =>
+            typeof node.type === 'string' &&
+            node.props.collapsable === false &&
+            node.findAll(inner => inner === control).length > 0,
+        );
+        let at = control.parent;
+        while (at && at !== measured && flat(at).opacity === undefined) {
+          at = at.parent;
+        }
+        expect(flat(measured).opacity).toBeUndefined();
+        seen.push(at && at !== measured ? flat(at).opacity : 'no fade');
+        await act(async () => tree.unmount());
+      }
+      // On its way, handed over, and off the canvas.
+      expect(seen).toEqual([0, 1, 1]);
+    }
+  });
+
   test('on the canvas, Home is told the look of the control Send lands on', async () => {
     const read = snapshotOf();
     const test = isTestNetwork(read.wallet.network);
