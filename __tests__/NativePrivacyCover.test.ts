@@ -8,7 +8,8 @@ import { fs, path, ROOT } from '../test-support/node';
  * the outgoing card for a moment. The app delegate puts a plain roast view
  * over the window in that same call, unless a prompt the app raised is up
  * or the lock is what is drawn, which JavaScript tells it through the
- * `PrivacyCover` module.
+ * `PrivacyCover` module. Android takes no recents picture of the app at all
+ * from Android 13 on, and leaves the person's own screenshots alone.
  */
 const read = (...parts: string[]) =>
   fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
@@ -147,5 +148,45 @@ describe('the PrivacyCover module', () => {
       match => match[1],
     );
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe('the Android activity', () => {
+  const CODE = codeOf(
+    read(
+      'android',
+      'app',
+      'src',
+      'main',
+      'java',
+      'com',
+      'chicory',
+      'MainActivity.kt',
+    ),
+  );
+
+  test('takes no recents picture from Android 13 on', () => {
+    const create = bodyOf(
+      CODE,
+      'override fun onCreate(savedInstanceState: Bundle?)',
+    );
+    expect(create).toMatch(
+      /^\s*super\.onCreate\(savedInstanceState\)\s*if \(Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.TIRAMISU\) \{\s*setRecentsScreenshotEnabled\(false\)\s*\}\s*$/,
+    );
+  });
+
+  test("leaves the person's own screenshots alone", () => {
+    const kotlin = path.join(
+      'android',
+      'app',
+      'src',
+      'main',
+      'java',
+      'com',
+      'chicory',
+    );
+    for (const file of ['MainActivity.kt', 'MainApplication.kt']) {
+      expect(codeOf(read(kotlin, file))).not.toMatch(/FLAG_SECURE/);
+    }
   });
 });
