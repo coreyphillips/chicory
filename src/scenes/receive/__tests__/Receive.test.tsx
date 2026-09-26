@@ -808,6 +808,7 @@ describe('the amount step', () => {
     expect(SAID).toContain('1,000,000 sats');
     clearDiagnostics();
     const error = jest.spyOn(haptics, 'error');
+    const warning = jest.spyOn(haptics, 'warning');
     const tree = await screen(
       clientOf({
         quoteReceive: jest.fn(() =>
@@ -823,7 +824,10 @@ describe('the amount step', () => {
     const readout = tree.root.findByType(AmountReadout);
     expect(readout.props.tone).toBe('over-total');
     expect(readout.props.hint).toBe(SAID);
-    expect(error).toHaveBeenCalledTimes(1);
+    // Felt once: the readout's warning as it turns radish, and no error on
+    // top of it.
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(error).not.toHaveBeenCalled();
     const way = find(tree, copy.receive.continue)!;
     expect(way.props.accessibilityState).toMatchObject({ disabled: true });
     expect(alerts(tree)).toEqual([SAID]);

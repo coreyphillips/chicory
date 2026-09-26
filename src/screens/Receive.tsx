@@ -243,14 +243,17 @@ export function ReceiveScreen({
    * and anything else a radish bang and an error, which shakes the control
    * that asked unless the amount answers for it. A refused amount turns
    * radish and shakes itself, as Send's amount does past what it can send,
-   * and the way on waits, dimmed, for another amount.
+   * with the warning its readout plays as it goes over, so the refusal is
+   * felt once; the way on waits, dimmed, for another amount.
    */
   function refuse(e: unknown, shake = true): Refused {
     const raw = message(e);
     const code = codeOf(e);
     const { said, amount: refusedAmount } = receiveRefusal(raw, code);
     const look = refusalLook(code);
-    if (look.haptic === 'warning') haptics.warning();
+    if (refusedAmount) {
+      // The readout plays its own as it turns radish.
+    } else if (look.haptic === 'warning') haptics.warning();
     else haptics.error();
     const refused = { message: said, code, amount: refusedAmount };
     setError(refused);
