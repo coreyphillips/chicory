@@ -1,10 +1,13 @@
 import React from 'react';
 import type { PropsWithChildren } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
+import { Stop } from 'react-native-svg';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
+import { palette } from '../../../design/palette';
 import type { WalletAdapter } from '../../../services/wallet';
 import type { CanvasSession, CanvasView } from '../../../stage/Canvas';
 import {
@@ -17,14 +20,15 @@ import { snapshotOf } from '../../../../test-support/fixtures';
 import { mount } from '../../../../test-support/guard';
 import { press } from '../../../../test-support/query';
 import { RecoveryWords } from '../RecoveryWords';
-import { SettingsLayer } from '../SettingsLayer';
+import { SettingsLayer, TITLE_FADE } from '../SettingsLayer';
 import { NetworkChoice, Section } from '../ui';
 
 /**
- * Settings on the phone (the P7 device pass): it has no ceiling on text size
- * (REDESIGN.md 3.3), so its bar, headings and pills must reflow rather than
- * clip; its cards hold what rises into them; and the network a wallet is on
- * is a checked radio, never a heading.
+ * Settings on the phone (the P7 and P10 device passes): it has no ceiling on
+ * text size (REDESIGN.md 3.3), so its bar, headings and pills must reflow
+ * rather than clip; its cards hold what rises into them, fade under the
+ * title and run under the home indicator; and the network a wallet is on is
+ * a checked radio, never a heading.
  *
  * Jest lays nothing out, so the layout is held here as the styles that make
  * it, and the reasons are in the components.
@@ -69,19 +73,24 @@ function OnStage({ children }: PropsWithChildren) {
   return <StageProvider value={stage}>{children}</StageProvider>;
 }
 
+/** An iPhone's insets: the status bar above, the home indicator below. */
+const INSETS = { top: 59, bottom: 34, left: 0, right: 0 };
+
 function settings(snapshot: WalletSnapshot) {
   return mount(
-    <OnStage>
-      <SettingsLayer
-        snapshot={snapshot}
-        client={client()}
-        session={session}
-        view={view}
-        stale={false}
-        backup={null}
-        arrived={0}
-      />
-    </OnStage>,
+    <SafeAreaInsetsContext.Provider value={INSETS}>
+      <OnStage>
+        <SettingsLayer
+          snapshot={snapshot}
+          client={client()}
+          session={session}
+          view={view}
+          stale={false}
+          backup={null}
+          arrived={0}
+        />
+      </OnStage>
+    </SafeAreaInsetsContext.Provider>,
   );
 }
 
@@ -274,6 +283,73 @@ describe('a section', () => {
       node => typeof node.type !== 'string' && !!node.props.layout,
     );
     expect(flat(card).overflow).toBe('hidden');
+    await unmount(tree);
+  });
+});
+
+describe('the page edges', () => {
+  test('the page runs under the home indicator, the inset added to the end of what scrolls', async () => {
+    const tree = await settings(regtest);
+    const root = tree.root.find(node => node.props.testID === 'scene-settings');
+    // P10: the layer took the inset as padding, so the page stopped 34pt
+    // above the screen's edge on a hard line.
+    expect(flat(root).paddingBottom).toBeUndefined();
+    expect(flat(root).marginTop).toBe(INSETS.top);
+    const scroll = tree.root.findByType(ScrollView);
+    expect(
+      scroll.findAll(
+        node =>
+          node.type === View && flat(node).paddingBottom === INSETS.bottom,
+      ).length,
+    ).toBeGreaterThan(0);
+    await unmount(tree);
+  });
+
+  test('cards scrolled up under the title fade into roast rather than end on a hard line', async () => {
+    const tree = await settings(regtest);
+    const fade = tree.root.find(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.testID === 'settings-title-fade',
+    );
+    expect(fade.props.pointerEvents).toBe('none');
+    expect(fade.props.accessibilityElementsHidden).toBe(true);
+    // It hangs from the bar's foot, at whatever height the text size gives
+    // the bar, and the bar is raised over the page so the fade draws over
+    // the cards scrolled up under it.
+    expect(flat(fade)).toMatchObject({
+      position: 'absolute',
+      top: '100%',
+      left: 0,
+      right: 0,
+      height: TITLE_FADE,
+    });
+    const title = tree.root.find(
+      node => node.type === Text && node.props.children === copy.settings.title,
+    );
+    const bar = title.parent!;
+    // Compared as booleans: a failed comparison of two tree nodes prints
+    // the whole tree.
+    expect(bar.findAll(node => node === fade).length).toBe(1);
+    expect(flat(bar).zIndex).toBeGreaterThan(0);
+    // The page stays the surface's own child, beside the bar: the slot's
+    // keyboard offset is measured from the top of Settings.
+    const root = tree.root.find(node => node.props.testID === 'scene-settings');
+    const page = root.children.find(
+      child =>
+        typeof child !== 'string' && child.findAllByType(ScrollView).length > 0,
+    ) as ReactTestInstance;
+    expect(root.children.includes(page)).toBe(true);
+    expect(bar.findAllByType(ScrollView)).toHaveLength(0);
+    const stops = fade.findAllByType(Stop).map(stop => stop.props);
+    expect(stops[0]).toMatchObject({
+      stopColor: palette.roast,
+      stopOpacity: 1,
+    });
+    expect(stops.at(-1)).toMatchObject({
+      stopColor: palette.roast,
+      stopOpacity: 0,
+    });
     await unmount(tree);
   });
 });

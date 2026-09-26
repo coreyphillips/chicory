@@ -818,10 +818,15 @@ describe('the canvas', () => {
     await act(async () => stage.actions.home());
     await act(async () => stage.actions.openSettings());
     const settings = host(tree.root.findByType(SettingsLayer));
-    expect(flat(settings)).toMatchObject({
-      marginTop: insets.top,
-      paddingBottom: insets.bottom,
-    });
+    expect(flat(settings).marginTop).toBe(insets.top);
+    // Settings runs under the home indicator to the bottom edge, the inset
+    // added to the end of what it scrolls rather than taken off the layer.
+    expect(flat(settings).paddingBottom).toBeUndefined();
+    const scroll = tree.root
+      .findByType(SettingsLayer)
+      .findAll(node => typeof node.type === 'string' && !!node.props.style)
+      .filter(node => flat(node).paddingBottom === insets.bottom);
+    expect(scroll.length).toBeGreaterThan(0);
     await act(async () => tree.unmount());
   });
 
