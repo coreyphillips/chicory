@@ -7,6 +7,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import * as Reanimated from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
@@ -20,7 +21,7 @@ import { Pane } from '../../../stage/panes/Pane';
 import { mount } from '../../../../test-support/guard';
 import { amountValue, enterAmount } from '../../../../test-support/keypad';
 import { find, press, visibleText } from '../../../../test-support/query';
-import { AmountReadout, STATE_GLYPH, STATE_PIP } from '../AmountReadout';
+import { AmountReadout, STATE_GLYPH, STATE_PIP, leave } from '../AmountReadout';
 import { amountSize } from '../fit';
 import { CLEAR_AFTER_MS } from '../Keypad';
 import type { AmountTone } from '../keys';
@@ -190,6 +191,30 @@ test('the amount moves as one: only its row eases, and nothing in it slides past
   );
   expect(digits.length).toBeGreaterThan(0);
   await act(async () => tree.unmount());
+});
+
+/** How a deleted digit leaves: where it starts, and each timing it runs. */
+function leaving() {
+  const timings = jest.spyOn(Reanimated, 'withTiming');
+  const exit = leave()({} as never) as {
+    initialValues: { opacity: number; transform?: object[] };
+  };
+  const runs = timings.mock.calls.map(([to, config]) => ({
+    to,
+    ms: config?.duration,
+  }));
+  timings.mockRestore();
+  return { from: exit.initialValues, runs };
+}
+
+test('a deleted digit starts faint and drops away within half a tick, so it never sits whole over the unit', () => {
+  // Whole in its first frame, it sat over "sats" for 70 to 80ms (P12, 04g).
+  const { from, runs } = leaving();
+  expect(from.opacity).toBeLessThanOrEqual(0.3);
+  expect(runs).toEqual([
+    { to: 0, ms: tokens.durations.tick / 2 },
+    { to: 8, ms: tokens.durations.tick / 2 },
+  ]);
 });
 
 test('the amount and its unit stop growing at 1.2', async () => {
@@ -505,4 +530,11 @@ test('under Reduce Motion the disc waits full size, to only fade in, and a key s
   expect(felt()).toEqual(['selection']);
   await act(async () => tree.unmount());
   jest.restoreAllMocks();
+});
+
+test('under Reduce Motion a deleted digit only fades, as faint and as fast', async () => {
+  // Reduce Motion was read by the test before.
+  const { from, runs } = leaving();
+  expect(from).toEqual({ opacity: 0.3 });
+  expect(runs).toEqual([{ to: 0, ms: tokens.durations.tick / 2 }]);
 });

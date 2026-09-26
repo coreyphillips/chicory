@@ -9,6 +9,7 @@ import type { ComponentRef, ReactNode, Ref } from 'react';
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import Reanimated, {
+  ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
   withSequence,
@@ -23,7 +24,7 @@ import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
 import { popIn, useShake } from '../../motion/effects';
-import { dropOut, riseIn, smooth } from '../../motion/presets';
+import { riseIn, smooth } from '../../motion/presets';
 import { steady } from '../../motion/steady';
 import { curves, durations } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
@@ -59,21 +60,40 @@ export const STATE_PIP = 32;
 const RISE = 12;
 const DROP = 8;
 
-const LEAVE_FADE = { duration: durations.tick, easing: curves.standard };
-const LEAVE_DROP = { duration: durations.exit, easing: curves.exit };
+/**
+ * How faint a deleted digit starts, and how soon it is gone. Started whole,
+ * it was drawn over "sats" for 70 to 80ms (P12, 04g).
+ */
+const LEAVE_FROM = 0.3;
+const LEAVE_MS = durations.tick / 2;
+const LEAVE_FADE = {
+  duration: LEAVE_MS,
+  easing: curves.linear,
+  reduceMotion: ReduceMotion.Never,
+};
+const LEAVE_DROP = { duration: LEAVE_MS, easing: curves.enter };
 
 /**
  * A deleted digit drops DROP points as it leaves, and is gone from sight
- * within a tick: the unit steps into its place at once, so the two are
+ * within half a tick: the unit steps into its place at once, so the two are
  * never drawn over each other for more than a frame or two, and then
- * faintly. Under Reduce Motion it only fades.
+ * faintly. Under Reduce Motion it only fades, as faintly and as fast, which
+ * moves nothing.
  */
 export function leave(): EntryExitAnimationFunction {
-  if (motionReduced()) return dropOut(DROP);
+  if (motionReduced()) {
+    return () => {
+      'worklet';
+      return {
+        initialValues: { opacity: LEAVE_FROM },
+        animations: { opacity: steady(withTiming(0, LEAVE_FADE)) },
+      };
+    };
+  }
   return () => {
     'worklet';
     return {
-      initialValues: { opacity: 1, transform: [{ translateY: 0 }] },
+      initialValues: { opacity: LEAVE_FROM, transform: [{ translateY: 0 }] },
       animations: {
         opacity: steady(withTiming(0, LEAVE_FADE)),
         transform: [{ translateY: steady(withTiming(DROP, LEAVE_DROP)) }],
