@@ -11,6 +11,7 @@ import type {
 } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
 import { Odometer } from '../../../glyphs/Odometer';
+import { durations } from '../../../motion/tokens';
 import { SendScreen } from '../../../screens/Send';
 import { isTestNetwork } from '../../home/visual';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
@@ -369,6 +370,8 @@ test('a payment that does not answer lets the stage go after its grace, and its 
     expect(heldRing()).not.toEqual([]);
     await act(async () => stage.actions.home());
     expect(stage.state.scene.name).toBe('home');
+    // The Send that went fades out where it was, and is let go.
+    await act(async () => jest.advanceTimersByTime(durations.exit));
     // Brought back by a link, the same request lands on its held ring.
     await act(async () => stage.dispatch({ type: 'link', request: hung }));
     expect(stage.state.scene).toMatchObject({ name: 'send', prefill: hung });

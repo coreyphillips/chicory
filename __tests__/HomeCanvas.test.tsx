@@ -27,9 +27,11 @@ import {
   launchTravel,
 } from '../src/scenes/home/motion';
 import { isTestNetwork } from '../src/scenes/home/visual';
+import { ReceiveScene } from '../src/scenes/receive/ReceiveScene';
 import { reviewOpensLive } from '../src/scenes/send/model';
+import { SendScene } from '../src/scenes/send/SendScene';
 import { springStep } from '../src/motion/springMath';
-import { springs } from '../src/motion/tokens';
+import { curves, durations, springs } from '../src/motion/tokens';
 import { ReceiveScreen, SendScreen } from '../src/screens/Payments';
 import { HomeScreen } from '../src/screens/Wallet';
 import { Canvas, RISEN_BY, useCanvasView } from '../src/stage/Canvas';
@@ -45,12 +47,15 @@ import {
 } from '../src/stage/layout';
 import { rowWait } from '../src/stage/panes/usePaneMotion';
 import { CORNER_TARGET, CornerControl } from '../src/stage/panes/CornerControl';
+import { Arriving } from '../src/stage/panes/Arriving';
 import {
   LaunchProvider,
+  Launched,
   SETTLED_PT,
   samePlace,
   useLaunchLanding,
 } from '../src/stage/panes/Launch';
+import { SceneLeave, leavePose, leaveTiming } from '../src/stage/panes/Leaving';
 import type { Launch } from '../src/stage/panes/Launch';
 import { clearHeldRequests, holdRequest } from '../src/stage/heldRequests';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
@@ -1039,6 +1044,128 @@ describe('coming home', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('the scene leaving', () => {
+  test('fades and settles back, or under Reduce Motion only fades, over the exit', () => {
+    expect(leavePose(0, false)).toEqual({
+      opacity: 1,
+      transform: [{ scale: 1 }],
+    });
+    expect(leavePose(1, false).opacity).toBe(0);
+    expect(leavePose(1, false).transform[0].scale).toBeCloseTo(0.98);
+    expect(leavePose(1, true)).toEqual({
+      opacity: 0,
+      transform: [{ scale: 1 }],
+    });
+    expect(leaveTiming(false)).toEqual({
+      duration: durations.exit,
+      easing: curves.exit,
+    });
+    expect(leaveTiming(true)).toMatchObject({
+      duration: durations.crossfade / 2,
+      reduceMotion: Reanimated.ReduceMotion.Never,
+    });
+  });
+
+  test('stays in the top slot, under the sheet and Home, until it has faded, with no layout exit', async () => {
+    // The device pass (P14): Send's fading keypad was drawn on the rising
+    // sheet's face, and over the growing hero, as a layout exit drew it.
+    const faded: ((finished?: boolean) => void)[] = [];
+    // Shared values live as long as their component, as on a device.
+    const made = Reanimated.useSharedValue;
+    jest
+      .spyOn(Reanimated, 'useSharedValue')
+      .mockImplementation(init => React.useState(() => made(init))[0]);
+    const timed = Reanimated.withTiming;
+    jest
+      .spyOn(Reanimated, 'withTiming')
+      .mockImplementation((to, config, callback) => {
+        if (config?.easing === curves.exit && callback) {
+          faded.push(callback);
+          return to;
+        }
+        return timed(to, config, callback);
+      });
+    for (const open of [
+      () => stage.actions.openSend(),
+      () => stage.actions.openReceive(),
+    ]) {
+      const tree = await mount(<OnCanvas />);
+      await act(async () => open());
+      const scene = () =>
+        tree.root.findAll(
+          node => node.type === SendScene || node.type === ReceiveScene,
+        );
+      expect(scene()).toHaveLength(1);
+      // Arriving, it enters; it never leaves by a layout exit.
+      const arriving = tree.root.findByType(Arriving);
+      const [own] = arriving.findAll(node => node.props.entering !== undefined);
+      expect(own.props.exiting).toBeUndefined();
+      faded.length = 0;
+      await act(async () => stage.actions.home());
+      // Gone from the stage, still drawn where it was while it fades.
+      expect(stage.state.scene.name).toBe('home');
+      expect(scene()).toHaveLength(1);
+      const leave = tree.root.findByType(SceneLeave);
+      expect(leave.props.leaving).toBe(true);
+      const [slot] = byTestID(tree, 'slot-top');
+      expect(slot.findAllByType(SceneLeave)).toEqual([leave]);
+      // The slot is drawn before the sheet, so the sheet is over it, and
+      // Home is over both while the circle comes home.
+      const order = tree.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          ['slot-top', 'sheet'].includes(node.props.testID),
+      );
+      expect(order.map(node => node.props.testID)).toEqual([
+        'slot-top',
+        'sheet',
+      ]);
+      // Faded by a style of its own, out of use, and it plays no exits of
+      // what it draws as it is let go.
+      await act(async () => tree.update(<OnCanvas />));
+      const face = tree.root
+        .findByType(SceneLeave)
+        .findAll(node => typeof node.type === 'string')[0];
+      expect(flatStyle(face.props.style).opacity).toBe(0);
+      expect(face.props.pointerEvents).toBe('none');
+      expect(face.props.accessibilityElementsHidden).toBe(true);
+      expect(
+        leave.findAllByType(Reanimated.LayoutAnimationConfig)[0].props
+          .skipExiting,
+      ).toBe(true);
+      // Once it has faded, it goes.
+      expect(faded.length).toBeGreaterThan(0);
+      await act(async () => faded.forEach(done => done(true)));
+      expect(scene()).toHaveLength(0);
+      await act(async () => tree.unmount());
+    }
+  });
+
+  test('hands the circle back as it starts to leave, not once it has gone', async () => {
+    const timed = Reanimated.withTiming;
+    const held: ((finished?: boolean) => void)[] = [];
+    jest
+      .spyOn(Reanimated, 'withTiming')
+      .mockImplementation((to, config, callback) => {
+        if (config?.easing === curves.exit && callback) {
+          held.push(callback);
+          return to;
+        }
+        return timed(to, config, callback);
+      });
+    const tree = await mount(<OnCanvas />);
+    await act(async () => stage.actions.openSend());
+    const launch = tree.root.findByType(Launched);
+    expect(launch.props.leaving).toBe(false);
+    held.length = 0;
+    await act(async () => stage.actions.home());
+    expect(tree.root.findByType(Launched).props.leaving).toBe(true);
+    await act(async () => held.forEach(done => done(true)));
+    expect(tree.root.findAllByType(Launched)).toHaveLength(0);
+    await act(async () => tree.unmount());
   });
 });
 
