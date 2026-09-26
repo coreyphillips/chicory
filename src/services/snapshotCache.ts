@@ -9,8 +9,10 @@ import type { WalletSnapshot } from '@beignet/wallet-core';
  * ever spendable.
  *
  * The entry lives in the platform secure store like everything else about the
- * wallet. Only the newest rows of activity are kept; the page needs a handful
- * and the live refresh brings the rest.
+ * wallet. Every row of activity is kept: the entry is the only record of what
+ * the app knew across a relaunch, and a wallet never shows less than it
+ * already knew, so a read that answers with fewer rows must find the rest
+ * here (activityMerge).
  *
  * One entry per wallet. A single shared slot meant switching networks threw
  * away the other network's figures, so switching back always landed on a blank
@@ -19,7 +21,6 @@ import type { WalletSnapshot } from '@beignet/wallet-core';
 const SERVICE = 'com.beignet.wallet.last-snapshot';
 const serviceFor = (walletId: string) =>
   `${SERVICE}.${encodeURIComponent(walletId)}`;
-const ACTIVITY_ROWS = 20;
 
 interface CachedSnapshot {
   version: 1;
@@ -27,7 +28,16 @@ interface CachedSnapshot {
   snapshot: WalletSnapshot;
 }
 
+/**
+ * What each wallet's entry last held, less the read's time, which changes on
+ * every read. A read that changed nothing else is not written again: with a
+ * long history the entry is large, and the secure store is written for a
+ * change in the figures, not for the clock. The first save after the entry
+ * is read is always written, so a launch's first live read replaces it.
+ */
 const lastSaved = new Map<string, string>();
+const figuresOf = (value: CachedSnapshot) =>
+  JSON.stringify({ ...value, snapshot: { ...value.snapshot, updatedAt: 0 } });
 
 export async function loadCachedSnapshot(
   walletId: string,
@@ -38,6 +48,7 @@ export async function loadCachedSnapshot(
       // An entry written before this app kept one per wallet. It still carries
       // the wallet it belongs to, and the check below refuses another's.
       (await Keychain.getGenericPassword({ service: SERVICE }));
+    lastSaved.delete(walletId);
     if (!saved) return null;
     const value = JSON.parse(saved.password) as CachedSnapshot;
     if (
@@ -63,19 +74,19 @@ export async function saveCachedSnapshot(
   walletId: string,
   snapshot: WalletSnapshot,
 ): Promise<void> {
-  const value: CachedSnapshot = {
-    version: 1,
-    walletId,
-    snapshot: { ...snapshot, activity: snapshot.activity.slice(0, ACTIVITY_ROWS) },
-  };
-  const encoded = JSON.stringify(value);
-  if (encoded === lastSaved.get(walletId)) return;
+  const value: CachedSnapshot = { version: 1, walletId, snapshot };
+  const figures = figuresOf(value);
+  if (figures === lastSaved.get(walletId)) return;
   try {
-    await Keychain.setGenericPassword('beignet-snapshot', encoded, {
-      service: serviceFor(walletId),
-      accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-    });
-    lastSaved.set(walletId, encoded);
+    await Keychain.setGenericPassword(
+      'beignet-snapshot',
+      JSON.stringify(value),
+      {
+        service: serviceFor(walletId),
+        accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+      },
+    );
+    lastSaved.set(walletId, figures);
   } catch {
     // A cache that cannot be written costs the next launch a few seconds,
     // nothing more.

@@ -3,6 +3,7 @@ import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import { AppState, FlatList, Text } from 'react-native';
 import * as Keychain from 'react-native-keychain';
 import { DemoWalletClient, EmbeddedWalletClient } from '@beignet/wallet-core';
+import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import App from '../App';
 import * as DeviceWallet from '../src/embedded/client';
 import { defaultPreferences } from '../src/services/networks';
@@ -10,7 +11,17 @@ import { Transit } from '../src/scenes/phases/Transit';
 import { NetworkSettings } from '../src/screens/NetworkSettings';
 import { SettingsScreen } from '../src/screens/Settings';
 import { eraseDeviceStorage } from '../src/embedded/storage';
-import { allText, meaning, visibleText } from '../test-support/query';
+import {
+  clearDiagnostics,
+  recentDiagnostics,
+} from '../src/services/diagnosticLog';
+import { activityOf, receiptOf } from '../test-support/fixtures';
+import {
+  allText,
+  componentName,
+  meaning,
+  visibleText,
+} from '../test-support/query';
 import { activePhase, activeScene } from '../test-support/scene';
 jest.mock('../src/embedded/storage', () => ({
   eraseDeviceStorage: jest.fn().mockResolvedValue(undefined),
@@ -49,7 +60,16 @@ beforeEach(() => {
     });
   jest.mocked(Keychain.getAllGenericPasswordServices).mockResolvedValue([]);
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  // A test that stopped short of putting the clock back must not hand fake
+  // timers to the next one, nor a foregrounded app whose poll then runs.
+  jest.useRealTimers();
+  Object.defineProperty(AppState, 'currentState', {
+    value: undefined,
+    configurable: true,
+  });
+});
 function text(tree: ReactTestRenderer) {
   return tree.root
     .findAllByType(Text)
@@ -628,6 +648,211 @@ test('a returning wallet opens on the wallet page with its last figures while th
   });
 });
 
+/**
+ * The regtest run from #21, as the engine answered it: receives of 50,000,
+ * 50,000 and 25,000 over saved requests, sends of 90,001 and 24,371, and a
+ * 10,298 sweep from a force close that landed on the 25,000 request's
+ * address. Then the reads that lost rows: the sends gone, a receive read as
+ * an expired request and the 25,000 receive as a partial of the sweep, and
+ * none completed at all.
+ */
+const run = (() => {
+  const receive1 = activityOf('received', 'completed', {
+    seed: 1,
+    amountSats: 50_000,
+  });
+  const receive2 = activityOf('received', 'completed', {
+    seed: 2,
+    amountSats: 50_000,
+  });
+  const receive3 = activityOf('received', 'completed', {
+    seed: 3,
+    amountSats: 25_000,
+  });
+  const send1 = activityOf('sent', 'completed', {
+    seed: 4,
+    amountSats: 90_001,
+  });
+  const send2 = activityOf('sent', 'completed', {
+    seed: 5,
+    amountSats: 24_371,
+  });
+  const sweep = activityOf('received', 'completed', {
+    seed: 6,
+    rail: 'chain',
+    amountSats: 10_298,
+  });
+  const expired = (row: Activity): Activity => ({
+    ...row,
+    kind: 'request',
+    title: 'Payment request',
+    status: 'expired',
+    receiveStatus: receiptOf('waiting'),
+  });
+  const partial: Activity = {
+    ...receive3,
+    title: 'Partial payment received',
+    amountSats: 10_298,
+    status: 'pending',
+    txid: sweep.txid,
+    receiveStatus: receiptOf('partial', { txid: sweep.txid }),
+  };
+  return {
+    full: [receive1, receive2, receive3, send1, send2, sweep],
+    short: [
+      [receive1, receive2, receive3, sweep],
+      [expired(receive1), receive2, partial],
+      [expired(receive1), expired(receive2), partial],
+    ],
+  };
+})();
+
+const regtestWallet = {
+  id: 'saved-regtest',
+  name: 'My saved wallet',
+  network: 'regtest' as const,
+  status: 'running',
+};
+
+/** The wallet as the canvas draws it: the snapshot the stage hands it. */
+function onPage(tree: ReactTestRenderer): WalletSnapshot | undefined {
+  return tree.root.findAll(
+    node =>
+      typeof node.type !== 'string' && componentName(node.type) === 'Canvas',
+  )[0]?.props.snapshot;
+}
+const completedRows = (rows: readonly Activity[]) =>
+  rows.filter(row => row.status === 'completed');
+/** The completed rows by id, in order; a read rebuilds each row's object. */
+const completedIds = (rows: readonly Activity[]) =>
+  completedRows(rows).map(row => row.id);
+/** Whether the staleness gate holds Send back, read from the live control. */
+const gated = (tree: ReactTestRenderer): boolean =>
+  label(tree, 'Send').props.accessibilityState?.disabled ??
+  label(tree, 'Send').props.disabled ??
+  false;
+/** What the live Send control says of the balance's age, if anything. */
+const staleWords = (tree: ReactTestRenderer): string =>
+  label(tree, 'Send').props.accessibilityValue?.text ?? '';
+/** How many rows the page draws as completed, by their labels. */
+const drawnCompleted = (tree: ReactTestRenderer) =>
+  tree.root.findAll(
+    node =>
+      typeof node.type === 'string' &&
+      /, Completed$/.test(String(node.props.accessibilityLabel ?? '')),
+  ).length;
+/** Lets one poll fire and whatever it started land. */
+async function poll() {
+  await act(async () => {
+    jest.advanceTimersByTime(12000);
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
+test('a wallet with more rows than a page reopens on every one of them', async () => {
+  records.set(
+    SESSION,
+    JSON.stringify({
+      mode: 'device',
+      network: 'regtest',
+      walletId: 'saved-regtest',
+      locked: false,
+    }),
+  );
+  const rows = Array.from({ length: 25 }, (_, seed) =>
+    activityOf('received', 'completed', { seed }),
+  );
+  records.set(
+    `${SNAPSHOT}.saved-regtest`,
+    JSON.stringify({
+      version: 1,
+      walletId: 'saved-regtest',
+      snapshot: { ...savedSnapshot, activity: rows },
+    }),
+  );
+  const client = device();
+  client.startWallet = jest.fn(() => new Promise<void>(() => {}));
+  jest.spyOn(DeviceWallet, 'openDeviceWallet').mockResolvedValue(client);
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(<App />);
+  });
+  expect(onPage(tree)!.activity).toHaveLength(25);
+  expect(onPage(tree)!.activity.map(row => row.id)).toEqual(
+    rows.map(row => row.id),
+  );
+  await act(async () => tree.unmount());
+});
+
+test('the rows known of one wallet never appear on another after a switch', async () => {
+  records.set(
+    SESSION,
+    JSON.stringify({
+      mode: 'device',
+      network: 'regtest',
+      walletId: 'saved-regtest',
+      locked: false,
+    }),
+  );
+  const previous = device();
+  previous.startWallet = jest.fn().mockResolvedValue(undefined);
+  previous.snapshot = jest.fn().mockResolvedValue({
+    ...savedSnapshot,
+    wallet: regtestWallet,
+    activity: run.full,
+    updatedAt: Date.now(),
+  });
+  const mainnetWallet = {
+    id: 'saved-mainnet',
+    name: 'Mainnet wallet',
+    network: 'mainnet' as const,
+    status: 'running',
+  };
+  const arrived = activityOf('received', 'completed', { seed: 40 });
+  const next = device();
+  next.listWallets = jest
+    .fn()
+    .mockResolvedValue([{ ...mainnetWallet, status: 'stopped' }]);
+  next.startWallet = jest.fn().mockResolvedValue(undefined);
+  next.snapshot = jest.fn().mockResolvedValue({
+    ...savedSnapshot,
+    wallet: mainnetWallet,
+    activity: [arrived],
+    updatedAt: Date.now(),
+  });
+  jest
+    .spyOn(DeviceWallet, 'openDeviceWallet')
+    .mockResolvedValueOnce(previous)
+    .mockResolvedValueOnce(next);
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(<App />);
+  });
+  expect(completedRows(onPage(tree)!.activity)).toHaveLength(6);
+  await act(async () => {
+    label(tree, 'Settings').props.onPress();
+  });
+  const mainnet = { ...defaultPreferences().profiles.mainnet };
+  await act(async () => {
+    await tree.root
+      .findByType(SettingsScreen)
+      .props.onNetwork(mainnet)
+      .catch(() => {});
+  });
+  for (let i = 0; i < 50 && onPage(tree)?.wallet.id !== 'saved-mainnet'; i++) {
+    await act(async () => {
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 20));
+    });
+  }
+  const page = onPage(tree)!;
+  expect(page.wallet.id).toBe('saved-mainnet');
+  expect(page.activity.map(row => row.id)).toEqual([arrived.id]);
+  expect(drawnCompleted(tree)).toBe(1);
+  await act(async () => tree.unmount());
+});
+
 test('a returning wallet with nothing cached shows a quiet opening page, not the offline controls', async () => {
   records.set(
     SESSION,
@@ -1128,3 +1353,356 @@ test('figures that have aged out are recovered by the app, not by asking the use
   await act(async () => tree.unmount());
   jest.useRealTimers();
 });
+
+/*
+ * The tests from here on run on fake timers, as the one above does, and
+ * they stay together at the end of the file: a fake-timer test followed by
+ * one on real timers leaves the next fake-timer test hanging in its first
+ * act, and that holds for the test above too, whatever runs in between.
+ */
+
+/**
+ * A wallet whose every reading is already older than the staleness gate, as
+ * in the test above, so the poll escalates to a recovery on its first tick.
+ * `startWallet` answers the open; what the recovery's calls do is the test's.
+ * What the engine answers a read with is `answer`, which a test moves on
+ * once the wallet is open: old figures, fresh ones, or less than it had. A
+ * read can also be held open, so the moment a deadline falls on a poll can
+ * be seen with that poll's read still in flight.
+ */
+function agedWallet() {
+  records.set(
+    SESSION,
+    JSON.stringify({
+      mode: 'device',
+      network: 'regtest',
+      walletId: 'saved-regtest',
+      locked: false,
+    }),
+  );
+  const client = device();
+  client.startWallet = jest.fn().mockResolvedValue(undefined);
+  client.refreshWallet = jest.fn().mockResolvedValue(undefined) as never;
+  const engine = {
+    client,
+    answer: 'old' as 'old' | 'fresh' | 'less',
+    holding: false,
+    release: () => {},
+  };
+  client.snapshot = jest.fn(async () => {
+    const demo = await new DemoWalletClient().snapshot();
+    const reading = {
+      ...demo,
+      wallet: regtestWallet,
+      demo: false,
+      updatedAt: Date.now() - (engine.answer === 'fresh' ? 0 : 120000),
+      // Mid-resync the engine has less than it had: no balance, and one
+      // completed row where there were three.
+      ...(engine.answer === 'less'
+        ? {
+            balance: {
+              totalSats: 0,
+              availableSats: 0,
+              pendingSats: 0,
+              receivableSats: 0,
+            },
+            activity: demo.activity
+              .filter(row => row.status === 'completed')
+              .slice(0, 1),
+          }
+        : {}),
+    };
+    if (!engine.holding) return reading;
+    return new Promise<typeof reading>(resolve => {
+      engine.release = () => resolve(reading);
+    });
+  }) as never;
+  jest.spyOn(DeviceWallet, 'openDeviceWallet').mockResolvedValue(client);
+  return engine;
+}
+const never = () => new Promise<void>(() => {});
+const readCount = (client: EmbeddedWalletClient) =>
+  jest.mocked(client.snapshot).mock.calls.length;
+const recoveryLines = () =>
+  recentDiagnostics().filter(entry => entry.phase === 'recovery');
+const failedRefreshes = () =>
+  recentDiagnostics().filter(entry => entry.code === 'REFRESH_FAILED');
+
+describe('a recovery the engine does not answer', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    clearDiagnostics();
+    Object.defineProperty(AppState, 'currentState', {
+      value: 'active',
+      configurable: true,
+    });
+  });
+
+  test('does not hold the plain read back: a fresh reading opens the gate, and no second resync is sent', async () => {
+    const engine = agedWallet();
+    const refreshWallet = jest.fn(never);
+    engine.client.refreshWallet = refreshWallet as never;
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<App />);
+    });
+    expect(staleWords(tree)).toBe('Balance not confirmed recently.');
+    expect(gated(tree)).toBe(true);
+    const opened = readCount(engine.client);
+    // The first poll starts the recovery, which waits on the engine.
+    await poll();
+    expect(refreshWallet).toHaveBeenCalledTimes(1);
+    expect(readCount(engine.client)).toBe(opened);
+    // The next poll still reads the wallet, and its reading opens the gate.
+    engine.answer = 'fresh';
+    await poll();
+    expect(readCount(engine.client)).toBe(opened + 1);
+    expect(staleWords(tree)).toBe('');
+    expect(gated(tree)).toBe(false);
+    await poll();
+    await poll();
+    expect(readCount(engine.client)).toBe(opened + 3);
+    expect(refreshWallet).toHaveBeenCalledTimes(1);
+    // Nothing is wrong yet, so nothing is written down.
+    expect(recoveryLines()).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+
+  test('is written down past its deadline with the step and how long it ran, logged once as a failed refresh, and the poll goes on', async () => {
+    const engine = agedWallet();
+    const refreshWallet = jest.fn(never);
+    engine.client.refreshWallet = refreshWallet as never;
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<App />);
+    });
+    const before = onPage(tree)!;
+    const opened = readCount(engine.client);
+    await poll();
+    expect(refreshWallet).toHaveBeenCalledTimes(1);
+    // Four plain reads while the resync hangs, and nothing written down.
+    for (let i = 0; i < 4; i++) await poll();
+    expect(readCount(engine.client)).toBe(opened + 4);
+    expect(recoveryLines()).toEqual([]);
+    expect(failedRefreshes()).toEqual([]);
+    // The deadline, five polls on, falls on the same moment as a poll, whose
+    // read is still out when it does.
+    engine.holding = true;
+    await poll();
+    expect(readCount(engine.client)).toBe(opened + 5);
+    expect(recoveryLines().map(entry => entry.message)).toEqual([
+      'refreshWallet still running after 60.0s',
+    ]);
+    expect(failedRefreshes()).toHaveLength(1);
+    expect(failedRefreshes()[0].message).toContain('refreshWallet');
+    await act(async () => {
+      engine.release();
+    });
+    engine.holding = false;
+    // The poll goes on, the engine call is still held, and the last figures
+    // are still on the page.
+    await poll();
+    await poll();
+    expect(readCount(engine.client)).toBe(opened + 7);
+    expect(refreshWallet).toHaveBeenCalledTimes(1);
+    expect(recoveryLines()).toHaveLength(1);
+    expect(failedRefreshes()).toHaveLength(1);
+    expect(onPage(tree)!.balance).toEqual(before.balance);
+    expect(completedIds(onPage(tree)!.activity)).toEqual(
+      completedIds(before.activity),
+    );
+    await act(async () => tree.unmount());
+  });
+
+  test('names the start when that is the step it is stuck in', async () => {
+    const engine = agedWallet();
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<App />);
+    });
+    engine.client.startWallet = jest.fn(never);
+    const opened = readCount(engine.client);
+    await poll();
+    expect(engine.client.startWallet).toHaveBeenCalledTimes(1);
+    expect(engine.client.refreshWallet).not.toHaveBeenCalled();
+    for (let i = 0; i < 4; i++) await poll();
+    expect(readCount(engine.client)).toBe(opened + 4);
+    engine.holding = true;
+    await poll();
+    expect(recoveryLines().map(entry => entry.message)).toEqual([
+      'startWallet still running after 60.0s',
+    ]);
+    expect(failedRefreshes()).toHaveLength(1);
+    expect(failedRefreshes()[0].message).toContain('startWallet');
+    await act(async () => {
+      engine.release();
+    });
+    engine.holding = false;
+    await poll();
+    expect(readCount(engine.client)).toBe(opened + 6);
+    expect(engine.client.startWallet).toHaveBeenCalledTimes(1);
+    expect(engine.client.refreshWallet).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('a successful read whose figures are already past the gate is written down once for each stretch the gate stays closed', async () => {
+    const engine = agedWallet();
+    const noted = () =>
+      recentDiagnostics()
+        .filter(entry => entry.phase === 'balance')
+        .map(entry => entry.message)
+        .filter(message => message.startsWith('read answered with figures'));
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<App />);
+    });
+    const opened = readCount(engine.client);
+    // The reading the wallet opened on, then two more as old: one line.
+    await poll();
+    await poll();
+    expect(readCount(engine.client)).toBeGreaterThan(opened);
+    expect(noted()).toHaveLength(1);
+    expect(noted()[0]).toMatch(
+      /^read answered with figures already 120s old, updatedAt \d{4}-\d{2}-\d{2}T/,
+    );
+    // A fresh reading ends the stretch; the next old one starts another.
+    engine.answer = 'fresh';
+    await poll();
+    expect(gated(tree)).toBe(false);
+    engine.answer = 'old';
+    await poll();
+    await poll();
+    expect(gated(tree)).toBe(true);
+    expect(noted()).toHaveLength(2);
+    await act(async () => tree.unmount());
+  });
+
+  test('keeps the last figures through a read taken while it runs that answers with less, and past its deadline', async () => {
+    const engine = agedWallet();
+    engine.client.refreshWallet = jest.fn(never) as never;
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<App />);
+    });
+    const before = onPage(tree)!;
+    expect(before.balance.totalSats).toBeGreaterThan(0);
+    expect(completedRows(before.activity)).toHaveLength(3);
+    const opened = readCount(engine.client);
+    engine.answer = 'less';
+    await poll();
+    await poll();
+    expect(readCount(engine.client)).toBe(opened + 1);
+    const during = onPage(tree)!;
+    expect(during.balance).toEqual(before.balance);
+    expect(completedIds(during.activity)).toEqual(
+      completedIds(before.activity),
+    );
+    expect(gated(tree)).toBe(true);
+    for (let i = 0; i < 5; i++) await poll();
+    expect(recoveryLines()).toHaveLength(1);
+    const after = onPage(tree)!;
+    expect(after.balance).toEqual(before.balance);
+    expect(completedIds(after.activity)).toEqual(completedIds(before.activity));
+    expect(gated(tree)).toBe(true);
+    await act(async () => tree.unmount());
+  });
+});
+
+test('a read that answers with fewer rows shrinks neither the page nor the cache, and a relaunch opens on every row', async () => {
+  jest.useFakeTimers();
+  Object.defineProperty(AppState, 'currentState', {
+    value: 'active',
+    configurable: true,
+  });
+  records.set(
+    SESSION,
+    JSON.stringify({
+      mode: 'device',
+      network: 'regtest',
+      walletId: 'saved-regtest',
+      locked: false,
+    }),
+  );
+  const reads = [run.full, ...run.short];
+  const totals = [20_926, 20_900, 21_000, 21_500];
+  // Which of the run's reads the engine answers with; the test moves it on.
+  let at = 0;
+  const readingOf = () => ({
+    ...savedSnapshot,
+    wallet: regtestWallet,
+    activity: reads[at],
+    balance: { ...savedSnapshot.balance, totalSats: totals[at] },
+    updatedAt: Date.now(),
+  });
+  const client = device();
+  client.startWallet = jest.fn().mockResolvedValue(undefined);
+  client.snapshot = jest.fn(async () => readingOf()) as never;
+  jest.spyOn(DeviceWallet, 'openDeviceWallet').mockResolvedValue(client);
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(<App />);
+  });
+  expect(completedRows(onPage(tree)!.activity)).toHaveLength(6);
+  expect(drawnCompleted(tree)).toBe(6);
+  const every = run.full.map(row => row.id).sort();
+  for (at = 1; at < reads.length; at++) {
+    const answered = jest.mocked(client.snapshot).mock.calls.length;
+    await poll();
+    expect(client.snapshot).toHaveBeenCalledTimes(answered + 1);
+    // The page keeps every completed row while the balance follows the read.
+    const page = onPage(tree)!;
+    expect(
+      completedRows(page.activity)
+        .map(row => row.id)
+        .sort(),
+    ).toEqual(every);
+    expect(page.balance.totalSats).toBe(totals[at]);
+    expect(drawnCompleted(tree)).toBe(6);
+    // And so does the cache the next launch opens on.
+    const cached: WalletSnapshot = JSON.parse(
+      records.get(`${SNAPSHOT}.saved-regtest`)!,
+    ).snapshot;
+    expect(completedRows(cached.activity)).toHaveLength(6);
+    expect(cached.balance.totalSats).toBe(totals[at]);
+  }
+  // A read that fails leaves the last figures where they were.
+  jest
+    .mocked(client.snapshot)
+    .mockRejectedValueOnce(new Error('Network is offline'));
+  await poll();
+  expect(onPage(tree)!.balance.totalSats).toBe(21_500);
+  expect(completedRows(onPage(tree)!.activity)).toHaveLength(6);
+  await act(async () => tree.unmount());
+  // A relaunch opens on every row before the engine answers, with the last
+  // balance seen, and a short first read after the open still shows them.
+  const again = device();
+  let finish!: () => void;
+  again.startWallet = jest.fn(
+    () =>
+      new Promise<void>(resolve => {
+        finish = resolve;
+      }),
+  );
+  at = reads.length - 1;
+  again.snapshot = jest.fn(async () => readingOf()) as never;
+  jest.spyOn(DeviceWallet, 'openDeviceWallet').mockResolvedValue(again);
+  await act(async () => {
+    tree = create(<App />);
+  });
+  expect(again.snapshot).not.toHaveBeenCalled();
+  expect(completedRows(onPage(tree)!.activity)).toHaveLength(6);
+  expect(onPage(tree)!.balance.totalSats).toBe(21_500);
+  expect(drawnCompleted(tree)).toBe(6);
+  await act(async () => {
+    finish();
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(again.snapshot).toHaveBeenCalled();
+  expect(completedRows(onPage(tree)!.activity)).toHaveLength(6);
+  expect(drawnCompleted(tree)).toBe(6);
+  await act(async () => tree.unmount());
+  jest.useRealTimers();
+  // Two launches and a run of polls, so it has twice the usual budget.
+}, 40000);

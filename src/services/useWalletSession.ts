@@ -13,6 +13,7 @@ import {
 } from '../embedded/client';
 import type { DeviceSettings } from '../embedded/client';
 import { recordDiagnostic } from './diagnosticLog';
+import { mergeSnapshot } from './activityMerge';
 import {
   defaultProfile,
   loadNetworkPreferences,
@@ -53,6 +54,21 @@ export type Tab = 'Wallet' | 'Activity' | 'Settings';
 
 /** Stale wallet data must not be spendable. Matches the browser client. */
 export const STALE_AFTER_MS = 45000;
+
+/**
+ * How long the app waits on a recovery, five polls, before it writes down
+ * the step it is stuck in and polls on without it.
+ */
+export const RECOVERY_DEADLINE_MS = 60000;
+
+type RecoveryStep = 'startWallet' | 'refreshWallet' | 'snapshot';
+
+type Balance = WalletSnapshot['balance'];
+
+/** Whether `next` holds less than `before`, in total or ready to send. */
+const shrank = (before: Balance, next: Balance) =>
+  next.totalSats < before.totalSats ||
+  next.availableSats < before.availableSats;
 
 export const errorMessage = (error: unknown) =>
   error instanceof Error
@@ -142,6 +158,27 @@ export function useWalletSession(view: WalletSessionView) {
   const snapshotRef = useRef<WalletSnapshot | null>(null);
   snapshotRef.current = snapshot;
   const pollFailures = useRef(0);
+  /**
+   * What the app knows of the open wallet: the state it opened on from the
+   * cache, merged with every read since. A wallet never shows less than it
+   * already knew, so a read lands through `land`, which puts back what the
+   * read lost (activityMerge) before it goes on the page and into the cache.
+   * It belongs to one wallet id, and is forgotten wherever the page is
+   * cleared, so nothing known of one wallet crosses to another.
+   */
+  const known = useRef<{ walletId: string; snapshot: WalletSnapshot } | null>(
+    null,
+  );
+  /** The engine call a recovery is waiting on has not settled. */
+  const recovering = useRef(false);
+  /**
+   * A read that succeeded and still leaves the staleness gate closed, since
+   * the figures it carries are already old, is written down once for each
+   * stretch the gate stays closed, with the time they carry. It tells a read
+   * answered every twelve seconds apart from none at all when the page has
+   * said "not confirmed recently" for half an hour.
+   */
+  const staleReadNoted = useRef(false);
   const [initializing, setInitializing] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [selecting, setSelecting] = useState(false);
@@ -164,13 +201,56 @@ export function useWalletSession(view: WalletSessionView) {
   }, []);
 
   /**
+   * A successful read of wallet `id`, onto the page and into the cache, kept
+   * whole against what the app knew. The balance, the primary's state, the
+   * notes and the read's time are the read's own; only the history the read
+   * lost is put back. A read taken while the engine is resyncing answers with
+   * what it has so far, which can be less than it had, so on that path the
+   * last figures stay, still marked as old, until the resync has settled and
+   * an ordinary read confirms them.
+   */
+  const land = useCallback(
+    (id: string, read: WalletSnapshot, resyncing = false) => {
+      const age = Date.now() - read.updatedAt;
+      if (age <= STALE_AFTER_MS) staleReadNoted.current = false;
+      else if (!staleReadNoted.current) {
+        staleReadNoted.current = true;
+        recordDiagnostic({
+          phase: 'balance',
+          message: `read answered with figures already ${Math.round(
+            age / 1000,
+          )}s old, updatedAt ${new Date(read.updatedAt).toISOString()}`,
+        });
+      }
+      const before =
+        known.current?.walletId === id ? known.current.snapshot : null;
+      let next = mergeSnapshot(before, read);
+      if (resyncing && before && shrank(before.balance, next.balance))
+        next = {
+          ...next,
+          balance: before.balance,
+          updatedAt: before.updatedAt,
+        };
+      known.current = { walletId: id, snapshot: next };
+      setSnapshot(next);
+      setError('');
+      saveCachedSnapshot(id, next);
+    },
+    [],
+  );
+
+  /**
    * Put the last state this wallet was seen in on the page while its engine
-   * starts. A live snapshot that lands first is never replaced by the cache.
+   * starts. A live snapshot that lands first is never replaced by the cache;
+   * the rows the cache knew and that read did not are kept beside it.
    */
   const hydrate = useCallback(async (id: string, current: number) => {
     const cached = await loadCachedSnapshot(id);
-    if (cached && generation.current === current)
-      setSnapshot(previous => previous ?? cached);
+    if (!cached || generation.current !== current) return;
+    const live = known.current?.walletId === id ? known.current.snapshot : null;
+    const next = live ? mergeSnapshot(cached, live) : cached;
+    known.current = { walletId: id, snapshot: next };
+    setSnapshot(next);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -199,11 +279,11 @@ export function useWalletSession(view: WalletSessionView) {
             phase: 'balance',
             message: `ready ${next.balance.availableSats}, arriving ${
               next.balance.pendingSats
-            }, primary ${next.primary.connected ? 'connected' : 'not connected'}`,
+            }, primary ${
+              next.primary.connected ? 'connected' : 'not connected'
+            }`,
           });
-        setSnapshot(next);
-        setError('');
-        saveCachedSnapshot(walletId, next);
+        land(walletId, next, recovering.current);
       }
     } catch (e) {
       if (generation.current === current) {
@@ -224,7 +304,7 @@ export function useWalletSession(view: WalletSessionView) {
         }
       }
     }
-  }, [client, walletId]);
+  }, [client, walletId, land]);
   refreshRef.current = refresh;
 
   const manualRefresh = useCallback(async () => {
@@ -256,21 +336,77 @@ export function useWalletSession(view: WalletSessionView) {
   }, [client, walletId, refresh]);
 
   /**
-   * The same work the manual refresh does, run by the app on its own behalf.
+   * The same work the manual refresh does, run by the app on its own behalf,
+   * timed and bounded.
    *
-   * Latched, because a recovery that is slow to answer must not have another
-   * stacked on top of it every twelve seconds.
+   * Latched on the engine call itself: a resync that is slow to answer must
+   * not have another stacked on top of it every twelve seconds. The latch
+   * lifts as soon as the engine has answered or failed, so the read that
+   * follows is an ordinary one.
+   *
+   * No call on this path has a deadline of its own on the phone, so one that
+   * never settled used to hold the app's reads for good with nothing written
+   * down. After RECOVERY_DEADLINE_MS the step it is stuck in goes to the
+   * diagnostic log with how long it has run, the session error is set so the
+   * failure is logged under its code, and the poll goes on without it; what
+   * the call does in the end is written down too. A recovery that settles
+   * in time writes nothing.
    */
-  const recovering = useRef(false);
   const recover = useCallback(async () => {
-    if (recovering.current) return;
+    if (
+      recovering.current ||
+      !client ||
+      !walletId ||
+      closingInFlight.current ||
+      runtimeStarting.current
+    )
+      return;
     recovering.current = true;
+    const current = generation.current;
+    const begun = Date.now();
+    const ran = () => `${((Date.now() - begun) / 1000).toFixed(1)}s`;
+    let step: RecoveryStep = 'startWallet';
+    let overdue = false;
+    const deadline = setTimeout(() => {
+      overdue = true;
+      recordDiagnostic({
+        phase: 'recovery',
+        message: `${step} still running after ${ran()}`,
+      });
+      if (generation.current === current) {
+        setError(
+          `The wallet did not finish ${step} within ${
+            RECOVERY_DEADLINE_MS / 1000
+          } seconds.`,
+        );
+        setRefreshing(false);
+      }
+    }, RECOVERY_DEADLINE_MS);
+    setRefreshing(true);
     try {
-      await manualRefresh();
-    } finally {
+      await client.startWallet();
+      step = 'refreshWallet';
+      await client.refreshWallet();
       recovering.current = false;
+      step = 'snapshot';
+      if (generation.current === current) await refresh();
+      if (overdue)
+        recordDiagnostic({
+          phase: 'recovery',
+          message: `recovery settled after ${ran()}`,
+        });
+    } catch (e) {
+      recordDiagnostic({
+        phase: 'recovery',
+        message: `${step} failed after ${ran()}: ${errorMessage(e)}`,
+      });
+      if (generation.current === current) setError(errorMessage(e));
+    } finally {
+      clearTimeout(deadline);
+      recovering.current = false;
+      if (generation.current === current) setRefreshing(false);
     }
-  }, [manualRefresh]);
+  }, [client, walletId, refresh]);
 
   /** Ask the wallet to run its setup again, from wherever it failed. */
   const retrySetup = useCallback(async () => {
@@ -302,12 +438,16 @@ export function useWalletSession(view: WalletSessionView) {
      * wallet and resyncing it, which is what the manual refresh does. The app
      * can do that itself, so it does, rather than putting a "pull to refresh"
      * on the page and waiting to be asked.
+     *
+     * While a recovery is still waiting on the engine, the poll keeps asking
+     * the plain question beside it: a read the engine can answer is not held
+     * back behind a resync it cannot finish.
      */
     const tick = () => {
       if (AppState.currentState !== 'active') return;
       const current = snapshotRef.current;
-      if (current && Date.now() - current.updatedAt > STALE_AFTER_MS)
-        recover().catch(() => {});
+      const aged = current && Date.now() - current.updatedAt > STALE_AFTER_MS;
+      if (aged && !recovering.current) recover().catch(() => {});
       else refresh().catch(() => {});
     };
     refresh();
@@ -353,6 +493,7 @@ export function useWalletSession(view: WalletSessionView) {
         runtimeStarting.current = true;
         setWalletId(wallet.id);
         setSnapshot(null);
+        known.current = null;
         setError('');
         onCloseSheet();
         onTab('Wallet');
@@ -365,11 +506,7 @@ export function useWalletSession(view: WalletSessionView) {
         try {
           if (wallet.status !== 'running') await client.startWallet();
           const value = await client.snapshot();
-          if (generation.current === current) {
-            setSnapshot(value);
-            setError('');
-            saveCachedSnapshot(wallet.id, value);
-          }
+          if (generation.current === current) land(wallet.id, value);
         } catch (e) {
           if (generation.current === current) setError(errorMessage(e));
         } finally {
@@ -383,7 +520,7 @@ export function useWalletSession(view: WalletSessionView) {
         setSelecting(false);
       }
     },
-    [client, rememberedSession, onCloseSheet, onTab, hydrate],
+    [client, rememberedSession, onCloseSheet, onTab, hydrate, land],
   );
 
   const openDevice = useCallback(
@@ -516,6 +653,7 @@ export function useWalletSession(view: WalletSessionView) {
         setWallets(records);
         setWalletId(selected?.id || '');
         setSnapshot(null);
+        known.current = null;
         if (creationError) setError(creationError);
         onTab(options?.returnTo || 'Wallet');
         setDeviceVisible(false);
@@ -531,11 +669,7 @@ export function useWalletSession(view: WalletSessionView) {
           try {
             await next.startWallet();
             const value = await next.snapshot();
-            if (generation.current === current) {
-              setSnapshot(value);
-              setError('');
-              saveCachedSnapshot(selected.id, value);
-            }
+            if (generation.current === current) land(selected.id, value);
           } catch (e) {
             if (generation.current === current) setError(errorMessage(e));
           } finally {
@@ -558,7 +692,7 @@ export function useWalletSession(view: WalletSessionView) {
         if (generation.current === current) setConnecting(false);
       }
     },
-    [onTab, hydrate, onDeviceDiagnostic],
+    [onTab, hydrate, land, onDeviceDiagnostic],
   );
 
   // The owned runtime must be closed when the app goes away, whether or not a
@@ -715,6 +849,7 @@ export function useWalletSession(view: WalletSessionView) {
         setWalletId('');
         setWallets([]);
         setSnapshot(null);
+        known.current = null;
         onCloseSheet();
         setError('');
         setActiveProfile(profile);
@@ -785,6 +920,7 @@ export function useWalletSession(view: WalletSessionView) {
       setWalletId('');
       setWallets([]);
       setSnapshot(null);
+      known.current = null;
       onCloseSheet();
       setError('');
       setDeviceVisible(false);
@@ -834,6 +970,7 @@ export function useWalletSession(view: WalletSessionView) {
       setWalletId('');
       setWallets([]);
       setSnapshot(null);
+      known.current = null;
       onCloseSheet();
       const [{ eraseDeviceStorage }, { clearSeedSource }] = await Promise.all([
         import('../embedded/storage'),
@@ -872,6 +1009,7 @@ export function useWalletSession(view: WalletSessionView) {
     ++generation.current;
     setWalletId('');
     setSnapshot(null);
+    known.current = null;
     onCloseSheet();
     setError('');
   }, [onCloseSheet]);
