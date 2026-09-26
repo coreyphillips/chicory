@@ -992,6 +992,9 @@ export function SendScreen({
     const shown = item?.amountSats ?? fixedSats ?? (Number(amount) || null);
     const visual = heldVisual(held.status, resolved);
     const paid = held.status === 'completed';
+    // Paid for good, or seen to complete here for a request that may be
+    // paid again, which is not said to be held for good.
+    const once = held === known;
     // Once the history shows the payment, the way to it is the payment
     // itself; until then, the history it will show in.
     const openItem =
@@ -1005,7 +1008,7 @@ export function SendScreen({
             accessibilityLabel={visual.title}
             accessibilityValue={statusLabel(held.status)}
             accessibilityHint={[
-              paid ? copy.send.paid : copy.send.held,
+              !paid ? copy.send.held : once ? copy.send.paid : null,
               openItem ? copy.send.showPayment : null,
             ]
               .filter(Boolean)

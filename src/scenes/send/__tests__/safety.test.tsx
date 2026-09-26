@@ -658,11 +658,11 @@ describe('a payment whose call does not answer', () => {
   });
 
   test.each([
-    ['a request paid once', priced('late-paid')],
-    ['a request that may be paid again', payable('late-paid-again')],
+    ['a request paid once', priced('late-paid'), true],
+    ['a request that may be paid again', payable('late-paid-again'), false],
   ])(
     'completing past its grace with %s, resolves the ring where it stands, as a Send entered again does',
-    async (_, request) => {
+    async (_, request, once) => {
       // It cut to the completed result laid out afresh, its disc 80pt
       // higher and two amounts drawn at once, with a success after the held
       // warnings (P14, 05h).
@@ -685,6 +685,8 @@ describe('a payment whose call does not answer', () => {
       expect(tree.root.findAllByType(Amount)).toHaveLength(1);
       expect(meaning(tree)).toContain(copy.send.sent);
       expect(meaning(tree)).not.toContain(copy.send.paidAlready);
+      // Only a request paid once is said to be held for good.
+      expect(meaning(tree).includes(copy.send.paid)).toBe(once);
       expect(felt()).toEqual(['notificationSuccess']);
       await arrive(true);
       expect(said).toHaveBeenCalledWith(copy.send.sent);
