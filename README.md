@@ -2,6 +2,8 @@
 
 A Lightning-first wallet for iOS and Android, running the Beignet engine on the phone itself, built on React Native 0.87.1. One balance, Send, Receive, Activity with details, and Settings. Payment requests and Bitcoin addresses share one send flow with an explicit amount and fee review. Receive produces a unified request QR after showing the receive fee.
 
+The app's design, from its product rules to its motion, is specified in [REDESIGN.md](REDESIGN.md).
+
 App version 0.4.0 (Android `versionCode` 4). The version shown in Settings comes from `package.json`; `android/app/build.gradle` and the Xcode `MARKETING_VERSION` are kept in step with it.
 
 ## What the phone adds
@@ -176,6 +178,38 @@ Recorded result for the lightning-first parity pass (September 10, 2026): the 13
 Android reopening validation also passed on a disposable Android 37 emulator: a real encrypted regtest wallet survived an in-place replacement with the normal standalone APK and a full force-stop/cold launch. Explicit lock remained locked across restart. The offline wallet's name and network remained visible; the screenshot is `../android-reopen-verification.png`. The RN tests (now 91), typecheck and lint pass, including source migration, unchanged older wallets, missing-source failures and closing during seed lookup. See the workspace validation document for the exact scope.
 
 `native-tests/ColdStartSeed.tsx` is a separate emulator-only developer entry for that bounded test. It creates one unfunded regtest wallet with unavailable Electrum, closes storage and emits only public verification details. It refuses established sessions and existing regtest wallets. Build it only with an explicit `ENTRY_FILE` override on a disposable emulator, then rebuild with the normal `index.js` entry before distributing any APK. It is excluded from the delivered app bundle.
+
+## State gallery
+
+Jest runs worklets on the JS thread through Reanimated's mock, so a worklet that reads a value the UI thread never received passes every suite and crashes only on a device. `native-tests/Gallery.tsx` is a developer entry that draws every visual state on the real UI thread instead: each glyph in every mode, tone, variant and event, then Home, Activity, every payment's detail, Settings, the shell phases, and Send and Receive through each step and outcome. Only the scanner is left out, since it would ask for the camera. It runs over fake data and a fake wallet that answers at once, holds each state for 1.2 seconds once reached, and loops. It never opens a vault, starts the engine or touches the secure store or clipboard; `native-tests/gallery/sealed.ts` replaces both before anything is drawn.
+
+Each state is logged as it comes up, as `GALLERY <index> <name>`, and the same index shows in the bottom-left corner, so the last line before a crash names the state that caused it. A full pass logs `GALLERY COMPLETE`. A step that cannot find the control it presses logs `GALLERY MISS`, and a state that throws logs `GALLERY ERROR`. Build it as a release bundle, since that is where the UI thread runs the compiled worklets:
+
+```sh
+# iOS simulator
+xcodebuild -workspace ios/chicory.xcworkspace -scheme chicory \
+  -configuration Release \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -derivedDataPath /tmp/chicory-gallery \
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
+  ENTRY_FILE=native-tests/Gallery.tsx
+xcrun simctl install booted /tmp/chicory-gallery/Build/Products/Release-iphonesimulator/chicory.app
+xcrun simctl launch booted com.chicory
+xcrun simctl spawn booted log stream --predicate 'eventMessage CONTAINS "GALLERY"'
+
+# Android
+cd android
+ENTRY_FILE=native-tests/Gallery.tsx \
+JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home \
+ANDROID_HOME=/Users/coreyphillips/Library/Android/sdk \
+./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
+adb install -r app/build/outputs/apk/release/app-release.apk
+adb logcat -c
+adb shell monkey -p com.chicory -c android.intent.category.LAUNCHER 1
+adb logcat -s ReactNativeJS:V | grep GALLERY
+```
+
+The gallery installs as Chicory itself, over whatever build is there, and its APK is written where the normal release APK goes. Prefer a simulator or emulator. On a phone that holds a wallet, the wallet's data is left as it was, since the gallery never reads it, but the phone runs the gallery until the normal build is installed again: rebuild without `ENTRY_FILE` and install that before opening the wallet or distributing any APK. Run it once more with Reduce Motion on, since several glyphs take other paths under it. `__tests__/Gallery.test.tsx` runs one full pass under Jest with fake timers, which proves every state draws and every step finds its control, but not what only the UI thread would show.
 
 ## License
 

@@ -2,13 +2,13 @@ import React from 'react';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import * as Keychain from 'react-native-keychain';
 import App from '../App';
-import { Text } from 'react-native';
 import { DemoWalletClient, EmbeddedWalletClient } from '@beignet/wallet-core';
 import * as DeviceWallet from '../src/embedded/client';
 import { defaultPreferences, defaultProfile } from '../src/services/networks';
 import { SettingsScreen } from '../src/screens/Settings';
 import { SendScreen } from '../src/screens/Payments';
 import { Scanner } from '../src/components/Scanner';
+import { activePhase } from '../test-support/scene';
 
 function label(tree: ReactTestRenderer, value: string) {
   return tree.root
@@ -24,6 +24,7 @@ test('a first launch offers no choice at all: no host, no preview, no chooser', 
   });
   // The wallet runs on this phone. There is no second option and no sample to
   // look at instead, so there is no question, and the launch screen asks none.
+  expect(activePhase(tree)).toBe('welcome');
   const first = JSON.stringify(tree.toJSON());
   expect(first).not.toContain('On this device');
   expect(first).not.toContain('Connect a host');
@@ -109,10 +110,13 @@ test('a pending wallet start serializes wallet selection and locking', async () 
     const openA = label(tree, 'Open First wallet').props.onPress;
     const openB = label(tree, 'Open Second wallet').props.onPress;
     const lock = label(tree, 'Lock device wallet').props.onPress;
+    expect(activePhase(tree)).toBe('picker');
     await act(async () => {
       openA();
     });
     expect(started).toHaveBeenCalledTimes(1);
+    // The chosen wallet is opening, so the picker has given way to its page.
+    expect(activePhase(tree)).toBe('loading');
     expect(
       tree.root.findAllByProps({ accessibilityLabel: 'Open Second wallet' }),
     ).toHaveLength(0);
@@ -127,11 +131,7 @@ test('a pending wallet start serializes wallet selection and locking', async () 
     await act(async () => {
       finish();
     });
-    expect(
-      tree.root
-        .findAllByType(Text)
-        .some(item => item.props.children === 'Choose your wallet.'),
-    ).toBe(false);
+    expect(activePhase(tree)).toBe('wallet');
     expect(snapshot).toHaveBeenCalled();
   } finally {
     await act(async () => {
@@ -212,6 +212,7 @@ test('network switching waits for local engine closure before opening a differen
     // Regtest has no primary node in its profile, so no wallet is invented for
     // it: the shared client refuses one without a node, and the picker is
     // where a wallet gets made once the node is set.
+    expect(activePhase(tree)).toBe('picker');
     expect(label(tree, 'Create a wallet')).toBeDefined();
     expect(
       tree.root.findAllByProps({ accessibilityLabel: 'Open Local mainnet' }),
@@ -225,7 +226,7 @@ test('network switching waits for local engine closure before opening a differen
   }
 });
 
-test('a paid or abandoned request never greets the next Send, and home scan opens the camera inside Send', async () => {
+test('a paid or abandoned request never greets the next Send, and a code scanned from home opens Send with it', async () => {
   const wallet = {
     id: 'scan-wallet',
     name: 'Scan wallet',
@@ -259,6 +260,7 @@ test('a paid or abandoned request never greets the next Send, and home scan open
     wallet,
     demo: false,
   });
+  device.send = jest.fn();
   const loaded = jest
     .spyOn(DeviceWallet, 'loadDevicePreferences')
     .mockResolvedValue(preferences);
@@ -269,7 +271,8 @@ test('a paid or abandoned request never greets the next Send, and home scan open
   await act(async () => {
     tree = create(<App />);
   });
-  // A scanned code or a tapped link only prefills Send.
+  // A scanned code or a tapped link only prefills Send. The camera opens
+  // over home, and what it reads opens Send.
   await act(async () => {
     label(tree, 'Scan a payment request').props.onPress();
   });
@@ -281,21 +284,21 @@ test('a paid or abandoned request never greets the next Send, and home scan open
   expect(
     tree.root
       .findAllByProps({ accessibilityLabel: 'Payment request or address' })
-      .find(item => typeof item.props.onChangeText === 'function')!.props
-      .value,
+      .find(item => typeof item.props.onChangeText === 'function')!.props.value,
   ).toBe('lnbc-scanned');
   // Leaving through "View activity" clears the request like closing does.
   await act(async () => {
     tree.root.findByType(SendScreen).props.onActivity();
   });
   await act(async () => {
-    label(tree, 'Wallet').props.onPress();
+    label(tree, 'Close').props.onPress();
   });
   await act(async () => {
     label(tree, 'Send').props.onPress();
   });
   expect(tree.root.findByType(SendScreen).props.initialRequest).toBe('');
   expect(tree.root.findAllByType(Scanner)).toHaveLength(0);
+  expect(device.send).not.toHaveBeenCalled();
   await act(async () => {
     tree.unmount();
   });

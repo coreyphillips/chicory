@@ -1,7 +1,8 @@
 <resources>
-    <!-- The app's own background. The window shows this from launch, so a cold
-         start opens on the wallet's colour instead of flashing the default
-         light theme before React has drawn anything. Matches `colors.background`
-         in src/theme.ts. -->
-    <color name="brandBackground">#111417</color>
+    <!-- The app's own background, roast. The window shows this from launch,
+         so a cold start opens on the wallet's colour, with nothing written on
+         it, instead of flashing the default light theme before React has
+         drawn anything. Matches `palette.roast` in src/design/palette.ts,
+         which `colors.background` in src/theme.ts aliases. -->
+    <color name="brandBackground">#110E0C</color>
 </resources>

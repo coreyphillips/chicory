@@ -1,0 +1,19 @@
+{
+  "firstRun": [
+    "reset com.beignet.wallet.connection",
+    "set com.beignet.wallet.last-session {backupPending,locked,mode,network,walletId}",
+    "set com.beignet.wallet.last-snapshot.<wallet> {snapshot,version,walletId}"
+  ],
+  "returning": [
+    "set com.beignet.wallet.last-session {locked,mode,network,walletId}",
+    "set com.beignet.wallet.last-snapshot.<wallet> {snapshot,version,walletId}"
+  ],
+  "erase": [
+    "reset com.beignet.wallet.device-seed-source",
+    "reset com.beignet.wallet.last-session",
+    "reset com.beignet.wallet.last-snapshot",
+    "set com.beignet.wallet.last-session {locked,mode,network,walletId}",
+    "set com.beignet.wallet.last-session {locked,mode,network}",
+    "set com.beignet.wallet.last-snapshot.<wallet> {snapshot,version,walletId}"
+  ]
+}

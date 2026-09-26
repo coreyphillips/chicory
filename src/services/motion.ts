@@ -1,111 +1,60 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing } from 'react-native';
-import { motion } from '../theme';
-import { setHapticsEnabled } from './haptics';
+import { useSyncExternalStore } from 'react';
+import { AccessibilityInfo } from 'react-native';
 
 /**
  * Whether this device wants motion at all.
  *
- * Read once at mount and kept current through the accessibility event, so a
- * user who turns Reduce Motion on mid-session gets the calmer app immediately.
- * Haptics are tied to the same switch: someone who has asked for less movement
- * has usually not asked for more buzzing.
+ * Read as the first caller mounts and kept current through the accessibility
+ * event, so a user who turns Reduce Motion on mid-session gets the calmer app
+ * immediately. Haptics are not tied to it. With less on screen they carry more
+ * of the meaning, so only Settings > Haptics turns them off (REDESIGN.md rule
+ * 7).
+ *
+ * One listener serves every caller, however many keys a keypad or rings a
+ * list draws, and the callers that mount together share one read of the
+ * setting.
  */
 let reduced = false;
 export const motionReduced = () => reduced;
 
-export function useReducedMotion() {
-  const [value, setValue] = useState(reduced);
-  useEffect(() => {
-    let active = true;
-    const apply = (next: boolean) => {
-      reduced = next;
-      setHapticsEnabled(!next);
-      if (active) setValue(next);
-    };
-    AccessibilityInfo.isReduceMotionEnabled().then(apply).catch(() => {});
-    const subscription = AccessibilityInfo.addEventListener(
-      'reduceMotionChanged',
-      apply,
-    );
-    return () => {
-      active = false;
-      subscription.remove();
-    };
-  }, []);
-  return value;
+const listeners = new Set<() => void>();
+let subscription: { remove: () => void } | null = null;
+let asking = false;
+
+function apply(next: boolean) {
+  if (next === reduced) return;
+  reduced = next;
+  for (const listener of listeners) listener();
 }
 
-/** Fade + rise used for screen and step transitions. */
-export function useEnter(key: unknown, distance = 10) {
-  const progress = useRef(new Animated.Value(reduced ? 1 : 0)).current;
-  useEffect(() => {
-    if (reduced) {
-      progress.setValue(1);
-      return;
-    }
-    progress.setValue(0);
-    const animation = Animated.timing(progress, {
-      toValue: 1,
-      duration: motion.base,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
+// A mount asks the setting again, so a screen drawn later never keeps what
+// an earlier one read. The callers that mount in one commit ask once.
+function ask() {
+  if (asking) return;
+  asking = true;
+  AccessibilityInfo.isReduceMotionEnabled()
+    .then(apply, () => {})
+    .finally(() => {
+      asking = false;
     });
-    animation.start();
-    return () => animation.stop();
-  }, [key, progress]);
-  // Memoized, and not for tidiness. `interpolate` mints a new animated node
-  // every call, and React Native compares a view's animated props by node
-  // identity: a fresh node on every render means the whole animated-props graph
-  // for this view is torn down and rebuilt each time, on the root wrapper.
-  return useMemo(
-    () => ({
-      opacity: progress,
-      transform: [
-        {
-          translateY: progress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [distance, 0],
-          }),
-        },
-      ],
-    }),
-    [progress, distance],
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  subscription ??= AccessibilityInfo.addEventListener(
+    'reduceMotionChanged',
+    apply,
   );
+  ask();
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      subscription?.remove();
+      subscription = null;
+    }
+  };
 }
 
-/**
- * Counts a balance up to its new value.
- *
- * Returns a plain number rather than an Animated node: the balance is rendered
- * with a formatter, and driving text through Animated would mean losing the
- * thousands separators. A reduced-motion device gets the value immediately.
- */
-export function useCountUp(value: number, duration = motion.slow) {
-  const [shown, setShown] = useState(value);
-  const previous = useRef(value);
-  useEffect(() => {
-    const from = previous.current;
-    previous.current = value;
-    if (reduced || from === value) {
-      setShown(value);
-      return;
-    }
-    const driver = new Animated.Value(0);
-    const listener = driver.addListener(({ value: t }) =>
-      setShown(Math.round(from + (value - from) * t)),
-    );
-    const animation = Animated.timing(driver, {
-      toValue: 1,
-      duration,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    });
-    animation.start(({ finished }) => finished && setShown(value));
-    return () => {
-      animation.stop();
-      driver.removeListener(listener);
-    };
-  }, [value, duration]);
-  return shown;
+export function useReducedMotion(): boolean {
+  return useSyncExternalStore(subscribe, motionReduced);
 }

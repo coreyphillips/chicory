@@ -1,9 +1,30 @@
 import React from 'react';
+import { AccessibilityInfo, TextInput } from 'react-native';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import type { SendReview, ReceiveQuote } from '@beignet/wallet-core';
 import { SendScreen, ReceiveScreen } from '../src/screens/Payments';
 import { Scanner } from '../src/components/Scanner';
+import { forgetSpoken } from '../src/design/announce';
+import { copy } from '../src/design/copy';
+import { FOCUS_SETTLE_MS, forgetSafety } from '../src/motion/speech';
+import * as tokens from '../src/motion/tokens';
+import { stepInMs } from '../src/scenes/send/useLanding';
 import type { WalletAdapter } from '../src/services/wallet';
+import { clearHeldRequests } from '../src/stage/heldRequests';
+import { amountValue, enterAmount } from '../test-support/keypad';
+import {
+  ACTIVATE,
+  activate,
+  alerts,
+  find,
+  holdMs,
+  holds,
+  meaning,
+  press,
+  pressableLabels,
+  whispers,
+} from '../test-support/query';
 
 const onBusy = jest.fn();
 const quote: SendReview = {
@@ -32,6 +53,65 @@ function adapter(overrides: object) {
   return overrides as WalletAdapter;
 }
 
+/**
+ * A request the parser reads, named `name`, that fixes the 4,200 sats the
+ * quotes here are for, so it can be reviewed as it stands.
+ */
+const priced = (name: string) =>
+  `bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=0.000042&label=${name}`;
+
+/**
+ * A request for the same 4,200 sats to another address. A label does not
+ * make another request: the held set knows a Bitcoin request by its address
+ * and amount.
+ */
+const pricedElsewhere = (name: string) =>
+  `bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4?amount=0.000042&label=${name}`;
+
+/**
+ * Send draws inside the gesture root, as the app does, so a long press can
+ * show what a glyph means.
+ */
+async function renderSend(element: React.ReactElement) {
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(<GestureHandlerRootView>{element}</GestureHandlerRootView>);
+  });
+  return tree;
+}
+
+/** The element a screen reader reaches by `value`, where its state is. */
+const element = (tree: ReactTestRenderer, value: string) =>
+  tree.root.find(
+    node =>
+      typeof node.type === 'string' && node.props.accessibilityLabel === value,
+  );
+
+const amountShown = (tree: ReactTestRenderer) =>
+  element(tree, copy.amount.field);
+
+const keypads = (tree: ReactTestRenderer) =>
+  tree.root.findAll(
+    node =>
+      typeof node.type === 'string' &&
+      node.props.accessibilityLabel === copy.keypad.label,
+  );
+
+// A request held by one test's unknown payment would send the next test that
+// pays it to the held ring, the platform's announcer is a mock that keeps
+// every call, a phrase said within 2s is not said again, and a safety message
+// one test left unheard would be said in the next. Each test starts with none
+// of these, so it sees and hears only what it did.
+beforeEach(() => {
+  clearHeldRequests();
+  forgetSpoken();
+  forgetSafety();
+  jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+  jest
+    .mocked(AccessibilityInfo.announceForAccessibilityWithOptions)
+    .mockClear();
+});
+
 test('review does not send; confirmation sends once and preserves uncertain status', async () => {
   const prepareSend = jest.fn().mockResolvedValue(quote);
   let resolveSend!: (value: unknown) => void;
@@ -42,34 +122,34 @@ test('review does not send; confirmation sends once and preserves uncertain stat
       }),
   );
   const onRefresh = jest.fn();
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(
-      <SendScreen
-        client={adapter({ prepareSend, send })}
-        onActivity={jest.fn()}
-        onRefresh={onRefresh}
-        onBusy={onBusy}
-      />,
-    );
-  });
+  const tree = await renderSend(
+    <SendScreen
+      client={adapter({ prepareSend, send })}
+      onActivity={jest.fn()}
+      onRefresh={onRefresh}
+      onBusy={onBusy}
+    />,
+  );
   await act(async () => {
     field(tree, 'Payment request or address').props.onChangeText(
       'lnbc-request',
     );
   });
+  await enterAmount(tree, '4200');
   await act(async () => {
     await label(tree, 'Review payment').props.onPress();
   });
   expect(prepareSend).toHaveBeenCalledWith({
     request: 'lnbc-request',
-    amountSats: undefined,
+    amountSats: 4200,
   });
   expect(send).not.toHaveBeenCalled();
-  const confirm = label(tree, 'Send 4,200 sats').props.onPress;
+  // A tap is not a hold: nothing that sends can be pressed.
+  expect(find(tree, 'Send 4,200 sats')).toBeUndefined();
+  const [confirm] = holds(tree, 'Send 4,200 sats');
   await act(async () => {
-    confirm();
-    confirm();
+    confirm.props.onAccessibilityAction(ACTIVATE);
+    confirm.props.onAccessibilityAction(ACTIVATE);
   });
   expect(send).toHaveBeenCalledTimes(1);
   await act(async () => {
@@ -81,11 +161,15 @@ test('review does not send; confirmation sends once and preserves uncertain stat
       message: 'Payment status unknown.',
     });
   });
-  expect(JSON.stringify(tree.toJSON())).toContain('Payment status unknown.');
+  expect(meaning(tree)).toContain('Payment status unknown.');
   expect(JSON.stringify(tree.toJSON())).not.toContain('Sent, just like that.');
   // The outcome is said in words, not the wire enum.
-  expect(JSON.stringify(tree.toJSON())).toContain('Needs checking');
+  expect(meaning(tree)).toContain('Needs checking');
   expect(JSON.stringify(tree.toJSON())).not.toContain('"uncertain"');
+  // Never presented as done, and nothing offers to pay it again.
+  expect(meaning(tree)).not.toContain(copy.send.sent);
+  expect(holds(tree, 'Send 4,200 sats')).toEqual([]);
+  expect(pressableLabels(tree)).not.toContain('Review payment');
   expect(onRefresh).toHaveBeenCalledTimes(1);
   await act(async () => {
     tree.unmount();
@@ -97,29 +181,26 @@ test('expired send quote cannot be submitted', async () => {
   const prepareSend = jest
     .fn()
     .mockResolvedValue({ ...quote, expiresAt: Date.now() - 1 });
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(
-      <SendScreen
-        client={adapter({ prepareSend, send })}
-        onActivity={jest.fn()}
-        onRefresh={jest.fn()}
-        onBusy={onBusy}
-      />,
-    );
-  });
+  const tree = await renderSend(
+    <SendScreen
+      client={adapter({ prepareSend, send })}
+      onActivity={jest.fn()}
+      onRefresh={jest.fn()}
+      onBusy={onBusy}
+    />,
+  );
   await act(async () => {
     field(tree, 'Payment request or address').props.onChangeText(
       'lnbc-request',
     );
   });
+  await enterAmount(tree, '4200');
   await act(async () => {
     await label(tree, 'Review payment').props.onPress();
   });
-  expect(label(tree, 'Send 4,200 sats').props.disabled).toBe(true);
-  await act(async () => {
-    await label(tree, 'Send 4,200 sats').props.onPress();
-  });
+  // The hold went with the quote: nothing labelled to send can commit.
+  expect(holds(tree, 'Send 4,200 sats')).toEqual([]);
+  expect(find(tree, 'Send 4,200 sats')).toBeUndefined();
   expect(send).not.toHaveBeenCalled();
   // Refreshing the quote asks for a new one for the same request.
   await act(async () => {
@@ -128,31 +209,27 @@ test('expired send quote cannot be submitted', async () => {
   expect(prepareSend).toHaveBeenCalledTimes(2);
   expect(prepareSend).toHaveBeenLastCalledWith({
     request: 'lnbc-request',
-    amountSats: undefined,
+    amountSats: 4200,
   });
+  expect(send).not.toHaveBeenCalled();
   await act(async () => {
     tree.unmount();
   });
 });
 
 test('scanning from Send keeps what was typed, whether the scan lands or is cancelled', async () => {
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(
-      <SendScreen
-        client={adapter({ prepareSend: jest.fn() })}
-        onActivity={jest.fn()}
-        onRefresh={jest.fn()}
-        onBusy={onBusy}
-      />,
-    );
-  });
+  const tree = await renderSend(
+    <SendScreen
+      client={adapter({ prepareSend: jest.fn() })}
+      onActivity={jest.fn()}
+      onRefresh={jest.fn()}
+      onBusy={onBusy}
+    />,
+  );
   await act(async () => {
     field(tree, 'Payment request or address').props.onChangeText('lnbc-typed');
-    field(tree, 'Amount in sats').props.onChangeText(
-      '500',
-    );
   });
+  await enterAmount(tree, '500');
   await act(async () => {
     label(tree, 'Scan a payment request').props.onPress();
   });
@@ -172,9 +249,7 @@ test('scanning from Send keeps what was typed, whether the scan lands or is canc
   expect(field(tree, 'Payment request or address').props.value).toBe(
     'lnbc-scanned',
   );
-  expect(
-    field(tree, 'Amount in sats').props.value,
-  ).toBe('500');
+  expect(amountValue(tree)).toBe('500');
   await act(async () => {
     tree.unmount();
   });
@@ -182,6 +257,7 @@ test('scanning from Send keeps what was typed, whether the scan lands or is canc
 
 test('a stale balance blocks a new receive request and says why', async () => {
   const quoteReceive = jest.fn();
+  const onRefresh = jest.fn();
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(
@@ -190,12 +266,19 @@ test('a stale balance blocks a new receive request and says why', async () => {
         receivableSats={5000}
         disabled
         onActivity={jest.fn()}
+        onRefresh={onRefresh}
         onBusy={onBusy}
       />,
     );
   });
-  expect(JSON.stringify(tree.toJSON())).toContain('not confirmed recently');
-  expect(label(tree, 'Continue').props.disabled).toBe(true);
+  expect(meaning(tree)).toContain('not confirmed recently');
+  expect(label(tree, 'Continue').props.accessibilityState.disabled).toBe(true);
+  // A tap on the held-back control refreshes the wallet and never quotes.
+  await act(async () => {
+    await label(tree, 'Continue').props.onPress();
+  });
+  expect(quoteReceive).not.toHaveBeenCalled();
+  expect(onRefresh).toHaveBeenCalledTimes(1);
   await act(async () => {
     tree.unmount();
   });
@@ -234,20 +317,19 @@ test('receive fee is displayed before invoice creation and before showing a QR',
       />,
     );
   });
-  await act(async () => {
-    field(tree, 'Amount in sats').props.onChangeText('10000');
-  });
+  await enterAmount(tree, '10000');
   await act(async () => {
     await label(tree, 'Continue').props.onPress();
   });
   expect(receive).not.toHaveBeenCalled();
-  expect(JSON.stringify(tree.toJSON())).toContain('9,900 sats');
-  expect(JSON.stringify(tree.toJSON())).not.toContain('QRCode');
+  expect(meaning(tree)).toContain('Receive fee, 100 sats');
+  expect(meaning(tree)).toContain('You receive, 9,900 sats');
+  expect(meaning(tree)).not.toContain('Payment request QR code');
   await act(async () => {
     await label(tree, 'Create request').props.onPress();
   });
   expect(receive).toHaveBeenCalledWith(receiveQuote);
-  expect(JSON.stringify(tree.toJSON())).toContain('QRCode');
+  expect(meaning(tree)).toContain('Payment request QR code');
   await act(async () => {
     tree.unmount();
   });
@@ -275,33 +357,35 @@ test('a direct-funding review names its method and fee ceiling, and a refusal sa
     message:
       'The recipient did not take the direct funding. Nothing was sent. Review again to pay the address.',
   });
-  let tree!: ReactTestRenderer;
+  const tree = await renderSend(
+    <SendScreen
+      client={adapter({ prepareSend, send })}
+      onActivity={jest.fn()}
+      onRefresh={jest.fn()}
+      onBusy={onBusy}
+    />,
+  );
   await act(async () => {
-    tree = create(
-      <SendScreen
-        client={adapter({ prepareSend, send })}
-        onActivity={jest.fn()}
-        onRefresh={jest.fn()}
-        onBusy={onBusy}
-      />,
+    field(tree, 'Payment request or address').props.onChangeText(
+      'bitcoin:x?bgnq=y',
     );
   });
-  await act(async () => {
-    field(tree, 'Payment request or address').props.onChangeText('bitcoin:x?bgnq=y');
-  });
+  await enterAmount(tree, '4200');
   await act(async () => {
     await label(tree, 'Review payment').props.onPress();
   });
-  const shown = JSON.stringify(tree.toJSON());
+  const shown = meaning(tree);
   expect(shown).toContain('Direct funding');
   expect(shown).toContain('Maximum network fee');
   expect(shown).toContain('1,000 sats');
-  await act(async () => {
-    await label(tree, 'Send 4,200 sats').props.onPress();
-  });
-  const after = JSON.stringify(tree.toJSON());
+  expect(shown).toContain(review.warnings[0]);
+  // Warned about, the hold takes longer.
+  expect(holdMs(tree, 'Send 4,200 sats')).toBe(1000);
+  await activate(tree, 'Send 4,200 sats');
+  const after = meaning(tree);
   expect(after).toContain('Payment failed.');
   expect(after).toContain('Nothing was sent');
+  expect(after).not.toContain(copy.send.sent);
   expect(send).toHaveBeenCalledTimes(1);
   await act(async () => tree.unmount());
 });
@@ -310,32 +394,72 @@ test('a direct-funding review names its method and fee ceiling, and a refusal sa
 const INVOICE_24425 =
   'lnbc244250n1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqw53adf';
 
+test("held, the dust Review control and the amount's marks say why", async () => {
+  const tree = await renderSend(
+    <SendScreen
+      client={adapter({})}
+      balance={{
+        totalSats: 10_000,
+        availableSats: 1_000,
+        pendingSats: 9_000,
+        receivableSats: 0,
+      }}
+      onActivity={jest.fn()}
+      onRefresh={jest.fn()}
+      onBusy={onBusy}
+    />,
+  );
+  // With nothing to review, the control is dust and says what it needs.
+  expect(whispers(tree)).toContainEqual({
+    label: copy.send.reviewWaits,
+    on: true,
+  });
+  await act(async () => {
+    field(tree, 'Payment request or address').props.onChangeText('lnbc-some');
+  });
+  // A request, but no amount yet: still dust, and it says what it needs.
+  expect(whispers(tree)).toContainEqual({
+    label: copy.send.amountWaits,
+    on: true,
+  });
+  // More than can be sent now: the clock beside the amount says so, and
+  // the review, which has all it needs, is a live control.
+  await enterAmount(tree, '4200');
+  expect(whispers(tree)).toContainEqual({
+    label: copy.send.review,
+    on: false,
+  });
+  expect(whispers(tree)).toContainEqual({
+    label: copy.amount.overSpendable,
+    on: true,
+  });
+  await act(async () => tree.unmount());
+});
+
 test('a request that names its amount fills the amount field and locks it', async () => {
   const prepareSend = jest.fn().mockRejectedValue(new Error('stop here'));
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(
-      <SendScreen
-        client={adapter({ prepareSend })}
-        onActivity={jest.fn()}
-        onRefresh={jest.fn()}
-        onBusy={onBusy}
-      />,
-    );
-  });
-  await act(async () => {
-    field(tree, 'Amount in sats').props.onChangeText('500');
-  });
+  const tree = await renderSend(
+    <SendScreen
+      client={adapter({ prepareSend })}
+      onActivity={jest.fn()}
+      onRefresh={jest.fn()}
+      onBusy={onBusy}
+    />,
+  );
+  await enterAmount(tree, '500');
   await act(async () => {
     label(tree, 'Scan a payment request').props.onPress();
   });
   await act(async () => {
     tree.root.findByType(Scanner).props.onDetected(INVOICE_24425);
   });
-  const amount = field(tree, 'Amount in sats');
-  expect(amount.props.value).toBe('24,425');
-  expect(amount.props.editable).toBe(false);
-  expect(JSON.stringify(tree.toJSON())).toContain('Set by the payment request.');
+  expect(amountValue(tree)).toBe('24425');
+  // Grouped for the reader, as the field showed it.
+  expect(amountShown(tree).props.accessibilityValue.text).toBe('24,425 sats');
+  // Locked: the keypad goes, and the amount says why.
+  expect(keypads(tree)).toHaveLength(0);
+  expect(amountShown(tree).props.accessibilityState.disabled).toBe(true);
+  expect(meaning(tree)).toContain('Set by the payment request.');
   await act(async () => {
     await label(tree, 'Review payment').props.onPress();
   });
@@ -344,19 +468,21 @@ test('a request that names its amount fills the amount field and locks it', asyn
     request: INVOICE_24425,
     amountSats: undefined,
   });
+  expect(alerts(tree)).toEqual(['stop here']);
   // A Bitcoin link carrying that invoice fixes the same amount.
   await act(async () => {
     field(tree, 'Payment request or address').props.onChangeText(
       `bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?lightning=${INVOICE_24425}`,
     );
   });
-  expect(field(tree, 'Amount in sats').props.value).toBe('24,425');
+  expect(amountValue(tree)).toBe('24425');
   // A request that names no amount gives back what was typed.
   await act(async () => {
     field(tree, 'Payment request or address').props.onChangeText('lnbc-typed');
   });
-  expect(field(tree, 'Amount in sats').props.value).toBe('500');
-  expect(field(tree, 'Amount in sats').props.editable).toBe(true);
+  expect(amountValue(tree)).toBe('500');
+  expect(amountShown(tree).props.accessibilityState.disabled).toBe(false);
+  expect(keypads(tree)).toHaveLength(1);
   await act(async () => {
     tree.unmount();
   });
@@ -370,24 +496,24 @@ test('a Lightning review shows the expected fee beside the maximum it can cost',
     feeLabel: 'Maximum routing fee',
     totalSats: 4211,
   };
-  let tree!: ReactTestRenderer;
+  const tree = await renderSend(
+    <SendScreen
+      client={adapter({ prepareSend: jest.fn().mockResolvedValue(lightning) })}
+      onActivity={jest.fn()}
+      onRefresh={jest.fn()}
+      onBusy={onBusy}
+    />,
+  );
   await act(async () => {
-    tree = create(
-      <SendScreen
-        client={adapter({ prepareSend: jest.fn().mockResolvedValue(lightning) })}
-        onActivity={jest.fn()}
-        onRefresh={jest.fn()}
-        onBusy={onBusy}
-      />,
+    field(tree, 'Payment request or address').props.onChangeText(
+      'lnbc-request',
     );
   });
-  await act(async () => {
-    field(tree, 'Payment request or address').props.onChangeText('lnbc-request');
-  });
+  await enterAmount(tree, '4200');
   await act(async () => {
     await label(tree, 'Review payment').props.onPress();
   });
-  const shown = JSON.stringify(tree.toJSON());
+  const shown = meaning(tree);
   expect(shown).toContain('Expected routing fee');
   expect(shown).toContain('about 1 sats');
   expect(shown).toContain('Maximum routing fee');
@@ -396,5 +522,347 @@ test('a Lightning review shows the expected fee beside the maximum it can cost',
   expect(shown).toContain('4,211 sats');
   await act(async () => {
     tree.unmount();
+  });
+});
+
+/**
+ * A request the parser reads as a payment, so it is taken as a chip, and so
+ * can be held. A string it cannot read is refused as it is entered.
+ */
+const HELD_AT = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
+const HELD = `bitcoin:${HELD_AT}?amount=0.000042&label=held`;
+
+/** Reviews `request` on a fresh Send and commits it with the hold. */
+async function payOnce(client: WalletAdapter, request: string) {
+  const tree = await renderSend(
+    <SendScreen
+      client={client}
+      initialRequest={request}
+      onActivity={jest.fn()}
+      onRefresh={jest.fn()}
+      onBusy={onBusy}
+    />,
+  );
+  await act(async () => {
+    await label(tree, 'Review payment').props.onPress();
+  });
+  await activate(tree, 'Send 4,200 sats');
+  return tree;
+}
+
+test('a request whose payment is unknown cannot be paid again: it lands on the held ring', async () => {
+  jest.useFakeTimers();
+  try {
+    const said = jest.spyOn(
+      AccessibilityInfo,
+      'announceForAccessibilityWithOptions',
+    );
+    const prepareSend = jest
+      .fn()
+      .mockResolvedValue({ ...quote, expiresAt: Date.now() + 60000 });
+    const send = jest.fn().mockResolvedValue({
+      id: 'p-held',
+      status: 'uncertain',
+      amountSats: 4200,
+      feeSats: 20,
+      message: 'Payment status unknown.',
+    });
+    const client = adapter({ prepareSend, send });
+    const paid = await payOnce(client, HELD);
+    // Unknown is said loudly, once a screen reader has landed on its mark.
+    await act(async () => {
+      jest.advanceTimersByTime(stepInMs() + 50);
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(FOCUS_SETTLE_MS + 50);
+    });
+    expect(said).toHaveBeenCalledWith(copy.send.heldAnnouncement, {
+      queue: false,
+    });
+    await act(async () => paid.unmount());
+    // Held however it is spelled: case, space and the scheme aside.
+    for (const again of [
+      HELD,
+      `  BITCOIN:${HELD_AT.toUpperCase()}?amount=0.000042&label=held `,
+    ]) {
+      const tree = await renderSend(
+        <SendScreen
+          client={client}
+          initialRequest={again}
+          onActivity={jest.fn()}
+          onRefresh={jest.fn()}
+          onBusy={onBusy}
+        />,
+      );
+      const shown = meaning(tree);
+      expect(shown).toContain(copy.send.held);
+      expect(shown).toContain('Needs checking');
+      expect(pressableLabels(tree)).not.toContain('Review payment');
+      expect(holds(tree, 'Send 4,200 sats')).toEqual([]);
+      expect(pressableLabels(tree)).toContain(copy.send.viewActivity);
+      await act(async () => tree.unmount());
+    }
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    said.mockRestore();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a send that ends without a result is held as unknown, never an error to retry', async () => {
+  const message =
+    'The connection ended before the wallet confirmed the result. Check Activity before attempting this action again.';
+  const onRefresh = jest.fn();
+  const send = jest
+    .fn()
+    .mockRejectedValue(
+      Object.assign(new Error(message), { code: 'RESULT_UNCERTAIN' }),
+    );
+  const tree = await renderSend(
+    <SendScreen
+      client={adapter({
+        prepareSend: jest.fn().mockResolvedValue(quote),
+        send,
+      })}
+      initialRequest={priced('dropped')}
+      onActivity={jest.fn()}
+      onRefresh={onRefresh}
+      onBusy={onBusy}
+    />,
+  );
+  await act(async () => {
+    await label(tree, 'Review payment').props.onPress();
+  });
+  await activate(tree, 'Send 4,200 sats');
+  const shown = meaning(tree);
+  expect(shown).toContain(message);
+  expect(shown).toContain('Needs checking');
+  expect(shown).not.toContain(copy.send.failed);
+  expect(shown).not.toContain(copy.send.sent);
+  expect(pressableLabels(tree)).not.toContain('Review payment');
+  expect(holds(tree, 'Send 4,200 sats')).toEqual([]);
+  expect(onRefresh).toHaveBeenCalledTimes(1);
+  expect(send).toHaveBeenCalledTimes(1);
+  await act(async () => tree.unmount());
+});
+
+test('a stale balance holds the review back, and a tap refreshes instead', async () => {
+  const prepareSend = jest.fn();
+  const onRefresh = jest.fn();
+  const tree = await renderSend(
+    <SendScreen
+      client={adapter({ prepareSend })}
+      initialRequest="lnbc-stale"
+      disabled
+      onActivity={jest.fn()}
+      onRefresh={onRefresh}
+      onBusy={onBusy}
+    />,
+  );
+  expect(element(tree, 'Review payment').props.accessibilityState).toEqual({
+    disabled: true,
+    busy: false,
+  });
+  expect(meaning(tree)).toContain(copy.send.stale);
+  await press(tree, 'Review payment');
+  expect(onRefresh).toHaveBeenCalledTimes(1);
+  expect(prepareSend).not.toHaveBeenCalled();
+  await act(async () => tree.unmount());
+});
+
+test('a completed payment goes home a moment later, unless the screen is touched', async () => {
+  jest.useFakeTimers();
+  try {
+    const send = jest.fn().mockResolvedValue({
+      id: 'p-done',
+      status: 'completed',
+      amountSats: 4200,
+      feeSats: 20,
+      message: 'Payment sent.',
+    });
+    for (const touched of [false, true]) {
+      const onDone = jest.fn();
+      const tree = await renderSend(
+        <SendScreen
+          client={adapter({
+            prepareSend: jest.fn().mockResolvedValue(quote),
+            send,
+          })}
+          initialRequest={
+            touched ? pricedElsewhere('done-touched') : priced('done')
+          }
+          onActivity={jest.fn()}
+          onRefresh={jest.fn()}
+          onBusy={onBusy}
+          onDone={onDone}
+        />,
+      );
+      await act(async () => {
+        await label(tree, 'Review payment').props.onPress();
+      });
+      await activate(tree, 'Send 4,200 sats');
+      expect(meaning(tree)).toContain(copy.send.sent);
+      if (touched) {
+        await act(async () => {
+          tree.root
+            .findAll(node => typeof node.props.onTouchStart === 'function')[0]
+            .props.onTouchStart();
+        });
+      }
+      await act(async () => jest.advanceTimersByTime(2199));
+      expect(onDone).not.toHaveBeenCalled();
+      await act(async () => jest.advanceTimersByTime(1));
+      expect(onDone).toHaveBeenCalledTimes(touched ? 0 : 1);
+      await act(async () => tree.unmount());
+    }
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+describe('what the engine says no with', () => {
+  const refusal = (code: string, message: string) =>
+    Object.assign(new Error(message), { code });
+
+  /** Reviews `request`, with `amount` keyed in first when it names none. */
+  async function review(
+    request: string,
+    client: object,
+    props: Partial<React.ComponentProps<typeof SendScreen>> = {},
+    amount = '',
+  ) {
+    const tree = await renderSend(
+      <SendScreen
+        client={adapter(client)}
+        initialRequest={request}
+        onActivity={jest.fn()}
+        onRefresh={jest.fn()}
+        onBusy={onBusy}
+        {...props}
+      />,
+    );
+    if (amount) await enterAmount(tree, amount);
+    await act(async () => {
+      await label(tree, 'Review payment').props.onPress();
+    });
+    return tree;
+  }
+
+  test('a request it will not pay dissolves back into the well, kept to fix', async () => {
+    const message = 'This invoice is damaged. Ask for a new one.';
+    const tree = await review(priced('damaged'), {
+      prepareSend: jest
+        .fn()
+        .mockRejectedValue(refusal('BOLT11_CHECKSUM', message)),
+    });
+    expect(alerts(tree)).toEqual([message]);
+    expect(tree.root.findAllByType(TextInput)).toHaveLength(1);
+    expect(field(tree, 'Payment request or address').props.value).toBe(
+      priced('damaged'),
+    );
+    // Changing the request clears the refusal.
+    await act(async () => {
+      field(tree, 'Payment request or address').props.onChangeText('lnbc-new');
+    });
+    expect(alerts(tree)).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+
+  test('more than can be sent now, within what the wallet holds, is honey on the amount', async () => {
+    const message = 'Not enough can be sent right now.';
+    const tree = await review(
+      HELD_AT,
+      {
+        prepareSend: jest
+          .fn()
+          .mockRejectedValue(refusal('INSUFFICIENT_FUNDS', message)),
+      },
+      {
+        balance: {
+          totalSats: 10_000,
+          availableSats: 1_000,
+          pendingSats: 9_000,
+          receivableSats: 0,
+        },
+      },
+      '4200',
+    );
+    // A new amount lets the refusal go; the review brings it back.
+    await enterAmount(tree, '4200');
+    await act(async () => {
+      await label(tree, 'Review payment').props.onPress();
+    });
+    expect(alerts(tree)).toEqual([message]);
+    expect(amountShown(tree).props.accessibilityHint).toContain(message);
+    expect(amountShown(tree).props.accessibilityHint).toContain(
+      copy.amount.overSpendable,
+    );
+    await act(async () => tree.unmount());
+  });
+
+  test('more than the wallet holds shakes the amount each time it is refused', async () => {
+    const message = 'This wallet does not hold that much.';
+    const tree = await review(
+      HELD_AT,
+      {
+        prepareSend: jest
+          .fn()
+          .mockRejectedValue(refusal('INSUFFICIENT_FUNDS', message)),
+      },
+      {
+        balance: {
+          totalSats: 1_000,
+          availableSats: 1_000,
+          pendingSats: 0,
+          receivableSats: 0,
+        },
+      },
+      '4200',
+    );
+    const shakes = jest.spyOn(tokens, 'shake');
+    const deltas: number[] = [];
+    for (let tries = 0; tries < 3; tries++) {
+      const before = shakes.mock.calls.length;
+      await act(async () => {
+        await label(tree, 'Review payment').props.onPress();
+      });
+      deltas.push(shakes.mock.calls.length - before);
+      expect(alerts(tree)).toEqual([message]);
+      expect(amountShown(tree).props.accessibilityHint).toContain(
+        copy.amount.overTotal,
+      );
+    }
+    // Each refusal shakes the bang by the control and the amount itself.
+    expect(deltas).toEqual([2, 2, 2]);
+    shakes.mockRestore();
+    await act(async () => tree.unmount());
+  });
+
+  test('a quote that runs out as it is sent turns into a refresh', async () => {
+    const message = 'The fee quote expired. Review the payment again.';
+    const send = jest.fn().mockRejectedValue(refusal('QUOTE_EXPIRED', message));
+    const tree = await review(priced('late'), {
+      prepareSend: jest.fn().mockResolvedValue(quote),
+      send,
+    });
+    await activate(tree, 'Send 4,200 sats');
+    expect(alerts(tree)).toEqual([message]);
+    expect(find(tree, 'Refresh quote')).toBeDefined();
+    expect(holds(tree, 'Send 4,200 sats')).toEqual([]);
+    expect(send).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('anything else is a bang by the control, with the words to read', async () => {
+    const message = 'The primary node is not connected.';
+    const tree = await review(priced('down'), {
+      prepareSend: jest
+        .fn()
+        .mockRejectedValue(refusal('PRIMARY_DOWN', message)),
+    });
+    expect(alerts(tree)).toEqual([message]);
+    expect(find(tree, 'Review payment')).toBeDefined();
+    await act(async () => tree.unmount());
   });
 });

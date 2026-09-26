@@ -6,17 +6,30 @@ import App from '../App';
 import * as DeviceWallet from '../src/embedded/client';
 import { DemoWalletClient, EmbeddedWalletClient } from '@beignet/wallet-core';
 import { defaultPreferences } from '../src/services/networks';
+import HapticFeedback from 'react-native-haptic-feedback';
+import { haptics } from '../src/design/haptics';
+import { WhisperProvider } from '../src/glyphs/Whisper';
+import { setHapticsEnabled } from '../src/services/haptics';
+import { LockScreen } from '../src/scenes/phases/Locked';
+import { Canvas } from '../src/stage/Canvas';
+import { SceneSlot } from '../src/stage/panes/SceneSlot';
+import { meaning } from '../test-support/query';
+import { activePhase } from '../test-support/scene';
 
 const SESSION = 'com.beignet.wallet.last-session';
 const LOCK = 'com.beignet.wallet.lock';
 const GUARD = 'com.beignet.wallet.lock-guard';
+const HAPTICS = 'com.beignet.wallet.haptics';
 
 function strings(children: unknown, out: string[] = []): string[] {
   if (typeof children === 'string' || typeof children === 'number')
     out.push(String(children));
   else if (Array.isArray(children)) children.forEach(c => strings(c, out));
   else if (children && typeof children === 'object')
-    strings((children as { props?: { children?: unknown } }).props?.children, out);
+    strings(
+      (children as { props?: { children?: unknown } }).props?.children,
+      out,
+    );
   return out;
 }
 const text = (tree: ReactTestRenderer) =>
@@ -92,9 +105,22 @@ test('an enabled lock holds the wallet back until it is unlocked', async () => {
     await act(async () => {
       tree = create(<App />);
     });
-    // The lock screen shows, and nothing about the wallet is on it.
-    expect(text(tree)).toContain('Locked');
-    expect(text(tree)).not.toContain('My saved wallet');
+    // The lock screen shows, and nothing about the wallet is on it or
+    // spoken from it.
+    expect(activePhase(tree)).toBe('locked');
+    expect(meaning(tree)).toContain('Locked');
+    expect(meaning(tree)).not.toContain('My saved wallet');
+    // A long press can summon a whisper here too.
+    expect(
+      tree.root.findByType(WhisperProvider).findAllByType(LockScreen),
+    ).toHaveLength(1);
+    // The lock is drawn last, over whatever arrives as it opens, and no
+    // phase and no canvas is drawn under it.
+    const lock = tree.root.findByType(LockScreen);
+    const drawn = lock.parent!.children;
+    expect(drawn[drawn.length - 1]).toBe(lock);
+    expect(tree.root.findAllByType(SceneSlot)).toHaveLength(0);
+    expect(tree.root.findAllByType(Canvas)).toHaveLength(0);
     // Crucially the vault is never opened, so no engine runs for someone who
     // has not authenticated.
     expect(opened).not.toHaveBeenCalled();
@@ -105,9 +131,44 @@ test('an enabled lock holds the wallet back until it is unlocked', async () => {
       await label(tree, 'Unlock')!.props.onPress();
     });
     expect(opened).toHaveBeenCalledTimes(1);
-    expect(text(tree)).not.toContain('Chicory is locked.');
+    expect(activePhase(tree)).not.toBe('locked');
+    expect(meaning(tree)).not.toContain('Chicory is locked.');
+    expect(tree.root.findAllByType(LockScreen)).toHaveLength(0);
   } finally {
     await act(async () => tree?.unmount());
+    jest.restoreAllMocks();
+  }
+});
+
+test('haptics turned off in Settings stay off from launch', async () => {
+  records.set(HAPTICS, 'off');
+  let tree: ReactTestRenderer | undefined;
+  try {
+    await act(async () => {
+      tree = create(<App />);
+    });
+    haptics.tick();
+    expect(HapticFeedback.trigger).not.toHaveBeenCalled();
+    await act(async () => tree!.unmount());
+    tree = undefined;
+
+    // Nothing saved means on. They are still off from the launch before, so
+    // only a launch that reads the store and applies what it finds there can
+    // turn them back on.
+    records.delete(HAPTICS);
+    haptics.tick();
+    expect(HapticFeedback.trigger).not.toHaveBeenCalled();
+    await act(async () => {
+      tree = create(<App />);
+    });
+    expect(Keychain.getGenericPassword).toHaveBeenCalledWith(
+      expect.objectContaining({ service: HAPTICS }),
+    );
+    haptics.tick();
+    expect(HapticFeedback.trigger).toHaveBeenCalledTimes(1);
+  } finally {
+    if (tree) await act(async () => tree!.unmount());
+    setHapticsEnabled(true);
     jest.restoreAllMocks();
   }
 });
@@ -123,7 +184,8 @@ test('a refused unlock keeps the wallet closed and says so', async () => {
     await act(async () => {
       await label(tree, 'Unlock')!.props.onPress();
     });
-    expect(text(tree)).toContain('stays locked until this is confirmed');
+    expect(activePhase(tree)).toBe('locked');
+    expect(meaning(tree)).toContain('stays locked until this is confirmed');
     expect(opened).not.toHaveBeenCalled();
   } finally {
     await act(async () => tree?.unmount());
@@ -141,7 +203,9 @@ test('with no lock set the app opens straight into its wallet', async () => {
       locked: false,
     }),
   );
-  jest.spyOn(DeviceWallet, 'openDeviceWallet').mockResolvedValue(deviceClient());
+  jest
+    .spyOn(DeviceWallet, 'openDeviceWallet')
+    .mockResolvedValue(deviceClient());
   jest
     .spyOn(DeviceWallet, 'loadDevicePreferences')
     .mockResolvedValue(defaultPreferences());
@@ -151,7 +215,7 @@ test('with no lock set the app opens straight into its wallet', async () => {
       tree = create(<App />);
     });
     expect(text(tree)).not.toContain('Chicory is locked.');
-    expect(text(tree)).toContain('Total balance');
+    expect(meaning(tree)).toContain('Total balance');
   } finally {
     await act(async () => tree?.unmount());
     jest.restoreAllMocks();
@@ -179,7 +243,8 @@ test('a saved wallet that fails to open offers itself back, not first-run setup'
     await act(async () => {
       tree = create(<App />);
     });
-    const shown = text(tree);
+    expect(activePhase(tree)).toBe('saved');
+    const shown = meaning(tree);
     // The wallet is here; offering to choose where a wallet should live is the
     // wrong question, and was what the app used to fall back to.
     expect(shown).toContain('could not be opened just now');

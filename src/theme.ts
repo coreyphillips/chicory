@@ -1,48 +1,54 @@
 import { Platform } from 'react-native';
+import type { TextStyle } from 'react-native';
 import { formatSats, satsToBtcString } from '@beignet/wallet-core';
 import type { PaymentStatus } from '@beignet/wallet-core';
+import { palette } from './design/palette';
 
 /**
- * One source of truth for the app's surfaces, spacing, type and motion.
+ * One source of truth for the app's surfaces, spacing and type. Motion is
+ * src/motion's.
  *
- * The structural greys and the coral accent match the browser app's tokens in
- * `beignet-web/app/globals.css`, so the two clients read as one product. The
- * mint/cream/warning accents are native-only: the phone leans on colour where
- * the browser leans on layout.
+ * The colours are Chicory bloom (`src/design/palette.ts`) and no longer mirror
+ * beignet-web's greys and coral. The redesign says most things with colour,
+ * glyph and motion instead of prose, so the phone needs its own semantic set,
+ * with the numbers that matter held to 7:1 contrast, rather than a browser
+ * palette that leans on layout and words.
  *
- * The palette is deliberately dark-only, as the browser app is. There is no
- * light theme to fall back to, so nothing here reads `useColorScheme`.
+ * `colors` keeps its old names as aliases of the new tokens, so screens that
+ * have not been redrawn yet restyle at once. New code reads `palette`.
+ *
+ * The palette is deliberately dark-only. There is no light theme to fall back
+ * to, so nothing here reads `useColorScheme`.
  */
 export const colors = {
   // Structure, back to front.
-  background: '#111417',
-  surface: '#1B1F23',
-  raised: '#22272B',
-  overlay: '#2A3036',
-  line: '#30363C',
-  input: '#3B424A',
+  background: palette.roast,
+  surface: palette.espresso,
+  raised: palette.mocha,
+  overlay: palette.cocoa,
+  line: palette.husk,
+  input: palette.bark,
 
   // Ink.
-  text: '#F2F3F3',
-  muted: '#A1AAB4',
-  faint: '#78818B',
-  ink: '#201512',
+  text: palette.cream,
+  muted: palette.steam,
+  faint: palette.dust,
+  ink: palette.ink,
 
   // Brand and semantics.
-  primary: '#FF775F',
-  mint: '#B5DFBD',
-  cream: '#F2F0E8',
-  warning: '#F8D48B',
-  danger: '#FF8176',
+  primary: palette.bloom,
+  mint: palette.sage,
+  cream: palette.cream,
+  warning: palette.honey,
+  danger: palette.radish,
 
-  // Tinted fills. Derived by hand from the accents above so a notice, chip or
-  // icon tile can carry meaning without a translucent overlay.
-  primarySoft: '#3A2420',
-  mintSoft: '#1E3226',
-  creamInk: '#5F6460',
-  warningSoft: '#38301F',
-  dangerSoft: '#3A2320',
-  neutralSoft: '#252B30',
+  // Tinted fills, so a notice, chip or icon tile can carry meaning without a
+  // translucent overlay.
+  primarySoft: palette.bloomSoft,
+  mintSoft: palette.sageSoft,
+  warningSoft: palette.honeySoft,
+  dangerSoft: palette.radishSoft,
+  neutralSoft: palette.creamSoft,
 };
 
 /** 4pt rhythm. Every gap, pad and inset in the app comes from here. */
@@ -60,10 +66,13 @@ export const space = {
 export const radius = {
   sm: 10,
   md: 14,
-  lg: 18,
+  lg: 20,
   xl: 24,
   xxl: 28,
   pill: 999,
+  qr: 24,
+  pane: 28,
+  round: 999,
 };
 
 /**
@@ -75,16 +84,94 @@ export const fonts = {
   mono: Platform.select({ ios: 'Menlo', default: 'monospace' }) as string,
 };
 
-/** Named type ramp. Sizes pair with a line height so blocks stack predictably. */
+// Figures that change in place must not shift sideways as they change.
+const TABULAR: TextStyle['fontVariant'] = ['tabular-nums'];
+
+/**
+ * Named type ramp. Sizes pair with a line height so blocks stack predictably.
+ * The hero never uses `adjustsFontSizeToFit`; it steps down to 56, 48 and 40
+ * by fitted width, so a balance never shrinks mid-roll.
+ */
 export const type = {
-  display: { fontSize: 60, lineHeight: 64, letterSpacing: -3, fontWeight: '400' },
-  title: { fontSize: 32, lineHeight: 38, letterSpacing: -1.1, fontWeight: '600' },
-  heading: { fontSize: 21, lineHeight: 27, letterSpacing: -0.4, fontWeight: '600' },
-  amount: { fontSize: 40, lineHeight: 48, letterSpacing: -1.6, fontWeight: '500' },
-  body: { fontSize: 15, lineHeight: 23, fontWeight: '400' },
+  hero: {
+    fontSize: 64,
+    lineHeight: 72,
+    letterSpacing: -1.5,
+    fontWeight: '300',
+    fontVariant: TABULAR,
+  },
+  heroUnit: { fontSize: 15, lineHeight: 20, fontWeight: '500' },
+  amount: {
+    fontSize: 48,
+    lineHeight: 56,
+    fontWeight: '300',
+    fontVariant: TABULAR,
+  },
+  amountDetail: {
+    fontSize: 40,
+    lineHeight: 48,
+    fontWeight: '300',
+    fontVariant: TABULAR,
+  },
+  line: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '400',
+    fontVariant: TABULAR,
+  },
+  // Received rows are set at 600 and sent rows keep this 400, so direction
+  // reads before the sign does.
+  row: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '400',
+    fontVariant: TABULAR,
+  },
+  meta: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '400',
+    fontVariant: TABULAR,
+  },
+  mono: {
+    fontFamily: fonts.mono,
+    fontSize: 12,
+    lineHeight: 18,
+    fontVariant: TABULAR,
+  },
+  word: { fontSize: 17, lineHeight: 22, fontWeight: '500' },
+  keypad: {
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '300',
+    fontVariant: TABULAR,
+  },
+  // The Whisper pill's words (REDESIGN.md rule 3).
+  whisper: { fontSize: 13, lineHeight: 18 },
+
+  // The Settings language, and the screens not yet redrawn.
+  display: {
+    fontSize: 60,
+    lineHeight: 64,
+    letterSpacing: -3,
+    fontWeight: '400',
+  },
+  title: { fontSize: 28, lineHeight: 34, fontWeight: '600' },
+  heading: {
+    fontSize: 21,
+    lineHeight: 27,
+    letterSpacing: -0.4,
+    fontWeight: '600',
+  },
+  body: { fontSize: 15, lineHeight: 22, fontWeight: '400' },
   label: { fontSize: 13, lineHeight: 18, fontWeight: '600' },
   caption: { fontSize: 12, lineHeight: 18, fontWeight: '400' },
-  micro: { fontSize: 11, lineHeight: 16, fontWeight: '500' },
+  micro: {
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 1.2,
+    fontWeight: '600',
+  },
   eyebrow: {
     fontSize: 11,
     lineHeight: 14,
@@ -93,16 +180,14 @@ export const type = {
   },
 } as const;
 
-/** Durations in ms, read by `Animated`. Nothing here uses `LayoutAnimation`. */
-export const motion = {
-  fast: 140,
-  base: 220,
-  slow: 380,
-  celebrate: 1100,
-};
-
 /** Minimum comfortable touch target, per the platform guidelines. */
 export const HIT_SLOP = { top: 10, bottom: 10, left: 10, right: 10 };
+
+/**
+ * The least any control may be touched by (REDESIGN.md 3.4), its frame and
+ * its hitSlop together.
+ */
+export const MIN_TARGET = 48;
 
 /**
  * Display formatting for satoshi amounts.
@@ -232,14 +317,4 @@ export const dayLabel = (timestamp: number, now = Date.now()) => {
       : DAY_MONTH_YEAR.format(day);
   DAY_CACHE.set(dayMidnight, label);
   return label;
-};
-
-/** "Updated 12s ago" for the staleness line. */
-export const agoLabel = (timestamp: number, now = Date.now()) => {
-  const seconds = Math.max(0, Math.round((now - timestamp) / 1000));
-  if (seconds < 5) return 'just now';
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  return `${Math.round(minutes / 60)}h ago`;
 };

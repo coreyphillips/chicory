@@ -1,5 +1,6 @@
 import React from 'react';
 import { Text } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import {
@@ -8,7 +9,23 @@ import {
   HomeScreen,
   activityStatus,
 } from '../src/screens/Wallet';
+import { copy } from '../src/design/copy';
+import { chipText } from '../src/glyphs/CopyChip';
+import { Odometer } from '../src/glyphs/Odometer';
+import { StatusRing } from '../src/glyphs/StatusRing';
+import { ringFlags, ringVisual } from '../src/scenes/activity/visual';
 import { useNow } from '../src/services/clock';
+import { MASK } from '../src/theme';
+import { copyViolations } from '../test-support/copyGuard';
+import { mount } from '../test-support/guard';
+import {
+  allText,
+  drawnIn,
+  meaning,
+  press,
+  visibleText,
+  whispers,
+} from '../test-support/query';
 
 const activity = (over: Partial<Activity> & { id: string }): Activity => ({
   kind: 'sent',
@@ -82,7 +99,10 @@ function strings(children: unknown, out: string[] = []): string[] {
   else if (Array.isArray(children))
     children.forEach(child => strings(child, out));
   else if (children && typeof children === 'object')
-    strings((children as { props?: { children?: unknown } }).props?.children, out);
+    strings(
+      (children as { props?: { children?: unknown } }).props?.children,
+      out,
+    );
   return out;
 }
 const text = (tree: ReactTestRenderer) =>
@@ -96,52 +116,82 @@ const state = (tree: ReactTestRenderer, label: string) =>
     .findAllByProps({ accessibilityLabel: label })
     .find(node => !!node.props.accessibilityState)!;
 
+/** Draws `element` under a gesture root, as the app draws every screen. */
+const mountRooted = (element: React.ReactElement) =>
+  mount(<GestureHandlerRootView>{element}</GestureHandlerRootView>);
+
 async function renderActivity(props: Record<string, unknown> = {}) {
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(
-      <ActivityScreen
-        snapshot={snapshot}
-        onDetail={jest.fn()}
-        filter="All"
-        onFilter={jest.fn()}
-        query=""
-        onQuery={jest.fn()}
-        {...props}
-      />,
-    );
-  });
-  return tree;
+  return mountRooted(
+    <ActivityScreen
+      snapshot={snapshot}
+      onDetail={jest.fn()}
+      filter="All"
+      onFilter={jest.fn()}
+      query=""
+      onQuery={jest.fn()}
+      {...props}
+    />,
+  );
 }
 
+// A row's title is the engine's words, so it reaches a screen reader only.
 test('search matches title, reference and amount', async () => {
   let tree = await renderActivity({ query: 'salary' });
-  expect(text(tree)).toContain('Salary');
-  expect(text(tree)).not.toContain('Coffee');
+  expect(meaning(tree)).toContain('Salary');
+  expect(meaning(tree)).not.toContain('Coffee');
   await act(async () => tree.unmount());
 
   tree = await renderActivity({ query: 'lnbc-reference' });
-  expect(text(tree)).toContain('Paid request');
-  expect(text(tree)).not.toContain('Coffee');
+  expect(meaning(tree)).toContain('Paid request');
+  expect(meaning(tree)).not.toContain('Coffee');
   await act(async () => tree.unmount());
 
   tree = await renderActivity({ query: '4200' });
-  expect(text(tree)).toContain('Coffee');
-  expect(text(tree)).not.toContain('Salary');
+  expect(meaning(tree)).toContain('Coffee');
+  expect(meaning(tree)).not.toContain('Salary');
   await act(async () => tree.unmount());
 
   tree = await renderActivity({ query: 'nothing here' });
-  expect(text(tree)).toContain('No payments match');
+  expect(meaning(tree)).toContain('No payments match “nothing here”.');
   await act(async () => tree.unmount());
 });
 
 test('the Requests filter keeps a request that has since been paid', async () => {
   const tree = await renderActivity({ filter: 'Requests' });
-  expect(text(tree)).toContain('Invoice for Dana');
+  expect(meaning(tree)).toContain('Invoice for Dana');
   // 'Paid request' is a received payment now, but it is still the code the
   // user sent someone, which is how they will look for it.
-  expect(text(tree)).toContain('Paid request');
-  expect(text(tree)).not.toContain('Coffee');
+  expect(meaning(tree)).toContain('Paid request');
+  expect(meaning(tree)).not.toContain('Coffee');
+  await act(async () => tree.unmount());
+});
+
+test('the rows ring in slate on a test network, and in bloom on mainnet', async () => {
+  const rings = (tree: ReactTestRenderer) =>
+    tree.root.findAllByType(StatusRing).map(ring => ring.props.test);
+  let tree = await renderActivity();
+  expect(snapshot.wallet.network).not.toBe('mainnet');
+  expect(new Set(rings(tree))).toEqual(new Set([true]));
+  await act(async () => tree.unmount());
+  tree = await renderActivity({
+    snapshot: {
+      ...snapshot,
+      wallet: { ...snapshot.wallet, network: 'mainnet' },
+    },
+  });
+  expect(new Set(rings(tree))).toEqual(new Set([false]));
+  await act(async () => tree.unmount());
+});
+
+test('held, each row ring whispers what it shows', async () => {
+  const tree = await renderActivity();
+  const said = whispers(tree);
+  const items = snapshot.activity;
+  expect(said).toHaveLength(items.length);
+  for (const item of items) {
+    const words = [activityStatus(item), ...ringFlags(ringVisual(item))];
+    expect(said).toContainEqual({ label: words.join('. '), on: true });
+  }
   await act(async () => tree.unmount());
 });
 
@@ -153,9 +203,10 @@ test('rows are grouped under day headers', async () => {
 });
 
 test('hiding the balance masks the total, the available line and every row amount', async () => {
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(
+  // The rows Home once previewed are the sheet's, so both are drawn here, as
+  // they sit together at home.
+  const tree = await mountRooted(
+    <>
       <HomeScreen
         snapshot={snapshot}
         hidden
@@ -163,46 +214,77 @@ test('hiding the balance masks the total, the available line and every row amoun
         onReceive={jest.fn()}
         onActivity={jest.fn()}
         onDetail={jest.fn()}
-      />,
+      />
+      <ActivityScreen
+        snapshot={snapshot}
+        hidden
+        onDetail={jest.fn()}
+        filter="All"
+        onFilter={jest.fn()}
+        query=""
+        onQuery={jest.fn()}
+      />
+    </>,
+  );
+  expect(visibleText(tree)).toContain('••••••');
+  // The hero draws a figure to a cell, so the total is read from its cells:
+  // the mask and the unit, and not one digit. So is what can be spent,
+  // which it keeps in the same place for Send and Receive.
+  for (const figure of ['home-total', 'home-spendable']) {
+    const hero = drawnIn(
+      tree.root.findAll(node => node.props.testID === figure)[0],
     );
-  });
-  const rendered = text(tree);
-  expect(rendered).toContain('••••••');
-  expect(rendered).not.toContain('261,500');
-  expect(rendered).not.toContain('250,000');
-  expect(rendered).not.toContain('4,200');
-  // The screen reader must not announce what the screen is hiding.
+    expect(hero).toBe(`${MASK}sats`);
+  }
+  // Not on screen, and not to a screen reader either.
+  const everything = allText(tree);
+  for (const figure of ['261,500', '250,000', '11,500', '4,200']) {
+    expect(everything).not.toContain(figure);
+  }
+  expect(meaning(tree)).toContain(copy.home.balanceHidden);
   const labels = tree.root
+    .findByType(ActivityScreen)
     .findAllByProps({ accessibilityRole: 'button' })
     .map(node => String(node.props.accessibilityLabel ?? ''));
-  expect(labels.join(' | ')).toContain('amount hidden');
-  expect(labels.join(' | ')).not.toContain('250,000');
+  expect(labels.join(' | ')).toMatch(/amount hidden/i);
   await act(async () => tree.unmount());
 });
 
 test('a stale snapshot blocks send and receive and says why', async () => {
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(
-      <HomeScreen
-        snapshot={{ ...snapshot, updatedAt: Date.now() - 120000 }}
-        stale
-        onSend={jest.fn()}
-        onReceive={jest.fn()}
-        onScan={jest.fn()}
-        onActivity={jest.fn()}
-        onDetail={jest.fn()}
-      />,
-    );
-  });
+  const onSend = jest.fn();
+  const onReceive = jest.fn();
+  const onScan = jest.fn();
+  const onRefresh = jest.fn();
+  const tree = await mountRooted(
+    <HomeScreen
+      snapshot={{ ...snapshot, updatedAt: Date.now() - 120000 }}
+      stale
+      onSend={onSend}
+      onReceive={onReceive}
+      onScan={onScan}
+      onActivity={jest.fn()}
+      onDetail={jest.fn()}
+      onRefresh={onRefresh}
+    />,
+  );
   // The gate is the whole message. Figures this old are not spendable, and the
   // app is already recovering on its own, so there is nothing to ask for.
-  expect(text(tree)).not.toContain('Pull to refresh');
-  expect(state(tree, 'Send').props.accessibilityState.disabled).toBe(true);
-  expect(state(tree, 'Receive').props.accessibilityState.disabled).toBe(true);
-  expect(
-    state(tree, 'Scan a payment request').props.accessibilityState.disabled,
-  ).toBe(true);
+  expect(meaning(tree)).not.toContain('Pull to refresh');
+  for (const label of ['Send', 'Receive', 'Scan a payment request']) {
+    const control = state(tree, label);
+    expect(control.props.accessibilityState.disabled).toBe(true);
+    expect(control.props.accessibilityValue).toEqual({
+      text: copy.health.stale,
+    });
+  }
+  // A tap on a gated action refreshes instead of acting.
+  for (const label of ['Send', 'Receive', 'Scan a payment request']) {
+    await press(tree, label);
+  }
+  expect(onRefresh).toHaveBeenCalledTimes(3);
+  expect(onSend).not.toHaveBeenCalled();
+  expect(onReceive).not.toHaveBeenCalled();
+  expect(onScan).not.toHaveBeenCalled();
   await act(async () => tree.unmount());
 });
 
@@ -214,16 +296,21 @@ test('payment details keep a hidden balance hidden and follow the unit', async (
   });
   let rendered = text(tree);
   expect(rendered).toContain('••••••');
-  expect(rendered).not.toContain('4,200');
-  // A reference is not an amount; it stays readable.
-  expect(rendered).toContain('abc123txid');
+  // The amount draws a figure to a cell, so it is read from its cells: the
+  // mask and the unit, with no sign to say which way the money went.
+  expect(drawnIn(tree.root.findByType(Odometer))).toBe(`${MASK}sats`);
+  expect(meaning(tree)).not.toContain('4,200');
+  // A reference is not an amount; it stays readable, in groups of four,
+  // and copies whole.
+  expect(rendered).toContain(chipText('abc123txid'));
+  expect(meaning(tree)).toContain('abc123txid');
   await act(async () => tree.unmount());
   await act(async () => {
     tree = create(<DetailScreen item={item} unit="btc" />);
   });
   rendered = text(tree);
   expect(rendered).toContain('BTC');
-  expect(rendered).not.toContain('4,200 sats');
+  expect(drawnIn(tree.root.findByType(Odometer))).toBe('−0.00004200BTC');
   await act(async () => tree.unmount());
 });
 
@@ -269,50 +356,50 @@ test('the shared clock ticks only while enabled', async () => {
 });
 
 test('money on its way sits under the balance, not in a paragraph above the buttons', async () => {
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(
-      <HomeScreen
-        snapshot={{
-          ...snapshot,
-          balance: { ...snapshot.balance, pendingSats: 30000 },
-          notes: [
-            '30,000 sats confirmed. Moving them failed. peer disconnected. Retrying.',
-          ],
-        }}
-        onSend={jest.fn()}
-        onReceive={jest.fn()}
-        onActivity={jest.fn()}
-        onDetail={jest.fn()}
-      />,
-    );
-  });
+  const shown = {
+    ...snapshot,
+    balance: { ...snapshot.balance, pendingSats: 30000 },
+    notes: [
+      '30,000 sats confirmed. Moving them failed. peer disconnected. Retrying.',
+    ],
+  };
+  const tree = await mountRooted(
+    <HomeScreen
+      snapshot={shown}
+      onSend={jest.fn()}
+      onReceive={jest.fn()}
+      onActivity={jest.fn()}
+      onDetail={jest.fn()}
+    />,
+  );
   // One line, beside the amount that is already spendable, because that is the
   // same question asked twice.
-  const shown = text(tree);
-  expect(shown).toContain('30,000 |   | sats |  arriving');
-  expect(shown).toContain('ready to send');
+  const said = meaning(tree);
+  expect(said).toContain('250,000 sats ready to send, 30,000 sats arriving');
   // The engine's running commentary is not the wallet page's job. It was
   // paragraphs of it, above the Send button, saying what Activity already says.
-  expect(shown).not.toContain('Moving them failed');
-  expect(shown).not.toContain('Available when the transfer confirms');
-  expect(shown).not.toContain('has not confirmed yet');
+  expect(said).not.toContain('Moving them failed');
+  expect(said).not.toContain('Available when the transfer confirms');
+  expect(said).not.toContain('has not confirmed yet');
+  // Nor is any other sentence: the page shows figures and nothing else.
+  expect(copyViolations(tree, { data: [] })).toEqual([]);
   await act(async () => tree.unmount());
 });
 
 test('a wallet with nothing in flight shows no arriving line at all', async () => {
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(
-      <HomeScreen
-        snapshot={{ ...snapshot, balance: { ...snapshot.balance, pendingSats: 0 } }}
-        onSend={jest.fn()}
-        onReceive={jest.fn()}
-        onActivity={jest.fn()}
-        onDetail={jest.fn()}
-      />,
-    );
-  });
-  expect(text(tree)).not.toContain('arriving');
+  const tree = await mountRooted(
+    <HomeScreen
+      snapshot={{
+        ...snapshot,
+        balance: { ...snapshot.balance, pendingSats: 0 },
+      }}
+      onSend={jest.fn()}
+      onReceive={jest.fn()}
+      onActivity={jest.fn()}
+      onDetail={jest.fn()}
+    />,
+  );
+  expect(allText(tree)).not.toContain('arriving');
+  expect(meaning(tree)).toContain('250,000 sats ready to send');
   await act(async () => tree.unmount());
 });

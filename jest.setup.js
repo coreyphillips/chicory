@@ -64,3 +64,13 @@ jest.mock('react-native-nitro-tor', () => ({
     shutdownService: jest.fn().mockResolvedValue(true),
   },
 }));
+// Worklets have no UI runtime under Jest. The package's mock runs them inline
+// on the JS thread, which is what Reanimated's test setup expects.
+jest.mock('react-native-worklets', () =>
+  require('react-native-worklets/src/mock'),
+);
+// Reanimated's mock: animations land on their final value at once and layout
+// animations are inert, so a suite sees state, never a frame in between.
+jest.mock('react-native-reanimated', () =>
+  require('react-native-reanimated/mock'),
+);
