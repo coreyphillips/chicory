@@ -21,6 +21,7 @@ import { useReceiveHost } from '../scenes/receive/host';
 import { LiftedQr } from '../scenes/receive/LiftedQr';
 import {
   amountCue,
+  receiveRefusal,
   refusalLook,
   remainderSats,
   requestFace,
@@ -235,22 +236,28 @@ export function ReceiveScreen({
   }, [heldBack]);
 
   /**
-   * Something asked for failed, and a screen reader hears why at once. How
-   * it looks and feels follows what it was (`refusalLook`): the primary node
-   * away is a honey unplug and a warning, and anything else a radish bang
-   * and an error, which shakes the control that asked unless the amount cue
-   * answers for it.
+   * Something asked for failed, and a screen reader hears why at once, in
+   * Receive's words where it knows the refusal (`receiveRefusal`); the log
+   * keeps the engine's own. How it looks and feels follows what it was
+   * (`refusalLook`): the primary node away is a honey unplug and a warning,
+   * and anything else a radish bang and an error, which shakes the control
+   * that asked unless the amount answers for it. A refused amount turns
+   * radish and shakes itself, as Send's amount does past what it can send,
+   * and the way on waits, dimmed, for another amount.
    */
-  function refuse(e: unknown, shake = true) {
-    const said = message(e);
+  function refuse(e: unknown, shake = true): Refused {
+    const raw = message(e);
     const code = codeOf(e);
+    const { said, amount: refusedAmount } = receiveRefusal(raw, code);
     const look = refusalLook(code);
     if (look.haptic === 'warning') haptics.warning();
     else haptics.error();
-    setError({ message: said, code });
-    if (shake && look.shake) setRefusals(count => count + 1);
+    const refused = { message: said, code, amount: refusedAmount };
+    setError(refused);
+    if (shake && look.shake && !refusedAmount) setRefusals(count => count + 1);
     announce(said, { assertive: true });
-    recordDiagnostic({ phase: 'ui', message: said, code });
+    recordDiagnostic({ phase: 'ui', message: raw, code });
+    return refused;
   }
 
   async function price() {
@@ -270,7 +277,6 @@ export function ReceiveScreen({
     } catch (e) {
       // The infinity shakes to a sprout instead: an amount is needed after all.
       const needsAmount = codeOf(e) === 'AMOUNT_REQUIRED';
-      amountError.current = needsAmount ? message(e) : '';
       if (needsAmount) setCapacityChanged(true);
       // Or the moon shakes off: the engine will not take this one offline,
       // and never makes it an ordinary request by itself.
@@ -279,7 +285,8 @@ export function ReceiveScreen({
         setOffline(false);
         setOfflineRefusals(count => count + 1);
       }
-      refuse(e, !needsAmount && !offlineRefused);
+      const refused = refuse(e, !needsAmount && !offlineRefused);
+      amountError.current = needsAmount ? refused.message : '';
     } finally {
       working.current = false;
       setBusy(false);
@@ -450,7 +457,12 @@ export function ReceiveScreen({
           ) : (
             <FormStep
               amount={amount}
-              onAmount={setAmount}
+              onAmount={next => {
+                setAmount(next);
+                // Another amount is another ask: a refusal of the last one
+                // goes, and the way on is back.
+                if (error?.amount) setError(null);
+              }}
               cue={cue}
               cap={offlineReceivableSats}
               amountMessage={amountMessage}

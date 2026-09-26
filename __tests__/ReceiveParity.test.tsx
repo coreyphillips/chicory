@@ -1849,7 +1849,7 @@ describe('the QR bloom', () => {
     }
   });
 
-  test('it blooms from the centre, dissolves from the outside, implodes from the inside, and the finders move last', () => {
+  test('it blooms from the centre, dissolves from the outside, and implodes from the inside, the finders last in and first out', () => {
     const delays = (state: QrState) =>
       Array.from(
         { length: FINDERS + 1 },
@@ -1862,10 +1862,13 @@ describe('the QR bloom', () => {
     const expired = delays('expired');
     expect(rising(expired.slice(0, BANDS).reverse())).toBe(true);
     expect(expired[FINDERS]).toBe(Math.max(...expired));
-    expect(rising(delays('paid'))).toBe(true);
+    // Paid, the bands go from the centre out and the finders at once, all
+    // gone as the card lands on the receipt's mark.
+    expect(rising(delays('paid').slice(0, BANDS))).toBe(true);
+    expect(delays('paid')[FINDERS]).toBe(0);
     expect(layerMotion(0, 'paid')).toMatchObject({ opacity: 0, scale: 0.2 });
     expect(layerMotion(0, 'paid').duration).toBe(420);
-    expect(leaveMs('paid')).toBe(40 * FINDERS + 420);
+    expect(leaveMs('paid')).toBe(40 * BANDS + 220);
   });
 
   test('a scattered code leaves in as many directions as it has layers', () => {

@@ -34,7 +34,7 @@ import { SceneSlot } from '../../../stage/panes/SceneSlot';
 import { StageProvider, useStageStore } from '../../../stage/StageContext';
 import type { StageStore } from '../../../stage/StageContext';
 import { MASK, dateLabel } from '../../../theme';
-import { durations } from '../../../motion/tokens';
+import { curves, durations, springs } from '../../../motion/tokens';
 import { PANE_SETTLE_MS } from '../../../stage/layout';
 import {
   activityOf,
@@ -48,14 +48,17 @@ import {
   whispers,
 } from '../../../../test-support/query';
 import * as motionPrefs from '../../../services/motion';
-import { ringWords, statusSentence } from '../model';
+import { feeShown, ringWords, statusSentence } from '../model';
+import { DETAIL_DROP, DETAIL_FADE } from '../../activity/sheet';
 import {
+  AMOUNT_HOLD,
   CARD_RADIUS,
   EXPAND_MS,
   HEADER_TOPS,
   ROW_RADIUS,
   frameOver,
   headerIn,
+  heldEase,
   launch,
   restingFrame,
   rowParts,
@@ -169,16 +172,64 @@ describe('the detail', () => {
     });
     const date = dateLabel(item.timestamp);
     expect(spoken(tree, `Date, ${date}`)).toBeDefined();
-    expect(spoken(tree, 'Fee, 0 sats')).toBeDefined();
     expect(spoken(tree, 'Note, Lunch with Sam')).toBeDefined();
     expect(visibleText(tree)).toEqual(
-      expect.arrayContaining([date, '0 sats', 'Lunch with Sam']),
+      expect.arrayContaining([date, 'Lunch with Sam']),
     );
     // The engine's title and the outcome are for a screen reader only.
     expect(visibleText(tree)).not.toContain(item.title);
     expect(visibleText(tree)).not.toContain(copy.detail.completed);
     expect(meaning(tree)).toContain(item.title);
     expect(meaning(tree)).toContain(copy.detail.completed);
+    await act(async () => tree.unmount());
+  });
+
+  test('draws a fee line for money that came in only when it cost something', async () => {
+    // A fee of nothing, or one that could not be read, read as a broken line
+    // on a receive: a bolt and a lone question (P10, 22-t4-detail).
+    const fees = async (item: Activity) => {
+      const tree = await render(<DetailScreen item={item} />);
+      const found = tree.root
+        .findAll(
+          node =>
+            typeof node.type === 'string' &&
+            /fee/i.test(node.props.accessibilityLabel ?? ''),
+        )
+        .map(node => node.props.accessibilityLabel);
+      await act(async () => tree.unmount());
+      return found;
+    };
+    expect(await fees(EVERY['received completed'])).toEqual([]);
+    expect(await fees(EVERY['request paid'])).toEqual([]);
+    expect(await fees(EVERY['request pending'])).toEqual([]);
+    expect(
+      await fees({ ...EVERY['received completed'], feeKnown: false }),
+    ).toEqual([]);
+    // A channel made just in time costs something, and that is said.
+    expect(
+      await fees({ ...EVERY['received completed'], feeSats: 1_000 }),
+    ).toEqual(['Fee, 1,000 sats']);
+    // Money sent keeps its line, known or not.
+    expect(await fees(EVERY['sent completed'])).toEqual(['Fee, 12 sats']);
+    expect(await fees(EVERY['sent with an unknown fee'])).toEqual([
+      copy.detail.feeUnavailable,
+    ]);
+    expect(feeShown(EVERY['transfer completed'])).toBe(true);
+  });
+
+  test('says its lines as text, never as headings', async () => {
+    // "Fee, Unavailable" came back as a Heading (P10, 22-t4-detail.ax).
+    const tree = await render(
+      <DetailScreen item={EVERY['sent with an unknown fee']} />,
+    );
+    const lines = [
+      `Date, ${dateLabel(EVERY['sent with an unknown fee'].timestamp)}`,
+      copy.detail.feeUnavailable,
+    ].map(label => spoken(tree, label));
+    expect(lines.map(line => line.props.accessibilityRole)).toEqual([
+      'text',
+      'text',
+    ]);
     await act(async () => tree.unmount());
   });
 
@@ -427,6 +478,110 @@ describe('the lines', () => {
     await act(async () => tree.unmount());
   });
 
+  test("give a paid request one ring and one amount, the header's", async () => {
+    // A second sage ring with a check and a second "+5,000 sats" drew under
+    // the header's own (P10, 22-t4-detail).
+    for (const name of ['request paid', 'request paid, confirming']) {
+      const tree = await render(<DetailScreen item={EVERY[name]} />);
+      expect(tree.root.findAllByType(StatusRing)).toHaveLength(1);
+      expect(
+        tree.root.findAll(
+          node =>
+            typeof node.type === 'string' &&
+            node.props.testID === 'receipt-track',
+        ),
+      ).toHaveLength(0);
+      expect(
+        tree.root
+          .findAllByType(Odometer)
+          .filter(odometer => odometer.props.sats === 10_000),
+      ).toHaveLength(0);
+      expect(tree.root.findAllByType(Odometer)).toHaveLength(1);
+      await act(async () => tree.unmount());
+    }
+    // Part of it here: what arrived over what was asked is the one thing the
+    // header cannot say, so it stays, as a line.
+    const tree = await render(
+      <DetailScreen item={EVERY['request partly paid']} />,
+    );
+    const split = spoken(
+      tree,
+      [
+        copy.receive.partial,
+        copy.receive.partialSplit(
+          copy.amount.spoken(4_000),
+          copy.amount.spoken(10_000),
+        ),
+        copy.receive.partialCheck,
+      ].join(' '),
+    );
+    expect(split).toBeDefined();
+    expect(split.props.accessibilityRole).toBe('text');
+    expect(
+      split.findAllByType(Odometer).map(odometer => odometer.props.variant),
+    ).toEqual(['line', 'line']);
+    await act(async () => tree.unmount());
+  });
+
+  test("start the request's chip where the other chips start, led by its kind", async () => {
+    // The request's chip sat centred with its kind inside it, while the
+    // references under it started at the edge, led by theirs (P10).
+    const drawn = (Glyph as unknown as { type: React.ComponentType }).type;
+    /** The glyphs leading `chip` on its line, and the inset in front of it. */
+    const led = (chip: ReactTestInstance, root: ReactTestInstance) => {
+      const own = chip.findAllByType(drawn);
+      let line = chip.parent!;
+      while (
+        !line.findAllByType(drawn).filter(glyph => !own.includes(glyph)).length
+      ) {
+        line = line.parent!;
+      }
+      let inset = 0;
+      for (let at: ReactTestInstance | null = line; at && at !== root; ) {
+        const style = StyleSheet.flatten(at.props.style) ?? {};
+        for (const key of [
+          'padding',
+          'paddingHorizontal',
+          'paddingLeft',
+          'paddingStart',
+          'margin',
+          'marginHorizontal',
+          'marginLeft',
+          'marginStart',
+        ] as const) {
+          if (typeof style[key] === 'number') inset += style[key] as number;
+        }
+        at = at.parent;
+      }
+      const [glyph] = line
+        .findAllByType(drawn)
+        .filter(inside => !own.includes(inside));
+      return {
+        glyph: glyph.props.name,
+        size: glyph.props.size,
+        inset,
+        row: StyleSheet.flatten(line.props.style).flexDirection,
+      };
+    };
+    const tree = await render(<DetailScreen item={EVERY['request paid']} />);
+    const root = tree.root.findByType(DetailScreen);
+    const found = tree.root
+      .findAllByType(CopyChip)
+      .map(chip => [chip.props.label, led(chip, root)]);
+    expect(found).toEqual([
+      [copy.receive.original, { glyph: 'qr', size: 20, inset: 0, row: 'row' }],
+      [
+        copy.detail.paymentHash,
+        { glyph: 'bolt', size: 20, inset: 0, row: 'row' },
+      ],
+    ]);
+    // Paid, it is the record: its kind leads it, and no copy glyph sits in a
+    // chip that copies nothing.
+    const request = tree.root.findAllByType(CopyChip)[0];
+    expect(request.props).toMatchObject({ copyable: false, glyph: null });
+    await act(async () => tree.unmount());
+  });
+
   test('hand the test network to the request a payment keeps', async () => {
     const item = EVERY['request pending'];
     expect(item.receiveRequest).toBeDefined();
@@ -663,6 +818,181 @@ describe('the header flying out of its row', () => {
       width: 175,
       height: 48,
     });
+  });
+
+  /**
+   * A cubic bezier from (0, 0) to (1, 1), as Reanimated draws one. Jest's
+   * Reanimated mock draws no curves, so the motion tokens' own control
+   * points (REDESIGN.md 3.5) are drawn here.
+   */
+  function bezier(x1: number, y1: number, x2: number, y2: number) {
+    const at = (t: number, a: number, b: number) =>
+      3 * (1 - t) * (1 - t) * t * a + 3 * (1 - t) * t * t * b + t * t * t;
+    return (x: number) => {
+      if (x <= 0) return 0;
+      if (x >= 1) return 1;
+      let low = 0;
+      let high = 1;
+      for (let i = 0; i < 40; i++) {
+        const mid = (low + high) / 2;
+        if (at(mid, x1, x2) < x) low = mid;
+        else high = mid;
+      }
+      return at((low + high) / 2, y1, y2);
+    };
+  }
+  const CURVES = new Map<unknown, (x: number) => number>([
+    [curves.standard, bezier(0.4, 0, 0.2, 1)],
+    [curves.enter, bezier(0.05, 0.7, 0.1, 1)],
+    [curves.exit, bezier(0.3, 0, 0.8, 0.15)],
+  ]);
+  /** A curve as its worklet runs it. */
+  const run = (curve: unknown) => CURVES.get(curve)!;
+
+  test('an amount held back stays still in the window, then flies straight to its place with the card', () => {
+    const standard = run(curves.standard);
+    const share = AMOUNT_HOLD / EXPAND_MS;
+    // Along one axis: the card travels `travel`, and the view starts
+    // `offset` from its place in the card, which it gives back as it goes.
+    for (const [travel, offset] of [
+      [-400, -120],
+      [-24, -109],
+      [30, 12],
+    ]) {
+      const ratio = travel / offset;
+      const shown = (x: number) =>
+        travel * standard(x) +
+        offset * (1 - heldEase(x, ratio, share, standard));
+      for (let x = 0; x <= share; x += share / 8) {
+        expect(shown(x)).toBeCloseTo(offset, 6);
+      }
+      for (const x of [share + 0.1, 0.5, 0.8]) {
+        const own = standard((x - share) / (1 - share));
+        expect(shown(x)).toBeCloseTo(offset + (travel - offset) * own, 6);
+      }
+      expect(shown(1)).toBeCloseTo(travel, 6);
+    }
+  });
+
+  /**
+   * How close the ring comes to the amount over the flight, in points, the
+   * ring as its circle and the amount as its box, for a row at `top` and an
+   * amount `width` wide at rest, the amount held back `hold` ms.
+   */
+  function closest(top: number, width: number, hold: number) {
+    const standard = run(curves.standard);
+    const from = { x: 24, y: top, width: 354, height: 64 };
+    const card = { x: 0, y: 134, width: 402 };
+    const parts = rowParts(from, { banded: false, note: false });
+    const ringEnd = {
+      x: card.x + card.width / 2,
+      y: card.y + HEADER_TOPS.ring + 48,
+    };
+    const height = 48;
+    const amountEnd = {
+      x: card.x + card.width / 2,
+      y: card.y + HEADER_TOPS.amount + height / 2,
+    };
+    const ringFrom = 40 / 96;
+    const amountFrom = 16 / 40;
+    const amountStart = {
+      x: parts.amount.x + (width * amountFrom) / 2,
+      y: parts.amount.y,
+    };
+    const share = hold / EXPAND_MS;
+    let nearest = Infinity;
+    for (let x = 0; x <= 1; x += 0.005) {
+      const e = standard(x);
+      const own = x <= share ? 0 : standard((x - share) / (1 - share));
+      const ring = {
+        x: parts.ring.x + (ringEnd.x - parts.ring.x) * e,
+        y: parts.ring.y + (ringEnd.y - parts.ring.y) * e,
+        r: 48 * (ringFrom + (1 - ringFrom) * e),
+      };
+      const grown = amountFrom + (1 - amountFrom) * own;
+      const amount = {
+        x: amountStart.x + (amountEnd.x - amountStart.x) * own,
+        y: amountStart.y + (amountEnd.y - amountStart.y) * own,
+        w: (width * grown) / 2,
+        h: (height * grown) / 2,
+      };
+      const dx = Math.max(Math.abs(ring.x - amount.x) - amount.w, 0);
+      const dy = Math.max(Math.abs(ring.y - amount.y) - amount.h, 0);
+      nearest = Math.min(nearest, Math.hypot(dx, dy) - ring.r);
+    }
+    return nearest;
+  }
+
+  test('the ring and the amount never cross in flight', () => {
+    // Flown together they crossed, the amount over the ring's lower half.
+    expect(closest(634, 190, 0)).toBeLessThan(0);
+    for (const top of [480, 560, 634, 760]) {
+      for (const width of [120, 190, 300]) {
+        expect(closest(top, width, AMOUNT_HOLD)).toBeGreaterThan(0);
+      }
+    }
+    // A sibling's stagger, and inside the move: it still lands with the card.
+    expect(AMOUNT_HOLD).toBeLessThanOrEqual(40);
+    expect(AMOUNT_HOLD).toBeLessThan(EXPAND_MS);
+  });
+
+  test('passes over rows only once they have all but faded', () => {
+    // The rows rise under the clones on the pane spring as they fade.
+    const fade = run(DETAIL_FADE.easing);
+    const exit = run(curves.exit);
+    const settle = (ms: number) => {
+      const { damping, stiffness, mass } = springs.pane;
+      let at = 0;
+      let speed = 0;
+      for (let t = 0; t < ms; t += 0.5) {
+        const pull = -stiffness * (at - 1) - damping * speed;
+        speed += (pull / mass) * 0.0005;
+        at += speed * 0.0005;
+      }
+      return at;
+    };
+    const travel = 308;
+    const standard = run(curves.standard);
+    const share = AMOUNT_HOLD / EXPAND_MS;
+    let worst = 0;
+    for (const top of [480, 634, 760]) {
+      const tapped = { x: 24, y: top, width: 354, height: 64 };
+      const parts = rowParts(tapped, { banded: false, note: false });
+      const ringEnd = 134 + HEADER_TOPS.ring + 48;
+      const amountEnd = 134 + HEADER_TOPS.amount + 24;
+      for (let ms = 0; ms <= DETAIL_FADE.duration; ms += 2) {
+        const x = ms / EXPAND_MS;
+        const e = standard(x);
+        const own = x <= share ? 0 : standard((x - share) / (1 - share));
+        // The clones' vertical reach: the ring's circle and the amount's
+        // box, each growing from its row size.
+        const r = 48 * (40 / 96 + (1 - 40 / 96) * e);
+        const ringY = parts.ring.y + (ringEnd - parts.ring.y) * e;
+        const h = 24 * (0.4 + 0.6 * own);
+        const amountY = parts.amount.y + (amountEnd - parts.amount.y) * own;
+        const reach = [
+          [ringY - r, ringY + r],
+          [amountY - h, amountY + h],
+        ];
+        const shown = 1 - fade(Math.min(1, ms / DETAIL_FADE.duration));
+        const moved =
+          travel * settle(ms) - DETAIL_DROP * exit(Math.min(1, ms / 140));
+        // The rows around it, as they rise under the clones: their figures
+        // fill the middle 40 of 64.
+        for (const k of [-3, -2, -1, 1, 2, 3, 4]) {
+          const rowTop = tapped.y + 64 * k - moved + 12;
+          const rowBottom = rowTop + 40;
+          for (const [from, to] of reach) {
+            if (!(to < rowTop || from > rowBottom)) {
+              worst = Math.max(worst, shown);
+            }
+          }
+        }
+      }
+    }
+    expect(worst).toBeLessThanOrEqual(0.1);
+    expect(DETAIL_FADE.easing).toBe(curves.enter);
+    expect(DETAIL_FADE.duration).toBeLessThan(durations.exit);
   });
 
   test('without a row, the ring grows where it stands and the amount waits', () => {

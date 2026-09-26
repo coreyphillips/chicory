@@ -31,7 +31,9 @@ import { radius } from '../theme';
  * card settles from .92, the bands arrive from the centre outward 40ms apart
  * and the finders pop last. It leaves the way its state says: an expired
  * request dissolves from the outside in, a paid one implodes from the inside
- * out, and one whose address was reused scatters and leaves a honey twin.
+ * out while its cream card contracts and rounds into the disc it lands on
+ * (`lands`), and one whose address was reused scatters and leaves a honey
+ * twin.
  *
  * The modules fill the card but for a quiet zone of four modules (`qrGrid`),
  * and every module edge falls on a whole pixel, so no seam shows where one
@@ -52,6 +54,11 @@ export interface QrBloomProps {
   onPress?: () => void;
   onLongPress?: () => void;
   accessibilityLabel: string;
+  /**
+   * The side of the disc a paid code lands on, centred where the code was:
+   * its card contracts and rounds into it, then hands over to it.
+   */
+  lands?: number;
   /** The code itself, for a screen reader to be sent back to. */
   ref?: Ref<HostInstance>;
 }
@@ -246,11 +253,33 @@ export const QR_TIMING = {
 
 /**
  * When the cream card has gone once a code can no longer be paid, in ms: it
- * fades after the bands have set off, so a paid code implodes on cream.
+ * fades after the bands have set off, so a paid code implodes on cream, and a
+ * paid code's card has landed on its disc by then, every module gone.
  * Whatever takes the code's place waits for this before it draws a dark
  * stroke across where the card was.
  */
 export const QR_CARD_GONE = QR_TIMING.step * BANDS + QR_TIMING.dissolve;
+
+/** How long a paid card takes to hand over to the disc it has landed on. */
+export const QR_HANDOVER = 90;
+
+/**
+ * A paid code's card `c` (0 to 1) of the way to the disc it lands on,
+ * `lands` across, from a card `size` across with corners of `corner`: its
+ * scale, and the corner that makes it that disc, a circle, at the end.
+ */
+export function paidCard(
+  c: number,
+  size: number,
+  lands: number,
+  corner: number,
+): { scale: number; radius: number } {
+  'worklet';
+  return {
+    scale: 1 + (lands / size - 1) * c,
+    radius: corner + (size / 2 - corner) * c,
+  };
+}
 
 /**
  * How layer `layer` (a band from the centre out, or FINDERS) moves into
@@ -285,14 +314,20 @@ export function layerMotion(layer: number, state: QrState): LayerMotion {
         scale: 1.06,
         spread: 0,
       };
-    case 'paid':
+    case 'paid': {
+      // Every module is gone as the card lands on its disc, so nothing is
+      // left inside the ring once the card has gone (P10, 42-c3 frames
+      // 206-210). The finders go at once, since the card's corners round
+      // away from them, and the bands from the centre out.
+      const delay = layer === FINDERS ? 0 : step * layer;
       return {
-        delay: step * layer,
-        duration: QR_TIMING.implode,
+        delay,
+        duration: layer === FINDERS ? QR_TIMING.dissolve : QR_CARD_GONE - delay,
         opacity: 0,
         scale: 0.2,
         spread: 0,
       };
+    }
     case 'scattered':
       return {
         delay: (step / 2) * layer,
@@ -428,9 +463,16 @@ const Layer = memo(function QrLayer({
       opacity.set(withTiming(motion.opacity, CROSSFADE));
       return () => cancelAnimation(opacity);
     }
+    // A paid code implodes from its first frame and fades as it goes, rather
+    // than holding dark on a fading card (P10, 42-c3 frames 199-205).
     const timing = {
       duration: motion.duration,
-      easing: state === 'shown' ? curves.enter : curves.exit,
+      easing:
+        state === 'shown'
+          ? curves.enter
+          : state === 'paid'
+          ? curves.standard
+          : curves.exit,
     };
     opacity.set(withDelay(motion.delay, withTiming(motion.opacity, timing)));
     spread.set(withDelay(motion.delay, withTiming(motion.spread, timing)));
@@ -475,6 +517,7 @@ export const QrBloom = memo(function QrCode({
   onPress,
   onLongPress,
   accessibilityLabel,
+  lands,
   ref,
 }: QrBloomProps) {
   const live = usePaneActive();
@@ -503,9 +546,22 @@ export const QrBloom = memo(function QrCode({
 
   const card = useSharedValue(reduced ? 1 : 0.92);
   const cream = useSharedValue(shown ? 1 : 0);
+  // A paid code's card contracting onto the disc it lands on, 0 to 1.
+  const contract = useSharedValue(0);
+  const landing = state === 'paid' && !!lands && !reduced;
   useEffect(() => {
     card.set(reduced ? 1 : withSpring(1, springs.pane));
   }, [card, reduced]);
+  useEffect(() => {
+    if (!landing) {
+      contract.set(0);
+      return;
+    }
+    contract.set(
+      withTiming(1, { duration: QR_CARD_GONE, easing: curves.standard }),
+    );
+    return () => cancelAnimation(contract);
+  }, [contract, landing]);
   useEffect(() => {
     const target = shown ? 1 : 0;
     cream.set(
@@ -513,6 +569,17 @@ export const QrBloom = memo(function QrCode({
         ? target
         : reduced
         ? withTiming(target, CROSSFADE)
+        : landing
+        ? // Opaque cream all the way down onto the disc, so the modules
+          // implode on cream and never over a fading, taupe card; then it
+          // hands over to the disc under it.
+          withDelay(
+            QR_CARD_GONE,
+            withTiming(target, {
+              duration: QR_HANDOVER,
+              easing: curves.standard,
+            }),
+          )
         : withDelay(
             QR_TIMING.step * BANDS,
             withTiming(target, {
@@ -522,11 +589,23 @@ export const QrBloom = memo(function QrCode({
           ),
     );
     return () => cancelAnimation(cream);
-  }, [cream, shown, reduced]);
-  const cardStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: card.get() }],
-  }));
-  const creamStyle = useAnimatedStyle(() => ({ opacity: cream.get() }));
+  }, [cream, shown, reduced, landing]);
+  const lead = lands ?? size;
+  const corner = radius.qr;
+  const cardStyle = useAnimatedStyle(() => {
+    const pose = paidCard(contract.get(), size, lead, corner);
+    return {
+      borderRadius: pose.radius,
+      transform: [{ scale: card.get() * pose.scale }],
+    };
+  }, [size, lead, corner]);
+  const creamStyle = useAnimatedStyle(
+    () => ({
+      opacity: cream.get(),
+      borderRadius: paidCard(contract.get(), size, lead, corner).radius,
+    }),
+    [size, lead, corner],
+  );
 
   // A layer's box, from module edge x, y to the edge `modules` on, in points
   // that land on whole pixels, and its drawing's own pixels as the viewBox.
@@ -572,7 +651,12 @@ export const QrBloom = memo(function QrCode({
       }
     >
       <Reanimated.View
-        style={[styles.card, { width: size, height: size }, cardStyle]}
+        style={[
+          styles.card,
+          { width: size, height: size },
+          landing && styles.clip,
+          cardStyle,
+        ]}
       >
         <View
           style={[
@@ -635,6 +719,9 @@ QrBloom.displayName = 'QrBloom';
 
 const styles = StyleSheet.create({
   card: { borderRadius: radius.qr },
+  // A paid card rounds into a disc, and what is left of the code rounds
+  // with it rather than poking past its corners.
+  clip: { overflow: 'hidden' },
   fill: { ...StyleSheet.absoluteFill, borderRadius: radius.qr },
   cream: { backgroundColor: palette.cream },
   expired: {

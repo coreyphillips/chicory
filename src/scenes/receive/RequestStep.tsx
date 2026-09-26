@@ -8,7 +8,7 @@ import Reanimated, {
   withTiming,
 } from 'react-native-reanimated';
 import type { ReceiveRequest, ReceiveStatus } from '@beignet/wallet-core';
-import { ReceiveReceipt } from '../../components/ReceiveReceipt';
+import { RECEIPT_MARK, ReceiveReceipt } from '../../components/ReceiveReceipt';
 import { copy } from '../../design/copy';
 import { Glyph, HISTORY_GLYPH } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
@@ -21,8 +21,15 @@ import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { MASK, radius, space, type as typography } from '../../theme';
 import type { Unit } from '../../theme';
-import { ErrorPip, GlyphButton, WarningPips } from './controls';
+import {
+  CONTROL_ROW,
+  ErrorPip,
+  GlyphButton,
+  TARGET,
+  WarningPips,
+} from './controls';
 import type { Focus } from './focus';
+import { useReceiveHost } from './host';
 import { Rock } from './loops';
 import type { Refused, RequestFace } from './model';
 import { useBloom, useTestNetwork } from './tone';
@@ -49,7 +56,14 @@ export const frameSide = (qr: number) => qr + RING_GAP * 2;
  *
  * An expired request dissolves and a reused address scatters, and either
  * way share and copy go, leaving plus as the way on. Money arriving implodes
- * the code into the receipt's ring where it stood.
+ * the code, its cream card contracting and rounding onto the receipt's
+ * 120pt mark at the code's centre, Send's done disc, with the amount under
+ * it (P10, 42-c3: the code had faded as a flat taupe square onto a 275pt
+ * ring). The mark is under the card, so the card lands on it and hands over.
+ *
+ * In the scene (`room`) the controls are pinned to the bottom of the step,
+ * in the row the amount and the quote keep theirs in, so the thumb stays
+ * where it was from step to step; a refusal sits beside them.
  */
 export function RequestStep({
   request,
@@ -96,6 +110,7 @@ export function RequestStep({
   qrFocus?: Focus;
 }) {
   const test = useTestNetwork();
+  const { room } = useReceiveHost();
   const side = frameSide(qr);
   const remainder = remainderSats(request.amountSats, receipt);
   const scattered = face.qr === 'scattered';
@@ -106,126 +121,147 @@ export function RequestStep({
       ? `${copy.receive.reused} ${copy.receive.reusedShare}`
       : null;
   return (
-    <View style={styles.request}>
-      <View style={styles.stage}>
-        <View style={receipt ? styles.behind : undefined}>
-          <View style={[styles.frame, { width: side, height: side }]}>
-            {/* Kept through expiry, so the ring can collapse as it ends. */}
-            {face.qr === 'shown' || face.qr === 'expired' ? (
-              <View pointerEvents="none" style={styles.fill}>
-                <ExpiryRing
-                  size={side}
-                  shape="rect"
-                  width={side}
-                  height={side}
-                  radius={radius.qr + RING_GAP}
-                  expiresAt={request.expiresAt}
-                  createdAt={createdAt}
-                  lateAt={lateAt(createdAt, request.expiresAt)}
-                  test={test}
+    <View style={[styles.request, room !== undefined && { minHeight: room }]}>
+      <View style={styles.body}>
+        <View style={styles.stage}>
+          {/* Under the code, so the card lands on the mark and hands over. The
+            keys keep the code the same code as the receipt arrives before
+            it, so it implodes rather than mounting again. */}
+          {receipt ? (
+            <ReceiveReceipt
+              key="receipt"
+              status={receipt}
+              amountSats={request.amountSats}
+              hidden={hidden}
+              unit={unit}
+              celebrate
+              size={RECEIPT_MARK}
+              room={side}
+              focusRef={focus}
+            />
+          ) : null}
+          <View
+            key="code"
+            pointerEvents="box-none"
+            style={receipt ? styles.over : undefined}
+          >
+            <View style={[styles.frame, { width: side, height: side }]}>
+              {/* Kept through expiry, so the ring can collapse as it ends. */}
+              {face.qr === 'shown' || face.qr === 'expired' ? (
+                <View pointerEvents="none" style={styles.fill}>
+                  <ExpiryRing
+                    size={side}
+                    shape="rect"
+                    width={side}
+                    height={side}
+                    radius={radius.qr + RING_GAP}
+                    expiresAt={request.expiresAt}
+                    createdAt={createdAt}
+                    lateAt={lateAt(createdAt, request.expiresAt)}
+                    test={test}
+                  />
+                </View>
+              ) : null}
+              <QrBloom
+                ref={qrFocus}
+                value={request.uri}
+                size={qr}
+                lands={RECEIPT_MARK}
+                state={face.qr}
+                onPress={face.shareable ? onLift : undefined}
+                onLongPress={face.shareable ? onCopy : undefined}
+                accessibilityLabel={copy.receive.qr}
+              />
+              {status ? (
+                <View
+                  ref={focus}
+                  accessible
+                  accessibilityLabel={status}
+                  accessibilityValue={
+                    scattered && trackingError
+                      ? { text: trackingError }
+                      : undefined
+                  }
+                  pointerEvents="none"
+                  style={styles.fill}
                 />
-              </View>
-            ) : null}
-            <QrBloom
-              ref={qrFocus}
-              value={request.uri}
-              size={qr}
-              state={face.qr}
-              onPress={face.shareable ? onLift : undefined}
-              onLongPress={face.shareable ? onCopy : undefined}
-              accessibilityLabel={copy.receive.qr}
-            />
-            {status ? (
-              <View
-                ref={focus}
-                accessible
-                accessibilityLabel={status}
-                accessibilityValue={
-                  scattered && trackingError
-                    ? { text: trackingError }
-                    : undefined
-                }
-                pointerEvents="none"
-                style={styles.fill}
-              />
-            ) : null}
-            {receipt && face.reused ? (
-              <Badge
-                key="twin"
-                glyph="twin"
-                label={trackingError ?? copy.receive.reusedAddress}
-              />
-            ) : trackingError && !scattered ? (
-              <Badge key="question" glyph="question" label={trackingError} />
-            ) : null}
+              ) : null}
+              {receipt && face.reused ? (
+                <Badge
+                  key="twin"
+                  glyph="twin"
+                  label={trackingError ?? copy.receive.reusedAddress}
+                />
+              ) : trackingError && !scattered ? (
+                <Badge key="question" glyph="question" label={trackingError} />
+              ) : null}
+            </View>
           </View>
+          {receipt ? null : (
+            <About
+              key="about"
+              request={request}
+              face={face}
+              minutesLeft={minutesLeft}
+              focus={status ? undefined : focus}
+            />
+          )}
         </View>
-        {receipt ? (
-          <ReceiveReceipt
-            status={receipt}
-            amountSats={request.amountSats}
-            hidden={hidden}
-            unit={unit}
-            celebrate
-            size={side}
-            focusRef={focus}
-          />
-        ) : (
-          <About
-            request={request}
-            face={face}
-            minutesLeft={minutesLeft}
-            focus={status ? undefined : focus}
-          />
-        )}
+        {receipt ? null : <WarningPips warnings={request.warnings} />}
       </View>
-      {receipt ? null : <WarningPips warnings={request.warnings} />}
       <Reanimated.View entering={stagger(2)} style={styles.controls}>
-        {receipt ? (
+        <View style={styles.side} />
+        <View style={styles.buttons}>
+          {receipt ? (
+            <GlyphButton
+              glyph={ACTIVITY}
+              label={copy.receive.viewActivity}
+              onPress={onActivity}
+            />
+          ) : face.shareable ? (
+            <>
+              <GlyphButton
+                glyph="share"
+                label={copy.receive.share}
+                onPress={onShare}
+              />
+              <GlyphButton
+                glyph="copy"
+                label={copy.receive.copy}
+                confirm={copies}
+                onPress={onCopy}
+              />
+            </>
+          ) : null}
           <GlyphButton
-            glyph={ACTIVITY}
-            label={copy.receive.viewActivity}
-            onPress={onActivity}
-          />
-        ) : face.shareable ? (
-          <>
-            <GlyphButton
-              glyph="share"
-              label={copy.receive.share}
-              onPress={onShare}
-            />
-            <GlyphButton
-              glyph="copy"
-              label={copy.receive.copy}
-              confirm={copies}
-              onPress={onCopy}
-            />
-          </>
-        ) : null}
-        <GlyphButton
-          glyph="plus"
-          label={
-            remainder !== null
-              ? copy.receive.requestRemaining
-              : copy.receive.createAnother
-          }
-          tone={face.shareable && !receipt ? 'raised' : 'primary'}
-          halo={scattered}
-          pulse={face.qr === 'expired' ? 1 : undefined}
-          value={
-            remainder === null
-              ? undefined
-              : hidden
-              ? copy.amount.hidden
-              : copy.amount.spoken(remainder)
-          }
-          onPress={onAgain}
-        >
-          {/* What is owed gives away what arrived, so it hides with it. */}
-          {remainder === null ? null : hidden ? MASK : shownSats(remainder)}
-        </GlyphButton>
+            glyph="plus"
+            label={
+              remainder !== null
+                ? copy.receive.requestRemaining
+                : copy.receive.createAnother
+            }
+            tone={face.shareable && !receipt ? 'raised' : 'primary'}
+            halo={scattered}
+            pulse={face.qr === 'expired' ? 1 : undefined}
+            value={
+              remainder === null
+                ? undefined
+                : hidden
+                ? copy.amount.hidden
+                : copy.amount.spoken(remainder)
+            }
+            onPress={onAgain}
+          >
+            {/* What is owed gives away what arrived, so it hides with it. */}
+            {remainder === null ? null : hidden ? MASK : shownSats(remainder)}
+          </GlyphButton>
+        </View>
+        <View style={[styles.side, styles.end]}>
+          {error ? (
+            <ErrorPip message={error.message} code={error.code} />
+          ) : null}
+        </View>
       </Reanimated.View>
-      {error ? <ErrorPip message={error.message} code={error.code} /> : null}
     </View>
   );
 }
@@ -329,9 +365,12 @@ function About({
           {request.description}
         </Text>
       ) : null}
+      {/* A place a finger can hold to hear how it can be paid whispered,
+          48pt as every target is, and text rather than a control. */}
       <Whisper label={[how, left].filter(Boolean).join('. ')}>
         <View
           accessible
+          accessibilityRole="text"
           accessibilityLabel={how}
           accessibilityValue={left ? { text: left } : undefined}
           style={styles.rails}
@@ -351,9 +390,10 @@ function About({
 }
 
 const styles = StyleSheet.create({
-  request: { alignItems: 'center', gap: space.lg },
+  request: { gap: space.lg },
+  body: { flexGrow: 1, alignItems: 'center', gap: space.lg },
   stage: { alignItems: 'center', alignSelf: 'stretch', gap: space.md },
-  behind: { position: 'absolute', top: 0, alignSelf: 'center' },
+  over: { position: 'absolute', top: 0, alignSelf: 'center' },
   frame: { alignItems: 'center', justifyContent: 'center' },
   fill: { ...StyleSheet.absoluteFill },
   badge: {
@@ -370,7 +410,15 @@ const styles = StyleSheet.create({
   about: { alignItems: 'center', gap: space.xs },
   amount: { ...typography.line, color: palette.cream },
   note: { ...typography.meta, color: palette.steam, textAlign: 'center' },
-  rails: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  rails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    minWidth: TARGET,
+    minHeight: TARGET,
+    paddingHorizontal: space.xs,
+  },
   // The whole badge answers a long press, not only its glyph.
   whole: {
     alignSelf: 'stretch',
@@ -378,7 +426,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // The way on at the foot of the step, in the row every step keeps it in.
   controls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    minHeight: CONTROL_ROW,
+  },
+  side: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  end: { justifyContent: 'flex-end' },
+  buttons: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

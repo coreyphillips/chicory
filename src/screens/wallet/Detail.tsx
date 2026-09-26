@@ -23,7 +23,7 @@ import {
   ringVisual,
 } from '../../scenes/activity/visual';
 import type { AmountVisual, RingVisual } from '../../scenes/activity/visual';
-import { ringWords } from '../../scenes/detail/model';
+import { feeShown, ringWords } from '../../scenes/detail/model';
 import {
   DetailFlight,
   HEADER_GAP,
@@ -55,9 +55,14 @@ const TONES: Record<AmountVisual['tone'], string> = {
  * glyph, the amount at 40pt, then a line for each thing known about it, each
  * led by a glyph (when, the rail and its fee, the note), and a chip for each
  * reference it can copy, led by the glyph of what it is, with the chip's own
- * copy glyph in it. A request's receipt and the request itself follow,
- * as Receive draws them. Opened from a row on the canvas, the ring and the
- * amount fly out of that row into place (T4).
+ * copy glyph in it. A request's receipt and the request itself follow, in
+ * the same lines: the header is the card's one ring and one amount, so the
+ * receipt adds only what the header does not say. Opened from a row on the
+ * canvas, the ring and the amount fly out of that row into place (T4).
+ *
+ * Money that came in has no fee line unless the engine says it cost
+ * something: a fee of nothing, or one it could not read, means nothing on a
+ * receive and read as a broken line (P10, 22-t4-detail).
  *
  * The outcome is the ring's to say: its sentence is what a screen reader
  * hears. An unknown outcome is held honey, announced assertively once the
@@ -105,6 +110,14 @@ export function DetailScreen({
     item.receiveStatus && item.receiveStatus.phase !== 'waiting'
       ? item.receiveStatus
       : null;
+  const showsFee = feeShown(item);
+  // A Bitcoin receipt lists its transactions with a ring that says whether
+  // each has confirmed, so the payment's own txid is not drawn twice.
+  const listed = new Set(
+    receipt?.method === 'bitcoin'
+      ? [...receipt.txids, ...(receipt.transactions ?? []).map(tx => tx.txid)]
+      : [],
+  );
 
   // Each reference once: the engine's reference is usually the txid or the
   // payment hash, which have chips of their own.
@@ -120,7 +133,7 @@ export function DetailScreen({
       glyph: 'hash',
     });
   }
-  if (item.txid) {
+  if (item.txid && !listed.has(item.txid)) {
     chips.push({
       label: copy.detail.transaction,
       value: item.txid,
@@ -202,31 +215,37 @@ export function DetailScreen({
             {date}
           </Text>
         </Line>
-        <Line index={line++} glyph={RAIL_GLYPH[railOf(item)]} label={feeLabel}>
-          {feeUnknown ? (
-            <Glyph name="question" size={20} color={palette.steam} />
-          ) : (
-            <>
-              {item.feeEstimated ? (
+        {showsFee ? (
+          <Line
+            index={line++}
+            glyph={RAIL_GLYPH[railOf(item)]}
+            label={feeLabel}
+          >
+            {feeUnknown ? (
+              <Glyph name="question" size={20} color={palette.steam} />
+            ) : (
+              <>
+                {item.feeEstimated ? (
+                  <Text style={styles.value} maxFontSizeMultiplier={LINE_CAP}>
+                    ≈
+                  </Text>
+                ) : null}
                 <Text style={styles.value} maxFontSizeMultiplier={LINE_CAP}>
-                  ≈
+                  {hidden ? (
+                    MASK
+                  ) : fee.dim ? (
+                    <>
+                      {fee.value}
+                      <Text style={styles.dim}>{fee.dim}</Text> {fee.suffix}
+                    </>
+                  ) : (
+                    `${fee.value} ${fee.suffix}`
+                  )}
                 </Text>
-              ) : null}
-              <Text style={styles.value} maxFontSizeMultiplier={LINE_CAP}>
-                {hidden ? (
-                  MASK
-                ) : fee.dim ? (
-                  <>
-                    {fee.value}
-                    <Text style={styles.dim}>{fee.dim}</Text> {fee.suffix}
-                  </>
-                ) : (
-                  `${fee.value} ${fee.suffix}`
-                )}
-              </Text>
-            </>
-          )}
-        </Line>
+              </>
+            )}
+          </Line>
+        ) : null}
         {item.description ? (
           <Line
             index={line++}
@@ -249,6 +268,7 @@ export function DetailScreen({
             amountSats={item.receiveRequest?.amountSats ?? item.amountSats}
             hidden={hidden}
             unit={unit}
+            bare
           />
         </Reanimated.View>
       ) : null}
@@ -315,7 +335,9 @@ function useSafetyNotice(visual: RingVisual, label: string) {
 
 /**
  * One thing known about the payment: a glyph for what it is, then its value.
- * A screen reader hears the words the value used to sit beside.
+ * A screen reader hears the words the value used to sit beside, as text:
+ * set explicitly, so a view recycled from a heading never lends it that
+ * role (P10, 22-t4-detail.ax, "Fee, Unavailable" read as a heading).
  */
 function Line({
   index,
@@ -328,6 +350,7 @@ function Line({
     <Reanimated.View
       entering={entering}
       accessible
+      accessibilityRole="text"
       accessibilityLabel={label}
       style={styles.line}
     >

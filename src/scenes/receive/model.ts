@@ -4,6 +4,7 @@ import type {
   ReceiveRequestDetails,
   ReceiveStatus,
 } from '@beignet/wallet-core';
+import { copy } from '../../design/copy';
 import type { GlyphName } from '../../design/glyphs';
 import { QR_CARD_GONE } from '../../glyphs/QrBloom';
 import type { QrState } from '../../glyphs/QrBloom';
@@ -192,12 +193,39 @@ export function detailFace(
 }
 
 /**
- * Something Receive asked for that was refused: the engine's words, and its
- * code where it gave one.
+ * Something Receive asked for that was refused: what is said of it, its code
+ * where the engine gave one, and whether it was the amount that was refused.
  */
 export interface Refused {
   message: string;
   code?: string;
+  /** The amount was refused: it turns radish, and the way on waits for another. */
+  amount?: boolean;
+}
+
+/** The provider's cap on one receive, in the engine's words. */
+const PROVIDER_CAP = /funds at most (\d+) sats for one receive/i;
+
+/** Codes for an amount the engine will not take for a receive. */
+const AMOUNT_REFUSED = new Set(['INVALID_AMOUNT', 'RECEIVE_FEE_TOO_HIGH']);
+
+/**
+ * A refusal as Receive says it (REDESIGN.md 6, Engine errors): the ones it
+ * knows in its own words, with the amounts in them formatted as amounts,
+ * and anything else in the engine's words. The provider's cap arrived as
+ * "the provider funds at most 1000000 sats for one receive" (P10, 19).
+ * `amount` marks a refusal of the amount itself. The engine's own words go
+ * to the diagnostic log whatever is said.
+ */
+export function receiveRefusal(
+  message: string,
+  code?: string,
+): { said: string; amount: boolean } {
+  const cap = message.match(PROVIDER_CAP);
+  if (cap) {
+    return { said: copy.receive.providerCap(Number(cap[1])), amount: true };
+  }
+  return { said: message, amount: !!code && AMOUNT_REFUSED.has(code) };
 }
 
 /**
@@ -277,13 +305,14 @@ export function receiptTransactions(
 
 /**
  * The received celebration (REDESIGN.md 5), in ms from the moment money is
- * seen: the code implodes at once, the sage ring draws, the amount counts
- * up, and a completed payment draws its check and bursts its petals. The
- * ring's husk track waits for the code's cream card to go, so no dark ring
- * cuts across the code while it implodes; the sage arc draws over the cream.
+ * seen: the code implodes at once as its card contracts onto the receipt's
+ * mark, the amount counts up, the sage ring draws round the mark once the
+ * card has landed on it, and a completed payment draws its check and bursts
+ * its petals. The ring and its husk track wait for the code's card to go, so
+ * no dark ring cuts across the code while it implodes.
  */
 export const CELEBRATION = {
-  ring: { delay: 120, duration: 480 },
+  ring: { delay: QR_CARD_GONE, duration: 480 },
   track: { delay: QR_CARD_GONE, duration: 220 },
   count: { delay: 200, duration: 700 },
   check: { delay: 600, duration: 420 },

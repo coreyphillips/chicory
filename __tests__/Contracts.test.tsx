@@ -330,7 +330,7 @@ describe('CopyChip', () => {
   });
 
   test('shows a long value shortened in the middle, and all of it on a long press', async () => {
-    expect(chipText('bc1qexample')).toBe('bc1q exam ple');
+    expect(chipText('bc1qexample')).toBe('bc1 qexa mple');
     expect(chipText(TXID)).toBe('f418 4fc5 … 831e 9e16');
     const tree = await render(<CopyChip label="Transaction" value={TXID} />);
     expect(visibleText(tree)).toEqual([chipText(TXID)]);

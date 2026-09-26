@@ -1,4 +1,4 @@
-import { durations } from '../../motion/tokens';
+import { curves, durations } from '../../motion/tokens';
 
 /**
  * The sheet under the finger (REDESIGN.md 7, T5), as pure worklets, so the
@@ -23,6 +23,15 @@ export const GRIP_HEIGHT = 28;
 export const BAR_HEIGHT = 52;
 /** How far the rows drop as a payment's detail grows over them (T4). */
 export const DETAIL_DROP = 8;
+/**
+ * How the rows around a payment fade as its detail grows over them (T4):
+ * most of the way at once, on the enter curve, and gone within a tick. The
+ * sheet rises under the ring and the amount flying out of the tapped row, so
+ * a row that faded on the exit curve, which starts slowly, was still nearly
+ * whole as it passed under them (P10, 22-t4-sheet, "+5,000" over
+ * "−10,000"). The clones only ever pass over rows that have all but gone.
+ */
+export const DETAIL_FADE = { duration: durations.tick, easing: curves.enter };
 /**
  * The rows a stagger runs down, about a screen of them; any further down
  * come in with the last of these.

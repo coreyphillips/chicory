@@ -65,3 +65,15 @@ export function ringWords(item: Activity): {
     safety: visual.pattern === 'held' || visual.glyph === 'twin',
   };
 }
+
+/**
+ * Whether a payment's detail has a fee line. Money sent or moved always
+ * does, known or not. Money that came in only does when the engine says it
+ * cost something, as a channel made for it just in time does.
+ */
+export function feeShown(
+  item: Pick<Activity, 'kind' | 'feeSats' | 'feeKnown'>,
+): boolean {
+  if (item.kind === 'sent' || item.kind === 'transfer') return true;
+  return item.feeKnown !== false && item.feeSats > 0;
+}

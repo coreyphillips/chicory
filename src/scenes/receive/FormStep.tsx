@@ -9,7 +9,13 @@ import { useLaunchLanding } from '../../stage/panes/Launch';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { radius, space, type as typography } from '../../theme';
 import { AmountCue, AmountFace } from './AmountCue';
-import { CONTROL, ErrorPip, GlyphButton } from './controls';
+import {
+  CONTROL,
+  CONTROL_ROW,
+  ErrorPip,
+  GlyphButton,
+  TARGET,
+} from './controls';
 import type { Focus } from './focus';
 import { useReceiveHost } from './host';
 import type { AmountCue as Cue, Refused } from './model';
@@ -34,7 +40,11 @@ const PINNED_MIN = CONTROL * 3;
  * carry them for a screen reader.
  *
  * The pencil and the moon flank the cue, and the note opens under them,
- * where a keyboard leaves it in view. The way on sits at the bottom with a
+ * where a keyboard leaves it in view. The row is a grid of three: the
+ * pencil at the left edge and the moon's switch at the right, in slots of
+ * one width either side of the cue, the pencil a bare glyph as the cue is
+ * (P10, 18-receive-amount-large, where a filled disc at one edge weighed
+ * against a bare sprout and nothing). The way on sits at the bottom with a
  * refusal beside it, as Send's does. In the scene (`room`) the step fits its
  * slot on any phone: the way on is pinned above the bottom inset and what
  * is entered scrolls above it when the phone is too short for it all.
@@ -42,7 +52,10 @@ const PINNED_MIN = CONTROL * 3;
  * The amount shows an infinity while it is empty and the sender may choose,
  * and a dust 0 with a caret while one is needed. It turns radish past an
  * offline receive's cap and dust under its floor, and shakes when an amount
- * turns out to be needed after all, as the infinity gives way to the 0.
+ * turns out to be needed after all, as the infinity gives way to the 0. An
+ * amount the engine refuses, past what the primary node funds for one
+ * receive say, turns radish and shakes as it is refused, and the way on is
+ * dimmed until another amount is entered.
  */
 export function FormStep({
   amount,
@@ -97,6 +110,9 @@ export function FormStep({
   const { room } = useReceiveHost();
   const landing = useLaunchLanding();
   const showNote = noteOpen || note !== '';
+  // A refused amount is radish until another is entered, and the way on
+  // waits for that, dimmed (P10, 19-receive-refusal-pip).
+  const refusedAmount = !!error?.amount;
   // Each time an amount turns out to be needed, the amount shakes once.
   const needed = cue.kind === 'required';
   const [asked, setAsked] = useState({ needed, times: 0 });
@@ -109,7 +125,8 @@ export function FormStep({
         <GlyphButton
           glyph="pencil"
           label={copy.receive.addNote}
-          size={48}
+          size={TARGET}
+          tone="bare"
           expanded={showNote}
           disabled={busy}
           onPress={() => onNoteOpen(!noteOpen)}
@@ -155,9 +172,17 @@ export function FormStep({
         onChangeText={onAmount}
         presets={PRESETS}
         busy={busy}
-        hint={cue.kind === 'any' && cue.empty ? copy.amount.any : undefined}
+        hint={
+          refusedAmount
+            ? error?.message
+            : cue.kind === 'any' && cue.empty
+            ? copy.amount.any
+            : undefined
+        }
         empty={<AmountFace cue={cue} />}
-        tone={cue.over ? 'radish' : cue.under ? 'dust' : undefined}
+        tone={
+          cue.over || refusedAmount ? 'radish' : cue.under ? 'dust' : undefined
+        }
         shake={asked.times}
       />
     </>
@@ -175,7 +200,7 @@ export function FormStep({
           hint={stale ? copy.receive.stale : undefined}
           size={CONTROL}
           tone="primary"
-          disabled={!stale && !ready}
+          disabled={!stale && (!ready || refusedAmount)}
           blocked={stale}
           busy={busy}
           shake={shake}
@@ -221,6 +246,8 @@ const styles = StyleSheet.create({
   pinned: { gap: space.lg },
   entry: { flex: 1 },
   tools: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  // Either side of the cue, the same width, so the cue is centred whether
+  // or not the moon is offered.
   side: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   end: { justifyContent: 'flex-end' },
   note: {
@@ -236,5 +263,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
+    minHeight: CONTROL_ROW,
   },
 });

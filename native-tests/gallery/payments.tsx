@@ -250,6 +250,18 @@ const receives: Shot[] = [
     },
     steps: [CONTINUE],
   })),
+  receive('the amount refused, past what the primary funds', () => ({
+    snapshot: onlyAmount(0),
+    client: {
+      quoteReceive: async () => {
+        throw refusal(
+          'the provider funds at most 1000000 sats for one receive',
+          'RECEIVE_UNAVAILABLE',
+        );
+      },
+    },
+    steps: [...keyed('2000000'), CONTINUE],
+  })),
   receive('the primary node away', () => ({
     client: {
       quoteReceive: async () => {

@@ -23,6 +23,7 @@ import { TestNetwork, bloomFor } from '../scenes/receive/tone';
 import { useNow } from '../services/clock';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { usePaneActive } from '../stage/panes/Pane';
+import { duringSystemPrompt } from '../stage/systemPrompt';
 import { radius, space, type as typography } from '../theme';
 import type { WalletAdapter } from '../services/wallet';
 
@@ -31,8 +32,14 @@ import type { WalletAdapter } from '../services/wallet';
  * (REDESIGN.md 6, Detail). While it can still be paid its code blooms, it
  * can be shared, and its string is a chip that copies it; once it is paid,
  * expired or its address reused, the code and share go, and the chip only
- * keeps the string as the record. How it can be paid is a row of glyphs
+ * keeps the string as the record. How it can be paid is a line of glyphs
  * whose label says it.
+ *
+ * Its lines are the detail's own: they start at the detail's edge, each led
+ * by a glyph in the same 20pt column as the reference and address chips
+ * under it, `qr` for the request (`bolt` for an old invoice). So the chip
+ * carries `copy` as theirs do while it copies, and nothing once it is only
+ * the record (P10, 22-t4-detail).
  *
  * An older request saved only its Lightning invoice. Its original request
  * can be linked back with the chain and plus, which opens a well to paste
@@ -133,7 +140,9 @@ export function ReceiveRequestDetails({
 
   async function paste() {
     const current = generation.current;
-    const text = await Clipboard.getString();
+    // iOS may ask whether to allow the paste: a prompt the app raised, which
+    // the privacy cover leaves the detail in place behind.
+    const text = await duringSystemPrompt(() => Clipboard.getString());
     if (current.active && text) setOriginal(text.trim());
   }
 
@@ -152,23 +161,47 @@ export function ReceiveRequestDetails({
             />
           </View>
         ) : null}
-        <View accessible accessibilityLabel={how} style={styles.rails}>
-          {requestRails({ ...request, legacy }).map(rail => (
-            <Glyph key={rail} name={rail} size={16} color={palette.steam} />
+        <View style={styles.line}>
+          <View style={styles.lead}>
+            <Glyph
+              name={legacy ? 'bolt' : 'qr'}
+              size={20}
+              color={palette.dust}
+            />
+          </View>
+          <View style={styles.chip}>
+            <CopyChip
+              label={
+                legacy ? copy.receive.legacyInvoice : copy.receive.original
+              }
+              value={request.uri}
+              glyph={shareable && !busy ? 'copy' : null}
+              copyable={shareable && !busy}
+            />
+          </View>
+        </View>
+        {/* Words for a screen reader, not a control: drawn as text, so a
+            recycled view cannot lend it a button's role. */}
+        <View
+          accessible
+          accessibilityRole="text"
+          accessibilityLabel={how}
+          style={styles.line}
+        >
+          {requestRails({ ...request, legacy }).map((rail, i) => (
+            <View key={rail} style={i ? undefined : styles.lead}>
+              <Glyph name={rail} size={20} color={palette.steam} />
+            </View>
           ))}
           {reused ? (
-            <Glyph name="twin" size={16} color={palette.honey} />
+            <Glyph name="twin" size={20} color={palette.honey} />
           ) : null}
         </View>
-        <View style={styles.request}>
-          <CopyChip
-            label={legacy ? copy.receive.legacyInvoice : copy.receive.original}
-            value={request.uri}
-            glyph={legacy ? 'bolt' : 'qr'}
-            copyable={shareable && !busy}
-          />
-        </View>
-        {error ? <ErrorPip message={error} /> : null}
+        {error ? (
+          <View style={styles.pip}>
+            <ErrorPip message={error} />
+          </View>
+        ) : null}
         <View style={styles.controls}>
           {shareable ? (
             <>
@@ -266,17 +299,21 @@ export function ReceiveRequestDetails({
 }
 
 const styles = StyleSheet.create({
-  card: {
-    padding: space.lg,
-    borderRadius: radius.xl,
-    backgroundColor: palette.espresso,
-    gap: space.md,
+  // No inset of its own: its lines start at the detail's edge, where the
+  // detail's other lines and chips start.
+  card: { gap: space.xs },
+  qr: { alignItems: 'center', paddingBottom: space.sm },
+  line: {
+    minHeight: 48,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: space.sm,
   },
-  qr: { alignItems: 'center' },
-  rails: { flexDirection: 'row', gap: space.sm, alignItems: 'center' },
-  request: { alignSelf: 'stretch' },
+  lead: { width: 20, alignItems: 'center' },
+  // Its content's width, and no wider than the line leaves it.
+  chip: { flexShrink: 1 },
   controls: {
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -290,6 +327,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: palette.sageSoft,
   },
+  pip: { alignSelf: 'center' },
   linking: { alignSelf: 'stretch', gap: space.md },
   well: {
     flexDirection: 'row',

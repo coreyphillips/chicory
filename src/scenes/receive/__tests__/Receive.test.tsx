@@ -19,7 +19,15 @@ import type {
   WalletSnapshot,
 } from '@beignet/wallet-core';
 import { AmountField } from '../../../components/AmountField';
-import { ReceiveReceipt } from '../../../components/ReceiveReceipt';
+import { AmountReadout } from '../../keypad/AmountReadout';
+import {
+  clearDiagnostics,
+  recentDiagnostics,
+} from '../../../services/diagnosticLog';
+import {
+  RECEIPT_MARK,
+  ReceiveReceipt,
+} from '../../../components/ReceiveReceipt';
 import { ReceiveRequestDetails } from '../../../components/ReceiveRequestDetails';
 import { copy } from '../../../design/copy';
 import { Glyph, HISTORY_GLYPH } from '../../../design/glyphs';
@@ -28,7 +36,12 @@ import { palette } from '../../../design/palette';
 import { CopyChip, chipText } from '../../../glyphs/CopyChip';
 import { ExpiryRing } from '../../../glyphs/ExpiryRing';
 import { Odometer } from '../../../glyphs/Odometer';
-import { BANDS, QR_CARD_GONE, QR_TIMING } from '../../../glyphs/QrBloom';
+import {
+  BANDS,
+  QR_CARD_GONE,
+  QR_TIMING,
+  QrBloom,
+} from '../../../glyphs/QrBloom';
 import * as tokens from '../../../motion/tokens';
 import { ReceiveScreen } from '../../../screens/Receive';
 import type { WalletAdapter } from '../../../services/wallet';
@@ -47,12 +60,14 @@ import {
 import { CONTROL as SEND_CONTROL } from '../../send/Controls';
 import { BANG, DrawnGlyph } from '../../send/DrawnGlyph';
 import { Unplugged } from '../../send/LoopingGlyphs';
-import { quietRing } from '../controls';
+import { CONTROL_ROW, quietRing } from '../controls';
 import { ReceiveHostContext, slotRoom } from '../host';
+import { DrawnGlyph as DrawnMark } from '../draw';
 import { Spin } from '../loops';
-import { CELEBRATION, requestFace } from '../model';
+import { CELEBRATION, receiveRefusal, requestFace } from '../model';
 import { ReceiveScene } from '../ReceiveScene';
-import { ACTIVITY, RequestStep } from '../RequestStep';
+import { ACTIVITY, RequestStep, frameSide } from '../RequestStep';
+import { SIGN } from '../QuoteStep';
 
 /**
  * Receive's accessibility, feedback and look (REDESIGN.md 6 and 9), driven
@@ -672,6 +687,50 @@ describe('the amount step', () => {
     await act(async () => tree.unmount());
   });
 
+  test('keeps the way on at one height from step to step, as Send does', async () => {
+    // Continue sat at about 750pt, the quote's create at 398 and the
+    // request's controls at 574 (P10, 18, 38 and 39).
+    const ROOM = 600;
+    const tree = await mount(
+      <ReceiveHostContext.Provider value={{ useBack: noop, room: ROOM }}>
+        <ReceiveScreen
+          client={clientOf()}
+          receivableSats={10_000}
+          onActivity={noop}
+          onBusy={noop}
+        />
+      </ReceiveHostContext.Provider>,
+    );
+    /**
+     * Where the control labelled `label` sits: in the row every step keeps
+     * its way on in, as the last thing in a step `ROOM` tall at least.
+     */
+    const place = (label: string) => {
+      const control = find(tree, label)!;
+      let row = control.parent!;
+      while (StyleSheet.flatten(row.props.style)?.minHeight !== CONTROL_ROW) {
+        row = row.parent!;
+      }
+      let step = row.parent!;
+      while (typeof step.type !== 'string') step = step.parent!;
+      const kids = step.children as ReactTestInstance[];
+      const style = StyleSheet.flatten(step.props.style);
+      return {
+        last: kids[kids.length - 1].findAll(node => node === row).length > 0,
+        room: style.height ?? style.minHeight,
+        centred: StyleSheet.flatten(row.props.style).alignItems,
+      };
+    };
+    const pinned = { last: true, room: ROOM, centred: 'center' };
+    expect(place(copy.receive.continue)).toEqual(pinned);
+    await toQuote(tree);
+    expect(place(copy.receive.create)).toEqual(pinned);
+    await tap(tree, copy.receive.create);
+    expect(place(copy.receive.createAnother)).toEqual(pinned);
+    expect(CONTROL_ROW).toBe(SEND_CONTROL + 16);
+    await act(async () => tree.unmount());
+  });
+
   test('without room, as alone, takes the height it needs', async () => {
     const tree = await screen(clientOf());
     expect(pinnedHeight(tree)).toBeUndefined();
@@ -740,6 +799,96 @@ describe('the amount step', () => {
     await act(async () => tree.unmount());
   });
 
+  test('an amount the engine refuses turns radish and shakes, and the way on waits for another', async () => {
+    // At 999,999,999 the amount stayed cream and still, Continue stayed a
+    // bright primary, and the only sign was a pip labelled with the engine's
+    // raw sentence (P10, 19-receive-refusal-pip).
+    const RAW = 'the provider funds at most 1000000 sats for one receive';
+    const SAID = copy.receive.providerCap(1_000_000);
+    expect(SAID).toContain('1,000,000 sats');
+    clearDiagnostics();
+    const error = jest.spyOn(haptics, 'error');
+    const tree = await screen(
+      clientOf({
+        quoteReceive: jest.fn(() =>
+          Promise.reject(
+            Object.assign(new Error(RAW), { code: 'RECEIVE_UNAVAILABLE' }),
+          ),
+        ),
+      }),
+      { receivableSats: 0 },
+    );
+    await enterAmount(tree, '999999999');
+    await tap(tree, copy.receive.continue);
+    const readout = tree.root.findByType(AmountReadout);
+    expect(readout.props.tone).toBe('over-total');
+    expect(readout.props.hint).toBe(SAID);
+    expect(error).toHaveBeenCalledTimes(1);
+    const way = find(tree, copy.receive.continue)!;
+    expect(way.props.accessibilityState).toMatchObject({ disabled: true });
+    expect(alerts(tree)).toEqual([SAID]);
+    // Said in Receive's words, and logged in the engine's.
+    expect(recentDiagnostics().map(entry => entry.message)).toContain(RAW);
+    expect(meaning(tree)).not.toContain(RAW);
+    // Another amount is another ask.
+    await enterAmount(tree, '50000');
+    expect(tree.root.findByType(AmountReadout).props.tone).toBe('plain');
+    expect(
+      find(tree, copy.receive.continue)!.props.accessibilityState,
+    ).toMatchObject({ disabled: false });
+    expect(alerts(tree)).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+
+  test('its sprout says an amount is needed only until one is entered', async () => {
+    const tree = await screen(clientOf(), { receivableSats: 0 });
+    const cue = () =>
+      tree.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.accessibilityLabel === copy.amount.required,
+      );
+    expect(cue()).toHaveLength(1);
+    await enterAmount(tree, '1000');
+    expect(cue()).toHaveLength(0);
+    await act(async () => tree.unmount());
+  });
+
+  test('balances its top row: bare glyphs either side of the cue, in slots of one width', async () => {
+    // The pencil was a filled 48pt disc at one edge, the sprout a bare glyph
+    // in the middle, and nothing at the other (P10, 18-receive-amount-large).
+    const tree = await screen(clientOf(), { receivableSats: 0 });
+    const pencil = find(tree, copy.receive.addNote)!;
+    const drawn = StyleSheet.flatten(pencil.props.style);
+    expect(drawn).toMatchObject({ width: 48, height: 48 });
+    expect(drawn.backgroundColor).toBeUndefined();
+    expect(drawn.borderWidth).toBeUndefined();
+    const [cue] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === copy.amount.required,
+    );
+    const sizes = [pencil, cue].map(node => glyphsIn(node)[0].props.size);
+    expect(sizes).toEqual([20, 20]);
+    // The row is three columns: the sides share its width equally, so the
+    // cue is centred with or without the moon.
+    let row = pencil.parent!;
+    while (!row.findAll(node => node === cue).length) row = row.parent!;
+    const sides = (row.children as ReactTestInstance[])
+      .map(child => StyleSheet.flatten(child.props.style) ?? {})
+      .filter(style => style.flex !== undefined)
+      .map(style => style.flex);
+    expect(sides).toEqual([1, 1]);
+    // Open, the note's pencil turns bloom rather than growing a disc.
+    await tap(tree, copy.receive.addNote);
+    const open = find(tree, copy.receive.addNote)!;
+    expect(glyphsIn(open)[0].props.color).toBe(palette.bloom);
+    expect(
+      StyleSheet.flatten(open.props.style).backgroundColor,
+    ).toBeUndefined();
+    await act(async () => tree.unmount());
+  });
+
   test('its cue is a place a finger can hold', async () => {
     const tree = await screen(clientOf(), { receivableSats: 0 });
     const [cue] = tree.root.findAll(
@@ -748,6 +897,25 @@ describe('the amount step', () => {
         node.props.accessibilityLabel === copy.amount.required,
     );
     expect(StyleSheet.flatten(cue.props.style)).toMatchObject({
+      minWidth: 48,
+      minHeight: 48,
+    });
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('the request', () => {
+  test('holds how it can be paid in a place a finger can hold, as text', async () => {
+    // It was a 48 by 18 element, under the 48pt target (P10, 39-c3-request).
+    const tree = await screen(clientOf());
+    await toRequest(tree);
+    const [rails] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === copy.receive.unified,
+    );
+    expect(rails.props.accessibilityRole).toBe('text');
+    expect(StyleSheet.flatten(rails.props.style)).toMatchObject({
       minWidth: 48,
       minHeight: 48,
     });
@@ -778,19 +946,30 @@ describe('the quote', () => {
       'text',
       'text',
     ]);
-    // A glyph column, then a sign column, then the value, each line started
-    // at the same edge.
+    // A glyph column, then an operator column of one width, then the value
+    // set right in tabular figures, so the sums line up by place (P10,
+    // 38-c3-quote, where "− 0 sats" and "= 20,000 sats" sat left-aligned).
     const columns = lines.map(line => {
-      const [glyph, sign] = line.children as ReactTestInstance[];
+      const [glyph, sign, value] = line.children as ReactTestInstance[];
+      const figures = StyleSheet.flatten(value.props.style);
       return [
         StyleSheet.flatten(glyph.props.style).width,
-        StyleSheet.flatten(sign.props.style).minWidth,
+        StyleSheet.flatten(sign.props.style).width,
+        figures.textAlign,
+        figures.flexGrow,
+        figures.fontVariant,
       ];
     });
     expect(columns).toEqual([
-      [24, 16],
-      [24, 16],
+      [24, SIGN, 'right', 1, ['tabular-nums']],
+      [24, SIGN, 'right', 1, ['tabular-nums']],
     ]);
+    // Every line as wide as the widest, so the values end at one edge.
+    let both = lines[0].parent!;
+    while (!both.findAll(node => node === lines[1]).length) {
+      both = both.parent!;
+    }
+    expect(StyleSheet.flatten(both.props.style).alignItems).toBe('stretch');
     await act(async () => tree.unmount());
   });
 
@@ -818,6 +997,33 @@ describe('the quote', () => {
 });
 
 describe('a copy chip', () => {
+  test("keeps a URI's scheme and an address's or invoice's prefix whole, and groups what follows", () => {
+    // Grouped from the first character, a request read "bitc oin: …" and an
+    // invoice "lnbc rt30 …" (P10, 22-t4-detail and 23b).
+    const address = `bcrt1qy3${'q'.repeat(30)}kw5jn9u6`;
+    const invoice = `lnbcrt30u1p4td83kp${'x'.repeat(40)}qpw5f2ku`;
+    expect(
+      chipText(`bitcoin:${address}?amount=0.0005&lightning=${invoice}`),
+    ).toBe('bitcoin: bcrt1 qy3q … qpw5 f2ku');
+    expect(chipText(invoice)).toBe('lnbcrt30u1 p4td … qpw5 f2ku');
+    expect(chipText(`lightning:${invoice}`)).toBe(
+      'lightning: lnbcrt30u1 p4td … qpw5 f2ku',
+    );
+    expect(chipText(address)).toBe('bcrt1 qy3q … kw5j n9u6');
+    expect(chipText('lno1qcp4256ypq')).toBe('lno1 qcp4 256y pq');
+    // Whole, the prefix still stands apart and the rest is in fours.
+    expect(
+      chipText(invoice, true).startsWith('lnbcrt30u1 p4td 83kp xxxx'),
+    ).toBe(true);
+    // A hash, a legacy address, or hex that happens to hold a 1, has no
+    // prefix: it is grouped from its first character as before.
+    const hash = 'ab1c'.repeat(16);
+    expect(chipText(hash)).toBe('ab1c ab1c … ab1c ab1c');
+    expect(chipText('1BoatSLRHtKNngkdXEeobR76b53LETtpyT')).toBe(
+      '1Boa tSLR … 3LET tpyT',
+    );
+  });
+
   test('is a mocha pill round its value and glyph, not a bar across its row', async () => {
     // The detail's chip ran the width of the card, its value packed at the
     // left (P7, 59-detail).
@@ -933,20 +1139,33 @@ describe("the request a payment's detail keeps", () => {
     )}`,
   });
   const chipOf = (tree: ReactTestRenderer) => tree.root.findByType(CopyChip);
+  /** The glyph leading `chip` on its line, outside the chip. */
+  const leadOf = (chip: ReactTestInstance) => {
+    const own = glyphsIn(chip);
+    let line = chip.parent!;
+    while (!glyphsIn(line).filter(glyph => !own.includes(glyph)).length) {
+      line = line.parent!;
+    }
+    return glyphsIn(line).filter(glyph => !own.includes(glyph))[0].props.name;
+  };
 
   test('is a chip, shortened in the middle, that copies the whole request', async () => {
     const tree = await mount(<ReceiveRequestDetails item={detailOf(LONG)} />);
+    // It copies, so it carries copy, as the detail's other chips do; what
+    // it holds leads its line.
     expect(chipOf(tree).props).toMatchObject({
       label: copy.receive.original,
       value: LONG.uri,
-      glyph: 'qr',
+      glyph: 'copy',
       copyable: true,
     });
+    expect(leadOf(chipOf(tree))).toBe('qr');
     // Never the whole string at once: the chip's two ends, in fours.
     const drawn = visibleText(tree);
     expect(drawn).not.toContain(LONG.uri);
     expect(drawn).toContain(chipText(LONG.uri));
-    expect(chipText(LONG.uri).length).toBeLessThan(30);
+    // The scheme and the address's prefix whole, a group, and two at the end.
+    expect(chipText(LONG.uri)).toBe('bitcoin: bcrt1 qpg0 … cqxf 6mds');
     // A tap copies all of it, and there is no second control that does.
     const label = copy.receive.copyValue(copy.receive.original);
     const copiers = tree.root.findAll(
@@ -1001,9 +1220,50 @@ describe("the request a payment's detail keeps", () => {
     );
     expect(chipOf(tree).props).toMatchObject({
       label: copy.receive.legacyInvoice,
-      glyph: 'bolt',
     });
+    expect(leadOf(chipOf(tree))).toBe('bolt');
     await act(async () => tree.unmount());
+  });
+});
+
+describe('a refusal', () => {
+  test.each<[string, string | undefined, { said: string; amount: boolean }]>([
+    [
+      'the provider funds at most 1000000 sats for one receive',
+      'RECEIVE_UNAVAILABLE',
+      {
+        said: 'Your primary node funds at most 1,000,000 sats for one receive. Request less.',
+        amount: true,
+      },
+    ],
+    [
+      'The receive fee would use the entire amount. Request more sats.',
+      'RECEIVE_FEE_TOO_HIGH',
+      {
+        said: 'The receive fee would use the entire amount. Request more sats.',
+        amount: true,
+      },
+    ],
+    [
+      'Enter a whole number of sats.',
+      'INVALID_AMOUNT',
+      { said: 'Enter a whole number of sats.', amount: true },
+    ],
+    [
+      'The primary node cannot provide capacity for this amount within your fee limit.',
+      'RECEIVE_UNAVAILABLE',
+      {
+        said: 'The primary node cannot provide capacity for this amount within your fee limit.',
+        amount: false,
+      },
+    ],
+    [
+      'No route to the primary.',
+      undefined,
+      { said: 'No route to the primary.', amount: false },
+    ],
+  ])('%s (%s)', (message, code, expected) => {
+    expect(receiveRefusal(message, code)).toEqual(expected);
   });
 });
 
@@ -1022,10 +1282,17 @@ describe('the celebration', () => {
     // The card goes once the bands have set off and it has faded.
     expect(QR_CARD_GONE).toBe(QR_TIMING.step * BANDS + QR_TIMING.dissolve);
     expect(CELEBRATION.track.delay).toBeGreaterThanOrEqual(QR_CARD_GONE);
+    expect(CELEBRATION.ring.delay).toBeGreaterThanOrEqual(QR_CARD_GONE);
+    const part: ReceiveStatus = {
+      ...paid,
+      phase: 'partial',
+      receivedSats: 400,
+      confirmedSats: 400,
+    };
     const opacity = async (celebrate: boolean) => {
       const tree = await mount(
         <ReceiveReceipt
-          status={paid}
+          status={part}
           amountSats={1000}
           celebrate={celebrate}
         />,
@@ -1040,8 +1307,105 @@ describe('the celebration', () => {
       return shown;
     };
     expect(await opacity(true)).toBe(0);
-    // A still receipt, as a payment's detail keeps it, has its track.
+    // A still receipt has its track.
     expect(await opacity(false)).toBe(1);
+  });
+
+  test("lands on a 120pt cream disc with an ink check, as Send's result, the amount under it", async () => {
+    // It rested on a 275pt sage outline, the code's size, with a 65pt check
+    // lost in it (P10, 42-c3-received).
+    expect(RECEIPT_MARK).toBe(120);
+    const room = frameSide(264);
+    const tree = await mount(
+      <ReceiveReceipt
+        status={paid}
+        amountSats={1000}
+        celebrate
+        size={RECEIPT_MARK}
+        room={room}
+      />,
+    );
+    const [disc] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'receipt-disc',
+    );
+    expect(StyleSheet.flatten(disc.props.style)).toMatchObject({
+      backgroundColor: palette.cream,
+      borderRadius: RECEIPT_MARK / 2,
+    });
+    // Done is its own ground: no husk track under the rim.
+    expect(
+      tree.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.testID === 'receipt-track',
+      ),
+    ).toHaveLength(0);
+    const check = tree.root
+      .findAllByType(DrawnMark)
+      .find(glyph => glyph.props.name === 'check')!;
+    expect(check.props).toMatchObject({ color: palette.ink, size: 56 });
+    // The mark's centre is the code's centre, where the card lands.
+    const [head] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel?.startsWith(copy.receive.received),
+    );
+    expect(StyleSheet.flatten(head.props.style)).toMatchObject({
+      minHeight: room,
+      paddingTop: (room - RECEIPT_MARK) / 2,
+    });
+    // The amount under it at Send's 48pt, in sage.
+    const [amount] = tree.root
+      .findAllByType(Odometer)
+      .filter(odometer => odometer.props.sign === '+');
+    expect(amount.props).toMatchObject({
+      variant: 'amount',
+      color: palette.sage,
+    });
+    await act(async () => tree.unmount());
+  });
+
+  test('keeps the code over the mark it lands on, and tells it where', async () => {
+    const request = requestOf();
+    const tree = await mount(
+      <RequestStep
+        request={request}
+        createdAt={Date.now()}
+        face={requestFace({
+          request,
+          now: Date.now(),
+          paid: true,
+          ambiguous: false,
+          createdAt: Date.now(),
+        })}
+        minutesLeft={10}
+        receipt={paid}
+        hidden={false}
+        unit="sats"
+        qr={264}
+        error={null}
+        onLift={noop}
+        onCopy={noop}
+        copies={0}
+        onShare={noop}
+        onAgain={noop}
+        onActivity={noop}
+        focus={{ current: null }}
+      />,
+    );
+    // QrBloom is a memo: its function is drawn.
+    const drawnCode = (QrBloom as unknown as { type: React.ComponentType })
+      .type;
+    const code = tree.root.findByType(drawnCode);
+    expect(code.props).toMatchObject({ state: 'paid', lands: RECEIPT_MARK });
+    // Drawn after the receipt, so over it: the card covers the disc until
+    // it has landed on it.
+    const order = tree.root
+      .findAll(node => node.type === drawnCode || node.type === ReceiveReceipt)
+      .map(node => (node.type === drawnCode ? 'code' : 'receipt'));
+    expect(order).toEqual(['receipt', 'code']);
+    await act(async () => tree.unmount());
   });
 
   test('offers the list with a glyph that does not say money is still moving', async () => {
