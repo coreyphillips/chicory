@@ -153,7 +153,9 @@ test('a refused change keeps the draft and reports the reason', async () => {
 test('the engine version reported by the running wallet is shown', async () => {
   const adapter = client();
   const tree = await render(base, adapter);
-  expect(text(tree)).toContain('0.15.0-portable');
+  // Drawn with a word joiner after its hyphen, which draws nothing, so a
+  // line never breaks inside it.
+  expect(text(tree).replace(/\u2060/g, '')).toContain('0.15.0-portable');
   await act(async () => tree.unmount());
 });
 

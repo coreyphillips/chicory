@@ -27,6 +27,7 @@ import {
   Toggle,
   nodeAddressText,
   testNetwork,
+  unbroken,
   useGlyphSize,
   wholeWords,
 } from '../scenes/settings/ui';
@@ -484,6 +485,49 @@ function EraseWallet({ onErase }: { onErase: () => Promise<void> }) {
   );
 }
 
+/** A space a line never breaks at. */
+const GLUE = '\u00A0';
+
+/**
+ * The app's version and, once the wallet reports it, the engine's, at the
+ * foot of the page. Each version is one piece a line never breaks inside
+ * (`unbroken`): P12 saw "Engine 0.22.0-" over "portable" at the largest text
+ * size. The two sit on one line while they fit and wrap as two, each
+ * keeping its words whole and shrinking rather than break one (`wholeWords`),
+ * the dot between them kept at the end of the first. A screen reader hears
+ * them as the one line they read as.
+ */
+function About({ engine }: { engine: string | null }) {
+  const app = words.about.app(unbroken(APP_VERSION));
+  const said = engine
+    ? `${words.about.app(APP_VERSION)} · ${words.about.engine(engine)}`
+    : words.about.app(APP_VERSION);
+  const parts = engine
+    ? [
+        // The dot is glued to the version before it, not counted as a word.
+        { text: `${app}${GLUE}·`, fit: wholeWords(app) },
+        {
+          text: words.about.engine(unbroken(engine)),
+          fit: wholeWords(words.about.engine(engine)),
+        },
+      ]
+    : [{ text: app, fit: wholeWords(app) }];
+  return (
+    <View
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={said}
+      style={styles.about}
+    >
+      {parts.map(part => (
+        <Text key={part.text} {...part.fit} style={styles.aboutText}>
+          {part.text}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 /** Settings' sections, top to bottom, when no backup is waiting. */
 const ORDER = [
   'wallet',
@@ -656,13 +700,7 @@ export function SettingsScreen({
     <SettingsNetwork network={snapshot.wallet.network}>
       <View style={styles.page}>
         {order.map(part => parts[part])}
-        <Text style={styles.about}>
-          {engineVersion
-            ? `${words.about.app(APP_VERSION)} · ${words.about.engine(
-                engineVersion,
-              )}`
-            : words.about.app(APP_VERSION)}
-        </Text>
+        <About engine={engineVersion} />
       </View>
     </SettingsNetwork>
   );
@@ -676,10 +714,18 @@ const styles = StyleSheet.create({
   stack: { gap: space.md },
   connection: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   connectionText: { ...type.meta, color: palette.steam },
+  // One line while both fit, centred; past that each takes a line.
   about: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    columnGap: space.xxs,
+    marginTop: space.xs,
+  },
+  aboutText: {
     ...type.meta,
     color: palette.steam,
     textAlign: 'center',
-    marginTop: space.xs,
+    flexShrink: 1,
   },
 });

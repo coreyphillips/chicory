@@ -6,10 +6,18 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
 import { SettingsScreen, setupWord } from '../../../screens/Settings';
+import {
+  clearDiagnostics,
+  recordDiagnostic,
+} from '../../../services/diagnosticLog';
 import type { WalletAdapter } from '../../../services/wallet';
 import { fonts } from '../../../theme';
+import { APP_VERSION } from '../../../version';
 import { snapshotOf } from '../../../../test-support/fixtures';
+import { mount } from '../../../../test-support/guard';
 import { press } from '../../../../test-support/query';
+import { Diagnostics, codeText } from '../Diagnostics';
+import { RecoveryWords } from '../RecoveryWords';
 import {
   copyFit,
   monoAdvance,
@@ -20,9 +28,10 @@ import {
 import type { LaidLine } from '../ui';
 
 /**
- * Settings read on the phone (the P10 device pass): setup in words rather
- * than the engine's value, and a node address that breaks only where it may
- * and is in the one face, typed or saved.
+ * Settings read on the phone (the P10 and P12 device passes): setup in words
+ * rather than the engine's value, a node address that breaks only where it
+ * may and is in the one face, typed or saved, and no value broken inside
+ * itself at the largest text size: a version, a recovery word, a code.
  */
 
 const words = copy.settings;
@@ -35,11 +44,11 @@ const JOIN = '\u2060';
 const KEY = `02492a7b6f78c57d79f2d798162e21bc74259182c4a34181e21ab76b7ece169598`;
 const URI = `${KEY}@127.0.0.1:19950`;
 
-function client(): WalletAdapter {
+function client(engineVersion = '0.15.0'): WalletAdapter {
   return {
     connection: { url: 'embedded:', token: '' },
     demo: false,
-    getConfig: jest.fn().mockResolvedValue({ engineVersion: '0.15.0' }),
+    getConfig: jest.fn().mockResolvedValue({ engineVersion }),
     snapshot: jest.fn().mockResolvedValue(snapshotOf()),
     getRecoveryPhrase: jest.fn(),
     updatePrimary: jest.fn(),
@@ -50,13 +59,16 @@ function client(): WalletAdapter {
 
 let mounted: ReactTestRenderer | null = null;
 
-async function render(snapshot: WalletSnapshot = snapshotOf()) {
+async function render(
+  snapshot: WalletSnapshot = snapshotOf(),
+  adapter: WalletAdapter = client(),
+) {
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(
       <SettingsScreen
         snapshot={snapshot}
-        client={client()}
+        client={adapter}
         switchError=""
         onDisconnect={jest.fn()}
         onChooseWallet={jest.fn()}
@@ -320,5 +332,96 @@ describe('the copy control beside a node address', () => {
       });
     });
     expect(size()).toBe(shrunk);
+  });
+});
+
+describe('the version line', () => {
+  test('keeps each version whole, and hears as the one line it reads as', async () => {
+    const tree = await render(snapshotOf(), client('0.22.0-portable'));
+    const drawn = (text: string) =>
+      tree.root.find(
+        node => node.type === Text && node.props.children === text,
+      );
+    // P12: "Engine 0.22.0-" over "portable" at the largest text size.
+    const engine = drawn(`Engine 0.22.0-${JOIN}portable`);
+    // Two words, so a version wider than the page shrinks rather than
+    // take a third line.
+    expect(engine.props).toMatchObject({
+      numberOfLines: 2,
+      adjustsFontSizeToFit: true,
+    });
+    // The dot stays at the end of the app's version.
+    const app = drawn(`${words.about.app(unbroken(APP_VERSION))}\u00A0·`);
+    expect(app.props.numberOfLines).toBe(2);
+    const line = engine.parent!;
+    expect(app.parent).toBe(line);
+    expect(line.props).toMatchObject({
+      accessible: true,
+      accessibilityLabel: `Chicory ${APP_VERSION} · Engine 0.22.0-portable`,
+    });
+    expect(StyleSheet.flatten(line.props.style)).toMatchObject({
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+    });
+  });
+
+  test("is the app's alone until the wallet reports its engine", async () => {
+    const adapter = client();
+    jest.mocked(adapter.getConfig!).mockReturnValue(new Promise(() => {}));
+    const tree = await render(snapshotOf(), adapter);
+    const line = tree.root.find(
+      node =>
+        typeof node.type !== 'string' &&
+        node.props.accessibilityLabel === words.about.app(APP_VERSION),
+    );
+    expect(line.findAllByType(Text)).toHaveLength(1);
+  });
+});
+
+describe('a recovery word', () => {
+  test('is never broken across lines, shrinking a little instead', async () => {
+    const phrase = 'mushroom abandon wireless document'.split(' ');
+    const tree = await mount(<RecoveryWords words={phrase} />);
+    for (const word of phrase) {
+      const text = tree.root.find(
+        node => node.type === Text && node.props.children === word,
+      );
+      expect(text.props).toMatchObject({
+        numberOfLines: 1,
+        adjustsFontSizeToFit: true,
+      });
+    }
+    await act(async () => tree.unmount());
+  });
+});
+
+describe("a diagnostic entry's code", () => {
+  test('breaks only after its underscores', () => {
+    expect(codeText('AMBIGUOUS_RECEIVE_ADDRESS')).toBe(
+      `AMBIGUOUS_${BREAK}RECEIVE_${BREAK}ADDRESS`,
+    );
+    expect(codeText('UNCERTAIN')).toBe('UNCERTAIN');
+    expect(codeText('A_')).toBe('A_');
+  });
+
+  test('is drawn that way beside its time', async () => {
+    clearDiagnostics();
+    recordDiagnostic({
+      phase: 'ui',
+      message: 'Reused.',
+      code: 'AMBIGUOUS_RECEIVE_ADDRESS',
+    });
+    const adapter = client();
+    const tree = await mount(<Diagnostics client={adapter} />);
+    await press(tree, words.diagnostics.heading);
+    const meta = tree.root.findAll(
+      node =>
+        node.type === Text &&
+        typeof node.props.children === 'string' &&
+        node.props.children.endsWith(codeText('AMBIGUOUS_RECEIVE_ADDRESS')),
+    );
+    expect(meta).toHaveLength(1);
+    await act(async () => tree.unmount());
+    clearDiagnostics();
   });
 });
