@@ -2,6 +2,7 @@ import React from 'react';
 import {
   AppState,
   Dimensions,
+  NativeModules,
   PixelRatio,
   StyleSheet,
   Text,
@@ -317,6 +318,53 @@ describe('the app switcher', () => {
     await act(async () => change('inactive'));
     expect(byTestID(tree, 'privacy-cover')).toHaveLength(0);
     await act(async () => tree.unmount());
+  });
+
+  test("tells iOS's native cover while the lock is what is drawn, so it leaves the bud in view", async () => {
+    // The native cover goes up as the app turns inactive, before React
+    // hears of it, so it is told rather than asked (`nativeCover`).
+    const setLockShown = jest.fn();
+    NativeModules.PrivacyCover = {
+      setSystemPromptOpen: jest.fn(),
+      setLockShown,
+    };
+    try {
+      const live = sessionOf({ snapshot: snapshotOf() });
+      const unlocked = (
+        <Staged phase={{ kind: 'wallet', error: '' }} live={live} />
+      );
+      const locked = (
+        <Staged
+          phase={{ kind: 'locked', prompting: true, error: '' }}
+          live={live}
+        />
+      );
+      const tree = await mount(unlocked);
+      expect(setLockShown).not.toHaveBeenCalled();
+      await act(async () => tree.update(locked));
+      expect(setLockShown.mock.calls).toEqual([[true]]);
+      // A prompt that comes and goes over the lock tells it nothing new.
+      await act(async () =>
+        tree.update(
+          <Staged
+            phase={{ kind: 'locked', prompting: false, error: '' }}
+            live={live}
+          />,
+        ),
+      );
+      expect(setLockShown.mock.calls).toEqual([[true]]);
+      await act(async () => tree.update(unlocked));
+      expect(setLockShown.mock.calls).toEqual([[true], [false]]);
+      await act(async () => tree.unmount());
+      // A launch that opens on the lock tells it from the first frame.
+      setLockShown.mockClear();
+      const opened = await mount(locked);
+      expect(setLockShown.mock.calls).toEqual([[true]]);
+      await act(async () => opened.unmount());
+      expect(setLockShown.mock.calls).toEqual([[true], [false]]);
+    } finally {
+      delete NativeModules.PrivacyCover;
+    }
   });
 });
 
