@@ -4,7 +4,7 @@ import Reanimated from 'react-native-reanimated';
 import { AmountField } from '../../components/AmountField';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
-import { riseIn, sceneOut, stagger } from '../../motion/presets';
+import { riseIn, sceneOut } from '../../motion/presets';
 import { useLaunchLanding } from '../../stage/panes/Launch';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { radius, space, type as typography } from '../../theme';
@@ -188,9 +188,14 @@ export function FormStep({
     </>
   );
   // The way on, with what went wrong beside it as Send has it, so a refusal
-  // is never pushed past the bottom of the screen.
+  // is never pushed past the bottom of the screen. The row holds still as
+  // it arrives, as Send's does: Home's circle is landing on Continue, which
+  // is measured where it is laid out, so a rise of its own had the circle
+  // land low and snap up as it handed over (P12, 03i). A refusal's pip
+  // rises in on its own. The row moves as the step is fitted to its slot,
+  // which Continue's own layout does not see, so it is measured again then.
   const controls = (
-    <Reanimated.View entering={stagger(3)} style={styles.controls}>
+    <View style={styles.controls} onLayout={landing.onLayout}>
       <View style={styles.side} />
       {/* Home's Receive circle lands exactly on it (REDESIGN.md 7, T2), and
           it is unseen until the circle hands over, so the two are never
@@ -216,7 +221,7 @@ export function FormStep({
       <View style={styles.side}>
         {error ? <ErrorPip message={error.message} code={error.code} /> : null}
       </View>
-    </Reanimated.View>
+    </View>
   );
   if (room === undefined) {
     return (

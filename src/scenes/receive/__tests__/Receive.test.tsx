@@ -5,9 +5,11 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  View,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as Reanimated from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
@@ -46,6 +48,8 @@ import * as tokens from '../../../motion/tokens';
 import { ReceiveScreen } from '../../../screens/Receive';
 import type { WalletAdapter } from '../../../services/wallet';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
+import { LaunchProvider } from '../../../stage/panes/Launch';
+import type { Launch } from '../../../stage/panes/Launch';
 import { StageProvider, useStageStore } from '../../../stage/StageContext';
 import type { StageStore } from '../../../stage/StageContext';
 import { mount } from '../../../../test-support/guard';
@@ -728,6 +732,81 @@ describe('the amount step', () => {
     await tap(tree, copy.receive.create);
     expect(place(copy.receive.createAnother)).toEqual(pinned);
     expect(CONTROL_ROW).toBe(SEND_CONTROL + 16);
+    await act(async () => tree.unmount());
+  });
+
+  test("holds its way on still as Home's circle lands on it, as Send's is", async () => {
+    // Its row rose 12pt as it arrived, and the circle landed 6pt low and
+    // snapped up as it handed over (P12, 03i).
+    const tree = await screen(clientOf());
+    const moving: string[] = [];
+    let row: ReactTestInstance | null = find(tree, copy.receive.continue)!;
+    while (
+      row &&
+      StyleSheet.flatten(row.props.style)?.minHeight !== CONTROL_ROW
+    ) {
+      if (row.props.entering) moving.push(String(row.type));
+      row = row.parent;
+    }
+    expect(row).not.toBeNull();
+    if (row!.props.entering) moving.push('the row');
+    expect(moving).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+
+  test("measures its way on again as its row moves, so Home's circle lands where it is", async () => {
+    const made = Reanimated.useSharedValue;
+    let launch!: Launch;
+    function Launching({ children }: { children: React.ReactNode }) {
+      launch = useState<Launch>(() => ({
+        x: made(201),
+        y: made(764),
+        handover: made(0),
+      }))[0];
+      return <LaunchProvider value={launch}>{children}</LaunchProvider>;
+    }
+    const tree = await mount(
+      <Launching>
+        <ReceiveScreen
+          client={clientOf()}
+          receivableSats={10_000}
+          onActivity={noop}
+          onBusy={noop}
+        />
+      </Launching>,
+    );
+    let holder: ReactTestInstance | null = find(
+      tree,
+      copy.receive.continue,
+    )!.parent;
+    while (
+      holder &&
+      !(holder.type === View && holder.props.collapsable === false)
+    ) {
+      holder = holder.parent;
+    }
+    let row: ReactTestInstance | null = holder;
+    while (
+      row &&
+      StyleSheet.flatten(row.props.style)?.minHeight !== CONTROL_ROW
+    ) {
+      row = row.parent;
+    }
+    // Fitted to its slot, the row moves and Continue with it, while
+    // Continue's place in the row stays the same.
+    jest
+      .mocked(holder!.instance.measureInWindow)
+      .mockImplementationOnce(
+        (done: (x: number, y: number, w: number, h: number) => void) =>
+          done(157, 700, 88, 88),
+      );
+    await act(async () =>
+      row!.props.onLayout({
+        nativeEvent: { layout: { x: 0, y: 512, width: 354, height: 104 } },
+      }),
+    );
+    expect(launch.x.get()).toBe(201);
+    expect(launch.y.get()).toBe(744);
     await act(async () => tree.unmount());
   });
 
