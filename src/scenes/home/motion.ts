@@ -1,6 +1,7 @@
 import { ReduceMotion } from 'react-native-reanimated';
 import type { WithTimingConfig } from 'react-native-reanimated';
-import { curves } from '../../motion/tokens';
+import { springStep } from '../../motion/springMath';
+import { curves, overlap, springs } from '../../motion/tokens';
 import {
   HERO_MINI,
   MINI_STRIP,
@@ -243,11 +244,20 @@ export function glyphScale(
   return shown / (landed * grown);
 }
 
+/** One frame at 60fps, in ms. */
+const FRAME_MS = 1000 / 60;
+
 /**
- * How much of the way the circles not tapped have faded by: two thirds,
- * which the pane spring reaches at about 140ms (REDESIGN.md 7, T1).
+ * How far along the pane spring the circles not tapped are gone: where it
+ * is a frame before the scene's content sets out (`overlap.enterDelay`),
+ * about 28% of the way at 63ms, so they are never drawn over what arrives
+ * (REDESIGN.md 7, T1). At two thirds, 140ms, they still showed at a third
+ * across Send's amount and Receive's chips.
  */
-const OTHERS_GONE = 2 / 3;
+export const OTHERS_GONE = springStep(
+  (overlap.enterDelay - FRAME_MS) / 1000,
+  springs.pane,
+);
 
 /** The last share of the way, over which the tapped circle hands over. */
 const HANDOVER = 0.3;
@@ -256,7 +266,8 @@ const HANDOVER = 0.3;
  * One circle's opacity as the row goes away, `away` running from 0 at home
  * to 1 once it has gone. With nothing launching it is the row's own fade,
  * which the sheet's drag shapes (T5). On the way to Send or Receive the
- * circles not tapped are gone within 140ms (T1), and the tapped one stays
+ * circles not tapped are gone before the scene's content enters (T1,
+ * `OTHERS_GONE`), and the tapped one stays
  * whole while it travels and grows. On the canvas it stays whole where it
  * lands, standing in for the scene's own control, until `handover` (0 to 1)
  * says the control has come in over it; drawn on its own it hands over

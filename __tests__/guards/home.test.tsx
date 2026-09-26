@@ -54,6 +54,8 @@ import {
 import type { HealthInput } from '../../src/scenes/home/visual';
 import { HomeScreen } from '../../src/screens/Wallet';
 import { FOCUS_SETTLE_MS } from '../../src/motion/speech';
+import { springStep } from '../../src/motion/springMath';
+import { overlap, springs } from '../../src/motion/tokens';
 import {
   clearDiagnostics,
   recentDiagnostics,
@@ -678,11 +680,20 @@ describe('the motion', () => {
     expect(vesselOpacity(0)).toBe(0);
   });
 
-  test('on the way to a scene the rest are gone in 140ms, and the tapped circle stays whole', () => {
-    // The pane spring is two thirds of the way at about 140ms.
+  test('on the way to a scene the rest are gone before its content enters, and the tapped circle stays whole', () => {
+    // The device pass (P14): gone at two thirds of the pane spring, about
+    // 140ms, the Scan circle still showed at a third across Send's amount,
+    // and Scan and Send across Receive's chips, for two frames.
+    const pane = (ms: number) => springStep(ms / 1000, springs.pane);
     for (const launch of ['send', 'receive'] as const) {
       expect(circleOpacity(0, false, launch)).toBe(1);
-      expect(circleOpacity(2 / 3, false, launch)).toBe(0);
+      // Fading over the frames before the content sets out, not cut.
+      expect(circleOpacity(pane(1000 / 30), false, launch)).toBeGreaterThan(0);
+      expect(circleOpacity(pane(1000 / 30), false, launch)).toBeLessThan(1);
+      // Gone a frame before it, and from then on.
+      for (let ms = overlap.enterDelay - 1000 / 60; ms <= 400; ms += 1) {
+        expect(circleOpacity(pane(ms), false, launch)).toBe(0);
+      }
       expect(circleOpacity(0.7, true, launch)).toBe(1);
       expect(circleOpacity(0.85, true, launch)).toBeCloseTo(0.5);
       expect(circleOpacity(1, true, launch)).toBe(0);

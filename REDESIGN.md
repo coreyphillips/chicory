@@ -701,7 +701,8 @@ On a test network Receive draws slate wherever it would draw bloom (`scenes/rece
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0          | tap haptic                                                                                                                                               |
 | 0 to 300   | the sheet slides off the bottom; rows fade out by 140                                                                                                    |
-| 0 to 140   | scan and receive fade and shrink to .8; the vessel fades; the cog spins out                                                                              |
+| 0 to 65    | scan and receive fade, gone a frame before the content enters (`OTHERS_GONE` in `scenes/home/motion`), so they are never drawn over it; shrinking to .8  |
+| 0 to 140   | the vessel fades; the cog spins out                                                                                                                      |
 | 0 to 320   | the hero shrinks to the mini strip (scale .34), showing what can be spent, swapped in place; the tapped circle moves to bottom center and grows 56 to 88 |
 | about 310  | the circle is on the scene's own control, looking as it does, and fades under it over 140ms                                                              |
 | 80         | the close control spins in                                                                                                                               |
