@@ -2,6 +2,7 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useLayoutEffect,
   useRef,
 } from 'react';
@@ -41,6 +42,12 @@ export function useLaunch(): Launch | null {
   return useContext(LaunchContext);
 }
 
+/** How far apart two readings of the control may be and still agree. */
+export const SETTLED_PT = 0.25;
+
+/** The most frames the control is followed for, about 750ms. */
+export const WATCH_FRAMES = 45;
+
 /**
  * For a scene's primary control: a ref and an `onLayout` for the view that
  * holds it, so the circle that opened the scene lands on it exactly rather
@@ -48,6 +55,13 @@ export function useLaunch(): Launch | null {
  * around it that holds the control unseen until the circle has landed and
  * hands over, so the two are never drawn apart. Off the canvas the ref and
  * the layout do nothing and the style shows the control.
+ *
+ * Where the control is read from the window includes whatever still moves
+ * it, such as an entrance of the step it is drawn in, so one reading taken
+ * as it is laid out could send the circle to where the control was on its
+ * way in, several points off where it comes to rest. So the control is
+ * read again each frame, the circle's landing following it, until two
+ * readings agree, and for WATCH_FRAMES at most.
  */
 export function useLaunchLanding() {
   const launch = useLaunch();
@@ -56,15 +70,45 @@ export function useLaunchLanding() {
     [launch],
   );
   const ref = useRef<HostInstance>(null);
+  // The watch under way, which a later layout or the unmount cuts short.
+  const watch = useRef(0);
+  useEffect(
+    () => () => {
+      watch.current += 1;
+    },
+    [],
+  );
   const onLayout = useCallback(() => {
     if (!launch) return;
-    ref.current?.measureInWindow((x, y, width, height) => {
-      if (!width || !height) return;
-      launch.x.set(steady(withSpring(x + width / 2, springs.pane)));
-      launch.y.set(steady(withSpring(y + height / 2, springs.pane)));
-    });
+    watch.current += 1;
+    const run = watch.current;
+    let last: { x: number; y: number } | null = null;
+    let frames = 0;
+    const read = () => {
+      if (watch.current !== run) return;
+      ref.current?.measureInWindow((x, y, width, height) => {
+        if (watch.current !== run || !width || !height) return;
+        const at = { x: x + width / 2, y: y + height / 2 };
+        const moved = !last || !samePlace(last, at);
+        last = at;
+        frames += 1;
+        if (!moved) return;
+        launch.x.set(steady(withSpring(at.x, springs.pane)));
+        launch.y.set(steady(withSpring(at.y, springs.pane)));
+        if (frames < WATCH_FRAMES) requestAnimationFrame(read);
+      });
+    };
+    read();
   }, [launch]);
   return { ref, onLayout, style };
+}
+
+/** Whether two readings of the control agree (SETTLED_PT). */
+export function samePlace(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): boolean {
+  return Math.abs(a.x - b.x) <= SETTLED_PT && Math.abs(a.y - b.y) <= SETTLED_PT;
 }
 
 /**

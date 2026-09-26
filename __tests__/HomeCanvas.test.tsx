@@ -46,7 +46,12 @@ import {
 } from '../src/stage/layout';
 import { rowWait } from '../src/stage/panes/usePaneMotion';
 import { CORNER_TARGET, CornerControl } from '../src/stage/panes/CornerControl';
-import { LaunchProvider, useLaunchLanding } from '../src/stage/panes/Launch';
+import {
+  LaunchProvider,
+  SETTLED_PT,
+  samePlace,
+  useLaunchLanding,
+} from '../src/stage/panes/Launch';
 import type { Launch } from '../src/stage/panes/Launch';
 import { clearHeldRequests, holdRequest } from '../src/stage/heldRequests';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
@@ -501,6 +506,61 @@ describe('Send and Receive open from their circle', () => {
       expect(launch.x.get()).toBe(201);
       expect(launch.y.get()).toBe(752);
       await act(async () => tree.unmount());
+    }
+  });
+
+  test('follows the control while an entrance still moves it, until two readings agree', async () => {
+    // The device pass (P12): Receive's Continue was read once as it was laid
+    // out, while its row still rose into place, and the circle landed 6pt
+    // below it and snapped up at the hand-over.
+    jest.useFakeTimers();
+    const made = Reanimated.useSharedValue;
+    let launch!: Launch;
+    let landing!: ReturnType<typeof useLaunchLanding>;
+    function Control() {
+      landing = useLaunchLanding();
+      return <View ref={landing.ref} collapsable={false} />;
+    }
+    function Launching() {
+      launch = React.useState<Launch>(() => ({
+        x: made(201),
+        y: made(764),
+        handover: made(0),
+      }))[0];
+      return (
+        <LaunchProvider value={launch}>
+          <Control />
+        </LaunchProvider>
+      );
+    }
+    try {
+      const tree = await mount(<Launching />);
+      const holder = tree.root.find(
+        node => node.type === View && node.props.collapsable === false,
+      );
+      // Its row rising 12pt into place, then at rest.
+      const tops = [720, 714, 710, 708, 708, 708];
+      const read = jest.mocked(holder.instance.measureInWindow);
+      read.mockClear();
+      read.mockImplementation(
+        (done: (x: number, y: number, w: number, h: number) => void) =>
+          done(157, tops.shift() ?? 708, 88, 88),
+      );
+      await act(async () => landing.onLayout());
+      expect(launch.y.get()).toBe(764);
+      for (let frame = 0; frame < 6; frame++) {
+        await act(async () => jest.advanceTimersByTime(16));
+      }
+      expect(launch.y.get()).toBe(752);
+      // Two readings agreed, so it stopped reading.
+      expect(read).toHaveBeenCalledTimes(5);
+      expect(samePlace({ x: 0, y: 0 }, { x: SETTLED_PT, y: -SETTLED_PT })).toBe(
+        true,
+      );
+      await act(async () => tree.unmount());
+      read.mockReset();
+    } finally {
+      jest.useRealTimers();
     }
   });
 
