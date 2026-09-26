@@ -14,6 +14,7 @@ interface Entry {
 }
 export const fs = require('fs') as {
   readFileSync(file: string, encoding: 'utf8'): string;
+  readFileSync(file: string): Uint8Array;
   writeFileSync(file: string, data: string): void;
   existsSync(file: string): boolean;
   readdirSync(dir: string, options: { withFileTypes: true }): Entry[];

@@ -176,6 +176,8 @@ Contrast values are WCAG against roast / espresso / mocha.
 | muted      | steam     |
 | faint      | dust      |
 
+- **App icon.** The open bloom on roast, under the top pane's glow, drawn by `scripts/app-icon.mjs` from the petal, lengths, centre and colours in `glyphs/Bloom.tsx` and `design/palette.ts`, so it is the flower the app draws. iOS has an opaque icon at every size its icon set names; Android has an adaptive icon (the glow as background, the bloom inside the 66dp safe circle as foreground, and a one-colour bloom for themed icons) and the square and round icons older launchers take. `__tests__/AppIcon.test.ts` checks every size. Run the script again after changing the bloom or the palette.
+
 ### 3.2 Gradients (top pane)
 
 | Layer         | Definition                                                                            | Motion                                                                         |
