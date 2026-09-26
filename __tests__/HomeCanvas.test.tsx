@@ -652,10 +652,11 @@ describe('the circle becomes the control it lands on', () => {
     const quiet = launchLook('send', { live: false, test: false });
     expect(glyphMorph(0, 24, 56, quiet.glyph)).toBe(1);
     expect(24 * glyphMorph(1, 24, 56, quiet.glyph) * (88 / 56)).toBeCloseTo(32);
-    // Receive's Continue, held back, is drawn at .94: the circle grows to it.
+    // Receive's Continue, held back, is drawn at full size, as Send's review
+    // is: the circle grows to 88.
     const held = launchLook('receive', { live: false, test: false });
     const landed = launchPose(1, true, 'receive', 0, 0, 88 * held.scale);
-    expect(landed.scale * 56).toBeCloseTo(88 * 0.94);
+    expect(landed.scale * 56).toBeCloseTo(88);
   });
 
   test('its glyph keeps the weight of its line all the way, the control’s once it is the control', () => {

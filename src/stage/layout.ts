@@ -126,7 +126,7 @@ export interface ControlLook {
  * `test` network. `live` is whether it takes a tap as the scene opens:
  * Send's review once a request is in the well, Receive's Continue when an
  * empty amount can be asked for. Held back, each is a mocha disc in a 4pt
- * husk ring with a dust glyph, Receive's a little smaller.
+ * husk ring with a dust glyph, at full size.
  */
 export function launchLook(
   scene: 'send' | 'receive',
@@ -168,7 +168,7 @@ export function launchLook(
         ringWidth: 4,
         ink: palette.dust,
         glyph,
-        scale: 0.94,
+        scale: 1,
       };
 }
 

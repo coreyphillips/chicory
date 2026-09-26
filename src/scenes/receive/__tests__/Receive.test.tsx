@@ -871,6 +871,7 @@ describe('the amount step', () => {
       borderColor: palette.husk,
       borderWidth: quietRing(SEND_CONTROL),
     });
+    expect(StyleSheet.flatten(way.props.style).transform).toBeUndefined();
     expect(quietRing(SEND_CONTROL)).toBe(4);
     expect(glyphsIn(way).map(glyph => glyph.props.color)).toEqual([
       palette.dust,

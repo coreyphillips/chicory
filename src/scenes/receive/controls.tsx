@@ -421,11 +421,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
   },
   raised: { backgroundColor: palette.mocha },
-  quiet: {
-    backgroundColor: palette.mocha,
-    borderColor: palette.husk,
-    transform: [{ scale: 0.94 }],
-  },
+  quiet: { backgroundColor: palette.mocha, borderColor: palette.husk },
   data: { ...typography.line },
   tint: {
     position: 'absolute',
