@@ -68,3 +68,32 @@ describe('the Android window', () => {
     );
   });
 });
+
+/**
+ * The canvas is laid out for a phone held upright: the balance pane over the
+ * activity sheet, whose resting place is a height the top pane needs. Turned
+ * sideways, the sheet rests below the screen. iOS keeps iPhones upright
+ * already; Android is told the same for its main activity. Android 16
+ * ignores the request on large screens, as it should.
+ */
+test('the app is held upright on a phone on both platforms', () => {
+  const manifest = fs.readFileSync(
+    path.join(ROOT, 'android', 'app', 'src', 'main', 'AndroidManifest.xml'),
+    'utf8',
+  );
+  const main = /<activity\s[^>]*android:name="\.MainActivity"[^>]*>/.exec(
+    manifest,
+  )?.[0];
+  expect(main).toContain('android:screenOrientation="portrait"');
+  const plist = fs.readFileSync(
+    path.join(ROOT, 'ios', 'chicory', 'Info.plist'),
+    'utf8',
+  );
+  const phone =
+    /<key>UISupportedInterfaceOrientations<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(
+      plist,
+    )?.[1];
+  expect(phone?.match(/<string>[^<]+<\/string>/g)).toEqual([
+    '<string>UIInterfaceOrientationPortrait</string>',
+  ]);
+});
