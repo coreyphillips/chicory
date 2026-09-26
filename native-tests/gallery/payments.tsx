@@ -165,6 +165,15 @@ const sends: Shot[] = [
     holdRequest(request, { status: 'completed' });
     return { request };
   }),
+  send('a held request, paid while it shows', () => {
+    // The held ring on screen resolves into the paid mark it watched.
+    const request = `bitcoin:${ADDRESS}?amount=0.000042`;
+    holdRequest(request, { status: 'pending' });
+    return {
+      request,
+      steps: [() => holdRequest(request, { status: 'completed' })],
+    };
+  }),
   refused('a held request, the engine says already out', 'ALREADY_SUBMITTED'),
   refused('a request refused', 'INVALID_REQUEST'),
   refused('short of funds, within what is held', 'INSUFFICIENT_FUNDS'),

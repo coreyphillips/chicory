@@ -6,6 +6,7 @@ import {
   amountTone,
   amountWords,
   fixedAmount,
+  heldVisual,
   isUncertain,
   requestRail,
   requestRefusal,
@@ -307,5 +308,24 @@ describe('a result', () => {
     expect(STATUSES.filter(status => resultVisual(status).returnsHome)).toEqual(
       ['completed'],
     );
+  });
+
+  test('a request paid before rests, and one seen to complete on its held ring resolves, worded as sent', () => {
+    expect(heldVisual('completed')).toMatchObject({
+      shape: 'disc',
+      title: copy.send.paidAlready,
+      resting: true,
+      returnsHome: false,
+    });
+    const watched = heldVisual('completed', true);
+    expect(watched).toMatchObject({
+      shape: 'disc',
+      title: copy.send.sent,
+      resolves: true,
+      returnsHome: false,
+    });
+    expect(watched.resting).toBeFalsy();
+    // Held, watched or not, it is the ring: only paid resolves.
+    expect(heldVisual('pending', true)).toEqual(heldVisual('pending'));
   });
 });

@@ -556,6 +556,43 @@ describe('a payment whose call does not answer', () => {
     await act(async () => tree.unmount());
   });
 
+  test('completing while its held ring shows in a Send entered again, resolves the ring into the paid mark it watched, heard as sent and felt as nothing new', async () => {
+    // It cut in one frame to the mark a request paid before rests on,
+    // "Already paid." (P12, 06k).
+    const request = priced('resolves');
+    const first = await hanging(request);
+    await past(SEND_GRACE_MS);
+    await act(async () => first.tree.unmount());
+    const onDone = jest.fn();
+    const again = await draw(
+      { prepareSend: first.prepareSend },
+      { initialRequest: request, onDone },
+    );
+    expect(meaning(again)).toContain(copy.send.onItsWay);
+    await heard(true);
+    jest.mocked(HapticFeedback.trigger).mockClear();
+    said.mockClear();
+    await first.answer(outcome('completed'));
+    const [mark] = again.root.findAllByType(ResultMark);
+    expect(mark.props.visual).toMatchObject({
+      shape: 'disc',
+      resolves: true,
+      returnsHome: false,
+    });
+    expect(mark.props.visual.resting).toBeFalsy();
+    expect(meaning(again)).toContain(copy.send.sent);
+    expect(meaning(again)).not.toContain(copy.send.paidAlready);
+    await arrive(true);
+    expect(said).toHaveBeenCalledWith(copy.send.sent);
+    expect(said).not.toHaveBeenCalledWith(copy.send.paidAlready);
+    // No celebration for a payment felt as it was held, and no way home on
+    // its own.
+    await past(10_000);
+    expect(felt()).toEqual([]);
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => again.unmount());
+  });
+
   test('answered after Send has gone, is recorded all the same and draws nothing', async () => {
     const errors = jest.spyOn(console, 'error');
     const unknown = priced('gone-unknown');

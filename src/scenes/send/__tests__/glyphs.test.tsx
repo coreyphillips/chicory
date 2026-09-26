@@ -32,7 +32,8 @@ import {
 } from '../ErrorGlyphs';
 import { FailureMark } from '../FailureMark';
 import { heldVisual, sendFailure } from '../model';
-import { ResultMark } from '../ResultMark';
+import type { ResultVisual } from '../model';
+import { RESOLVE_FROM, ResultMark } from '../ResultMark';
 
 /**
  * The hold and the countdown around it (REDESIGN.md 5, HoldButton and
@@ -343,6 +344,45 @@ describe('ResultMark', () => {
     // Its arc is drawn at the part strength, round a circle of its own.
     const [arc] = orbit.findAllByType(Circle);
     expect(arc.props.strokeOpacity).toBe(orbit.props.alpha);
+    await act(async () => tree.unmount());
+  });
+
+  test('seen to complete, the held ring gives way to a disc growing out of it, its check drawing', async () => {
+    // It cut in one frame to the disc at rest (P12, 06k).
+    const markOf = (visual: ResultVisual) => (
+      <ResultMark
+        visual={visual}
+        accessibilityLabel="Held"
+        accessibilityValue=""
+        accessibilityHint=""
+      />
+    );
+    /** The layer round `node` that enters or leaves as the face changes. */
+    const layerOf = (node: ReactTestInstance | undefined) => {
+      let at: ReactTestInstance | null = node ?? null;
+      while (at && at.props.entering === undefined && !at.props.exiting) {
+        at = at.parent;
+      }
+      return at;
+    };
+    const tree = await mount(markOf(heldVisual('pending')));
+    // The ring's layer fades as it goes.
+    expect(layerOf(tree.root.findByType(Orbit))?.props.exiting).toEqual(
+      expect.any(Function),
+    );
+    await act(async () => tree.update(markOf(heldVisual('completed', true))));
+    expect(tree.root.findAllByType(Orbit)).toEqual([]);
+    // The disc pops up from the ring's inside, and its check draws in.
+    expect(RESOLVE_FROM).toBeCloseTo((120 - 2 * 5) / 120);
+    const [check] = drawnOf(tree, DrawnGlyph);
+    expect(check.props.name).toBe('check');
+    const disc = layerOf(check);
+    expect(disc?.props.entering).toEqual(expect.any(Function));
+    // Its own layer inside the mark, not the mark arriving as a whole.
+    expect(StyleSheet.flatten(disc?.props.style).position).toBe('absolute');
+    // A request paid before is simply there: nothing pops, nothing draws.
+    await act(async () => tree.update(markOf(heldVisual('completed'))));
+    expect(drawnOf(tree, DrawnGlyph)).toEqual([]);
     await act(async () => tree.unmount());
   });
 

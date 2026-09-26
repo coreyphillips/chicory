@@ -367,6 +367,16 @@ export function SendScreen({
   // It is said once a screen reader has landed on the ring's mark and
   // settled there (REDESIGN.md 9), unless the ring or Send goes first.
   const heldFor = held && held.status !== 'completed' ? request.trim() : '';
+  // The request whose held ring this screen has shown, for as long as it
+  // shows it or the paid mark it turns into. A payment that completes while
+  // its ring is on screen is one seen to go: the ring resolves into the paid
+  // mark, worded as sent, rather than cutting to the mark a request paid
+  // before rests on (P12, 06k).
+  const [ringFor, setRingFor] = useState('');
+  const shownFor = heldFor || (held ? ringFor : '');
+  if (shownFor !== ringFor) setRingFor(shownFor);
+  const resolved =
+    held?.status === 'completed' && !!ringFor && ringFor === request.trim();
   useEffect(() => {
     if (!heldFor) return;
     haptics.held();
@@ -377,13 +387,15 @@ export function SendScreen({
 
   // A request paid before lands on its paid mark at rest: nothing is played
   // or felt for a payment that was seen before, and a screen reader lands on
-  // the mark and hears it.
+  // the mark and hears it. One seen to complete here is heard as sent, and
+  // is not felt either: its payment was felt as it was held, and this is
+  // not the celebration of one sent a moment ago.
   const paidFor = held?.status === 'completed' ? request.trim() : '';
   useEffect(() => {
     if (!paidFor) return;
     land(mark);
-    say(copy.send.paidAlready);
-  }, [paidFor, land, say]);
+    say(resolved ? copy.send.sent : copy.send.paidAlready);
+  }, [paidFor, resolved, land, say]);
 
   // The ground behind the canvas holds honey while an outcome is unknown,
   // here before the wallet's own read of it says so, and flashes radish as a
@@ -939,7 +951,7 @@ export function SendScreen({
     const item = held.item;
     // A payment this screen sent shows what it sent, amount typed or not.
     const shown = item?.amountSats ?? fixedSats ?? (Number(amount) || null);
-    const visual = heldVisual(held.status);
+    const visual = heldVisual(held.status, resolved);
     const paid = held.status === 'completed';
     // Once the history shows the payment, the way to it is the payment
     // itself; until then, the history it will show in.

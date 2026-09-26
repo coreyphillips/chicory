@@ -9,6 +9,7 @@ import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
 import { popIn, useShake } from '../../motion/effects';
 import { useLoop, wave } from '../../motion/loops';
+import { fadeOut } from '../../motion/presets';
 import { durations } from '../../motion/tokens';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { CONTROL } from './Controls';
@@ -32,6 +33,12 @@ const R = (SIZE - STROKE) / 2;
 export const HELD_ORBIT = { stroke: 3, gap: 4, alpha: 0.6 };
 /** Across the held orbit's outer edge, just inside the ring and its gap. */
 const HELD_ORBIT_SIZE = SIZE - 2 * (STROKE + HELD_ORBIT.gap);
+
+/**
+ * How big the disc starts as the held ring resolves into it: the ring's
+ * inside, so it grows out of the ring as the ring fades.
+ */
+export const RESOLVE_FROM = (SIZE - 2 * STROKE) / SIZE;
 
 /** The pause bars pop in one after the other, then hold still. */
 const PAUSE: Stroke[] = [
@@ -155,7 +162,9 @@ const FACES: Record<ResultVisual['shape'], (props: FaceProps) => ReactNode> = {
 /**
  * How a payment ended, as a 120pt mark grown from the control it was sent
  * with (REDESIGN.md 6, Send). A failure shakes as it lands. A mark at rest
- * (`visual.resting`), for a payment seen before, is simply there.
+ * (`visual.resting`), for a payment seen before, is simply there. The held
+ * ring, seen to complete (`visual.resolves`), fades as the disc grows out
+ * of it and its check draws, rather than cutting to the disc in a frame.
  *
  * The mark carries the words: `accessibilityLabel` for what happened,
  * `accessibilityValue` for the status, and `accessibilityHint` for the
@@ -209,7 +218,16 @@ export function ResultMark({
           }
           style={styles.face}
         >
-          <Face visual={visual} />
+          {/* Each shape is a layer of its own, so the held ring can give
+              way to the disc it resolves into. */}
+          <Reanimated.View
+            key={visual.shape}
+            entering={visual.resolves ? popIn(RESOLVE_FROM) : undefined}
+            exiting={visual.shape === 'held' ? fadeOut() : undefined}
+            style={[styles.layer, styles.centred]}
+          >
+            <Face visual={visual} />
+          </Reanimated.View>
           <Reanimated.View
             pointerEvents="none"
             style={[styles.layer, styles.tint, refusal.tint]}
