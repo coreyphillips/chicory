@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Reanimated, {
-  FadeIn,
   FadeOut,
   ReduceMotion,
   cancelAnimation,
@@ -15,6 +14,7 @@ import { copy } from '../design/copy';
 import { palette } from '../design/palette';
 import { useAmbientRest } from '../motion/ambient';
 import { useAwake, useLoop } from '../motion/loops';
+import { ENTRY_GRACE_MS, useSureEntry } from '../motion/sureEntry';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 
@@ -91,9 +91,19 @@ const dotOut: EntryExitAnimationFunction = () => {
     },
   };
 };
-const FADE_IN = FadeIn.duration(durations.crossfade).reduceMotion(
-  ReduceMotion.Never,
-);
+/** Under Reduce Motion it fades in instead, as a function so it can end surely. */
+const dotFade: EntryExitAnimationFunction = () => {
+  'worklet';
+  return {
+    initialValues: { opacity: 0 },
+    animations: {
+      opacity: withTiming(1, {
+        duration: durations.crossfade,
+        reduceMotion: ReduceMotion.Never,
+      }),
+    },
+  };
+};
 const FADE_OUT = FadeOut.duration(durations.crossfade).reduceMotion(
   ReduceMotion.Never,
 );
@@ -108,6 +118,9 @@ function Dot({
   const { reduced } = useMotionPrefs();
   const awake = useAwake();
   const live = state === 'live';
+  // The dot is how the mark says the wallet is connected, so it is sure to
+  // show, however its entrance fares (`useSureEntry`).
+  const entry = useSureEntry(reduced ? dotFade : dotIn, ENTRY_GRACE_MS);
 
   // Every successful poll, and every return to live, sends out a ring,
   // unless decoration is resting. Waking is neither, so it sends none.
@@ -148,7 +161,8 @@ function Dot({
     <Reanimated.View
       accessible
       accessibilityLabel={LABELS[state]}
-      entering={reduced ? FADE_IN : dotIn}
+      key={entry.key}
+      entering={entry.entering}
       exiting={reduced ? FADE_OUT : dotOut}
       style={styles.dot}
     >
