@@ -826,7 +826,7 @@ The parallel tracks build these. Each exists now as a still placeholder at its f
 - **Rules for anything drawn on the canvas.**
 
   - A control in a pane passes its handlers (`onPress`, `onLongPress`, `onChangeText`, `onAccessibilityAction`) only while `usePaneActive()` is true. `Button`, `IconButton` and `Chip` take no touches without an `onPress`.
-  - Panes stay mounted and only move. Scene content in a slot is keyed by the scene's key and enters with `sceneIn` and leaves with `sceneOut`; Settings slides with `slideIn` and `slideOut`.
+  - Panes stay mounted and only move. Scene content in a slot is keyed by the scene's key and enters with `sceneIn`. It leaves with `sceneOut`'s fade and settle, which the top slot plays as a style of its own (`SceneLeave` in `stage/panes/Leaving`), never as a layout exit (7, going back); Settings slides with `slideIn` and `slideOut`.
   - The stage actions are taps. A tap is refused while a pane moves, and otherwise starts the panes in its own tick. `setBusy`, the session's `tab` and `reset`, and payment links never wait on the lock. Android back is swallowed while a pane moves.
   - A gesture hands its speed to the move it ends in: `openActivity` and `home` take an optional `Fling` (`{ velocity }`, the sheet's speed in points a second), which `PaneMotion.follow(next, fling)` passes to the seam's spring, so a flung sheet carries on from the finger. A press event passed to either carries no speed.
   - `SceneSlot` takes `offset`, how far below the top of the safe area its parent starts, so a lower slot still clears the keyboard.
