@@ -538,22 +538,6 @@ export function shownBy(snapshot: WalletSnapshot): string {
 }
 
 /**
- * Whether the balance read at `updatedAt` is too old to spend against
- * (REDESIGN.md 6, stale), as of this render.
- *
- * The gate trips on its own, at the one moment it can, rather than by
- * re-rendering the whole app every few seconds to ask whether it has: the
- * timer only draws the stage again once the read goes old. The answer is
- * either the timer's flag or the read's age at this render, so neither can
- * hold the gate open alone. The age catches a clock stepped forward before
- * the timer fires; the flag holds when the clock was stepped back and the
- * age at the timer's render falls short of the threshold.
- *
- * The flag is set in an effect, a render behind each new read, so it only
- * counts for the read it was set for: a fresh read is never drawn as stale
- * on the strength of the old read's flag.
- */
-/**
  * A read of the wallet that keeps failing, written to the diagnostic log
  * once for each reason. The canvas keeps the last figures and only says they
  * are old (the stale look), so the reason is kept where it can be read:
@@ -573,6 +557,22 @@ export function useRefreshFailures(error: string) {
   }, [error]);
 }
 
+/**
+ * Whether the balance read at `updatedAt` is too old to spend against
+ * (REDESIGN.md 6, stale), as of this render.
+ *
+ * The gate trips on its own, at the one moment it can, rather than by
+ * re-rendering the whole app every few seconds to ask whether it has: the
+ * timer only draws the stage again once the read goes old. The answer is
+ * either the timer's flag or the read's age at this render, so neither can
+ * hold the gate open alone. The age catches a clock stepped forward before
+ * the timer fires; the flag holds when the clock was stepped back and the
+ * age at the timer's render falls short of the threshold.
+ *
+ * The flag is set in an effect, a render behind each new read, so it only
+ * counts for the read it was set for: a fresh read is never drawn as stale
+ * on the strength of the old read's flag.
+ */
 export function useStale(updatedAt: number | undefined): boolean {
   const flag = useStaleAfter(updatedAt, STALE_AFTER_MS);
   // The read the flag was last set for. The timer's effect runs before this
