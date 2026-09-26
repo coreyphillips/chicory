@@ -597,6 +597,31 @@ describe('Odometer', () => {
     }
   });
 
+  test('given countUp, it counts up from 0 as it mounts, setting out on the UI thread after the wait', async () => {
+    const delays = jest.spyOn(Reanimated, 'withDelay');
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    const tree = await render(
+      <Odometer sats={65_446} unit="sats" variant="hero" countUp={80} />,
+    );
+    // From its first frame it draws columns, rolling from 0.
+    const index = timings.mock.calls.findIndex(([to]) => to === 65_446);
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(timings.mock.calls[index][1]?.duration).toBe(rollDuration(65_446));
+    const roll = timings.mock.results[index].value;
+    expect(delays.mock.calls).toContainEqual([80, roll]);
+    // It always says the amount it counts to.
+    expect(a11yText(tree)).toEqual(['65,446 sats']);
+    // Hidden, or at 0, it simply shows.
+    delays.mockClear();
+    for (const quiet of [
+      <Odometer sats={65_446} unit="sats" variant="hero" countUp={80} masked />,
+      <Odometer sats={0} unit="sats" variant="hero" countUp={80} />,
+    ]) {
+      await render(quiet);
+    }
+    expect(delays).not.toHaveBeenCalled();
+  });
+
   test('a new unit swaps the cells without rolling', async () => {
     const tree = await render(
       <Odometer sats={120_000} unit="sats" variant="hero" />,

@@ -33,6 +33,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { copy } from '../design/copy';
 import { mixHex, palette } from '../design/palette';
 import { fract, useAwake, useLoop } from '../motion/loops';
+import { steady } from '../motion/steady';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { MASK, space, type as typography } from '../theme';
@@ -87,6 +88,15 @@ export interface OdometerProps {
    * celebration's count-up is (REDESIGN.md 5).
    */
   duration?: number;
+  /**
+   * Counts up from 0 to `sats` as it mounts, setting out this many ms later
+   * on the steady clock (`steady`), as the hero does on its beat of the
+   * canvas's build (REDESIGN.md 7, R-1). The count is started on the UI
+   * thread as it mounts, so it sets out on its beat however busy the
+   * JavaScript thread is then, together with an entrance on the same clock.
+   * Read once; hidden, under Reduce Motion or at 0 it simply shows.
+   */
+  countUp?: number;
   /**
    * The scale its container draws it at, while that shrinks it, as Home's
    * hero shrinks into the mini strip: the unit holds a readable size
@@ -953,6 +963,7 @@ export function Odometer({
   sign = null,
   room,
   duration,
+  countUp,
   scaled,
   accessibilityLabel,
 }: OdometerProps) {
@@ -960,6 +971,11 @@ export function Odometer({
   const awake = useAwake();
   const { fontScale, width } = useWindowDimensions();
 
+  // A count up as it mounts is a roll from 0 from the first frame, its
+  // columns drawn at 0 until it sets out.
+  const [counts] = useState(
+    () => countUp !== undefined && !masked && !reduced && sats !== 0,
+  );
   // Where the cells were last asked to be, and what they are doing about
   // it. A change is read during the render that brings it, so the first
   // frame of a roll already draws columns rather than the new digits.
@@ -967,7 +983,7 @@ export function Odometer({
     sats,
     unit,
     masked,
-    phase: 'rest' as OdometerPhase,
+    phase: (counts ? 'roll' : 'rest') as OdometerPhase,
     // The widest amount the current roll has passed through.
     span: Math.abs(sats),
   }));
@@ -989,11 +1005,15 @@ export function Odometer({
 
   // The columns count the amount's size; a sign is drawn on its own.
   const target = Math.abs(sats);
-  const v = useSharedValue(target);
+  const v = useSharedValue(counts ? 0 : target);
   const roll = useSharedValue<Roll>({ from: target, to: target, lead: [] });
   const rolling = useRef<Roll | null>(null);
+  // How long the count as it mounts waits to set out, used by its roll.
+  const wait = useRef(counts ? countUp ?? 0 : 0);
   useEffect(() => {
     cancelAnimation(v);
+    const delay = wait.current;
+    wait.current = 0;
     if (phase !== 'roll') {
       rolling.current = null;
       v.set(target);
@@ -1004,19 +1024,18 @@ export function Odometer({
     const next = startRoll(from, target, rolling.current, length);
     rolling.current = next;
     roll.set(next);
-    v.set(
-      withTiming(
-        target,
-        {
-          duration: length,
-          easing: curves.standard,
-        },
-        done => {
-          'worklet';
-          if (done) scheduleOnRN(settle);
-        },
-      ),
+    const run = withTiming(
+      target,
+      {
+        duration: length,
+        easing: curves.standard,
+      },
+      done => {
+        'worklet';
+        if (done) scheduleOnRN(settle);
+      },
     );
+    v.set(delay > 0 ? steady(withDelay(delay, run)) : run);
   }, [v, roll, phase, target, settle, duration]);
 
   const s = useSharedValue(0);

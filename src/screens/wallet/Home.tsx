@@ -119,7 +119,7 @@ export function HomeScreen({
   onToggleUnit,
   onToggleHidden,
   onRefresh,
-  heroSats,
+  countUp,
   spendable = false,
   progress,
   launching = 'none',
@@ -141,8 +141,12 @@ export function HomeScreen({
   onToggleHidden?: () => void;
   /** Refreshes the wallet, for the pull and for a tap on a gated action. */
   onRefresh?: () => void;
-  /** What the hero shows in place of its figure, as while it counts up. */
-  heroSats?: number;
+  /**
+   * How long after it mounts the hero counts up from 0 to the total, on the
+   * steady clock, as the canvas builds in (REDESIGN.md 7, R-1). Left out,
+   * it simply shows.
+   */
+  countUp?: number;
   /**
    * The hero shows what can be spent now rather than the total, as it does
    * while Send or Receive is open.
@@ -495,7 +499,8 @@ export function HomeScreen({
                   >
                     <Reanimated.View testID="home-total" style={totalShown}>
                       <Odometer
-                        sats={heroSats ?? balance.totalSats}
+                        sats={balance.totalSats}
+                        countUp={countUp}
                         unit={unit}
                         masked={hidden}
                         stale={stale}

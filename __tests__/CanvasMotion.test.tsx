@@ -386,27 +386,43 @@ describe('the canvas arriving', () => {
   });
 
   test('the hero counts up from 0 on its beat, and always says the balance', async () => {
-    // Hold every beat, as a device would until it falls.
-    const timing = Reanimated.withTiming;
-    jest
-      .spyOn(Reanimated, 'withTiming')
-      .mockImplementation((to, config, done) =>
-        config?.duration === 0 ? to : timing(to, config, done),
-      );
+    // The device pass (P12): the count waited for the JavaScript thread to
+    // hear the beat while the fade did not, so every cold launch faded the
+    // hero up on "0 sats" for about a second. Now the count is set going as
+    // the hero mounts and waits for the beat on the UI thread, on the
+    // steady clock, as the fade does.
+    const delays = jest.spyOn(Reanimated, 'withDelay');
+    const timings = jest.spyOn(Reanimated, 'withTiming');
     const tree = await render(<OnCanvas arrival="load" />);
-    const hero = () => heroFigures(tree);
-    expect(hero().props.sats).toBe(0);
-    expect(hero().props.accessibilityLabel).toBe(
+    const hero = heroFigures(tree);
+    expect(hero.props.sats).toBe(261_500);
+    expect(hero.props.countUp).toBe(buildBeats('load').hero);
+    expect(hero.props.accessibilityLabel).toBe(
       copy.home.totalBalance(261_500, 'sats'),
     );
+    // The roll to the balance, from 0, held for the beat.
+    const roll =
+      timings.mock.results[
+        timings.mock.calls.findIndex(([to]) => to === 261_500)
+      ]?.value;
+    expect(roll).toBeDefined();
+    expect(
+      delays.mock.calls.some(
+        ([ms, animation]) =>
+          ms === buildBeats('load').hero && animation === roll,
+      ),
+    ).toBe(true);
+    // Only the total counts; what can be spent, unseen, simply shows.
+    const [, spendable] = tree.root
+      .findByType(HomeScreen)
+      .findAllByType(Odometer);
+    expect(spendable.props.countUp).toBeUndefined();
     await act(async () => tree.unmount());
-    jest.restoreAllMocks();
 
-    // Once the beat falls it rolls to the balance.
-    const again = await render(<OnCanvas arrival="load" />);
-    await settle();
-    expect(heroFigures(again).props.sats).toBe(261_500);
-    await act(async () => again.unmount());
+    // A canvas that is not building in shows the balance at once.
+    const still = await render(<OnCanvas />);
+    expect(heroFigures(still).props.countUp).toBeUndefined();
+    await act(async () => still.unmount());
   });
 
   test('a wallet back from offline bursts its mark with a success', async () => {
