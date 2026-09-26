@@ -15,8 +15,11 @@ export const send = {
   clipboardEmpty: 'The clipboard is empty.',
   scan: 'Scan a payment request',
   review: 'Review payment',
-  // Why the review waits, while there is no request to review.
+  // Why the review waits: there is no request to review, the request
+  // cannot be paid, or there is no amount yet.
   reviewWaits: 'Paste or scan a payment request first.',
+  reviewRefused: 'This request cannot be paid. Paste or scan another.',
+  amountWaits: 'Enter an amount first.',
   preparing: 'Preparing the payment.',
   sendSats: (value: number) => `Send ${sats(value)}`,
   holdHint: 'Hold to send.',
@@ -45,6 +48,9 @@ export const send = {
   held: 'This request has a payment whose outcome is not known yet. It cannot be paid again until that resolves.',
   heldAnnouncement:
     'Payment status unknown. Do not pay again until this is resolved.',
+  // A request whose payment completed, entered again.
+  paidAlready: 'Already paid.',
+  paid: 'This request has been paid. It cannot be paid again.',
   showPayment: 'Shows the payment in Activity.',
   feePaid: 'Fee paid',
   reviewedFee: 'Reviewed fee',

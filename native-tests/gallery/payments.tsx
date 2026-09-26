@@ -36,6 +36,11 @@ const keyed = (digits: string): Step[] =>
 
 const REVIEW = press(copy.send.review);
 const SEND = copy.send.sendSats(4_200);
+/** The amount every payment here is for, keyed in: the address names none. */
+const AMOUNT_4200 = keyed('4200');
+/** A request the parser refuses as it is entered: an LNURL. */
+const LNURL =
+  'LNURL1DP68GURN8GHJ7UM9WFMXJCM99E3K7MF0V9CXJ0M385EKVCENXC6R2C35XVUKXEFCV5MKVV34X5EKZD3EV56NYD3HXQURZEPEXEJXXEPNXSCRVWFNV9NXZCN9XQ6XYEFHVGCXXCMYXYMNSERXFQ5FNS';
 const COMMIT: Step = drive => drive.activate(SEND);
 
 interface Paying {
@@ -56,7 +61,7 @@ function send(name: string, make: () => Paying = () => ({})): Shot {
 const reviewed = (name: string, over: () => Partial<SendReview>) =>
   send(name, () => ({
     client: { prepareSend: async () => reviewOf(over()) },
-    steps: [REVIEW],
+    steps: [...AMOUNT_4200, REVIEW],
   }));
 
 /** Reviewed and held to send, with the wallet answering `send`. */
@@ -67,11 +72,11 @@ const sent = (
 ) =>
   send(name, () => ({
     client: { send: answer },
-    steps: [...before, REVIEW, COMMIT],
+    steps: [...before, ...AMOUNT_4200, REVIEW, COMMIT],
   }));
 
 /** Reviewed, and refused by the engine with `code`. */
-const refused = (name: string, code: string, before: Step[] = []) =>
+const refused = (name: string, code: string, before: Step[] = AMOUNT_4200) =>
   send(name, () => ({
     client: {
       prepareSend: async () => {
@@ -91,10 +96,14 @@ const sends: Shot[] = [
   send('a stale balance', () => ({
     snapshot: stale(onMainnet()),
   })),
-  send('on a test network', () => ({ snapshot: fresh(), steps: [REVIEW] })),
+  send('a request that cannot be paid', () => ({ request: LNURL })),
+  send('on a test network', () => ({
+    snapshot: fresh(),
+    steps: [...AMOUNT_4200, REVIEW],
+  })),
   send('preparing', () => ({
     client: { prepareSend: never },
-    steps: [REVIEW],
+    steps: [...AMOUNT_4200, REVIEW],
   })),
   reviewed('review', () => ({})),
   reviewed('review, with the fee the route should cost', () => ({
@@ -124,7 +133,7 @@ const sends: Shot[] = [
     expiresAt: Date.now() - 1,
   })),
   send('review, held down', () => ({
-    steps: [REVIEW, drive => drive.hold(SEND, 'down')],
+    steps: [...AMOUNT_4200, REVIEW, drive => drive.hold(SEND, 'down')],
   })),
   sent('sending', never),
   sent('sent', async () => resultOf('completed')),
@@ -142,6 +151,16 @@ const sends: Shot[] = [
   send('a held request', () => {
     holdRequest(ADDRESS, { status: 'uncertain' });
     return {};
+  }),
+  send('a held request, its payment still under way', () => {
+    holdRequest(ADDRESS, { status: 'pending' });
+    return {};
+  }),
+  send('a request paid already', () => {
+    // A request that names its amount is paid once, so it rests paid.
+    const request = `bitcoin:${ADDRESS}?amount=0.000042`;
+    holdRequest(request, { status: 'completed' });
+    return { request };
   }),
   refused('a held request, the engine says already out', 'ALREADY_SUBMITTED'),
   refused('a request refused', 'INVALID_REQUEST'),

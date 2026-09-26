@@ -54,6 +54,13 @@ function adapter(overrides: object) {
 }
 
 /**
+ * A request the parser reads, named `name`, that fixes the 4,200 sats the
+ * quotes here are for, so it can be reviewed as it stands.
+ */
+const priced = (name: string) =>
+  `bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=0.000042&label=${name}`;
+
+/**
  * Send draws inside the gesture root, as the app does, so a long press can
  * show what a glyph means.
  */
@@ -120,12 +127,13 @@ test('review does not send; confirmation sends once and preserves uncertain stat
       'lnbc-request',
     );
   });
+  await enterAmount(tree, '4200');
   await act(async () => {
     await label(tree, 'Review payment').props.onPress();
   });
   expect(prepareSend).toHaveBeenCalledWith({
     request: 'lnbc-request',
-    amountSats: undefined,
+    amountSats: 4200,
   });
   expect(send).not.toHaveBeenCalled();
   // A tap is not a hold: nothing that sends can be pressed.
@@ -178,6 +186,7 @@ test('expired send quote cannot be submitted', async () => {
       'lnbc-request',
     );
   });
+  await enterAmount(tree, '4200');
   await act(async () => {
     await label(tree, 'Review payment').props.onPress();
   });
@@ -192,7 +201,7 @@ test('expired send quote cannot be submitted', async () => {
   expect(prepareSend).toHaveBeenCalledTimes(2);
   expect(prepareSend).toHaveBeenLastCalledWith({
     request: 'lnbc-request',
-    amountSats: undefined,
+    amountSats: 4200,
   });
   expect(send).not.toHaveBeenCalled();
   await act(async () => {
@@ -353,6 +362,7 @@ test('a direct-funding review names its method and fee ceiling, and a refusal sa
       'bitcoin:x?bgnq=y',
     );
   });
+  await enterAmount(tree, '4200');
   await act(async () => {
     await label(tree, 'Review payment').props.onPress();
   });
@@ -399,12 +409,18 @@ test("held, the dust Review control and the amount's marks say why", async () =>
   await act(async () => {
     field(tree, 'Payment request or address').props.onChangeText('lnbc-some');
   });
+  // A request, but no amount yet: still dust, and it says what it needs.
+  expect(whispers(tree)).toContainEqual({
+    label: copy.send.amountWaits,
+    on: true,
+  });
+  // More than can be sent now: the clock beside the amount says so, and
+  // the review, which has all it needs, is a live control.
+  await enterAmount(tree, '4200');
   expect(whispers(tree)).toContainEqual({
     label: copy.send.review,
     on: false,
   });
-  // More than can be sent now: the clock beside the amount says so.
-  await enterAmount(tree, '4200');
   expect(whispers(tree)).toContainEqual({
     label: copy.amount.overSpendable,
     on: true,
@@ -485,6 +501,7 @@ test('a Lightning review shows the expected fee beside the maximum it can cost',
       'lnbc-request',
     );
   });
+  await enterAmount(tree, '4200');
   await act(async () => {
     await label(tree, 'Review payment').props.onPress();
   });
@@ -505,7 +522,7 @@ test('a Lightning review shows the expected fee beside the maximum it can cost',
  * can be held. A string it cannot read is refused as it is entered.
  */
 const HELD_AT = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
-const HELD = `bitcoin:${HELD_AT}?label=held`;
+const HELD = `bitcoin:${HELD_AT}?amount=0.000042&label=held`;
 
 /** Reviews `request` on a fresh Send and commits it with the hold. */
 async function payOnce(client: WalletAdapter, request: string) {
@@ -558,7 +575,7 @@ test('a request whose payment is unknown cannot be paid again: it lands on the h
     // Held however it is spelled: case, space and the scheme aside.
     for (const again of [
       HELD,
-      `  BITCOIN:${HELD_AT.toUpperCase()}?label=held `,
+      `  BITCOIN:${HELD_AT.toUpperCase()}?amount=0.000042&label=held `,
     ]) {
       const tree = await renderSend(
         <SendScreen
@@ -600,7 +617,7 @@ test('a send that ends without a result is held as unknown, never an error to re
         prepareSend: jest.fn().mockResolvedValue(quote),
         send,
       })}
-      initialRequest="lnbc-dropped"
+      initialRequest={priced('dropped')}
       onActivity={jest.fn()}
       onRefresh={onRefresh}
       onBusy={onBusy}
@@ -664,7 +681,7 @@ test('a completed payment goes home a moment later, unless the screen is touched
             prepareSend: jest.fn().mockResolvedValue(quote),
             send,
           })}
-          initialRequest={`lnbc-done-${touched}`}
+          initialRequest={priced(`done-${touched}`)}
           onActivity={jest.fn()}
           onRefresh={jest.fn()}
           onBusy={onBusy}
@@ -698,10 +715,12 @@ describe('what the engine says no with', () => {
   const refusal = (code: string, message: string) =>
     Object.assign(new Error(message), { code });
 
+  /** Reviews `request`, with `amount` keyed in first when it names none. */
   async function review(
     request: string,
     client: object,
     props: Partial<React.ComponentProps<typeof SendScreen>> = {},
+    amount = '',
   ) {
     const tree = await renderSend(
       <SendScreen
@@ -713,6 +732,7 @@ describe('what the engine says no with', () => {
         {...props}
       />,
     );
+    if (amount) await enterAmount(tree, amount);
     await act(async () => {
       await label(tree, 'Review payment').props.onPress();
     });
@@ -721,7 +741,7 @@ describe('what the engine says no with', () => {
 
   test('a request it will not pay dissolves back into the well, kept to fix', async () => {
     const message = 'This invoice is damaged. Ask for a new one.';
-    const tree = await review('lnbc-damaged', {
+    const tree = await review(priced('damaged'), {
       prepareSend: jest
         .fn()
         .mockRejectedValue(refusal('BOLT11_CHECKSUM', message)),
@@ -729,7 +749,7 @@ describe('what the engine says no with', () => {
     expect(alerts(tree)).toEqual([message]);
     expect(tree.root.findAllByType(TextInput)).toHaveLength(1);
     expect(field(tree, 'Payment request or address').props.value).toBe(
-      'lnbc-damaged',
+      priced('damaged'),
     );
     // Changing the request clears the refusal.
     await act(async () => {
@@ -742,7 +762,7 @@ describe('what the engine says no with', () => {
   test('more than can be sent now, within what the wallet holds, is honey on the amount', async () => {
     const message = 'Not enough can be sent right now.';
     const tree = await review(
-      'lnbc-short',
+      HELD_AT,
       {
         prepareSend: jest
           .fn()
@@ -756,9 +776,10 @@ describe('what the engine says no with', () => {
           receivableSats: 0,
         },
       },
+      '4200',
     );
-    await enterAmount(tree, '4200');
     // A new amount lets the refusal go; the review brings it back.
+    await enterAmount(tree, '4200');
     await act(async () => {
       await label(tree, 'Review payment').props.onPress();
     });
@@ -773,7 +794,7 @@ describe('what the engine says no with', () => {
   test('more than the wallet holds shakes the amount each time it is refused', async () => {
     const message = 'This wallet does not hold that much.';
     const tree = await review(
-      'lnbc-over',
+      HELD_AT,
       {
         prepareSend: jest
           .fn()
@@ -787,8 +808,8 @@ describe('what the engine says no with', () => {
           receivableSats: 0,
         },
       },
+      '4200',
     );
-    await enterAmount(tree, '4200');
     const shakes = jest.spyOn(tokens, 'shake');
     const deltas: number[] = [];
     for (let tries = 0; tries < 3; tries++) {
@@ -811,7 +832,7 @@ describe('what the engine says no with', () => {
   test('a quote that runs out as it is sent turns into a refresh', async () => {
     const message = 'The fee quote expired. Review the payment again.';
     const send = jest.fn().mockRejectedValue(refusal('QUOTE_EXPIRED', message));
-    const tree = await review('lnbc-late', {
+    const tree = await review(priced('late'), {
       prepareSend: jest.fn().mockResolvedValue(quote),
       send,
     });
@@ -825,7 +846,7 @@ describe('what the engine says no with', () => {
 
   test('anything else is a bang by the control, with the words to read', async () => {
     const message = 'The primary node is not connected.';
-    const tree = await review('lnbc-down', {
+    const tree = await review(priced('down'), {
       prepareSend: jest
         .fn()
         .mockRejectedValue(refusal('PRIMARY_DOWN', message)),

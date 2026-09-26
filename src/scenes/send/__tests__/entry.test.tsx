@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, TextInput } from 'react-native';
+import { AppState, StyleSheet, Text, TextInput } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
@@ -12,13 +12,20 @@ import { announce } from '../../../design/announce';
 import { Scanner } from '../../../components/Scanner';
 import { copy } from '../../../design/copy';
 import { GLYPHS, HISTORY_GLYPH } from '../../../design/glyphs';
+import { palette } from '../../../design/palette';
 import { SendScreen } from '../../../screens/Send';
+import { shortRequest } from '../model';
 import {
   clearDiagnostics,
   recentDiagnostics,
 } from '../../../services/diagnosticLog';
 import type { WalletAdapter } from '../../../services/wallet';
+import {
+  PROMPT_SETTLE_MS,
+  systemPromptOpen,
+} from '../../../stage/systemPrompt';
 import { clearHeldRequests, holdRequest } from '../../../stage/heldRequests';
+import { enterAmount } from '../../../../test-support/keypad';
 import {
   activate,
   alerts,
@@ -145,6 +152,177 @@ describe('a request the parser refuses', () => {
   });
 });
 
+describe('a paste', () => {
+  const state = Object.getOwnPropertyDescriptor(AppState, 'currentState');
+  afterEach(() => {
+    if (state) Object.defineProperty(AppState, 'currentState', state);
+  });
+
+  test('is read as a prompt the app raised, so Send stays in view behind it', async () => {
+    // The span of a paste an earlier test made closes a moment after it.
+    await act(
+      () => new Promise<void>(done => setTimeout(done, PROMPT_SETTLE_MS + 50)),
+    );
+    jest.useFakeTimers();
+    try {
+      let answer!: (text: string) => void;
+      jest.mocked(Clipboard.getString).mockReturnValueOnce(
+        new Promise<string>(resolve => {
+          answer = resolve;
+        }),
+      );
+      const tree = await draw();
+      expect(systemPromptOpen()).toBe(false);
+      await act(async () => {
+        find(tree, copy.send.paste)!.props.onPress();
+      });
+      expect(systemPromptOpen()).toBe(true);
+      await act(async () => answer(ADDRESS));
+      await act(async () => jest.advanceTimersByTime(PROMPT_SETTLE_MS));
+      expect(systemPromptOpen()).toBe(false);
+      expect(chipped(tree)).toBe(true);
+      await act(async () => tree.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('lands once the app is in front again, so its refusal is seen and felt', async () => {
+    // The system's paste prompt has made the app inactive, and the answer
+    // comes back before the prompt has gone.
+    Object.defineProperty(AppState, 'currentState', {
+      configurable: true,
+      value: 'inactive',
+    });
+    const listen = jest.mocked(AppState.addEventListener);
+    listen.mockClear();
+    jest.mocked(Clipboard.getString).mockResolvedValueOnce(LNURL);
+    const tree = await draw();
+    await act(async () => {
+      find(tree, copy.send.paste)!.props.onPress();
+    });
+    expect(alerts(tree)).toEqual([]);
+    expect(felt()).not.toContain('notificationError');
+    const [, back] = listen.mock.calls
+      .filter(([kind]) => kind === 'change')
+      .at(-1)!;
+    await act(async () => (back as (next: string) => void)('active'));
+    expect(alerts(tree)).toEqual([refusalOf(LNURL)]);
+    expect(felt()).toContain('notificationError');
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('a refused request in the well', () => {
+  test('shows short, on two lines at most, and whole once touched to change it', async () => {
+    jest.mocked(Clipboard.getString).mockResolvedValueOnce(LNURL);
+    const tree = await draw();
+    await press(tree, copy.send.paste);
+    const shown = () =>
+      tree.root
+        .findAllByType(Text)
+        .filter(node => node.props.children === shortRequest(LNURL));
+    // Folded, in the middle-shortened form a chip shows, on a line or two.
+    const [folded] = shown();
+    expect(folded.props.numberOfLines).toBe(2);
+    expect(shortRequest(LNURL).length).toBeLessThan(LNURL.length / 4);
+    // The field keeps the whole request, for a screen reader and to change
+    // it, with its own text out of sight over the folded one.
+    expect(well(tree)!.props.value).toBe(LNURL);
+    expect(StyleSheet.flatten(well(tree)!.props.style).color).toBe(
+      'transparent',
+    );
+    await act(async () => well(tree)!.props.onFocus());
+    expect(shown()).toEqual([]);
+    expect(StyleSheet.flatten(well(tree)!.props.style).color).toBe(
+      palette.cream,
+    );
+    await leave(tree);
+    expect(shown()).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test("keeps the well's paste and scan as bare glyphs, as the empty well draws them", async () => {
+    const grounds = (tree: ReactTestRenderer) =>
+      [copy.send.paste, copy.send.scan].map(
+        label =>
+          StyleSheet.flatten(
+            tree.root.find(
+              node =>
+                typeof node.type === 'string' &&
+                node.props.accessibilityLabel === label,
+            ).props.style,
+          ).backgroundColor,
+      );
+    jest.mocked(Clipboard.getString).mockResolvedValueOnce(LNURL);
+    const tree = await draw();
+    expect(grounds(tree)).toEqual(['transparent', 'transparent']);
+    await press(tree, copy.send.paste);
+    expect(alerts(tree)).toEqual([refusalOf(LNURL)]);
+    expect(grounds(tree)).toEqual(['transparent', 'transparent']);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('the review control', () => {
+  /** The review control, drawn whether or not it takes a tap. */
+  const control = (tree: ReactTestRenderer) =>
+    tree.root.find(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === copy.send.review,
+    );
+  const looksDisabled = (tree: ReactTestRenderer) => {
+    const { backgroundColor, borderColor } = StyleSheet.flatten(
+      control(tree).props.style,
+    );
+    return (
+      control(tree).props.accessibilityState.disabled === true &&
+      backgroundColor === palette.mocha &&
+      borderColor === palette.husk &&
+      find(tree, copy.send.review) === undefined
+    );
+  };
+
+  test('is drawn and told disabled while the request is refused, and says why', async () => {
+    jest.mocked(Clipboard.getString).mockResolvedValueOnce(LNURL);
+    const tree = await draw();
+    expect(looksDisabled(tree)).toBe(true);
+    expect(control(tree).props.accessibilityHint).toBe(copy.send.reviewWaits);
+    await press(tree, copy.send.paste);
+    expect(looksDisabled(tree)).toBe(true);
+    expect(control(tree).props.accessibilityHint).toBe(copy.send.reviewRefused);
+    // Even with an amount keyed in.
+    await enterAmount(tree, '4200');
+    expect(looksDisabled(tree)).toBe(true);
+    await act(async () => tree.unmount());
+  });
+
+  test('waits for an amount, then takes the review', async () => {
+    const prepareSend = jest.fn().mockResolvedValue(quote);
+    const tree = await draw({ prepareSend }, { initialRequest: ADDRESS });
+    expect(looksDisabled(tree)).toBe(true);
+    expect(control(tree).props.accessibilityHint).toBe(copy.send.amountWaits);
+    await enterAmount(tree, '4200');
+    expect(looksDisabled(tree)).toBe(false);
+    await press(tree, copy.send.review);
+    expect(prepareSend).toHaveBeenCalledWith({
+      request: ADDRESS,
+      amountSats: 4200,
+    });
+    await act(async () => tree.unmount());
+  });
+
+  test('takes the review at once for a request that names its amount', async () => {
+    const tree = await draw(
+      {},
+      { initialRequest: `bitcoin:${ADDRESS}?amount=0.000042` },
+    );
+    expect(looksDisabled(tree)).toBe(false);
+    await act(async () => tree.unmount());
+  });
+});
+
 describe('a request the parser reads', () => {
   test('pasted, is taken as a chip', async () => {
     jest.mocked(Clipboard.getString).mockResolvedValueOnce(ADDRESS);
@@ -194,6 +372,7 @@ describe('the way to the history', () => {
       },
       { initialRequest: ADDRESS },
     );
+    await enterAmount(tree, '4200');
     await press(tree, copy.send.review);
     await activate(tree, copy.send.sendSats(4_200));
     const glyph = drawnBy(tree, copy.send.viewActivity);
@@ -219,6 +398,7 @@ test("the review's pencil and a refusal's mark sit on the page edges", async () 
     { prepareSend: jest.fn().mockResolvedValue(quote) },
     { initialRequest: ADDRESS },
   );
+  await enterAmount(tree, '4200');
   await press(tree, copy.send.review);
   expect(find(tree, copy.send.edit)).toBeDefined();
   // The two side slots either side of the hold, as drawn.

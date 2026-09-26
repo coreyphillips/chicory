@@ -6,6 +6,7 @@ import type {
 } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import type { GlyphName } from '../../design/glyphs';
+import type { Held } from '../../stage/heldRequests';
 import type { AmountTone } from '../keypad/keys';
 
 /**
@@ -360,6 +361,10 @@ export interface ResultVisual {
   title: string;
   /** Home follows on its own a moment later, unless the screen is touched. */
   returnsHome: boolean;
+  /** An orbit runs round the held ring: the payment is still under way. */
+  orbit?: boolean;
+  /** Drawn as it stands, for a payment seen before: no pop, no draw-in. */
+  resting?: boolean;
 }
 
 export function resultVisual(status: SendResult['status']): ResultVisual {
@@ -399,5 +404,35 @@ export function resultVisual(status: SendResult['status']): ResultVisual {
   }
 }
 
+/**
+ * The mark of a request that cannot be paid now (REDESIGN.md rule 6): the
+ * held ring, with an orbit round it while its payment is still under way,
+ * and the done disc at rest once the request is paid, with nothing played
+ * for a payment that was seen before and no way home on its own.
+ */
+export function heldVisual(status: Held['status']): ResultVisual {
+  if (status === 'completed') {
+    return {
+      ...resultVisual('completed'),
+      title: copy.send.paidAlready,
+      returnsHome: false,
+      resting: true,
+    };
+  }
+  const held = resultVisual('uncertain');
+  return status === 'pending'
+    ? { ...held, title: copy.send.onItsWay, orbit: true }
+    : held;
+}
+
 /** How long a completed payment stays on screen before home. */
 export const HOME_AFTER_MS = 2200;
+
+/**
+ * How long a payment's call keeps the stage busy. Most payments answer well
+ * inside it and show their result where they were sent. One that has not
+ * answered by then lets the stage go and moves to the held ring, so Send is
+ * never a dead end while a payment hangs; the call goes on, and its answer
+ * is recorded whenever it comes.
+ */
+export const SEND_GRACE_MS = 8_000;

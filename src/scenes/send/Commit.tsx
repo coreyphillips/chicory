@@ -1,9 +1,11 @@
 import React from 'react';
 import type { ComponentRef, Ref } from 'react';
 import { StyleSheet, View } from 'react-native';
+import Reanimated from 'react-native-reanimated';
 import { copy } from '../../design/copy';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
 import { HoldButton } from '../../glyphs/HoldButton';
+import { fadeOut } from '../../motion/presets';
 import { useNow } from '../../services/clock';
 import { CONTROL, CircleControl, QuoteRefresh } from './Controls';
 import { useTestNetwork } from './tone';
@@ -17,6 +19,11 @@ const RING = CONTROL + 16;
  * retracts round the refresh that takes the hold's place. While the balance
  * is too old to spend against, the hold gives way to a dust control whose
  * tap shakes and refreshes the balance instead.
+ *
+ * Once the hold commits (`spent`) the quote is used: its ring fades away and
+ * nothing it could say applies to the payment any more, so the hold stays,
+ * with its orbit, whatever the quote's clock or the balance's age would
+ * have made of it. Money is going out.
  *
  * A screen reader commits the hold with one action, so the hold says the
  * whole review with it: `summary`, the total, the fee and every engine
@@ -34,6 +41,7 @@ export function Commit({
   expired,
   stale,
   busy,
+  spent = false,
   onCommit,
   onRefreshQuote,
   onRefresh,
@@ -47,27 +55,39 @@ export function Commit({
   expired: boolean;
   stale: boolean;
   busy: boolean;
+  /** The hold has committed: the payment is going out on this quote. */
+  spent?: boolean;
   onCommit: () => void;
   onRefreshQuote?: () => void;
   onRefresh?: () => void;
   ref?: Ref<ComponentRef<typeof View>>;
 }) {
   const test = useTestNetwork();
+  const refresh = expired && !spent;
+  const gated = stale && !spent && !refresh;
   // Only the words need the second: the ring runs down on its own timing.
-  const now = useNow(1000, !expired && !stale);
+  const now = useNow(1000, !expired && !stale && !spent);
   const left = Math.max(0, Math.ceil((expiresAt - now) / 1000));
   return (
     <View style={styles.commit}>
-      <ExpiryRing
-        size={RING}
-        expiresAt={expiresAt}
-        createdAt={createdAt}
-        test={test}
-      />
+      {spent ? null : (
+        <Reanimated.View
+          exiting={fadeOut()}
+          pointerEvents="none"
+          style={styles.ring}
+        >
+          <ExpiryRing
+            size={RING}
+            expiresAt={expiresAt}
+            createdAt={createdAt}
+            test={test}
+          />
+        </Reanimated.View>
+      )}
       <View style={styles.control}>
-        {expired ? (
+        {refresh ? (
           <QuoteRefresh ref={ref} onPress={onRefreshQuote} busy={busy} />
-        ) : stale ? (
+        ) : gated ? (
           <CircleControl
             ref={ref}
             accessibilityLabel={accessibilityLabel}
@@ -80,11 +100,13 @@ export function Commit({
             ref={ref}
             accessibilityLabel={accessibilityLabel}
             accessibilityValue={{
-              text: `${summary} ${copy.send.quoteExpires(left)}`,
+              text: spent
+                ? summary
+                : `${summary} ${copy.send.quoteExpires(left)}`,
             }}
             onCommit={onCommit}
             warning={warning}
-            busy={busy}
+            busy={busy || spent}
             test={test}
           />
         )}
@@ -100,5 +122,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  ring: { position: 'absolute', top: 0, left: 0 },
   control: { position: 'absolute' },
 });

@@ -19,6 +19,10 @@ import { HIT_SLOP } from '../../theme';
  * words are its label and hint. It dips as it is pressed and ticks as it
  * fires. Like every control on the canvas it is given `onPress` only while
  * its pane is in use, and takes no touches without one.
+ *
+ * It sits on a mocha disc of its own, unless it is drawn on a ground that
+ * already says what it belongs to (`ground` false), as the well's paste and
+ * scan are: a disc there would only show when the well changes colour.
  */
 export function GlyphButton({
   glyph,
@@ -28,6 +32,7 @@ export function GlyphButton({
   disabled = false,
   size = 48,
   color = palette.cream,
+  ground = true,
 }: {
   glyph: GlyphName;
   accessibilityLabel: string;
@@ -36,6 +41,7 @@ export function GlyphButton({
   disabled?: boolean;
   size?: number;
   color?: string;
+  ground?: boolean;
 }) {
   const live = usePaneActive() && !disabled && !!onPress;
   const { reduced } = useMotionPrefs();
@@ -68,6 +74,7 @@ export function GlyphButton({
         style={[
           styles.button,
           { width: size, height: size, borderRadius: size / 2 },
+          !ground && styles.bare,
           disabled && styles.disabled,
         ]}
       >
@@ -83,5 +90,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: palette.mocha,
   },
+  bare: { backgroundColor: 'transparent' },
   disabled: { opacity: 0.45 },
 });

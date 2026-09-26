@@ -3,9 +3,9 @@ import React, {
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import type { ReactNode, Ref } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -38,11 +38,13 @@ import { FailureMark } from '../scenes/send/FailureMark';
 import { GlyphButton } from '../scenes/send/GlyphButton';
 import {
   HOME_AFTER_MS,
+  SEND_GRACE_MS,
   alreadySubmitted,
   amountTone,
   amountWords,
   errorCode,
   fixedAmount,
+  heldVisual,
   isUncertain,
   resultVisual,
   reviewRail,
@@ -56,16 +58,23 @@ import type { Origin } from '../scenes/send/RequestEntry';
 import { ResultMark } from '../scenes/send/ResultMark';
 import { LINE_SCALE, ReviewLines } from '../scenes/send/ReviewLines';
 import { useLanding } from '../scenes/send/useLanding';
+import { untilInFront } from '../scenes/send/untilInFront';
 import { useScreenReader } from '../scenes/send/useScreenReader';
 import { TestNetwork } from '../scenes/send/tone';
 import type { Landing } from '../scenes/send/useLanding';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { errorMessage } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
-import { heldRequest, holdRequest } from '../stage/heldRequests';
+import {
+  heldRequest,
+  heldVersion,
+  holdRequest,
+  subscribeHeld,
+} from '../stage/heldRequests';
 import { useLaunchLanding } from '../stage/panes/Launch';
 import { usePaneActive } from '../stage/panes/Pane';
 import { useFlashTint, useHoldTint } from '../stage/StageContext';
+import { duringSystemPrompt } from '../stage/systemPrompt';
 import {
   MASK,
   amountIn,
@@ -121,7 +130,9 @@ function quoteExpired(): () => void {
  * well and the amount on the keypad; review lays out the sum and holds the
  * payment behind a 700ms hold inside the quote's countdown; the result is a
  * mark that says how it went. A request whose earlier payment is pending or
- * unknown never reaches a review: it lands on the held ring (rule 6). The
+ * unknown never reaches a review: it lands on the held ring (rule 6). Nor
+ * does one that is paid: an invoice, or a Bitcoin request that names its
+ * amount, lands on its paid mark at rest, however it comes back. The
  * request holds its place from step to step while what is under it
  * crossfades, so each step blends into the next rather than replacing it.
  *
@@ -140,6 +151,11 @@ function quoteExpired(): () => void {
  * hidden (`masked`) a result and the held ring show theirs as dots, as the
  * fee paid; a review never does, since it is where the payment is checked
  * before it is sent. A screen reader always hears sats.
+ *
+ * A payment holds the stage busy for SEND_GRACE_MS at most. One still out
+ * after that lets the stage go and moves to the held ring, so Close works
+ * and the history is a tap away while the call goes on; its answer is
+ * recorded whenever it comes, and shown here if the held ring still is.
  *
  * On the canvas, `onScan` opens the scan overlay and the Send scene hands the
  * code back through `receive`. Rendered on its own, with no `onScan`, the
@@ -206,6 +222,10 @@ export function SendScreen({
   const [review, setReview] = useState<SendReview | null>(null);
   const [reviewedAt, setReviewedAt] = useState(0);
   const [expired, setExpired] = useState(false);
+  // The hold has committed on the review's quote, which is spent from then
+  // on: nothing about it can expire, be refreshed or be reviewed again for
+  // this payment, however long the payment takes.
+  const [spent, setSpent] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [rail, setRail] = useState<GlyphName>('bolt');
   const [busy, setBusy] = useState(false);
@@ -225,12 +245,19 @@ export function SendScreen({
   const fixedSats = useMemo(() => fixedAmount(request), [request]);
   // A request is checked once it is taken, as a chip, rather than letter by
   // letter as it is typed; prepare checks again, so one reviewed straight
-  // from the well is held all the same. Read afresh on every render: the
-  // held set changes outside React, so a change made here asks for a render
-  // of its own.
+  // from the well is held all the same. Read afresh on every render, and
+  // drawn again whenever this app holds or lets go of a request, wherever
+  // that happens: a payment an earlier Send left going out answers into the
+  // same set.
+  useSyncExternalStore(subscribeHeld, heldVersion);
   const held =
     review || result || !collapsed ? null : heldRequest(request, activity);
-  const [, heldChanged] = useReducer((count: number) => count + 1, 0);
+  // The request whose held ring is on screen, if one is, for a payment's
+  // late answer to follow.
+  const watching = useRef('');
+  useLayoutEffect(() => {
+    watching.current = held && !result ? request.trim() : '';
+  });
 
   // Where a screen reader lands as a step settles: the review's amount, the
   // control in the ring, the amount in compose, and a result's mark.
@@ -242,7 +269,7 @@ export function SendScreen({
   // Whether the hold is up, for the balance's gate to read as it turns.
   const reviewing = useRef(false);
   useLayoutEffect(() => {
-    reviewing.current = review !== null && !expired;
+    reviewing.current = review !== null && !expired && !spent;
   });
 
   // A request brought by a scan or a link is taken as a pasted one is, and
@@ -255,8 +282,9 @@ export function SendScreen({
     if (initialRequest) entered.current(initialRequest);
   }, [initialRequest]);
   // The stage is told busy by the handlers that send, as a request goes out
-  // and as its answer comes back (`goingOut` and `cameBack` below), and
-  // released as Send goes, whatever is still in flight.
+  // (`goingOut` below), and let go as its answer comes back or its grace
+  // runs out, whichever is first, and as Send goes, whatever is still in
+  // flight.
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -265,6 +293,19 @@ export function SendScreen({
     };
   }, []);
   useEffect(() => () => onBusy(false), [onBusy]);
+  // Calls to the engine are numbered, so an answer only lets go of what its
+  // own call took. `stageFor` is the call the stage is held busy for, never
+  // longer than its grace; `waitingFor` is the call this screen waits on,
+  // with its controls off, until it answers or, for a payment, until the
+  // screen moves on to the held ring.
+  const calls = useRef(0);
+  const stageFor = useRef(0);
+  const waitingFor = useRef(0);
+  const graces = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const pending = graces.current;
+    return () => pending.forEach(clearTimeout);
+  }, []);
 
   // What is still to be said of a quote that ran out, taken back as a fresh
   // quote replaces it or Send goes (REDESIGN.md 9: a state that ends before
@@ -282,9 +323,9 @@ export function SendScreen({
   useEffect(() => () => expiredSaid.current?.(), []);
 
   // A quote runs out on its own clock, and is said aloud once as it gets
-  // close.
+  // close, until the hold commits on it.
   useEffect(() => {
-    if (!review || expired) return;
+    if (!review || expired || spent) return;
     const left = review.expiresAt - Date.now();
     const timers = [
       setTimeout(() => {
@@ -302,7 +343,7 @@ export function SendScreen({
       );
     }
     return () => timers.forEach(clearTimeout);
-  }, [review, expired, land, say]);
+  }, [review, expired, spent, land, say]);
 
   // The stale gate closing on the payment is a safety state (REDESIGN.md
   // rule 4): felt and logged as it closes, and said once a screen reader
@@ -324,7 +365,7 @@ export function SendScreen({
   // Landing on the held ring is felt, said and logged, once for each time.
   // It is said once a screen reader has landed on the ring's mark and
   // settled there (REDESIGN.md 9), unless the ring or Send goes first.
-  const heldFor = held ? request.trim() : '';
+  const heldFor = held && held.status !== 'completed' ? request.trim() : '';
   useEffect(() => {
     if (!heldFor) return;
     haptics.held();
@@ -333,10 +374,24 @@ export function SendScreen({
     return announceSafety(copy.send.heldAnnouncement, 'held');
   }, [heldFor, land]);
 
+  // A request paid before lands on its paid mark at rest: nothing is played
+  // or felt for a payment that was seen before, and a screen reader lands on
+  // the mark and hears it.
+  const paidFor = held?.status === 'completed' ? request.trim() : '';
+  useEffect(() => {
+    if (!paidFor) return;
+    land(mark);
+    say(copy.send.paidAlready);
+  }, [paidFor, land, say]);
+
   // The ground behind the canvas holds honey while an outcome is unknown,
   // here before the wallet's own read of it says so, and flashes radish as a
   // payment fails (REDESIGN.md 3.2, G3).
-  useHoldTint(result?.status === 'uncertain' || held ? 'honey' : null);
+  useHoldTint(
+    result?.status === 'uncertain' || (held && held.status !== 'completed')
+      ? 'honey'
+      : null,
+  );
   const flash = useFlashTint();
 
   // A result is felt as it lands, and said once its mark has taken a screen
@@ -377,28 +432,57 @@ export function SendScreen({
 
   const stay = () => setStayed(true);
 
-  const sending = useRef(false);
-
   /**
-   * Marks a request to the engine as going out. The stage hears it now, in
-   * the handler that sends it, rather than from an effect a render later:
-   * until then a close or a back could still take Send away under a payment
-   * in flight, and its result would never be shown.
+   * Marks a request to the engine as going out, and returns its number. The
+   * stage hears it now, in the handler that sends it, rather than from an
+   * effect a render later: until then a close or a back could still take
+   * Send away under a payment in flight, and its result would never be
+   * shown.
    */
-  function goingOut() {
-    sending.current = true;
+  function goingOut(): number {
+    calls.current += 1;
+    const call = calls.current;
+    stageFor.current = call;
+    waitingFor.current = call;
     onBusy(true);
     setBusy(true);
+    return call;
   }
 
   /**
-   * The answer is back. A Send that has already gone leaves the stage alone,
-   * which it released as it went and may since be holding for another.
+   * Lets the stage go, if `call` still holds it. A Send that has already
+   * gone leaves the stage alone, which it released as it went and may since
+   * be holding for another.
    */
-  function cameBack() {
-    sending.current = false;
+  function letStageGo(call: number) {
+    if (stageFor.current !== call) return;
+    stageFor.current = 0;
     if (mounted.current) onBusy(false);
-    setBusy(false);
+  }
+
+  /** The answer to `call` is back. */
+  function cameBack(call: number) {
+    letStageGo(call);
+    if (waitingFor.current !== call) return;
+    waitingFor.current = 0;
+    if (mounted.current) setBusy(false);
+  }
+
+  /**
+   * The stage waits SEND_GRACE_MS for `call` at most, then is let go, and
+   * `then` runs. Returns the cancel, for an answer that comes first.
+   */
+  function grace(call: number, then?: () => void): () => void {
+    const timer = setTimeout(() => {
+      graces.current.delete(timer);
+      letStageGo(call);
+      then?.();
+    }, SEND_GRACE_MS);
+    graces.current.add(timer);
+    return () => {
+      clearTimeout(timer);
+      graces.current.delete(timer);
+    };
   }
 
   /**
@@ -478,40 +562,54 @@ export function SendScreen({
   const backToCompose = (next: Failure) =>
     next.target === 'request' ? null : readout;
 
-  /** Lands a held request on its ring, whatever step it was on. */
+  /**
+   * Lands a held request on its ring, or a paid one on its mark, whatever
+   * step it was on.
+   */
   function toHeld() {
     setReview(null);
     setExpired(false);
+    setSpent(false);
     setFailure(null);
     setCollapsed(true);
-    heldChanged();
   }
 
-  function settle(outcome: SendResult, code?: string) {
-    holdRequest(request, outcome);
+  /** Shows how a payment came out. */
+  function show(outcome: SendResult) {
     setResult(outcome);
     setStayed(false);
     setReview(null);
-    onRefresh();
-    if (outcome.status === 'uncertain' || outcome.status === 'failed') {
-      recordDiagnostic({
-        phase: 'ui',
-        code: code || outcome.status.toUpperCase(),
-        message: outcome.message,
-      });
-    }
+    setExpired(false);
+    setSpent(false);
+  }
+
+  /**
+   * A payment still out once its grace has run: the stage has let go, so
+   * Close works, and the screen moves to the held ring for `paying`, which is
+   * felt, said and logged as any held request's is. The call goes on.
+   */
+  function overdue(call: number, paying: string) {
+    if (!mounted.current || waitingFor.current !== call) return;
+    waitingFor.current = 0;
+    watching.current = paying.trim();
+    setBusy(false);
+    toHeld();
   }
 
   async function prepare() {
-    if (sending.current) return;
-    // Rule 6 holds however the request came, typed, pasted or refreshed.
+    if (waitingFor.current) return;
+    // Rule 6 holds however the request came, typed, pasted or refreshed, and
+    // for a request that is paid as well as one that may still be.
     if (heldRequest(request, activity)) {
       toHeld();
       return;
     }
     // A refresh is asked for from a review whose quote ran out.
     const fromReview = review !== null;
-    goingOut();
+    const asking = request;
+    const call = goingOut();
+    // Preparing pays nothing, so a Send left while it waits loses nothing.
+    const cancelGrace = grace(call);
     setFailure(null);
     try {
       const next = await client.prepareSend({
@@ -519,6 +617,7 @@ export function SendScreen({
         amountSats:
           fixedSats === null && amount.trim() ? parseSats(amount) : undefined,
       });
+      if (!mounted.current) return;
       setReview(next);
       setReviewedAt(Date.now());
       setCollapsed(true);
@@ -529,13 +628,16 @@ export function SendScreen({
     } catch (e) {
       if (alreadySubmitted(e)) {
         // The engine has a payment for this request out already.
-        holdRequest(request, { status: 'uncertain' });
+        holdRequest(asking, { status: 'uncertain' });
+        if (!mounted.current) return;
         recordDiagnostic({
           phase: 'ui',
           code: errorCode(e),
           message: errorMessage(e),
         });
         toHeld();
+      } else if (!mounted.current) {
+        return;
       } else if (
         // A refresh refused beside its control keeps the spent quote on
         // screen, to try again; anything else is fixed back in compose.
@@ -547,14 +649,15 @@ export function SendScreen({
         setExpired(false);
       }
     } finally {
-      cameBack();
+      cancelGrace();
+      cameBack(call);
     }
   }
 
   async function pay() {
-    if (!review || sending.current || expired || disabled) return;
+    if (!review || waitingFor.current || expired || disabled) return;
     // The quote's own clock has the last word, not the render the hold began
-    // in, and a request held since the review never pays twice.
+    // in, and a request held or paid since the review never pays twice.
     if (review.expiresAt <= Date.now()) {
       setExpired(true);
       land(control);
@@ -565,34 +668,92 @@ export function SendScreen({
       toHeld();
       return;
     }
-    goingOut();
+    const paying = request;
+    const quote = review;
+    // The request is held before the payment goes out, and nothing the
+    // history shows lets it go until this call answers, so however Send is
+    // left from here, and however the request comes back, it is never paid
+    // twice (REDESIGN.md rule 6).
+    holdRequest(paying, { status: 'pending', calling: true });
+    const call = goingOut();
+    setSpent(true);
     setFailure(null);
-    setRail(reviewRail(review).glyph);
+    setRail(reviewRail(quote).glyph);
+    let late = false;
+    const cancelGrace = grace(call, () => {
+      late = waitingFor.current === call;
+      overdue(call, paying);
+    });
+    let outcome: SendResult | null = null;
+    let code = '';
+    let refusal: unknown = null;
     try {
-      settle(await client.send(review));
+      outcome = await client.send(quote);
     } catch (e) {
+      code = errorCode(e);
       if (isUncertain(e)) {
         // The payment may have gone out. It is never an error to retry.
-        settle(
-          {
-            id: review.id,
-            status: 'uncertain',
-            amountSats: review.amountSats,
-            feeSats: review.feeSats,
-            feeEstimated: true,
-            message: errorMessage(e),
-          },
-          errorCode(e),
-        );
-      } else if (errorCode(e) === 'QUOTE_EXPIRED') {
-        setExpired(true);
-        fail(e, () => control);
+        outcome = {
+          id: quote.id,
+          status: 'uncertain',
+          amountSats: quote.amountSats,
+          feeSats: quote.feeSats,
+          feeEstimated: true,
+          message: errorMessage(e),
+        };
       } else {
-        setReview(null);
-        fail(e, backToCompose);
+        refusal = e;
       }
     } finally {
-      cameBack();
+      cancelGrace();
+    }
+    // Recorded whether or not anyone still watches: the held set is what
+    // keeps the request from being paid twice. A refusal moved no money, so
+    // it lets the request go.
+    holdRequest(paying, outcome ?? { status: 'failed' });
+    if (outcome) onRefresh();
+    const unseen = !mounted.current || late;
+    if (outcome?.status === 'uncertain' || outcome?.status === 'failed') {
+      recordDiagnostic({
+        phase: 'ui',
+        code: code || outcome.status.toUpperCase(),
+        message: outcome.message,
+      });
+    } else if (refusal && unseen) {
+      recordDiagnostic({
+        phase: 'ui',
+        code: code || 'FAILED',
+        message: errorMessage(refusal),
+      });
+    }
+    cameBack(call);
+    if (!mounted.current) return;
+    if (late) {
+      // Past its grace the screen moved on to the held ring, and follows the
+      // payment only while that is still what it shows. A refusal this late
+      // is shown as the payment failing, since the review it came from has
+      // gone.
+      if (watching.current !== paying.trim()) return;
+      show(
+        outcome ?? {
+          id: quote.id,
+          status: 'failed',
+          amountSats: quote.amountSats,
+          feeSats: 0,
+          message: errorMessage(refusal),
+        },
+      );
+    } else if (outcome) {
+      show(outcome);
+    } else if (code === 'QUOTE_EXPIRED') {
+      // The engine refused the quote, so nothing went out on it.
+      setSpent(false);
+      setExpired(true);
+      fail(refusal, () => control);
+    } else {
+      setSpent(false);
+      setReview(null);
+      fail(refusal, backToCompose);
     }
   }
 
@@ -619,7 +780,15 @@ export function SendScreen({
 
   async function paste(): Promise<boolean> {
     try {
-      const pasted = (await Clipboard.getString())?.trim();
+      // Reading the clipboard can raise the system's paste prompt, which
+      // makes the app inactive: marked as a prompt the app asked for, Send
+      // stays in view behind it rather than the privacy cover. What the
+      // paste brings lands once the app is in front again, so a refusal's
+      // cross draws, and its haptic plays, where they are seen and felt.
+      const text = await duringSystemPrompt(() => Clipboard.getString());
+      await untilInFront();
+      if (!mounted.current) return false;
+      const pasted = text?.trim();
       if (!pasted) {
         haptics.error();
         say(copy.send.clipboardEmpty);
@@ -629,6 +798,8 @@ export function SendScreen({
       if (accept(pasted)) say(copy.send.pasted);
       return true;
     } catch (e) {
+      await untilInFront();
+      if (!mounted.current) return false;
       fail(e);
       return false;
     }
@@ -642,7 +813,7 @@ export function SendScreen({
   useImperativeHandle(ref, () => ({
     back: () => {
       // Sent but not yet rendered as busy counts too: the stage refuses it.
-      if (busy || sending.current) return false;
+      if (busy || waitingFor.current) return false;
       if (review) {
         edit();
         return true;
@@ -765,33 +936,36 @@ export function SendScreen({
     );
   } else if (held) {
     const item = held.item;
-    const shown = item?.amountSats ?? fixedSats;
+    // A payment this screen sent shows what it sent, amount typed or not.
+    const shown = item?.amountSats ?? fixedSats ?? (Number(amount) || null);
+    const visual = heldVisual(held.status);
+    const paid = held.status === 'completed';
+    // Once the history shows the payment, the way to it is the payment
+    // itself; until then, the history it will show in.
+    const openItem =
+      live && item && onDetail ? () => onDetail(item) : undefined;
     content = (
       <>
         <View style={styles.body}>
           <ResultMark
             ref={mark}
-            visual={resultVisual('uncertain')}
-            accessibilityLabel={
-              held.status === 'pending' ? copy.send.onItsWay : copy.send.unknown
-            }
+            visual={visual}
+            accessibilityLabel={visual.title}
             accessibilityValue={statusLabel(held.status)}
             accessibilityHint={[
-              copy.send.held,
-              item && onDetail ? copy.send.showPayment : null,
+              paid ? copy.send.paid : copy.send.held,
+              openItem ? copy.send.showPayment : null,
             ]
               .filter(Boolean)
               .join(' ')}
-            onPress={
-              live && item && onDetail ? () => onDetail(item) : undefined
-            }
+            onPress={openItem}
           />
           {shown ? (
             <Amount
               sats={shown}
               unit={unit}
               masked={masked}
-              color={palette.honey}
+              color={paid ? palette.cream : palette.honey}
             />
           ) : null}
         </View>
@@ -799,7 +973,8 @@ export function SendScreen({
           <GlyphButton
             glyph={ACTIVITY_GLYPH}
             accessibilityLabel={copy.send.viewActivity}
-            onPress={live ? onActivity : undefined}
+            accessibilityHint={openItem ? copy.send.showPayment : undefined}
+            onPress={live ? openItem ?? onActivity : undefined}
           />
         </View>
       </>
@@ -818,7 +993,7 @@ export function SendScreen({
               {review.description}
             </Text>
           ) : null}
-          <ReviewLines review={review} unit={unit} />
+          <ReviewLines review={review} unit={unit} spent={spent} />
         </View>
         <View style={styles.controls}>
           <View style={[styles.side, styles.start]}>
@@ -839,6 +1014,7 @@ export function SendScreen({
             expired={expired}
             stale={disabled}
             busy={busy}
+            spent={spent}
             onCommit={pay}
             onRefreshQuote={live && !busy ? refreshQuote : undefined}
             onRefresh={live ? onRefresh : undefined}
@@ -857,6 +1033,15 @@ export function SendScreen({
         ? 'over-spendable'
         : 'over-total'
       : amountTone(Number(shownAmount) || 0, balance);
+    // What the review waits for, if anything: a request, one that can be
+    // paid, and an amount. Until then it is drawn and told as disabled.
+    const waiting = !request.trim()
+      ? copy.send.reviewWaits
+      : failure?.target === 'request'
+      ? copy.send.reviewRefused
+      : Number(shownAmount) > 0
+      ? null
+      : copy.send.amountWaits;
     const hint = [
       fixedSats === null ? null : copy.amount.fixed,
       amountWords(tone, Number(shownAmount) || 0, balance),
@@ -899,18 +1084,16 @@ export function SendScreen({
                   ? copy.send.stale
                   : busy
                   ? copy.send.preparing
-                  : request.trim()
-                  ? undefined
-                  : copy.send.reviewWaits
+                  : waiting ?? undefined
               }
               onPress={
                 !live || busy
                   ? undefined
                   : disabled
                   ? onRefresh
-                  : request.trim()
-                  ? prepare
-                  : undefined
+                  : waiting
+                  ? undefined
+                  : prepare
               }
               busy={busy}
               stale={disabled}

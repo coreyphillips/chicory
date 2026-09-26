@@ -4,7 +4,7 @@ import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import type { SendResult, SendReview } from '@beignet/wallet-core';
 import { chipText } from '../../src/glyphs/CopyChip';
-import { shortRequest } from '../../src/scenes/send/model';
+import { fixedAmount, shortRequest } from '../../src/scenes/send/model';
 import { SendScreen } from '../../src/screens/Send';
 import type { WalletAdapter } from '../../src/services/wallet';
 import { clearHeldRequests, holdRequest } from '../../src/stage/heldRequests';
@@ -104,9 +104,19 @@ const control = (tree: ReactTestRenderer, label: string) =>
       typeof node.props.onPress === 'function',
   );
 
+/**
+ * The request and client given, with the 4,200 sats every state here pays
+ * keyed in when the request names no amount, so it can be reviewed.
+ */
+async function composed(client: object, request = ADDRESS, props: Drawn = {}) {
+  const tree = await draw({ client, initialRequest: request, ...props });
+  if (fixedAmount(request) === null) await enterAmount(tree, '4200');
+  return tree;
+}
+
 /** Compose, then review, for the request and client given. */
 async function reviewed(client: object, request = ADDRESS, props: Drawn = {}) {
-  const tree = await draw({ client, initialRequest: request, ...props });
+  const tree = await composed(client, request, props);
   await act(async () => {
     await control(tree, 'Review payment').props.onPress();
   });
@@ -196,10 +206,7 @@ const GUARDED: GuardedState[] = [
   {
     name: 'preparing',
     render: async () => {
-      const tree = await draw({
-        client: { prepareSend: jest.fn(never) },
-        initialRequest: ADDRESS,
-      });
+      const tree = await composed({ prepareSend: jest.fn(never) });
       // Preparing never finishes here, so the press is not waited on.
       await act(async () => {
         control(tree, 'Review payment').props.onPress();

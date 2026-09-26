@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import type { ComponentRef, Ref } from 'react';
+import type { ComponentRef, ReactNode, Ref } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
@@ -44,16 +44,27 @@ function Ring({ color }: { color: string }) {
   );
 }
 
-/** Done: a cream disc, and an ink check drawing across it. */
-function Disc() {
+interface FaceProps {
+  visual: ResultVisual;
+}
+
+/**
+ * Done: a cream disc, and an ink check drawing across it. At rest, for a
+ * payment seen before, the check is simply there.
+ */
+function Disc({ visual }: FaceProps) {
   return (
     <View style={styles.disc}>
-      <DrawnGlyph
-        name="check"
-        size={56}
-        color={palette.ink}
-        strokes={[{ duration: durations.draw, delay: 120 }]}
-      />
+      {visual.resting ? (
+        <Glyph name="check" size={56} color={palette.ink} />
+      ) : (
+        <DrawnGlyph
+          name="check"
+          size={56}
+          color={palette.ink}
+          strokes={[{ duration: durations.draw, delay: 120 }]}
+        />
+      )}
     </View>
   );
 }
@@ -72,9 +83,11 @@ function Moving() {
 
 /**
  * Held: a steady honey ring, a halo breathing round it and the pause bars.
- * Nothing about it moves toward done, because nothing is known to be.
+ * Nothing about it moves toward done, because nothing is known to be. While
+ * the payment is still under way a honey orbit runs round the ring, the
+ * motion that says money is moving (REDESIGN.md 3.5), and never rests.
  */
-function Held() {
+function Held({ visual }: FaceProps) {
   // Out and back once each 1600ms.
   const halo = useLoop(durations.halo, true);
   const haloStyle = useAnimatedStyle(() => {
@@ -88,6 +101,9 @@ function Held() {
     <>
       <Reanimated.View style={[styles.layer, styles.halo, haloStyle]} />
       <Ring color={palette.honey} />
+      {visual.orbit ? (
+        <Orbit size={SIZE} stroke={STROKE} color={palette.honey} />
+      ) : null}
       <DrawnGlyph
         name="pause"
         size={48}
@@ -108,11 +124,17 @@ function Broken() {
   );
 }
 
-const FACES = { disc: Disc, orbit: Moving, held: Held, broken: Broken };
+const FACES: Record<ResultVisual['shape'], (props: FaceProps) => ReactNode> = {
+  disc: Disc,
+  orbit: Moving,
+  held: Held,
+  broken: Broken,
+};
 
 /**
  * How a payment ended, as a 120pt mark grown from the control it was sent
- * with (REDESIGN.md 6, Send). A failure shakes as it lands.
+ * with (REDESIGN.md 6, Send). A failure shakes as it lands. A mark at rest
+ * (`visual.resting`), for a payment seen before, is simply there.
  *
  * The mark carries the words: `accessibilityLabel` for what happened,
  * `accessibilityValue` for the status, and `accessibilityHint` for the
@@ -146,7 +168,7 @@ export function ResultMark({
   return (
     <Whisper label={accessibilityHint}>
       <Reanimated.View
-        entering={popIn(CONTROL / SIZE)}
+        entering={visual.resting ? undefined : popIn(CONTROL / SIZE)}
         style={[styles.mark, refusal.style]}
       >
         <Pressable
@@ -166,7 +188,7 @@ export function ResultMark({
           }
           style={styles.face}
         >
-          <Face />
+          <Face visual={visual} />
           <Reanimated.View
             pointerEvents="none"
             style={[styles.layer, styles.tint, refusal.tint]}

@@ -7,9 +7,9 @@ import {
   View,
 } from 'react-native';
 import { act } from 'react-test-renderer';
-import type { ReactTestRenderer } from 'react-test-renderer';
+import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
-import { Path } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { AmountField } from '../../../components/AmountField';
 import { copy } from '../../../design/copy';
 import { GLYPHS } from '../../../design/glyphs';
@@ -19,7 +19,7 @@ import { Pane } from '../../../stage/panes/Pane';
 import { mount } from '../../../../test-support/guard';
 import { amountValue, enterAmount } from '../../../../test-support/keypad';
 import { find, press, visibleText } from '../../../../test-support/query';
-import { AmountReadout } from '../AmountReadout';
+import { AmountReadout, STATE_GLYPH, STATE_PIP } from '../AmountReadout';
 import { CLEAR_AFTER_MS } from '../Keypad';
 import type { AmountTone } from '../keys';
 
@@ -100,6 +100,31 @@ test('holding backspace clears the amount with a rigid tap', async () => {
   await act(async () => tree.unmount());
 });
 
+test("a hold that clears the amount still lets backspace's disc spring back", async () => {
+  const tree = await mount(<Field start="4200" />);
+  // Backspace as drawn, live or idle.
+  const backspace = () =>
+    tree.root.find(
+      node =>
+        node.props.accessibilityLabel === copy.keypad.backspace &&
+        node.props.delayLongPress !== undefined,
+    );
+  await act(async () => backspace().props.onPressIn());
+  await act(async () => backspace().props.onLongPress());
+  expect(amountValue(tree)).toBe('');
+  // Idle under the finger, and the finger still lifts the disc.
+  expect(backspace().props.disabled).toBe(true);
+  expect(typeof backspace().props.onPressOut).toBe('function');
+  await act(async () => backspace().props.onPressOut());
+  // Drawn again as a digit wakes it, it stands back at rest.
+  await press(tree, '5');
+  expect(disc(tree, copy.keypad.backspace)).toEqual({
+    opacity: 0,
+    scale: 0.6,
+  });
+  await act(async () => tree.unmount());
+});
+
 test('a screen reader clears the amount with the long press action', async () => {
   const tree = await mount(<Field start="4200" />);
   const backspace = find(tree, copy.keypad.backspace)!;
@@ -119,23 +144,49 @@ test('a screen reader clears the amount with the long press action', async () =>
   await act(async () => tree.unmount());
 });
 
-test('the unit and its mark travel with the digits as one comes or goes', async () => {
+test('the amount moves as one: only its row eases, and nothing in it slides past another', async () => {
   const tree = await mount(
-    <AmountField value="42" onChangeText={jest.fn()} tone="honey" />,
+    <AmountField value="88000" onChangeText={jest.fn()} tone="honey" />,
   );
-  // Everything in the amount's row moves by the same layout transition, so
-  // nothing in it jumps ahead of a digit sliding over.
-  const row = readout(tree).findAll(
+  const rows = () =>
+    readout(tree).findAll(
+      node =>
+        typeof node.type !== 'string' &&
+        node.props.layout !== undefined &&
+        StyleSheet.flatten(node.props.style)?.flexDirection === 'row',
+    );
+  // The row eases to where its new width centres it.
+  expect(rows().length).toBe(1);
+  const [row] = rows();
+  // What is in it is laid out afresh at once: a digit keeps its cell, the
+  // unit and the mark stand where the digits end, and no cell slides on a
+  // transition of its own, so an arriving digit never shows over the unit
+  // and a comma never leaves a gap as it moves.
+  const sliding = row
+    .findAll(
+      node => typeof node.type !== 'string' && node.props.layout !== undefined,
+    )
+    .filter(node => node !== row);
+  expect(sliding.length).toBe(0);
+  const cells = () =>
+    rows()[0]
+      .findAllByType(Text)
+      .map(text => String(text.props.children));
+  expect(cells()).toEqual(['8', '8,', '0', '0', '0', 'sats']);
+  await act(async () =>
+    tree.update(
+      <AmountField value="880000" onChangeText={jest.fn()} tone="honey" />,
+    ),
+  );
+  expect(cells()).toEqual(['8', '8', '0,', '0', '0', '0', 'sats']);
+  // A digit rises in, and one deleted drops away.
+  const digits = rows()[0].findAll(
     node =>
-      typeof node.type === 'string' &&
-      StyleSheet.flatten(node.props.style)?.flexDirection === 'row',
-  )[0];
-  const moved = row.children.filter(
-    child => typeof child !== 'string' && child.props.layout !== undefined,
+      typeof node.type !== 'string' &&
+      node.props.entering !== undefined &&
+      node.props.exiting !== undefined,
   );
-  expect(moved).toHaveLength(row.children.length);
-  // Two digits, the unit and the clock.
-  expect(moved).toHaveLength(4);
+  expect(digits.length).toBeGreaterThan(0);
   await act(async () => tree.unmount());
 });
 
@@ -321,6 +372,45 @@ test.each([
       .map(node => node.props.d);
     if (mark) expect(marks).toContain(mark);
     else expect(marks).toEqual([]);
+    await act(async () => tree.unmount());
+  },
+);
+
+test.each([
+  ['honey', palette.honey, palette.honeySoft],
+  ['radish', palette.radish, palette.radishSoft],
+  ['dust', palette.dust, palette.mocha],
+] as const)(
+  "a %s limit's glyph is a state glyph on its tone's disc, level with the figures",
+  async (tone, color, soft) => {
+    const tree = await mount(
+      <AmountField value="42" onChangeText={jest.fn()} tone={tone} />,
+    );
+    const [pip] = readout(tree).findAll(
+      node =>
+        typeof node.type === 'string' &&
+        StyleSheet.flatten(node.props.style)?.backgroundColor === soft &&
+        StyleSheet.flatten(node.props.style)?.width === STATE_PIP,
+    );
+    expect(pip).toBeDefined();
+    const { height, borderRadius } = StyleSheet.flatten(pip.props.style);
+    expect(height).toBe(STATE_PIP);
+    expect(borderRadius).toBe(STATE_PIP / 2);
+    // A glyph of a readable size, in the tone, not a speck beside the unit.
+    const [glyph] = pip.findAllByType(Svg);
+    expect(glyph.props.width).toBe(STATE_GLYPH);
+    expect(STATE_GLYPH).toBeGreaterThanOrEqual(20);
+    expect(
+      pip.findAll(
+        node => node.props.stroke === color || node.props.color === color,
+      ),
+    ).not.toEqual([]);
+    // Centred on the amount's line, where the figures stand.
+    let at: ReactTestInstance | null = pip.parent;
+    while (at && StyleSheet.flatten(at.props.style)?.alignSelf !== 'center') {
+      at = at.parent;
+    }
+    expect(at).not.toBeNull();
     await act(async () => tree.unmount());
   },
 );
