@@ -207,25 +207,6 @@ export function glyphMorph(
 }
 
 /**
- * How far from the mini strip, in `hero`, the hero hands over to the strip's
- * own figures: over the last stretch of the way, where the two are all but
- * the same size.
- */
-const STRIP_SWAP = 0.15;
-
-/**
- * The opacity of the mini strip's own figures at `hero`: none at home, whole
- * in the strip. The hero, scaled to a third, would draw its unit at 5pt,
- * too small to read, so the strip draws the balance again at a size of its
- * own, its unit at 15pt (REDESIGN.md 3.3), and the two crossfade as the
- * hero lands. The hero's own figures take the rest.
- */
-export function stripOpacity(hero: number): number {
-  'worklet';
-  return clamp01(1 - hero / STRIP_SWAP);
-}
-
-/**
  * How much of the way the circles not tapped have faded by: two thirds,
  * which the pane spring reaches at about 140ms (REDESIGN.md 7, T1).
  */

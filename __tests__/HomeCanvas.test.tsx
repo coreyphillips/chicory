@@ -9,7 +9,7 @@ import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../src/design/copy';
 import { palette } from '../src/design/palette';
 import { Bloom } from '../src/glyphs/Bloom';
-import { Odometer } from '../src/glyphs/Odometer';
+import { HERO_SIZES, Odometer, unitScaleFor } from '../src/glyphs/Odometer';
 import { ActionCircle } from '../src/scenes/home/ActionCircle';
 import { BackupTile } from '../src/scenes/home/BackupTile';
 import { StatusRow } from '../src/scenes/home/StatusRow';
@@ -19,7 +19,6 @@ import {
   landedAt,
   launchPose,
   launchTravel,
-  stripOpacity,
 } from '../src/scenes/home/motion';
 import { isTestNetwork } from '../src/scenes/home/visual';
 import { springStep } from '../src/motion/springMath';
@@ -28,6 +27,7 @@ import { ReceiveScreen, SendScreen } from '../src/screens/Payments';
 import { HomeScreen } from '../src/screens/Wallet';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import {
+  HERO_MINI,
   HOME,
   PRIMARY_CONTROL,
   SLOT_PADDING,
@@ -204,29 +204,86 @@ describe('the mini strip', () => {
   const odometers = (tree: ReactTestRenderer) =>
     tree.root.findByType(HomeScreen).findAllByType(Odometer);
 
-  test('draws the balance again at a size of its own, its unit readable', async () => {
+  test('is the hero itself, one element all the way, its unit readable', async () => {
+    // The device pass (P10): a second odometer crossfaded in over the hero,
+    // 8 to 12pt off it and rolling on a clock of its own, so for six frames
+    // two balances showed.
     const tree = await mount(<HomeAt hero={0} bar={0} />);
-    const strip = odometers(tree).find(node => node.props.variant === 'line');
-    expect(strip).toBeDefined();
-    const [shown] = byTestID(tree, 'home-strip');
-    // Placed by a move alone: never scaled, so its unit is drawn at 15pt.
-    expect(flat(shown).opacity).toBe(1);
-    expect(transformOf(shown, 'scale')).toBeUndefined();
-    // The hero, at a third of its size, has handed over.
-    let faded: ReactTestInstance | null = odometers(tree).find(
-      node => node.props.variant === 'hero',
-    )!;
-    while (faded && flat(faded).opacity === undefined) faded = faded.parent;
-    expect(faded && flat(faded).opacity).toBe(0);
+    const shown = odometers(tree);
+    expect(shown).toHaveLength(1);
+    expect(shown[0].props.variant).toBe('hero');
+    expect(byTestID(tree, 'home-strip')).toEqual([]);
+    // Shrunk to a third, its unit is grown back to its 15pt.
+    const unit = shown[0].find(
+      node =>
+        typeof node.type === 'string' &&
+        flat(node).transformOrigin === '0% 77%',
+    );
+    const grown = transformOf(unit, 'scale') as number;
+    expect(grown * HERO_MINI * 15).toBeCloseTo(15);
     await act(async () => tree.unmount());
+    // At home it is as it is set.
+    const home = await mount(<HomeAt />);
+    const [hero] = odometers(home);
+    const set = hero.find(
+      node =>
+        typeof node.type === 'string' &&
+        flat(node).transformOrigin === '0% 77%',
+    );
+    expect(transformOf(set, 'scale')).toBe(1);
+    await act(async () => home.unmount());
   });
 
-  test('is unseen at home, and takes over only as the hero lands', async () => {
-    expect(stripOpacity(1)).toBe(0);
-    expect(stripOpacity(0.5)).toBe(0);
-    expect(stripOpacity(0)).toBe(1);
-    const tree = await mount(<HomeAt />);
-    expect(flat(byTestID(tree, 'home-strip')[0]).opacity).toBe(0);
+  test('its unit holds a readable size, in step with a hero stepped down', () => {
+    expect(unitScaleFor(1, 64)).toBe(1);
+    expect(unitScaleFor(HERO_MINI, HERO_SIZES[0]) * HERO_MINI * 15).toBeCloseTo(
+      15,
+    );
+    // A long BTC amount steps the hero down to 40: its unit keeps to three
+    // quarters of the figures there, rather than outgrowing them.
+    const smallest = HERO_SIZES[HERO_SIZES.length - 1];
+    expect(unitScaleFor(HERO_MINI, smallest) * HERO_MINI * 15).toBeCloseTo(
+      0.75 * smallest * HERO_MINI,
+    );
+  });
+
+  test('changes in place when it shows another figure, and rolls only when money moves', async () => {
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    const read = snapshotOf({ wallet: { network: 'mainnet' } });
+    const home = (spendable: boolean, snapshot = read) => (
+      <GestureHandlerRootView>
+        <HomeScreen
+          snapshot={snapshot}
+          spendable={spendable}
+          onSend={jest.fn()}
+          onReceive={jest.fn()}
+          onActivity={jest.fn()}
+          onDetail={jest.fn()}
+        />
+      </GestureHandlerRootView>
+    );
+    // A roll runs the odometer's value to the new figure; a swap sets it.
+    const rolls = (to: number) =>
+      timings.mock.calls.filter(([value]) => value === to).length;
+    const tree = await mount(home(false));
+    expect(odometers(tree)[0].props.sats).toBe(read.balance.totalSats);
+    // Opening Send: what can be spent, in place. It never rolls down from
+    // the total, which reads as money leaving.
+    timings.mockClear();
+    await act(async () => tree.update(home(true)));
+    expect(odometers(tree)[0].props.sats).toBe(read.balance.availableSats);
+    expect(rolls(read.balance.availableSats)).toBe(0);
+    // Back home: the total again, in place, never rolling up.
+    await act(async () => tree.update(home(false)));
+    expect(rolls(read.balance.totalSats)).toBe(0);
+    // Money that moves rolls.
+    const paid = snapshotOf({
+      wallet: { network: 'mainnet' },
+      balance: { totalSats: read.balance.totalSats - 3_000 },
+    });
+    timings.mockClear();
+    await act(async () => tree.update(home(false, paid)));
+    expect(rolls(paid.balance.totalSats)).toBe(1);
     await act(async () => tree.unmount());
   });
 });

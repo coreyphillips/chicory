@@ -89,6 +89,13 @@ export interface OdometerProps {
    * celebration's count-up is (REDESIGN.md 5).
    */
   duration?: number;
+  /**
+   * The scale its container draws it at, while that shrinks it, as Home's
+   * hero shrinks into the mini strip: the unit holds a readable size
+   * against it (`unitScaleFor`), and the figures shift so the whole stays
+   * centred. Left out, it is drawn as it is set.
+   */
+  scaled?: SharedValue<number>;
   accessibilityLabel?: string;
 }
 
@@ -169,12 +176,38 @@ function wrap(pos: number): number {
 
 /**
  * A roll in flight: the amounts it runs between, and for each place how far
- * the column was drawn from digitPosition when the roll set out.
+ * the column was drawn from digitPosition when the roll set out. Columns
+ * below `snap` turn too fast to be seen sliding, and show whole rows.
  */
 export interface Roll {
   from: number;
   to: number;
   lead: number[];
+  snap?: number;
+}
+
+/** A painted frame, in ms. */
+const FRAME_MS = 1000 / 60;
+
+/**
+ * The most rows a column may pass in a frame, on average across a roll,
+ * and still be drawn sliding. Faster, a digit is in view for less than two
+ * frames, and a frame catches it halfway out of its cell, where it reads as
+ * a digit set high or low rather than as motion (the device pass saw
+ * "90,54⁸" in the mini strip); such a column shows whole rows instead.
+ */
+export const SNAP_RATE = 0.5;
+
+/**
+ * The lowest place that is still drawn sliding across a roll of `delta`
+ * sats over `duration` ms: every column below it passes more than
+ * SNAP_RATE rows a frame.
+ */
+export function snapBelow(delta: number, duration: number): number {
+  const frames = Math.max(1, duration / FRAME_MS);
+  let k = 0;
+  while (Math.abs(delta) / 10 ** k / frames > SNAP_RATE) k += 1;
+  return k;
 }
 
 /**
@@ -189,21 +222,26 @@ export function rollPosition(v: number, k: number, roll: Roll): number {
   'worklet';
   const span = roll.to - roll.from;
   const p = span === 0 ? 1 : Math.min(1, Math.max(0, (v - roll.from) / span));
-  return wrap(
+  const pos = wrap(
     digitPosition(v, k) +
       (1 - p) * (roll.lead[k] ?? 0) -
       p * carryOf(roll.to, k),
   );
+  // Too fast to be seen sliding: the nearest whole row, on the line.
+  return k < (roll.snap ?? 0) ? Math.round(pos) : pos;
 }
 
 /**
- * A roll from `from` to `to`. One that takes over from a roll still under
- * way sets out from where that one had drawn each column, so nothing jumps.
+ * A roll from `from` to `to`, over `duration` ms when it is known. One that
+ * takes over from a roll still under way sets out from where that one had
+ * drawn each column, so nothing jumps. Given its length, the columns too
+ * fast to be seen sliding show whole rows (`snapBelow`).
  */
 export function startRoll(
   from: number,
   to: number,
   previous: Roll | null,
+  duration?: number,
 ): Roll {
   const places = String(Math.ceil(Math.max(from, to))).length + 1;
   const lead = Array.from({ length: places }, (_, k) => {
@@ -214,7 +252,9 @@ export function startRoll(
     // The short way round a column's ten digits.
     return off - 10 * Math.round(off / 10);
   });
-  return { from, to, lead };
+  return duration === undefined
+    ? { from, to, lead }
+    : { from, to, lead, snap: snapBelow(to - from, duration) };
 }
 
 /**
@@ -279,6 +319,27 @@ const FIGURE_EM = 0.6;
 const UNIT_EM = 0.62;
 const UNIT_SIZE = 15;
 const UNIT_GAP = 6;
+/** The unit to the figures it sits beside, as the line figures have it. */
+const UNIT_TO_FIGURE = 15 / 20;
+
+/**
+ * How much the unit is scaled against its container's `scaled`, beside
+ * figures set at `fontSize`, so it reads as it would beside figures of the
+ * size they are drawn at: never over its own 15pt, never smaller than the
+ * container would draw it, and otherwise three quarters of the figures, as
+ * the unit beside the 20pt line figures is. So the hero's unit keeps 15pt as
+ * it shrinks into the mini strip, where the container alone would draw it
+ * at 5, and a hero stepped down for a long BTC amount keeps it in step.
+ */
+export function unitScaleFor(scaled: number, fontSize: number): number {
+  'worklet';
+  const drawn = UNIT_SIZE * scaled;
+  const wanted = Math.min(
+    UNIT_SIZE,
+    Math.max(drawn, UNIT_TO_FIGURE * fontSize * scaled),
+  );
+  return drawn > 0 ? wanted / drawn : 1;
+}
 
 /**
  * The hero's font size for `figures` digits (and a sign, if any) and
@@ -770,6 +831,7 @@ export function Odometer({
   sign = null,
   room,
   duration,
+  scaled,
   accessibilityLabel,
 }: OdometerProps) {
   const { reduced } = useMotionPrefs();
@@ -816,14 +878,15 @@ export function Odometer({
       return;
     }
     const from = v.get();
-    const next = startRoll(from, target, rolling.current);
+    const length = duration ?? rollDuration(target - from);
+    const next = startRoll(from, target, rolling.current, length);
     rolling.current = next;
     roll.set(next);
     v.set(
       withTiming(
         target,
         {
-          duration: duration ?? rollDuration(target - from),
+          duration: length,
           easing: curves.standard,
         },
         done => {
@@ -932,6 +995,31 @@ export function Odometer({
       reduced && cell.kind === 'digit' ? `:${cell.digit}` : ''
     }`;
 
+  // Shrunk by its container, the unit holds a readable size, grown about
+  // its left end near its baseline, and the whole shifts left by half of
+  // what the unit grew, so it stays centred.
+  const unitWidth = useSharedValue(0);
+  const counter = useAnimatedStyle(() => {
+    if (!scaled) return {};
+    return { transform: [{ scale: unitScaleFor(scaled.get(), size) }] };
+  }, [scaled, size]);
+  const centred = useAnimatedStyle(() => {
+    if (!scaled) return {};
+    const grown = unitScaleFor(scaled.get(), size) - 1;
+    return { transform: [{ translateX: (-unitWidth.get() * grown) / 2 }] };
+  }, [scaled, size]);
+  const unitText = (
+    <Reanimated.Text
+      key={unit}
+      entering={cellIn(0, reduced)}
+      exiting={cellOut(0, reduced)}
+      style={[typography.heroUnit, styles.unit]}
+      maxFontSizeMultiplier={maxScale}
+    >
+      {SUFFIX[unit]}
+    </Reanimated.Text>
+  );
+
   const label =
     accessibilityLabel ??
     (masked ? copy.amount.hidden : copy.amount.spoken(sats));
@@ -953,8 +1041,8 @@ export function Odometer({
       accessibilityLabel={label}
       style={box ? [styles.box, box] : styles.row}
     >
-      <View
-        style={styles.row}
+      <Reanimated.View
+        style={[styles.row, centred]}
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       >
@@ -1006,17 +1094,18 @@ export function Odometer({
               </View>
             </LayoutAnimationConfig>
           </Reanimated.View>
-          <Reanimated.Text
-            key={unit}
-            entering={cellIn(0, reduced)}
-            exiting={cellOut(0, reduced)}
-            style={[typography.heroUnit, styles.unit]}
-            maxFontSizeMultiplier={maxScale}
-          >
-            {SUFFIX[unit]}
-          </Reanimated.Text>
+          {scaled ? (
+            <Reanimated.View
+              onLayout={event => unitWidth.set(event.nativeEvent.layout.width)}
+              style={[styles.unitBox, counter]}
+            >
+              {unitText}
+            </Reanimated.View>
+          ) : (
+            unitText
+          )}
         </LayoutAnimationConfig>
-      </View>
+      </Reanimated.View>
     </View>
   );
 }
@@ -1034,4 +1123,7 @@ const styles = StyleSheet.create({
   received: { fontWeight: '600' },
   dim: { color: palette.dust },
   unit: { color: palette.steam },
+  // About where the unit's baseline sits in its 20pt line, so it grows up
+  // and to the right from the line the figures stand on.
+  unitBox: { transformOrigin: '0% 77%' },
 });

@@ -20,6 +20,7 @@ import type {
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import type { PanGestureConfig } from 'react-native-gesture-handler';
 import Reanimated, {
+  LayoutAnimationConfig,
   useAnimatedReaction,
   useAnimatedStyle,
   useDerivedValue,
@@ -52,7 +53,6 @@ import {
   launchTravel,
   miniLanding,
   pullOffset,
-  stripOpacity,
   vesselOpacity,
 } from '../../scenes/home/motion';
 import type { HeroFrame, Launch } from '../../scenes/home/motion';
@@ -96,7 +96,11 @@ const ROW_HEIGHT = HOME.row;
  * On the canvas `progress` carries the panes: `hero` shrinks the balance into
  * a mini strip, fading the vessel first, which rests in the band under the
  * status row that Send and Receive leave clear (MINI_STRIP), or in the row
- * itself under Activity and a payment's detail. `bar` carries the action
+ * itself under Activity and a payment's detail. The balance is one element
+ * all the way there, its unit holding a readable size as the figures shrink,
+ * so it is never drawn twice. While Send or Receive is open it shows what
+ * can be spent (`spendable`): a different figure rather than money moving,
+ * so it changes in place, where money moving rolls. `bar` carries the action
  * row away: the circles not tapped shrink and are gone within 140ms, and the
  * tapped one travels and grows toward the scene it opens, whole until it
  * hands over to the scene's own control. Drawn on its own it rests at home. The activity it once
@@ -115,6 +119,7 @@ export function HomeScreen({
   onToggleHidden,
   onRefresh,
   heroSats,
+  spendable = false,
   progress,
   launching = 'none',
   lands = null,
@@ -135,8 +140,13 @@ export function HomeScreen({
   onToggleHidden?: () => void;
   /** Refreshes the wallet, for the pull and for a tap on a gated action. */
   onRefresh?: () => void;
-  /** What the hero shows, when not the total: Send's spendable amount. */
+  /** What the hero shows in place of its figure, as while it counts up. */
   heroSats?: number;
+  /**
+   * The hero shows what can be spent now rather than the total, as it does
+   * while Send or Receive is open.
+   */
+  spendable?: boolean;
   /**
    * The canvas's panes, which move the hero and the action row, and take
    * the pull for the mark to open with.
@@ -360,16 +370,19 @@ export function HomeScreen({
         : { fontScale, height },
     );
   };
-  // The mini strip's own figures, over the landing (see stripOpacity).
-  const stripHeight = useSharedValue(0);
-  const stripStyle = useAnimatedStyle(() => ({
-    opacity: stripOpacity(hero.get()),
-    transform: [{ translateY: landingAt.get() - stripHeight.get() / 2 }],
-  }));
+  // The scale the hero is drawn at, which its unit holds its size against.
+  const heroScale = useDerivedValue(
+    () => heroPose(hero.get(), frame.get(), landingAt.get()).scale,
+  );
   const figuresStyle = useAnimatedStyle(() => ({
-    opacity: 1 - stripOpacity(hero.get()),
     transform: [{ scale: pop.get() }],
   }));
+  // Which figure the hero shows: the total, or what can be spent. Each is
+  // its own odometer, so a change between them is a new figure in place,
+  // at once and with nothing fading, while a change of either one rolls.
+  const quantity = spendable ? 'spendable' : 'total';
+  const figure =
+    heroSats ?? (spendable ? balance.availableSats : balance.totalSats);
   const measureRow = (event: LayoutChangeEvent) =>
     middle.set(event.nativeEvent.layout.width / 2);
   const centreOf = (at: SharedValue<number>) => (event: LayoutChangeEvent) => {
@@ -450,15 +463,22 @@ export function HomeScreen({
                     entering={arrive.hero}
                     exiting={heroOut}
                   >
-                    <Odometer
-                      sats={heroSats ?? balance.totalSats}
-                      unit={unit}
-                      masked={hidden}
-                      stale={stale}
-                      variant="hero"
-                      room={room}
-                      accessibilityLabel={label}
-                    />
+                    <LayoutAnimationConfig
+                      key={quantity}
+                      skipEntering
+                      skipExiting
+                    >
+                      <Odometer
+                        sats={figure}
+                        unit={unit}
+                        masked={hidden}
+                        stale={stale}
+                        variant="hero"
+                        room={room}
+                        scaled={heroScale}
+                        accessibilityLabel={label}
+                      />
+                    </LayoutAnimationConfig>
                   </Reanimated.View>
                 </Reanimated.View>
               </Pressable>
@@ -476,27 +496,6 @@ export function HomeScreen({
                   test={test}
                 />
               </Reanimated.View>
-            </Reanimated.View>
-            {/* The balance as the mini strip, drawn at a size of its own so
-                its unit can be read there (see stripOpacity). The hero's
-                label says it for a screen reader. */}
-            <Reanimated.View
-              testID="home-strip"
-              pointerEvents="none"
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              onLayout={event =>
-                stripHeight.set(event.nativeEvent.layout.height)
-              }
-              style={[styles.strip, stripStyle]}
-            >
-              <Odometer
-                sats={heroSats ?? balance.totalSats}
-                unit={unit}
-                masked={hidden}
-                stale={stale}
-                variant="line"
-              />
             </Reanimated.View>
           </Reanimated.View>
           {/* Each circle sits in a slot as tall as the row, so the three
@@ -670,14 +669,6 @@ const styles = StyleSheet.create({
     transformOrigin: 'top',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  // Placed by its transform, over where the hero lands.
-  strip: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
   },
   balance: { alignItems: 'center', paddingVertical: HOME.heroPad },
   vessel: { paddingHorizontal: HOME.vesselInset },

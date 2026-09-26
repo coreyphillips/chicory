@@ -26,6 +26,7 @@ import {
   rollDuration,
   rollPosition,
   scrambleDigit,
+  snapBelow,
   staleDip,
   startRoll,
 } from '../src/glyphs/Odometer';
@@ -335,6 +336,28 @@ describe('Odometer', () => {
           read += (Math.round(rollPosition(v, k, roll)) % 10) * 10 ** k;
         }
         expect(read).toBeLessThanOrEqual(Math.ceil(v));
+      }
+    });
+
+    test('a column too fast to be seen sliding shows whole rows, on the line', () => {
+      // The device pass (P10): the mini strip read "90,54⁸" mid-roll, its
+      // ones caught halfway out of their cell on 470 sats in 654ms.
+      const length = rollDuration(470);
+      expect(snapBelow(470, length)).toBe(2);
+      // A small change still slides: five rows in 420ms.
+      expect(snapBelow(5, rollDuration(5))).toBe(0);
+      const roll = startRoll(90_974, 90_504, null, length);
+      expect(roll.snap).toBe(2);
+      for (let i = 0; i <= 200; i++) {
+        const v = 90_974 - (470 * i) / 200;
+        for (const k of [0, 1]) {
+          const at = rollPosition(v, k, roll);
+          expect(at).toBe(Math.round(at));
+        }
+      }
+      // It still lands on the amount.
+      for (let k = 0; k < 5; k++) {
+        expect(apart(rollPosition(90_504, k, roll), digit(90_504, k))).toBe(0);
       }
     });
 

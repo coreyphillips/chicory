@@ -67,8 +67,8 @@ export function HomePane({
   const { hidden, setHidden, unit, setUnit } = view;
   const network = snapshot.wallet.network;
 
-  // On its way to Send or Receive the hero rolls from the total to what can
-  // be spent (REDESIGN.md 7, T1).
+  // On its way to Send or Receive the hero shows what can be spent rather
+  // than the total (REDESIGN.md 7, T1), changing in place: nothing moved.
   const shown = canvasScene(state);
   const spending = shown === 'send' || shown === 'receive';
   // The circle that opened Send or Receive is kept while the canvas comes
@@ -188,9 +188,8 @@ export function HomePane({
         hidden={hidden}
         unit={unit}
         stale={stale}
-        heroSats={
-          counting ? 0 : spending ? snapshot.balance.availableSats : undefined
-        }
+        heroSats={counting ? 0 : undefined}
+        spendable={spending}
         build={beats}
         progress={panes}
         launching={launching}
