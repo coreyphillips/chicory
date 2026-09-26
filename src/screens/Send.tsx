@@ -644,6 +644,12 @@ export function SendScreen({
     if (!mounted.current || waitingFor.current !== call) return;
     waitingFor.current = 0;
     watching.current = paying.trim();
+    // The ring is this screen's from now, not from the render that draws
+    // it: an answer landing in between resolves it all the same, rather
+    // than finding no ring and dropping back to compose with the payment
+    // gone out.
+    setRingFor(paying.trim());
+    setStayed(false);
     setBusy(false);
     toHeld();
   }

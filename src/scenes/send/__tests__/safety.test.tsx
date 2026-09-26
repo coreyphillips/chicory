@@ -505,6 +505,8 @@ describe('a payment whose call does not answer', () => {
       onBusy,
       prepareSend,
       answer: (result: SendResult) => act(async () => answer(result)),
+      /** Answers without a render of its own, inside the caller's act. */
+      answerNow: (result: SendResult) => answer(result),
       refuse: (error: Error) => act(async () => refuse(error)),
     };
   }
@@ -737,6 +739,41 @@ describe('a payment whose call does not answer', () => {
       await past(HOME_AFTER_MS);
       expect(onDone).toHaveBeenCalledTimes(1);
       expect(felt()).toEqual(['notificationSuccess']);
+      await act(async () => tree.unmount());
+    },
+  );
+
+  test.each([
+    ['a request paid once', priced('race-paid'), true],
+    ['a request that may be paid again', payable('race-paid-again'), false],
+  ])(
+    'completing between its grace and the render of its ring, with %s, still resolves the ring',
+    async (_, request, once) => {
+      // The ring was known only once a render drew it, so an answer landing
+      // in between found none: a request that may be paid again dropped
+      // back to compose with its amount keyed and Review live, and one paid
+      // once rested as paid before, with nothing felt.
+      const onDone = jest.fn();
+      const { tree, answerNow } = await hanging(request, { onDone });
+      jest.mocked(HapticFeedback.trigger).mockClear();
+      await act(async () => {
+        jest.advanceTimersByTime(SEND_GRACE_MS);
+        answerNow(outcome('completed'));
+      });
+      const [mark] = tree.root.findAllByType(ResultMark);
+      expect(mark.props.visual).toMatchObject({
+        shape: 'disc',
+        resolves: true,
+        returnsHome: true,
+      });
+      expect(meaning(tree)).toContain(copy.send.sent);
+      expect(meaning(tree)).not.toContain(copy.send.paidAlready);
+      expect(meaning(tree).includes(copy.send.paid)).toBe(once);
+      expect(pressableLabels(tree)).not.toContain(copy.send.review);
+      await past(1_000);
+      expect(felt()).toEqual(['notificationSuccess']);
+      await past(HOME_AFTER_MS);
+      expect(onDone).toHaveBeenCalledTimes(1);
       await act(async () => tree.unmount());
     },
   );
