@@ -12,7 +12,7 @@ import { recentDiagnostics } from '../../services/diagnosticLog';
 import type { DiagnosticEntry } from '../../services/diagnosticLog';
 import type { WalletAdapter } from '../../services/wallet';
 import { fonts, radius, space, type } from '../../theme';
-import { Action, Note, Row, Section, Working } from './ui';
+import { Action, BREAK, Note, Row, Section, Working } from './ui';
 
 const words = copy.settings.diagnostics;
 
@@ -25,6 +25,15 @@ const TIME = new Intl.DateTimeFormat('en-US', {
 
 /** The local time of day an entry was recorded, to the second. */
 const clock = (at: string) => TIME.format(Date.parse(at));
+
+/**
+ * An entry's code as it is drawn: a line may break after each underscore,
+ * between the code's words, and nowhere else. Its underscores make a code
+ * one word to a line, and at the largest text size AMBIGUOUS_RECEIVE_ADDRESS
+ * is wider than the card, so it would break wherever the line ran out.
+ */
+export const codeText = (code: string): string =>
+  code.replace(/_(?=.)/g, `_${BREAK}`);
 
 /**
  * What an entry the app logged is, by the semantic colours (REDESIGN.md
@@ -85,7 +94,7 @@ function RecentErrors({ entries }: { entries: DiagnosticEntry[] }) {
         >
           <Text style={styles.meta}>
             {entry.code
-              ? `${clock(entry.at)} · ${entry.code}`
+              ? `${clock(entry.at)} · ${codeText(entry.code)}`
               : clock(entry.at)}
           </Text>
           <Text selectable style={styles.message}>

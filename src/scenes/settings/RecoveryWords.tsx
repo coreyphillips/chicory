@@ -17,6 +17,7 @@ import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { radius, space, type } from '../../theme';
 import { WORD_RISE, wordDelay } from './motion';
+import { wholeWords } from './ui';
 
 /** How long the eye stays open before it blinks, once the words are rising. */
 const BLINK_AFTER = 240;
@@ -59,6 +60,10 @@ function BlinkingEye() {
  * in reading order (REDESIGN.md 6, Backup and setup). Each word is one
  * element for a screen reader, its number and the word together, and the
  * first takes its focus, since the control that revealed them is gone.
+ *
+ * A word is never broken across lines: one wider than its cell at a large
+ * text size shrinks a little instead (`wholeWords`), since "mushroo" over
+ * "m" could be written down as two words.
  */
 export function RecoveryWords({ words }: { words: string[] }) {
   const first = useFocus(true);
@@ -84,7 +89,9 @@ export function RecoveryWords({ words }: { words: string[] }) {
               style={styles.word}
             >
               <Text style={styles.number}>{index + 1}</Text>
-              <Text style={styles.text}>{word}</Text>
+              <Text {...wholeWords(word)} style={styles.text}>
+                {word}
+              </Text>
             </View>
           </Reanimated.View>
         ))}

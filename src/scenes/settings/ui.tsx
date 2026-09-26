@@ -1187,15 +1187,31 @@ export function Note({
 }
 
 /** A zero-width space: somewhere a line may break that draws nothing. */
-const BREAK = '\u200B';
+export const BREAK = '\u200B';
+
+/** A word joiner: nowhere a line may break, and nothing drawn. */
+export const JOIN = '\u2060';
+
+/**
+ * `token`, such as a host or a version, as one piece a line never breaks
+ * inside: a word joiner follows each character a line could otherwise break
+ * after, a hyphen, a dash, a slash, a bar, `!` or `?`. Between letters,
+ * digits and stops a line offers no break of its own. A token wider than its
+ * whole line still breaks where the line runs out, so what draws it makes
+ * the room (`copyFit`, `wholeWords`).
+ */
+export const unbroken = (token: string): string =>
+  token.replace(/([-/|!?\u2010\u2013])(?=.)/gu, `$1${JOIN}`);
 
 /**
  * A node address (`pubkey@host:port`) as it is drawn: the key in mono groups
  * of four (REDESIGN.md 3.3), which a line may break between, and a place to
- * break after the `@` and before the `:port` that draws nothing. Mono text
- * breaks wherever its line runs out otherwise, which split the host
- * (`…@127` over `.0.0.1:19846`) and left a port's last digit on a line of its
- * own. Anything that is not a node address is drawn as it is.
+ * break after the `@` and before the `:port` that draws nothing. The host
+ * and the port are each one piece (`unbroken`). Mono text breaks wherever
+ * its line runs out otherwise, which split the host (`…@127` over
+ * `.0.0.1:19846`) and left a port's last digit on a line of its own; where
+ * it is drawn gives its widest piece a line (`copyFit`). Anything that is
+ * not a node address is drawn as it is.
  */
 export function nodeAddressText(uri: string): string {
   const match = /^([0-9a-fA-F]{66})(?:@(.+?)(:\d+)?)?$/.exec(uri.trim());
@@ -1203,7 +1219,148 @@ export function nodeAddressText(uri: string): string {
   const [, key, host, port] = match;
   const groups = key.match(/.{1,4}/g)!.join(' ');
   if (!host) return groups;
-  return `${groups}@${BREAK}${host}${port ? `${BREAK}${port}` : ''}`;
+  return `${groups}@${BREAK}${unbroken(host)}${port ? `${BREAK}${port}` : ''}`;
+}
+
+/** The size a copyable value is drawn at, and its line, before the text size. */
+const MONO_SIZE = 12;
+const MONO_LINE = 18;
+
+/**
+ * A mono character's advance as a share of its size: Menlo's and Android's
+ * monospace are both 0.6 of an em. Only the first guess uses it; the value's
+ * own lines measure it after that (`monoAdvance`).
+ */
+const MONO_EM = 0.6;
+
+/**
+ * The first guess at the width a Settings card leaves a value, before it is
+ * measured: the page edge and the card's padding on each side.
+ */
+const CARD_INSET = 2 * (space.xl + space.lg);
+
+/** The space between a copyable value and its copy control. */
+const COPY_GAP = space.sm;
+
+/**
+ * A point to spare, so a piece measured to the width of its line is not
+ * broken there by rounding.
+ */
+const FIT_SLACK = 1;
+
+/** The least a copyable value shrinks to, as a label does (`wholeWords`). */
+const MIN_FIT = 0.5;
+
+/** How far a measured advance must move before it is taken, a share of it. */
+const ADVANCE_NOISE = 0.005;
+
+/** Characters that take no width: the breaks and joins a value is drawn with. */
+const ZERO_WIDTH = /[\u200B\u2060]/g;
+
+/** One line of laid out text, as `onTextLayout` reports it. */
+export interface LaidLine {
+  text: string;
+  width: number;
+}
+
+/**
+ * How many characters the widest piece of a drawn value has, a piece being
+ * what lies between the places it may break: a space or a zero-width space.
+ */
+export function widestPiece(text: string): number {
+  return text
+    .split(/[ \n\u200B]/)
+    .reduce(
+      (widest, piece) =>
+        Math.max(widest, [...piece.replace(ZERO_WIDTH, '')].length),
+      0,
+    );
+}
+
+/**
+ * The advance of one character of a mono value, from the lines it was laid
+ * out in: the line with the most characters of those that end on one that is
+ * drawn, since whether a line's width counts the space it ends on differs
+ * between the platforms. Zero until there is such a line; the value's last
+ * line always is one.
+ */
+export function monoAdvance(lines: readonly LaidLine[]): number {
+  let most = 0;
+  let advance = 0;
+  for (const line of lines) {
+    const drawn = [...line.text.replace(ZERO_WIDTH, '')];
+    if (!drawn.length || /\s/.test(drawn[drawn.length - 1])) continue;
+    if (drawn.length > most) {
+      most = drawn.length;
+      advance = line.width / most;
+    }
+  }
+  return advance;
+}
+
+/** What a copyable value and its control measure, for `copyFit`. */
+export interface CopyMeasure {
+  /** The width the value and its copy control share. */
+  room: number;
+  /** The copy control's width. */
+  control: number;
+  /** How wide the value's widest piece is at its own size (`widestPiece`). */
+  widest: number;
+}
+
+/**
+ * Where a copyable value's control goes, and how far the value shrinks, so
+ * a line never breaks inside one of its pieces (`nodeAddressText`). The
+ * control sits beside the value while its widest piece fits the width the
+ * control leaves, and drops below it once it does not, so the value has the
+ * whole width: P12 saw "127.0.0" over ".1" at the largest text size, in the
+ * 206pt the 96pt control left of 314. A piece wider than even the whole
+ * width shrinks the value until it fits, to half its size at the least.
+ *
+ * The widest piece is measured at the value's own size, which is the same
+ * wherever the control goes, so the two never trade places frame after
+ * frame.
+ */
+export function copyFit({ room, control, widest }: CopyMeasure): {
+  below: boolean;
+  shrink: number;
+} {
+  if (room <= 0 || widest <= 0) return { below: false, shrink: 1 };
+  const need = widest + FIT_SLACK;
+  const fits = Math.floor(((room - FIT_SLACK) / widest) * 100) / 100;
+  return {
+    below: need > room - control - COPY_GAP,
+    shrink: need > room ? Math.max(MIN_FIT, fits) : 1,
+  };
+}
+
+/**
+ * Where a copyable value's control goes and how far the value shrinks
+ * (`copyFit`), from the room they share and the value's own lines. Until
+ * those are measured it guesses from the window and the mono face, which
+ * puts it where it will settle, so the card does not change height as
+ * Settings arrives.
+ */
+function useCopyFit(text: string, control: number) {
+  const { fontScale, width } = useWindowDimensions();
+  const [room, setRoom] = useState(0);
+  const [advance, setAdvance] = useState(0);
+  const fit = copyFit({
+    room: room || width - CARD_INSET,
+    control,
+    widest: widestPiece(text) * (advance || MONO_EM * MONO_SIZE * fontScale),
+  });
+  return {
+    ...fit,
+    onRoom: (event: LayoutChangeEvent) =>
+      setRoom(event.nativeEvent.layout.width),
+    onValue: (event: TextLayoutEvent) => {
+      // At the value's own size, whatever it was shrunk to.
+      const own = monoAdvance(event.nativeEvent.lines) / fit.shrink;
+      if (own <= 0) return;
+      setAdvance(at => (Math.abs(own - at) > at * ADVANCE_NOISE ? own : at));
+    },
+  };
 }
 
 /**
@@ -1214,6 +1371,10 @@ export function nodeAddressText(uri: string): string {
  * (`nodeAddressText`); the copy glyph still copies `value` as it is, and the
  * drawn form is not selectable, so its spaces and invisible breaks can never
  * be copied in the value's place. A value drawn as it is stays selectable.
+ *
+ * The copy control sits beside the value while every piece of it fits the
+ * width the control leaves, and below it at a text size where one does not,
+ * the value shrinking only for a piece wider than the whole card (`copyFit`).
  */
 export function CopyLine({
   label,
@@ -1233,6 +1394,8 @@ export function CopyLine({
   const target = useGlyphSize(TOUCH);
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const drawn = shown ?? value;
+  const fit = useCopyFit(drawn, target);
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
@@ -1240,16 +1403,28 @@ export function CopyLine({
     [],
   );
   return (
-    <View style={styles.copyLine}>
-      <View style={styles.flex}>
+    <View
+      onLayout={fit.onRoom}
+      style={[styles.copyLine, fit.below && styles.copyLineBelow]}
+    >
+      <View style={fit.below ? styles.copyValueBelow : styles.flex}>
         <Text {...wholeWords(label)} style={styles.fieldLabel}>
           {label}
         </Text>
         <Text
           selectable={shown === undefined}
-          style={[styles.lineValue, styles.mono, styles.left]}
+          onTextLayout={fit.onValue}
+          style={[
+            styles.lineValue,
+            styles.mono,
+            styles.left,
+            fit.shrink < 1 && {
+              fontSize: MONO_SIZE * fit.shrink,
+              lineHeight: MONO_LINE * fit.shrink,
+            },
+          ]}
         >
-          {shown ?? value}
+          {drawn}
         </Text>
       </View>
       <Pressable
@@ -1289,7 +1464,7 @@ const styles = StyleSheet.create({
   left: { textAlign: 'left' },
   pressed: { opacity: 0.6 },
   inactive: { opacity: 0.45 },
-  mono: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 18 },
+  mono: { fontFamily: fonts.mono, fontSize: MONO_SIZE, lineHeight: MONO_LINE },
 
   title: { ...type.title, color: palette.cream },
   body: { ...type.body, color: palette.steam },
@@ -1474,7 +1649,11 @@ const styles = StyleSheet.create({
   noteGlyph: { paddingTop: 1 },
   noteText: { fontSize: 14, lineHeight: 20, color: palette.cream, flex: 1 },
 
-  copyLine: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  copyLine: { flexDirection: 'row', alignItems: 'center', gap: COPY_GAP },
+  // Below the value, at its start, once a piece of it needs the whole width
+  // (`copyFit`).
+  copyLineBelow: { flexDirection: 'column', alignItems: 'flex-start' },
+  copyValueBelow: { alignSelf: 'stretch' },
   copy: {
     width: TOUCH,
     height: TOUCH,
