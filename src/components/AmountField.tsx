@@ -33,8 +33,9 @@ import { Chip } from './ui';
  * `empty` stands in the amount while it has no digits, such as an infinity
  * where the payer may choose, or a caret where one is needed. `tone` holds
  * it against a limit: honey with a clock over what can be spent now, radish
- * with a bang and one shake past what it can ever be, and dust under the
- * least it can be. Each change of `shake` shakes it once more.
+ * with a bang and one shake past what it can ever be, and dust with a sprout
+ * under the least it can be, each glyph on its tone's disc beside the
+ * amount. Each change of `shake` shakes it once more.
  */
 /** How far a preset's amount grows with Dynamic Type (REDESIGN.md 3.3). */
 const PRESET_SCALE = 1.4;
