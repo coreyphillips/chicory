@@ -10,17 +10,20 @@ const ARC = 0.25;
 
 /**
  * Money on its way: an arc going round a `size` point circle, once every
- * 1400ms. The arc is drawn once and only the view around it turns. Under
- * Reduce Motion, or while nobody can see it, it rests where it is.
+ * 1400ms, in `color` at `alpha`. The arc is drawn once and only the view
+ * around it turns. Under Reduce Motion, or while nobody can see it, it rests
+ * where it is.
  */
 export function Orbit({
   size,
   stroke,
   color,
+  alpha = 1,
 }: {
   size: number;
   stroke: number;
   color: string;
+  alpha?: number;
 }) {
   const turn = useLoop(durations.orbit, true);
   const style = useAnimatedStyle(() => ({
@@ -43,6 +46,7 @@ export function Orbit({
           r={r}
           fill="none"
           stroke={color}
+          strokeOpacity={alpha}
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={[around * ARC, around]}

@@ -22,6 +22,17 @@ const SIZE = 120;
 const STROKE = 5;
 const R = (SIZE - STROKE) / 2;
 
+/**
+ * The orbit of a held payment still under way, on a track of its own inside
+ * the honey ring, a clear gap in from it, in cream at part strength. Drawn
+ * on the ring itself, honey on honey, it could not be seen, and a payment
+ * still going out looked exactly like one whose outcome is unknown (P12,
+ * 06d4).
+ */
+export const HELD_ORBIT = { stroke: 3, gap: 4, alpha: 0.6 };
+/** Across the held orbit's outer edge, just inside the ring and its gap. */
+const HELD_ORBIT_SIZE = SIZE - 2 * (STROKE + HELD_ORBIT.gap);
+
 /** The pause bars pop in one after the other, then hold still. */
 const PAUSE: Stroke[] = [
   { pop: { x: 9, y: 12 } },
@@ -84,8 +95,9 @@ function Moving() {
 /**
  * Held: a steady honey ring, a halo breathing round it and the pause bars.
  * Nothing about it moves toward done, because nothing is known to be. While
- * the payment is still under way a honey orbit runs round the ring, the
- * motion that says money is moving (REDESIGN.md 3.5), and never rests.
+ * the payment is still under way an orbit runs just inside the ring, in
+ * cream against its honey, the motion that says money is moving (REDESIGN.md
+ * 3.5), and never rests. An outcome that is unknown has none.
  */
 function Held({ visual }: FaceProps) {
   // Out and back once each 1600ms.
@@ -102,7 +114,16 @@ function Held({ visual }: FaceProps) {
       <Reanimated.View style={[styles.layer, styles.halo, haloStyle]} />
       <Ring color={palette.honey} />
       {visual.orbit ? (
-        <Orbit size={SIZE} stroke={STROKE} color={palette.honey} />
+        <View style={[styles.layer, styles.centred]}>
+          <View style={styles.inside}>
+            <Orbit
+              size={HELD_ORBIT_SIZE}
+              stroke={HELD_ORBIT.stroke}
+              color={palette.cream}
+              alpha={HELD_ORBIT.alpha}
+            />
+          </View>
+        </View>
       ) : null}
       <DrawnGlyph
         name="pause"
@@ -208,6 +229,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   layer: { position: 'absolute', top: 0, left: 0, width: SIZE, height: SIZE },
+  centred: { alignItems: 'center', justifyContent: 'center' },
+  inside: { width: HELD_ORBIT_SIZE, height: HELD_ORBIT_SIZE },
   disc: {
     width: SIZE,
     height: SIZE,

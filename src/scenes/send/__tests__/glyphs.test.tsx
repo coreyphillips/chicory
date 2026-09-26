@@ -30,7 +30,8 @@ import {
   FlashingBolt,
 } from '../ErrorGlyphs';
 import { FailureMark } from '../FailureMark';
-import { sendFailure } from '../model';
+import { heldVisual, sendFailure } from '../model';
+import { ResultMark } from '../ResultMark';
 
 /**
  * The hold and the countdown around it (REDESIGN.md 5, HoldButton and
@@ -228,6 +229,44 @@ describe('ExpiryRing', () => {
       />,
     );
     expect(onExpired).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('ResultMark', () => {
+  /** The held ring for a payment `status`, as a request held on it is. */
+  const heldRing = (status: 'pending' | 'uncertain') =>
+    mount(
+      <ResultMark
+        visual={heldVisual(status)}
+        accessibilityLabel="Held"
+        accessibilityValue=""
+        accessibilityHint=""
+      />,
+    );
+
+  test('a held payment still under way orbits inside its ring, apart from it and in a tone of its own', async () => {
+    // Honey on the honey ring, at its radius and stroke, the orbit could
+    // not be seen: a payment going out looked unknown (P12, 06d4).
+    const tree = await heldRing('pending');
+    const ring = tree.root
+      .findAllByType(Circle)
+      .find(circle => circle.props.stroke === palette.honey)!;
+    const [orbit] = tree.root.findAllByType(Orbit);
+    const ringInside = ring.props.r - ring.props.strokeWidth / 2;
+    expect(orbit.props.size / 2).toBeLessThanOrEqual(ringInside - 3);
+    expect(orbit.props.color).not.toBe(ring.props.stroke);
+    expect(orbit.props.color).toBe(palette.cream);
+    expect(orbit.props.alpha).toBeLessThan(1);
+    // Its arc is drawn at the part strength, round a circle of its own.
+    const [arc] = orbit.findAllByType(Circle);
+    expect(arc.props.strokeOpacity).toBe(orbit.props.alpha);
+    await act(async () => tree.unmount());
+  });
+
+  test('an outcome that is unknown keeps its ring steady, with no orbit', async () => {
+    const tree = await heldRing('uncertain');
+    expect(tree.root.findAllByType(Orbit)).toEqual([]);
     await act(async () => tree.unmount());
   });
 });
