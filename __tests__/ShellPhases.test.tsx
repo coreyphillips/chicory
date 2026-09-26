@@ -23,6 +23,10 @@ import { OpeningWallet } from '../src/scenes/phases/Loading';
 import { Opening } from '../src/scenes/phases/Opening';
 import { Picker } from '../src/scenes/phases/Picker';
 import { TONE_WAIT_MS, openingNetwork } from '../src/scenes/phases/visual';
+import {
+  clearDiagnostics,
+  recentDiagnostics,
+} from '../src/services/diagnosticLog';
 import { defaultProfile } from '../src/services/networks';
 import type { useWalletSession } from '../src/services/useWalletSession';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
@@ -158,6 +162,39 @@ function Staged({ phase, live }: { phase: Phase; live: Session }) {
     </SafeAreaProvider>
   );
 }
+
+describe('a wallet read that keeps failing', () => {
+  // The canvas keeps the last figures and only draws them as old, so the
+  // reason was nowhere to be read (a phone showed a stale history for many
+  // minutes with no word of why).
+  test('is logged once for each reason, for Diagnostics to show', async () => {
+    clearDiagnostics();
+    const live = sessionOf({ snapshot: snapshotOf() });
+    const at = (error: string) => (
+      <Staged phase={{ kind: 'wallet', error }} live={live} />
+    );
+    const failures = () =>
+      recentDiagnostics().filter(entry => entry.code === 'REFRESH_FAILED');
+    const tree = await mount(at(''));
+    expect(failures()).toEqual([]);
+    const reason = 'The wallet returned an incomplete snapshot.';
+    await act(async () => tree.update(at(reason)));
+    await act(async () => tree.update(at(reason)));
+    expect(failures().map(entry => entry.message)).toEqual([reason]);
+    expect(failures()[0].phase).toBe('ui');
+    // Another reason is logged too, and the same one again once it has
+    // cleared and come back.
+    await act(async () => tree.update(at('Request timed out.')));
+    await act(async () => tree.update(at('')));
+    await act(async () => tree.update(at(reason)));
+    expect(failures().map(entry => entry.message)).toEqual([
+      reason,
+      'Request timed out.',
+      reason,
+    ]);
+    await act(async () => tree.unmount());
+  });
+});
 
 describe('the app switcher', () => {
   /**

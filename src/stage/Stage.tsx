@@ -25,6 +25,7 @@ import { wakeAmbient, wakeOnTouch } from '../motion/ambient';
 import { slideIn, slideOut } from '../motion/presets';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { useStaleAfter } from '../services/clock';
+import { recordDiagnostic } from '../services/diagnosticLog';
 import { STALE_AFTER_MS } from '../services/useWalletSession';
 import type { useWalletSession } from '../services/useWalletSession';
 import { LockScreen } from '../scenes/phases/Locked';
@@ -115,6 +116,7 @@ export function Stage({
     [wallets, activeProfile.network],
   );
   const locked = phase.kind === 'locked';
+  useRefreshFailures(phase.kind === 'wallet' ? phase.error : '');
   // How the canvas arrives, from the phase before the wallet's: over the
   // opening lock (R-1), back from offline (R-5), or from loading or anything
   // else (R-3). Kept until the next arrival, so the canvas is told once. A
@@ -551,6 +553,26 @@ export function shownBy(snapshot: WalletSnapshot): string {
  * counts for the read it was set for: a fresh read is never drawn as stale
  * on the strength of the old read's flag.
  */
+/**
+ * A read of the wallet that keeps failing, written to the diagnostic log
+ * once for each reason. The canvas keeps the last figures and only says they
+ * are old (the stale look), so the reason is kept where it can be read:
+ * Settings > Diagnostics, among the app's recent errors, in the engine's
+ * own words.
+ */
+export function useRefreshFailures(error: string) {
+  const logged = useRef('');
+  useEffect(() => {
+    if (!error) {
+      logged.current = '';
+      return;
+    }
+    if (error === logged.current) return;
+    logged.current = error;
+    recordDiagnostic({ phase: 'ui', code: 'REFRESH_FAILED', message: error });
+  }, [error]);
+}
+
 export function useStale(updatedAt: number | undefined): boolean {
   const flag = useStaleAfter(updatedAt, STALE_AFTER_MS);
   // The read the flag was last set for. The timer's effect runs before this
