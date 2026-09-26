@@ -519,7 +519,7 @@ On the canvas a payment that completes is felt once, by the canvas's `useIncomin
 
 - **Layout.** 1 to 9, blank, 0, backspace.
 - **Press.** A mocha disc springs in behind the key (snap) with a tick. It always springs back as the finger lifts, even from a key that went idle under it, as backspace does once holding it clears the amount.
-- **Digits.** A new digit rises 12pt as it enters. A removed digit drops 8pt as it leaves.
+- **Digits.** A new digit rises 12pt as it enters. A removed digit drops 8pt as it leaves, and is gone from sight within a tick, since the unit takes its place at once. The amount moves as one: its figures, separators, unit and marks are laid out afresh at once, so a comma moves with the digits it groups and the unit is out of the way before a new digit shows, and only the row as a whole eases (`smooth`) to where its new width centres it.
 - **Clear.** Long-pressing backspace for 450ms clears the amount, with a rigid haptic. A screen reader has it as backspace's `longpress` action, labelled `copy.keypad.clear` ("Clear the amount").
 - **Limits.** The glyph that names a limit is a state glyph: 20pt on a 32pt disc in its tone's soft fill (honeySoft, radishSoft, mocha for dust), after the unit and centred on the amount's line, so it never reads as a stray mark of punctuation. It pops in with the tone, and its own motion plays on the disc.
   - Over what can be spent now, but covered by money on its way: honey, with a `clock`.

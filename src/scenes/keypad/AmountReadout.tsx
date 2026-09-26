@@ -7,6 +7,7 @@ import Reanimated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import type { EntryExitAnimationFunction } from 'react-native-reanimated';
 import { announce } from '../../design/announce';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
@@ -16,7 +17,9 @@ import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
 import { popIn, useShake } from '../../motion/effects';
 import { dropOut, riseIn, smooth } from '../../motion/presets';
-import { durations } from '../../motion/tokens';
+import { steady } from '../../motion/steady';
+import { curves, durations } from '../../motion/tokens';
+import { motionReduced } from '../../services/motion';
 import { type as typography } from '../../theme';
 import { BANG, DrawnGlyph } from '../send/DrawnGlyph';
 import type { Stroke } from '../send/DrawnGlyph';
@@ -45,6 +48,29 @@ export const STATE_PIP = 32;
 /** A new digit rises this far into place, and a deleted one drops this far. */
 const RISE = 12;
 const DROP = 8;
+
+const LEAVE_FADE = { duration: durations.tick, easing: curves.standard };
+const LEAVE_DROP = { duration: durations.exit, easing: curves.exit };
+
+/**
+ * A deleted digit drops DROP points as it leaves, and is gone from sight
+ * within a tick: the unit steps into its place at once, so the two are
+ * never drawn over each other for more than a frame or two, and then
+ * faintly. Under Reduce Motion it only fades.
+ */
+export function leave(): EntryExitAnimationFunction {
+  if (motionReduced()) return dropOut(DROP);
+  return () => {
+    'worklet';
+    return {
+      initialValues: { opacity: 1, transform: [{ translateY: 0 }] },
+      animations: {
+        opacity: steady(withTiming(0, LEAVE_FADE)),
+        transform: [{ translateY: steady(withTiming(DROP, LEAVE_DROP)) }],
+      },
+    };
+  };
+}
 
 const TONES: Record<AmountTone, string> = {
   plain: palette.cream,
@@ -153,6 +179,10 @@ export interface AmountReadoutProps {
  * It takes the props a text field would, and reports what a key does the way
  * one would, so a screen can swap it in for a field and keep its state. Each
  * digit rises into place as it is keyed and drops away as it is deleted.
+ * The amount moves as one: its figures, separators, unit and marks are laid
+ * out afresh at once, so a comma moves with the digits it groups and the
+ * unit is out of the way before a new digit shows, and only the row as a
+ * whole eases to where its new width centres it.
  * Holding backspace clears the amount. A 17th digit is refused: the amount
  * flashes radish and shakes, with a rigid tap, and a screen reader is told
  * why.
@@ -268,14 +298,13 @@ export function AmountReadout({
           pointerEvents="none"
           style={[styles.wash, flashStyle]}
         />
-        <View style={styles.amount}>
+        <Reanimated.View layout={smooth()} style={styles.amount}>
           {cells.length ? (
             cells.map(cell => (
               <Reanimated.View
                 key={cell.key}
                 entering={riseIn(RISE)}
-                exiting={dropOut(DROP)}
-                layout={smooth()}
+                exiting={leave()}
               >
                 <Text
                   style={[styles.digits, { color }]}
@@ -295,18 +324,15 @@ export function AmountReadout({
               0
             </Text>
           )}
-          {/* The unit and the marks travel with the digits as one comes or
-            goes, rather than jumping ahead of them. */}
-          <Reanimated.View layout={smooth()}>
-            <Text style={styles.unit} maxFontSizeMultiplier={AMOUNT_SCALE}>
-              {UNIT}
-            </Text>
-          </Reanimated.View>
+          {/* The unit and the marks stand where the digits end, at once, so
+            no digit is ever drawn over them on its way in. */}
+          <Text style={styles.unit} maxFontSizeMultiplier={AMOUNT_SCALE}>
+            {UNIT}
+          </Text>
           {marks.map(mark => (
             <Reanimated.View
               key={mark}
               entering={mark === 'lock' ? undefined : popIn()}
-              layout={smooth()}
               style={styles.mark}
             >
               <Whisper label={hint ?? ''} enabled={!!hint}>
@@ -314,7 +340,7 @@ export function AmountReadout({
               </Whisper>
             </Reanimated.View>
           ))}
-        </View>
+        </Reanimated.View>
       </Reanimated.View>
       {children}
       {editable ? (
