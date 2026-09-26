@@ -702,6 +702,8 @@ On a test network Receive draws slate wherever it would draw bloom (`scenes/rece
 | INVALID_MNEMONIC                                  | wilt                                                                                                                                                                                                              |
 | anything unmapped                                 | a radish `bang`, a shake and an error haptic (user-initiated only). The full message goes to `recordDiagnostic` and is announced and readable through Whisper and Settings > Diagnostics.                         |
 
+A background read of the wallet is not something the person did, so it earns no glyph of its own: when it keeps failing, the canvas keeps the last figures and draws them as old (the stale look). Its reason is written to the diagnostic log as `REFRESH_FAILED`, once for each reason (`useRefreshFailures` in `stage/Stage`), so Settings > Diagnostics lists it among the app's recent errors, in the engine's own words.
+
 ## 7. Choreography (ms from the tap)
 
 **T1, Home to Send** (T2, Receive, mirrors it with the receive circle, which grows into Receive's own 88pt control):
