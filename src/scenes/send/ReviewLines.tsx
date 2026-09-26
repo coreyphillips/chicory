@@ -20,20 +20,58 @@ import type { ReviewFigure } from './model';
 /** The sum's lines are line text, which stops growing at 1.4 (REDESIGN.md 3.3). */
 export const LINE_SCALE = 1.4;
 
-/** One line of the sum: its signs and its amount, with its words spoken. */
-function Figure({ figure, unit }: { figure: ReviewFigure; unit: Unit }) {
+/**
+ * The widest of the sum's operators. Every line sets its own in a column
+ * this wide, drawn out of sight to hold the width at any text size, so the
+ * amounts after them start and end together.
+ */
+export const WIDEST_SIGNS = '+ ≤';
+
+/**
+ * One line of the sum, as one element: the rail on the first line, its
+ * signs in the operators' column, and its amount set right in tabular
+ * figures, so the places of every amount line up and the total reads as
+ * their sum. A screen reader hears the line's words, and the rail's with the
+ * first, since the glyph is not a control of its own.
+ */
+function Figure({
+  figure,
+  unit,
+  rail,
+}: {
+  figure: ReviewFigure;
+  unit: Unit;
+  rail?: ReturnType<typeof reviewRail>;
+}) {
+  const bloom = useBloom();
   const total = figure.key === 'total';
   const shown = amountIn(figure.sats, unit);
   return (
     <View
       accessible
-      accessibilityLabel={figure.label}
+      accessibilityLabel={
+        rail ? `${rail.label}, ${figure.label}` : figure.label
+      }
       accessibilityValue={{ text: figure.value }}
-      style={styles.figure}
+      style={styles.line}
     >
-      <Text style={styles.signs} maxFontSizeMultiplier={LINE_SCALE}>
-        {figure.signs}
-      </Text>
+      <View style={styles.rail}>
+        {rail ? <Glyph name={rail.glyph} size={20} color={bloom.tone} /> : null}
+      </View>
+      <View style={styles.signs}>
+        <Text
+          style={[styles.sign, styles.ghost]}
+          maxFontSizeMultiplier={LINE_SCALE}
+        >
+          {WIDEST_SIGNS}
+        </Text>
+        <Text
+          style={[styles.sign, styles.shownSign]}
+          maxFontSizeMultiplier={LINE_SCALE}
+        >
+          {figure.signs}
+        </Text>
+      </View>
       <Text
         style={[styles.amount, total && styles.total]}
         maxFontSizeMultiplier={LINE_SCALE}
@@ -80,7 +118,6 @@ export function ReviewLines({
   spent?: boolean;
 }) {
   const rail = reviewRail(review);
-  const bloom = useBloom();
   // A colour change, not a movement, so it plays under Reduce Motion too.
   const dim = useSharedValue(spent ? SPENT_OPACITY : 1);
   useEffect(() => {
@@ -96,21 +133,12 @@ export function ReviewLines({
   return (
     <Reanimated.View style={[styles.lines, dimStyle]}>
       {reviewFigures(review).map((figure, index) => (
-        <View key={figure.key} style={styles.line}>
-          {index === 0 ? (
-            <View
-              accessible
-              accessibilityRole="image"
-              accessibilityLabel={rail.label}
-              style={styles.rail}
-            >
-              <Glyph name={rail.glyph} size={20} color={bloom.tone} />
-            </View>
-          ) : (
-            <View style={styles.rail} />
-          )}
-          <Figure figure={figure} unit={unit} />
-        </View>
+        <Figure
+          key={figure.key}
+          figure={figure}
+          unit={unit}
+          rail={index === 0 ? rail : undefined}
+        />
       ))}
       {review.warnings.length ? (
         <View style={styles.pips}>
@@ -124,12 +152,21 @@ export function ReviewLines({
 }
 
 const styles = StyleSheet.create({
-  lines: { alignSelf: 'center', gap: space.xs },
+  // As wide as its widest line, which every other line stretches to.
+  lines: { alignSelf: 'center', alignItems: 'stretch', gap: space.xs },
   line: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   rail: { width: 24, alignItems: 'center' },
-  figure: { flexDirection: 'row', alignItems: 'baseline', gap: space.xs },
-  signs: { ...typography.line, color: palette.steam, minWidth: 32 },
-  amount: { ...typography.line, color: palette.steam },
+  signs: { justifyContent: 'center' },
+  sign: { ...typography.line, color: palette.steam },
+  ghost: { opacity: 0 },
+  shownSign: { position: 'absolute', left: 0, top: 0 },
+  // Set right, in the line's tabular figures, so places line up.
+  amount: {
+    ...typography.line,
+    color: palette.steam,
+    flexGrow: 1,
+    textAlign: 'right',
+  },
   total: { color: palette.cream },
   pips: {
     flexDirection: 'row',
