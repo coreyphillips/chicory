@@ -37,6 +37,7 @@ import { Odometer } from '../../glyphs/Odometer';
 import { Vessel } from '../../glyphs/Vessel';
 import { popIn } from '../../motion/effects';
 import { drawIn, dropOut, fadeIn } from '../../motion/presets';
+import { ENTRY_GRACE_MS, useSureEntry } from '../../motion/sureEntry';
 import { steady } from '../../motion/steady';
 import { curves, durations, overlap, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -368,6 +369,23 @@ export function HomeScreen({
     ),
   }));
   const [heroOut] = useState(() => dropOut(overlap.rise));
+  // Each part is sure to show once its beat is well past, however the
+  // entrance fares (`useSureEntry`).
+  const lateBy = (beat: number) => beat + ENTRY_GRACE_MS;
+  const heroEntry = useSureEntry(arrive.hero, lateBy(build?.hero ?? 0));
+  const vesselEntry = useSureEntry(arrive.vessel, lateBy(build?.sheet ?? 0));
+  const sendEntry = useSureEntry(
+    arrive.actions[0],
+    lateBy(build?.actions ?? 0),
+  );
+  const scanEntry = useSureEntry(
+    arrive.actions[1],
+    lateBy(build ? build.actions + build.actionStep : 0),
+  );
+  const receiveEntry = useSureEntry(
+    arrive.actions[2],
+    lateBy(build ? build.actions + 2 * build.actionStep : 0),
+  );
 
   // The width the balance has, which it fits its size to (REDESIGN.md 3.3).
   const [room, setRoom] = useState<number | undefined>(undefined);
@@ -512,8 +530,9 @@ export function HomeScreen({
                   importantForAccessibility="no-hide-descendants"
                 >
                   <Reanimated.View
+                    key={heroEntry.key}
                     testID="home-figures"
-                    entering={arrive.hero}
+                    entering={heroEntry.entering}
                     exiting={heroOut}
                   >
                     <Reanimated.View testID="home-total" style={totalShown}>
@@ -549,7 +568,10 @@ export function HomeScreen({
               </Pressable>
             </Reanimated.View>
             <Reanimated.View style={[styles.vessel, vesselStyle]}>
-              <Reanimated.View entering={arrive.vessel}>
+              <Reanimated.View
+                key={vesselEntry.key}
+                entering={vesselEntry.entering}
+              >
                 <Vessel
                   availableSats={balance.availableSats}
                   pendingSats={balance.pendingSats}
@@ -570,8 +592,9 @@ export function HomeScreen({
               Receive (REDESIGN.md 9). Each circle fades on its own. */}
           <View testID="home-bar" onLayout={measureRow} style={styles.bar}>
             <Reanimated.View
+              key={sendEntry.key}
               testID="home-slot"
-              entering={arrive.actions[0]}
+              entering={sendEntry.entering}
               style={styles.slot}
               onLayout={event => {
                 centreOf(sendAt)(event);
@@ -594,8 +617,9 @@ export function HomeScreen({
               </View>
             </Reanimated.View>
             <Reanimated.View
+              key={scanEntry.key}
               testID="home-slot"
-              entering={arrive.actions[1]}
+              entering={scanEntry.entering}
               style={styles.slot}
             >
               <Reanimated.View style={scanLaunch}>
@@ -613,8 +637,9 @@ export function HomeScreen({
               </Reanimated.View>
             </Reanimated.View>
             <Reanimated.View
+              key={receiveEntry.key}
               testID="home-slot"
-              entering={arrive.actions[2]}
+              entering={receiveEntry.entering}
               style={styles.slot}
               onLayout={event => {
                 centreOf(receiveAt)(event);

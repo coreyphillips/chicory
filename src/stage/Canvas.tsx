@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import Reanimated, {
+  LayoutAnimationConfig,
   ReduceMotion,
   useAnimatedReaction,
   useAnimatedStyle,
@@ -22,6 +23,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { haptics } from '../design/haptics';
 import { beginTransition } from '../motion/idle';
 import { dropAway, riseFrom, slideIn, slideOut } from '../motion/presets';
+import { ENTRY_GRACE_MS, useSureEntry } from '../motion/sureEntry';
 import { steady } from '../motion/steady';
 import { curves, durations } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
@@ -297,6 +299,13 @@ export function Canvas({
       : undefined,
   );
   const [sheetOut] = useState(dropAway);
+  // The sheet holds the history, so it is sure to rise however its entrance
+  // fares: one that has not ended well past its beat is drawn again at
+  // rest, its rows with it (`useSureEntry`).
+  const sheetEntry = useSureEntry(
+    sheetIn,
+    (build ? build.beats.sheet : 0) + ENTRY_GRACE_MS,
+  );
   // The build is a transition: focus, and what is said after it, wait for
   // it to land. A wallet back from offline bursts with a success (R-5).
   // Both happen once, as the canvas mounts.
@@ -505,19 +514,24 @@ export function Canvas({
                   pane rather than the pane moving, so the pane's own place,
                   where VoiceOver orders it, is always the seam. */}
                 <Reanimated.View
+                  key={sheetEntry.key}
                   testID="sheet"
-                  entering={sheetIn}
+                  entering={sheetEntry.entering}
                   exiting={sheetOut}
                   style={styles.sheetFace}
                 >
                   {/* Sized for the compact stop, the highest the sheet rests,
                     so the end of the list is reachable there. Lower down the
                     rest simply runs past the bottom edge. */}
-                  <View style={{ height: height - panes.stops.compact }}>
-                    <PrimaryFor primaries={primaries} scene="activity">
-                      <SheetPane {...region} shown={shown} />
-                    </PrimaryFor>
-                  </View>
+                  <LayoutAnimationConfig
+                    skipEntering={sheetEntry.state === 'stalled'}
+                  >
+                    <View style={{ height: height - panes.stops.compact }}>
+                      <PrimaryFor primaries={primaries} scene="activity">
+                        <SheetPane {...region} shown={shown} />
+                      </PrimaryFor>
+                    </View>
+                  </LayoutAnimationConfig>
                 </Reanimated.View>
               </Pane>
               <View
