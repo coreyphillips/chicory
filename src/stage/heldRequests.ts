@@ -12,7 +12,9 @@ import type { Activity, PaymentStatus } from '@beignet/wallet-core';
  * A request that is paid for good is held for good: an invoice, or a
  * Bitcoin request that names its amount, is paid once, so Send lands it on
  * its paid mark. A bare address, or a request that names no amount, may be
- * paid again, so its payment completing lets it go. A payment that failed
+ * paid again, so its payment completing lets it go. The completion is kept
+ * apart (`completedHere`) until the request is paid again, so a screen whose
+ * held ring was watching the payment sees it land. A payment that failed
  * moved no money, and lets any request go.
  *
  * Two things hold a request. What this app saw happen to it, kept for the
@@ -69,6 +71,20 @@ export interface HeldOutcome {
 }
 
 const held = new Map<string, Entry>();
+
+/**
+ * The payment this app last saw complete each request that may be paid
+ * again, by key, which the held set lets go as it completes. Forgotten as
+ * the request is paid again, or its attempt comes to anything else.
+ */
+const completions = new Map<string, HeldOutcome>();
+
+/** Only what finds the payment in the history, not the whole answer. */
+const completion = ({ paymentHash, txid }: HeldOutcome): HeldOutcome => ({
+  status: 'completed',
+  paymentHash: paymentHash || undefined,
+  txid: txid || undefined,
+});
 
 // Screens that show a request read the set as they draw, and are told when
 // this app changes it, so one that shows the request moves with it, even
@@ -211,13 +227,19 @@ export function paidOnce(request: string): boolean {
  * Records what paying `request` came to. A payment still pending, or whose
  * outcome is unknown, holds the request, and one that completed holds a
  * request that is paid once for good; one that failed, or completed a
- * request that may be paid again, lets it go.
+ * request that may be paid again, lets it go. A completion of one that may
+ * be paid again is kept for `completedHere`.
  */
 export function holdRequest(request: string, outcome: HeldOutcome) {
   const key = requestKey(request);
   if (!key) return;
   const { status } = outcome;
   const before = held.get(key);
+  if (status === 'completed' && !paidOnce(request)) {
+    completions.set(key, completion(outcome));
+  } else {
+    completions.delete(key);
+  }
   if (
     status === 'pending' ||
     status === 'uncertain' ||
@@ -294,9 +316,25 @@ export function heldRequest(
     : payments;
   if (current.length && !entry?.calling) {
     held.delete(key);
+    // Seen by the history to complete, as `holdRequest` keeps an answer
+    // that says so. Only this app's own changes are told to the screens.
+    const done = current.find(payment => payment.status === 'completed');
+    if (done && !once) completions.set(key, completion(done));
     return null;
   }
   return entry ? { status: entry.status } : null;
+}
+
+/**
+ * The payment this app last saw complete `request`, when it is one that may
+ * be paid again, which the held set lets go as it completes: for a screen
+ * whose held ring was watching the payment, to resolve where it stands
+ * rather than drop back as if nothing had happened. Null once the request
+ * is paid again, and for a request paid once, which `heldRequest` keeps.
+ */
+export function completedHere(request: string): HeldOutcome | null {
+  const key = requestKey(request);
+  return key ? completions.get(key) ?? null : null;
 }
 
 /**
@@ -307,5 +345,6 @@ export function heldRequest(
  */
 export function clearHeldRequests() {
   held.clear();
+  completions.clear();
   changed();
 }

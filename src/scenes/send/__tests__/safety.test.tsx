@@ -618,42 +618,85 @@ describe('a payment whose call does not answer', () => {
     await act(async () => tree.unmount());
   });
 
-  test('completing while its held ring shows in a Send entered again, resolves the ring into the paid mark it watched, felt once, heard as sent and home on its own', async () => {
-    // It cut in one frame to the mark a request paid before rests on,
-    // "Already paid." (P12, 06k).
-    const request = priced('resolves');
+  test.each([
+    ['a request paid once', priced('resolves'), true],
+    ['a request that may be paid again', payable('resolves-again'), false],
+  ])(
+    'completing while its held ring shows in a Send entered again, with %s, resolves the ring into the paid mark it watched, felt once, heard as sent and home on its own',
+    async (_, request, once) => {
+      // It cut in one frame to the mark a request paid before rests on,
+      // "Already paid." (P12, 06k). A request that may be paid again, which
+      // the held set lets go as it completes, dropped back to compose.
+      const first = await hanging(request);
+      await past(SEND_GRACE_MS);
+      await act(async () => first.tree.unmount());
+      const onDone = jest.fn();
+      const again = await draw(
+        { prepareSend: first.prepareSend },
+        { initialRequest: request, onDone },
+      );
+      expect(meaning(again)).toContain(copy.send.onItsWay);
+      await heard(true);
+      jest.mocked(HapticFeedback.trigger).mockClear();
+      said.mockClear();
+      await first.answer(outcome('completed'));
+      const [mark] = again.root.findAllByType(ResultMark);
+      expect(mark.props.visual).toMatchObject({
+        shape: 'disc',
+        resolves: true,
+        returnsHome: true,
+      });
+      expect(mark.props.visual.resting).toBeFalsy();
+      expect(meaning(again)).toContain(copy.send.sent);
+      expect(meaning(again)).not.toContain(copy.send.paidAlready);
+      // Only a request paid once is said to be held for good.
+      expect(meaning(again).includes(copy.send.paid)).toBe(once);
+      // The news its ring was waiting for, felt once.
+      expect(felt()).toEqual(['notificationSuccess']);
+      await arrive(true);
+      expect(said).toHaveBeenCalledWith(copy.send.sent);
+      expect(said).not.toHaveBeenCalledWith(copy.send.paidAlready);
+      // Home a moment later, as a completed result goes.
+      expect(onDone).not.toHaveBeenCalled();
+      await past(HOME_AFTER_MS);
+      expect(onDone).toHaveBeenCalledTimes(1);
+      expect(felt()).toEqual(['notificationSuccess']);
+      await act(async () => again.unmount());
+    },
+  );
+
+  test('seen by the history to complete while its held ring shows, a request that may be paid again resolves the ring too', async () => {
+    // The call answered that the payment was on its way, so only the
+    // history can say it landed; the held set lets the request go as it
+    // does, and the ring dropped back to compose.
+    const request = payable('history-resolves');
+    const txid = 'f'.repeat(64);
     const first = await hanging(request);
-    await past(SEND_GRACE_MS);
+    await first.answer({ ...outcome('pending'), txid });
     await act(async () => first.tree.unmount());
     const onDone = jest.fn();
-    const again = await draw(
-      { prepareSend: first.prepareSend },
-      { initialRequest: request, onDone },
-    );
-    expect(meaning(again)).toContain(copy.send.onItsWay);
+    const props = { initialRequest: request, onDone };
+    const client = { prepareSend: first.prepareSend };
+    const again = await draw(client, { ...props, activity: [] });
+    expect(meaning(again)).toContain(copy.send.held);
     await heard(true);
     jest.mocked(HapticFeedback.trigger).mockClear();
-    said.mockClear();
-    await first.answer(outcome('completed'));
+    const done = activityOf('sent', 'completed', { rail: 'chain', txid });
+    await act(async () => {
+      again.update(screen(client, { ...props, activity: [done] }));
+    });
+    expect(heldRequest(request, [done])).toBeNull();
     const [mark] = again.root.findAllByType(ResultMark);
     expect(mark.props.visual).toMatchObject({
       shape: 'disc',
       resolves: true,
       returnsHome: true,
     });
-    expect(mark.props.visual.resting).toBeFalsy();
     expect(meaning(again)).toContain(copy.send.sent);
-    expect(meaning(again)).not.toContain(copy.send.paidAlready);
-    // The news its ring was waiting for, felt once.
+    expect(pressableLabels(again)).not.toContain(copy.send.review);
     expect(felt()).toEqual(['notificationSuccess']);
-    await arrive(true);
-    expect(said).toHaveBeenCalledWith(copy.send.sent);
-    expect(said).not.toHaveBeenCalledWith(copy.send.paidAlready);
-    // Home a moment later, as a completed result goes.
-    expect(onDone).not.toHaveBeenCalled();
     await past(HOME_AFTER_MS);
     expect(onDone).toHaveBeenCalledTimes(1);
-    expect(felt()).toEqual(['notificationSuccess']);
     await act(async () => again.unmount());
   });
 

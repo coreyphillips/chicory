@@ -67,11 +67,13 @@ import { recordDiagnostic } from '../services/diagnosticLog';
 import { errorMessage } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
 import {
+  completedHere,
   heldRequest,
   heldVersion,
   holdRequest,
   subscribeHeld,
 } from '../stage/heldRequests';
+import type { HeldOutcome } from '../stage/heldRequests';
 import { useLaunchLanding } from '../stage/panes/Launch';
 import { usePaneActive } from '../stage/panes/Pane';
 import { useFlashTint, useHoldTint } from '../stage/StageContext';
@@ -100,7 +102,10 @@ const shownIn = (sats: number, unit: Unit) => {
 };
 
 /** The payment `result` is, once the history shows it. */
-const paymentOf = (result: SendResult, activity: Activity[] = []) =>
+const paymentOf = (
+  result: SendResult | HeldOutcome,
+  activity: Activity[] = [],
+) =>
   activity.find(
     payment =>
       (!!result.paymentHash && payment.paymentHash === result.paymentHash) ||
@@ -263,27 +268,22 @@ export function SendScreen({
   useSyncExternalStore(subscribeHeld, heldVersion);
   const known =
     review || result || !collapsed ? null : heldRequest(request, activity);
-  // A payment this screen saw complete past its grace, while its held ring
-  // was on screen, which the ring resolves into in place. The held set says
-  // so of a request paid once; this says it of one that may be paid again,
-  // which the set lets go, for as long as its ring is still what shows.
-  const [paidHere, setPaidHere] = useState<{
-    request: string;
-    outcome: SendResult;
-  } | null>(null);
+  // A payment seen to complete while its held ring was on screen, which the
+  // ring resolves into in place, whichever Send sent it. The held set says
+  // so of a request paid once; `completedHere` says it of one that may be
+  // paid again, which the set lets go, for as long as its ring is still
+  // what shows here and until the request is paid again.
   const [ringFor, setRingFor] = useState('');
-  const seen =
-    !review &&
-    !result &&
-    collapsed &&
-    paidHere !== null &&
-    paidHere.request === request.trim() &&
-    paidHere.request === ringFor
-      ? {
-          status: 'completed' as const,
-          item: paymentOf(paidHere.outcome, activity) ?? undefined,
-        }
+  const paidHere =
+    !review && !result && collapsed && ringFor === request.trim()
+      ? completedHere(request)
       : null;
+  const seen = paidHere
+    ? {
+        status: 'completed' as const,
+        item: paymentOf(paidHere, activity) ?? undefined,
+      }
+    : null;
   const held = known?.status === 'completed' ? known : seen ?? known;
   // The request whose held ring is on screen, if one is, for a payment's
   // late answer to follow.
@@ -788,10 +788,8 @@ export function SendScreen({
       // failing, since the review it came from has gone, and an unknown
       // outcome as its own result.
       if (watching.current !== paying.trim()) return;
-      if (outcome?.status === 'completed') {
-        setPaidHere({ request: paying.trim(), outcome });
-        return;
-      }
+      // The held set has it now, and the ring reads it from there.
+      if (outcome?.status === 'completed') return;
       show(
         outcome ?? {
           id: quote.id,

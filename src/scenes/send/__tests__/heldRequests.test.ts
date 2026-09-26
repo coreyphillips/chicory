@@ -1,6 +1,7 @@
 import { activityOf, hex } from '../../../../test-support/fixtures';
 import {
   clearHeldRequests,
+  completedHere,
   heldRequest,
   heldVersion,
   holdRequest,
@@ -152,6 +153,61 @@ test('a Bitcoin request that names its amount is held paid, and a bare address i
   holdRequest(bare, { status: 'pending', txid: hex(12) });
   holdRequest(bare, { status: 'completed', txid: hex(12) });
   expect(heldRequest(bare)).toBeNull();
+});
+
+test('a request that may be paid again keeps its completion apart until it is paid again', () => {
+  // For a screen whose held ring was watching the payment: the held set
+  // lets the request go, and the ring resolves rather than drop back.
+  const bare = 'bcrt1qkept';
+  const txid = hex(17);
+  holdRequest(bare, { status: 'pending', calling: true });
+  expect(completedHere(bare)).toBeNull();
+  holdRequest(bare, { status: 'completed', txid });
+  expect(heldRequest(bare)).toBeNull();
+  expect(completedHere(bare)).toEqual({ status: 'completed', txid });
+  // However it is copied.
+  expect(completedHere(`BITCOIN:${bare.toUpperCase()}?label=x`)).toEqual({
+    status: 'completed',
+    txid,
+  });
+  // Paid again, it is forgotten, and an attempt that fails keeps nothing.
+  holdRequest(bare, { status: 'pending', calling: true });
+  expect(completedHere(bare)).toBeNull();
+  holdRequest(bare, { status: 'failed' });
+  expect(completedHere(bare)).toBeNull();
+  // Nor does a test that starts afresh.
+  holdRequest(bare, { status: 'completed', txid });
+  clearHeldRequests();
+  expect(completedHere(bare)).toBeNull();
+});
+
+test('a request paid once keeps no completion apart: the held set keeps it paid', () => {
+  const request = 'bitcoin:bcrt1qoncekept?amount=0.0001';
+  holdRequest(request, { status: 'pending', calling: true });
+  holdRequest(request, { status: 'completed', txid: hex(18) });
+  expect(heldRequest(request)).toEqual({ status: 'completed' });
+  expect(completedHere(request)).toBeNull();
+});
+
+test('the history seeing a request that may be paid again complete keeps the completion apart too', () => {
+  const bare = 'bcrt1qhistorykept';
+  const txid = hex(19);
+  holdRequest(bare, { status: 'pending', txid });
+  const going = activityOf('sent', 'pending', { rail: 'chain', txid });
+  expect(heldRequest(bare, [going])).toEqual({
+    status: 'pending',
+    item: going,
+  });
+  expect(completedHere(bare)).toBeNull();
+  const done = { ...going, status: 'completed' as const };
+  expect(heldRequest(bare, [done])).toBeNull();
+  expect(completedHere(bare)).toMatchObject({ status: 'completed', txid });
+  // One the history shows failed keeps nothing.
+  const other = 'bcrt1qhistoryfailed';
+  holdRequest(other, { status: 'pending', txid: hex(20) });
+  const failed = activityOf('sent', 'failed', { rail: 'chain', txid: hex(20) });
+  expect(heldRequest(other, [failed])).toBeNull();
+  expect(completedHere(other)).toBeNull();
 });
 
 test('a failed payment moved no money, so its request may be paid again', () => {
