@@ -10,9 +10,14 @@ import type {
   WalletSnapshot,
 } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
+import { haptics } from '../../../design/haptics';
 import { Odometer } from '../../../glyphs/Odometer';
 import { durations } from '../../../motion/tokens';
 import { SendScreen } from '../../../screens/Send';
+import {
+  clearDiagnostics,
+  recentDiagnostics,
+} from '../../../services/diagnosticLog';
 import { isTestNetwork } from '../../home/visual';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
 import type { CanvasView } from '../../../stage/Canvas';
@@ -54,6 +59,8 @@ let view!: CanvasView;
 let snapshot: WalletSnapshot;
 /** The history the canvas is drawn with, when a test sets one. */
 let history: Activity[] | null = null;
+/** Whether the canvas is drawn with an old balance. */
+let stale = false;
 const client = new DemoWalletClient();
 const quote: SendReview = {
   id: 'review-scene',
@@ -95,7 +102,7 @@ function OnCanvas() {
             switchNetwork: jest.fn(),
             eraseDevice: jest.fn(),
           }}
-          stale={false}
+          stale={stale}
           backup={null}
           view={view}
         />
@@ -121,6 +128,7 @@ beforeEach(() => clearHeldRequests());
 afterEach(() => {
   jest.restoreAllMocks();
   history = null;
+  stale = false;
 });
 
 test('a scan Send starts brings its code back to the same Send', async () => {
@@ -381,6 +389,50 @@ test('a payment that does not answer lets the stage go after its grace, and its 
   } finally {
     jest.useRealTimers();
   }
+});
+
+test('a balance that goes old while Send is open is felt once, by Send, and not again by Home as Send goes', async () => {
+  // Home waits while Send is in front, which warns of it itself, and felt
+  // and logged it a second time as Send closed.
+  clearDiagnostics();
+  const warned = jest.spyOn(haptics, 'warning');
+  const tree = await openSend();
+  expect(warned).not.toHaveBeenCalled();
+  stale = true;
+  await act(async () => tree.update(<OnCanvas />));
+  expect(warned).toHaveBeenCalledTimes(1);
+  await act(async () => stage.actions.home());
+  expect(stage.state.scene.name).toBe('home');
+  await act(async () => {
+    await new Promise<void>(resolve => setTimeout(resolve, durations.exit));
+  });
+  expect(warned).toHaveBeenCalledTimes(1);
+  const logged = recentDiagnostics().filter(entry => entry.code === 'STALE');
+  expect(logged).toHaveLength(1);
+  // Fresh again, and old once more with Home in front: a new state, felt.
+  stale = false;
+  await act(async () => tree.update(<OnCanvas />));
+  stale = true;
+  await act(async () => tree.update(<OnCanvas />));
+  expect(warned).toHaveBeenCalledTimes(2);
+  await act(async () => tree.unmount());
+});
+
+test("a balance already old is felt by Home as the wallet opens and by Send's gate as it opens, and not again by Home as Send goes", async () => {
+  clearDiagnostics();
+  const warned = jest.spyOn(haptics, 'warning');
+  stale = true;
+  const tree = await mount(<OnCanvas />);
+  // Home felt it as the wallet opened on it.
+  expect(warned).toHaveBeenCalledTimes(1);
+  await act(async () => stage.actions.openSend());
+  await act(async () => stage.actions.home());
+  await act(async () => {
+    await new Promise<void>(resolve => setTimeout(resolve, durations.exit));
+  });
+  // Send warns of its gate as it opens on it, as ever; Home owes nothing.
+  expect(warned).toHaveBeenCalledTimes(2);
+  await act(async () => tree.unmount());
 });
 
 test('a held payment opens its detail by way of Activity, which back returns to', async () => {

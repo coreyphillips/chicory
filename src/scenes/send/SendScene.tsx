@@ -49,10 +49,20 @@ export function SendScene({
   sceneKey: number;
   prefill: string;
 }) {
-  const { actions, state, dispatch } = useStage();
+  const { actions, state, dispatch, felt } = useStage();
   const insets = useSafeAreaInsets();
   const screen = useRef<SendHandle>(null);
   const current = useIsCurrentScene(sceneKey);
+
+  // An old balance closes Send's gate, which Send feels, logs and says
+  // itself, while Home waits for it to go (REDESIGN.md rule 4). So the state
+  // counts as felt for the wallet from then on, and Home, back in front
+  // while it still holds, owes nothing more for it: it is felt once across
+  // both. The gate is `stale`, so the two never disagree.
+  const wallet = snapshot.wallet.id;
+  useEffect(() => {
+    felt.set(wallet, 'stale', stale);
+  }, [felt, wallet, stale]);
 
   // Armed from the scan button until the overlay it opened closes, so only
   // a scan this Send asked for fills in its request.
