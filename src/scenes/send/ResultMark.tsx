@@ -1,7 +1,13 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { ComponentRef, ReactNode, Ref } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
+import Reanimated, {
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import type { EntryExitAnimationFunction } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 import { Glyph } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
@@ -10,7 +16,8 @@ import { Whisper } from '../../glyphs/Whisper';
 import { popIn, useShake } from '../../motion/effects';
 import { useLoop, wave } from '../../motion/loops';
 import { fadeOut } from '../../motion/presets';
-import { durations } from '../../motion/tokens';
+import { curves, durations } from '../../motion/tokens';
+import { motionReduced } from '../../services/motion';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { CONTROL } from './Controls';
 import { BANG, DrawnGlyph } from './DrawnGlyph';
@@ -39,6 +46,14 @@ const HELD_ORBIT_SIZE = SIZE - 2 * (STROKE + HELD_ORBIT.gap);
  * inside, so it grows out of the ring as the ring fades.
  */
 export const RESOLVE_FROM = (SIZE - 2 * STROKE) / SIZE;
+
+/**
+ * How long the held ring takes to fade as the disc grows out of it: as long
+ * as anything leaving takes, or half a crossfade under Reduce Motion, as
+ * `fadeOut` would have faded it.
+ */
+export const resolveOutMs = () =>
+  motionReduced() ? durations.crossfade / 2 : durations.exit;
 
 /** The pause bars pop in one after the other, then hold still. */
 const PAUSE: Stroke[] = [
@@ -152,6 +167,14 @@ function Broken() {
   );
 }
 
+/** One of the mark's faces, on a layer of its own. */
+interface Layer {
+  key: string;
+  face: ReactNode;
+  entering?: EntryExitAnimationFunction;
+  exiting?: EntryExitAnimationFunction;
+}
+
 const FACES: Record<ResultVisual['shape'], (props: FaceProps) => ReactNode> = {
   disc: Disc,
   orbit: Moving,
@@ -195,6 +218,61 @@ export function ResultMark({
     if (broken) play();
   }, [broken, play]);
   const Face = FACES[visual.shape];
+
+  // The held ring on screen, as whether it orbits, for a resolve to grow out
+  // of: it stays where it is, under the disc, while it fades, and then goes.
+  // Left to fade as a layer leaving, it was drawn over the disc on iOS, its
+  // pause and orbit showing through the done disc as it filled (P14, 05r).
+  const [ring, setRing] = useState<{ orbit: boolean } | null>(() =>
+    visual.shape === 'held' ? { orbit: !!visual.orbit } : null,
+  );
+  const resolving = !!visual.resolves && ring !== null;
+  if (visual.shape === 'held') {
+    if (ring?.orbit !== !!visual.orbit) setRing({ orbit: !!visual.orbit });
+  } else if (!resolving && ring !== null) {
+    setRing(null);
+  }
+  const gone = useSharedValue(0);
+  useEffect(() => {
+    if (!resolving) {
+      gone.set(0);
+      return;
+    }
+    const ms = resolveOutMs();
+    gone.set(
+      withTiming(1, {
+        duration: ms,
+        easing: curves.exit,
+        reduceMotion: ReduceMotion.Never,
+      }),
+    );
+    const timer = setTimeout(() => setRing(null), ms);
+    return () => clearTimeout(timer);
+  }, [resolving, gone]);
+  const ringStyle = useAnimatedStyle(() => ({ opacity: 1 - gone.get() }));
+
+  // Each shape is a layer of its own, the one drawn last on top. Resolving,
+  // the ring keeps its layer and the disc's comes after it.
+  const layers: Layer[] = resolving
+    ? [
+        {
+          key: 'held',
+          face: <Held visual={{ ...visual, orbit: ring?.orbit }} />,
+        },
+        {
+          key: visual.shape,
+          face: <Face visual={visual} />,
+          entering: popIn(RESOLVE_FROM),
+        },
+      ]
+    : [
+        {
+          key: visual.shape,
+          face: <Face visual={visual} />,
+          entering: visual.resolves ? popIn(RESOLVE_FROM) : undefined,
+          exiting: visual.shape === 'held' ? fadeOut() : undefined,
+        },
+      ];
   return (
     <Whisper label={accessibilityHint}>
       <Reanimated.View
@@ -218,16 +296,20 @@ export function ResultMark({
           }
           style={styles.face}
         >
-          {/* Each shape is a layer of its own, so the held ring can give
-              way to the disc it resolves into. */}
-          <Reanimated.View
-            key={visual.shape}
-            entering={visual.resolves ? popIn(RESOLVE_FROM) : undefined}
-            exiting={visual.shape === 'held' ? fadeOut() : undefined}
-            style={[styles.layer, styles.centred]}
-          >
-            <Face visual={visual} />
-          </Reanimated.View>
+          {layers.map(layer => (
+            <Reanimated.View
+              key={layer.key}
+              entering={layer.entering}
+              exiting={layer.exiting}
+              style={[
+                styles.layer,
+                styles.centred,
+                layer.key === 'held' && ringStyle,
+              ]}
+            >
+              {layer.face}
+            </Reanimated.View>
+          ))}
           <Reanimated.View
             pointerEvents="none"
             style={[styles.layer, styles.tint, refusal.tint]}
