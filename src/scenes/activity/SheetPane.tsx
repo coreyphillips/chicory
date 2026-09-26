@@ -27,6 +27,7 @@ import { ALL } from './model';
 import type { ActivitySection } from './model';
 import {
   DETAIL_DROP,
+  DETAIL_FADE,
   GRIP_HEIGHT,
   ROW_RETURN_SPAN,
   filterFor,
@@ -115,7 +116,7 @@ export function SheetPane({
         );
       }
     } else {
-      shows.set(withTiming(0, EXIT));
+      shows.set(withTiming(0, shown === 'detail' ? DETAIL_FADE : EXIT));
       drop.set(shown === 'detail' ? withTiming(DETAIL_DROP, EXIT) : 0);
     }
   }, [sheet, shown, reduced, shows, drop, rowsBack]);

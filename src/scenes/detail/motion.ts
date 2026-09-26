@@ -8,7 +8,7 @@ import type {
 } from 'react-native-reanimated';
 import type { Activity } from '@beignet/wallet-core';
 import { riseIn, sceneIn, sceneOut } from '../../motion/presets';
-import { curves, durations, springs } from '../../motion/tokens';
+import { curves, durations, overlap, springs } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
 import { SLOT_PADDING } from '../../stage/layout';
 import type { Rect } from '../../stage/scene';
@@ -270,13 +270,45 @@ export function restingFrame(
   };
 }
 
-/** One part of the header flying in from `start`; see `launch`. */
+/**
+ * How long the amount waits in its row, still where it was drawn, before it
+ * flies: a sibling's stagger (REDESIGN.md 3.5), which lets the ring, which
+ * starts beside it and lands above it, lift clear of it first. Flown at once
+ * the two crossed, the amount over the ring's lower half (P10, 22-t4-sheet
+ * frames 102-106).
+ */
+export const AMOUNT_HOLD = overlap.staggerMax;
+
+/**
+ * How far along its timing a view the card carries is at `x` (0 to 1 of the
+ * card's time), for it to hold still in the window for the first `hold` of
+ * that time and then fly straight to its place on `curve`, landing with the
+ * card. The card moves on `curve` too, and `ratio` is how far it travels on
+ * this axis over the view's start offset there (`launch`): until the view
+ * sets off, its transform gives back all the card has carried it.
+ */
+export function heldEase(
+  x: number,
+  ratio: number,
+  hold: number,
+  curve: (u: number) => number,
+): number {
+  'worklet';
+  const own = x <= hold ? 0 : curve((x - hold) / (1 - hold));
+  return own + ratio * (curve(x) - own);
+}
+
+/**
+ * One part of the header flying in from `start`; see `launch`. With `hold`
+ * it waits that many ms where it starts, then flies, arriving with the card.
+ */
 function flyIn(
   flight: Flight,
   top: number,
   start: Point,
   scale: number,
   anchor: 'center' | 'left',
+  hold: number,
 ): EntryExitAnimationFunction {
   return (values: EntryAnimationsValues) => {
     'worklet';
@@ -287,6 +319,23 @@ function flyIn(
       scale,
       anchor,
     );
+    const curve = curves.standard.factory();
+    const share = hold / EXPAND_MS;
+    // An axis the view has no start offset on has nothing to give back the
+    // card's travel with, so it flies on the card's own clock.
+    const along = (offset: number, travel: number) => {
+      if (!share || Math.abs(offset) < 1) return withTiming(0, MOVE);
+      const ratio = travel / offset;
+      const easing = (u: number) => {
+        'worklet';
+        return heldEase(u, ratio, share, curve);
+      };
+      return withTiming(0, { duration: EXPAND_MS, easing });
+    };
+    const grows = (u: number) => {
+      'worklet';
+      return heldEase(u, 0, share, curve);
+    };
     return {
       initialValues: {
         transform: [
@@ -297,9 +346,17 @@ function flyIn(
       },
       animations: {
         transform: [
-          { translateX: withTiming(0, MOVE) },
-          { translateY: withTiming(0, MOVE) },
-          { scale: withTiming(1, MOVE) },
+          {
+            translateX: along(from.translateX, flight.card.x - flight.from.x),
+          },
+          {
+            translateY: along(from.translateY, flight.card.y - flight.from.y),
+          },
+          {
+            scale: share
+              ? withTiming(1, { duration: EXPAND_MS, easing: grows })
+              : withTiming(1, MOVE),
+          },
         ],
       },
     };
@@ -330,9 +387,10 @@ function ringIn(): EntryExitAnimationFunction {
 /**
  * How a detail's header arrives (REDESIGN.md 7, T4). Out of a row, the ring
  * and the amount fly from where the row drew them to their places, growing
- * from the row's sizes on the way, while the card grows around them.
- * Otherwise the ring grows where it stands and the amount comes with the
- * card. Under Reduce Motion nothing flies.
+ * from the row's sizes on the way, while the card grows around them; the
+ * amount waits `AMOUNT_HOLD` for the ring to lift clear of it, so the two
+ * never cross. Otherwise the ring grows where it stands and the amount comes
+ * with the card. Under Reduce Motion nothing flies.
  */
 export function headerIn(
   flight: Flight | null,
@@ -353,8 +411,16 @@ export function headerIn(
       parts.ring,
       ROW_RING / HEADER_RING,
       'center',
+      0,
     ),
-    amount: flyIn(flight, HEADER_TOPS.amount, parts.amount, figure, 'left'),
+    amount: flyIn(
+      flight,
+      HEADER_TOPS.amount,
+      parts.amount,
+      figure,
+      'left',
+      AMOUNT_HOLD,
+    ),
   };
 }
 

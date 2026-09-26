@@ -705,12 +705,16 @@ The tapped circle is one element with the scene's control: it lands on the slot'
 
 **T4, Row to Detail:**
 
-| Time       | What happens                                        |
-| ---------- | --------------------------------------------------- |
-| 0          | tick; the sheet moves to compact                    |
-| 0 to 140   | the other rows fade out and drop 8pt                |
-| 0 to 320   | ring and amount clones fly to the header (40 to 96) |
-| 120 onward | lines stagger in, 40ms apart                        |
+| Time       | What happens                                                                                                                                 |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0          | tick; the sheet moves to compact                                                                                                             |
+| 0 to 90    | the other rows fade out on the enter curve, most of the way at once (`DETAIL_FADE`)                                                          |
+| 0 to 140   | the other rows drop 8pt                                                                                                                      |
+| 0 to 320   | the ring clone flies to the header (40 to 96)                                                                                                |
+| 40 to 320  | the amount clone, still in its row until the ring has lifted clear of it (`AMOUNT_HOLD`), flies to its place under the ring, landing with it |
+| 120 onward | lines stagger in, 40ms apart                                                                                                                 |
+
+The ring starts beside the amount and lands above it, so flown together the two crossed; held back a sibling's stagger, the amount never meets the ring, and the clones only pass over rows that have all but faded as the sheet rises under them.
 
 **T5, Home and Activity.** Driven by the gesture. Progress interpolates:
 
