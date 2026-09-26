@@ -182,6 +182,25 @@ const odometers: Shot[] = [
       <Odometer sats={sats} unit="sats" variant="amount" duration={900} />
     )),
   ),
+  // Places grow as the count reaches them, never a leading 0 or a
+  // separator before the first digit.
+  changing('odometer, counting up from 0 to a balance', () =>
+    [0, 65_446].map(sats => hero({ sats })),
+  ),
+  changing('odometer, counting up a receipt with its sign', () =>
+    [0, 888, 5_000].map(sats => (
+      <Odometer
+        sats={sats}
+        unit="sats"
+        variant="amount"
+        sign="+"
+        duration={700}
+      />
+    )),
+  ),
+  changing('odometer, a new place rolling in and away', () =>
+    [9_999, 10_000, 9_999].map(sats => hero({ sats })),
+  ),
 ];
 
 // The vessel.

@@ -12,12 +12,11 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import type { TextStyle } from 'react-native';
+import type { LayoutChangeEvent, TextStyle } from 'react-native';
 import Reanimated, {
   FadeIn,
   FadeOut,
   LayoutAnimationConfig,
-  LinearTransition,
   ReduceMotion,
   cancelAnimation,
   useAnimatedStyle,
@@ -27,7 +26,6 @@ import Reanimated, {
   withTiming,
 } from 'react-native-reanimated';
 import type {
-  EntryAnimationsValues,
   EntryExitAnimationFunction,
   SharedValue,
 } from 'react-native-reanimated';
@@ -110,7 +108,13 @@ export type OdometerCell =
       /** A trailing zero of a BTC amount, drawn in dust. */
       dim: boolean;
     }
-  | { kind: 'mark'; key: string; char: ',' | '.' };
+  | {
+      kind: 'mark';
+      key: string;
+      char: ',' | '.';
+      /** The place the separator follows, which it shows with. */
+      place: number;
+    };
 
 /** Eight decimals: a BTC amount's decimal point sits above place 8. */
 const BTC_PLACES = 8;
@@ -166,6 +170,89 @@ export function rowInView(pos: number, parity: number): number {
   'worklet';
   const top = Math.floor(pos);
   return top % 2 === parity ? top : top + 1;
+}
+
+/**
+ * The highest place `unit` always draws: the ones in sats, and in BTC the
+ * whole bitcoin's, so every decimal shows even while it is 0.
+ */
+export function floorPlace(unit: Unit): number {
+  return unit === 'btc' ? BTC_PLACES : 0;
+}
+
+/**
+ * Whether place `k` is a leading zero at `v`: above the amount's highest
+ * digit, and not one of the places always drawn (`floor`, `floorPlace`).
+ * Such a place is blank rather than 0, so a figure mid-roll never reads
+ * "065,446": a count up from 0 grows its places as it reaches them, and one
+ * rolling in rolls up from blank, as a mechanical counter's does.
+ */
+export function leadingZero(v: number, k: number, floor: number): boolean {
+  'worklet';
+  return k > floor && v < 10 ** k;
+}
+
+/**
+ * How much of row `row` place `k`'s column draws, standing at `pos` while
+ * the amount is at `v`: its fade by its distance from the cell
+ * (`rowFade`), and nothing for a 0 that is a leading zero, at the top of
+ * the column or at its foot.
+ */
+export function rowInk(
+  row: number,
+  pos: number,
+  v: number,
+  k: number,
+  floor: number,
+): number {
+  'worklet';
+  if ((row === 0 || row === 10) && leadingZero(v, k, floor)) return 0;
+  return rowFade(row, pos);
+}
+
+/**
+ * How much of place `k`'s figure shows at `v`, its column standing at
+ * `pos`: all of it once the place holds a digit, and while it is a leading
+ * zero only the digit rolling in over the blank, 0 to 1. The separator that
+ * follows the place shows as much (`MarkCell`), so no separator stands
+ * before the figure's first digit.
+ */
+export function placeInk(
+  v: number,
+  k: number,
+  floor: number,
+  pos: number,
+): number {
+  'worklet';
+  if (!leadingZero(v, k, floor)) return 1;
+  return (
+    rowInk(rowInView(pos, 0), pos, v, k, floor) +
+    rowInk(rowInView(pos, 1), pos, v, k, floor)
+  );
+}
+
+/**
+ * How far a leading place's cell, and the separator after it, is open for
+ * `ink` of its figure: shut while the place is blank, so the figures close
+ * up round what they show and the sign keeps to the first digit, and open
+ * by the time half the digit rolling in shows, so the cell never cuts much
+ * of it.
+ */
+export function cellOpen(ink: number): number {
+  'worklet';
+  return smoothstep(Math.min(1, Math.max(0, 2 * ink)));
+}
+
+/**
+ * A cell's width at `open`, for a figure `figure` points wide: its own at
+ * full, none when shut, and a share of the figure between, once the figure
+ * has been measured.
+ */
+export function openWidth(open: number, figure: number): number | 'auto' {
+  'worklet';
+  if (open >= 1) return 'auto';
+  if (open <= 0) return 0;
+  return figure > 0 ? figure * open : 'auto';
 }
 
 /** A column position folded back into its ten digits. */
@@ -275,7 +362,7 @@ export function cellsFor(sats: number, unit: Unit): OdometerCell[] {
     for (let place = digits.length - 1; place >= 0; place--) {
       cells.push(digit(place));
       if (place > 0 && place % 3 === 0) {
-        cells.push({ kind: 'mark', key: `m${place}`, char: ',' });
+        cells.push({ kind: 'mark', key: `m${place}`, char: ',', place });
       }
     }
     return cells;
@@ -288,7 +375,7 @@ export function cellsFor(sats: number, unit: Unit): OdometerCell[] {
   for (let place = top; place >= 0; place--) {
     cells.push(digit(place, place < BTC_PLACES && place < trailing));
     if (place === BTC_PLACES) {
-      cells.push({ kind: 'mark', key: 'point', char: '.' });
+      cells.push({ kind: 'mark', key: 'point', char: '.', place });
     }
   }
   return cells;
@@ -297,7 +384,9 @@ export function cellsFor(sats: number, unit: Unit): OdometerCell[] {
 /**
  * The cells a roll from `from` to `to` passes through: the target's, plus
  * any leading column only the other end has, so a digit that is going away
- * rolls to 0 before it leaves and one that is arriving rolls up from 0.
+ * rolls down to blank before it leaves and one that is arriving rolls up
+ * from blank. A leading place stays blank, and its cell and the separator
+ * after it shut, while the amount is below it (`leadingZero`, `cellOpen`).
  */
 export function rollCells(from: number, to: number, unit: Unit) {
   const target = cellsFor(to, unit);
@@ -524,29 +613,14 @@ function cellIn(index: number, reduced: boolean) {
 }
 
 /**
- * A leading cell a roll brings in: it opens from no width as it fades up,
- * while the cells beside it slide over.
+ * How a cell arrives: risen by a swap, or faded if reduced. One a roll
+ * brings in comes in shut and blank and opens as the amount reaches its
+ * place, on the UI thread with the roll (`cellOpen`), so it has no entrance
+ * of its own: a width grown on a clock of its own cut the digit in it to a
+ * sliver, and the cells beside it slid across the ones already shown.
  */
-const growIn: EntryExitAnimationFunction = (values: EntryAnimationsValues) => {
-  'worklet';
-  return {
-    initialValues: { opacity: 0, width: 0 },
-    animations: {
-      opacity: withTiming(1, {
-        duration: durations.enter,
-        easing: curves.enter,
-      }),
-      width: withTiming(values.targetWidth, {
-        duration: durations.move,
-        easing: curves.standard,
-      }),
-    },
-  };
-};
-
-/** How a cell arrives: grown by a roll, risen by a swap, faded if reduced. */
 function arrival(index: number, rolling: boolean, reduced: boolean) {
-  return rolling && !reduced ? growIn : cellIn(index, reduced);
+  return rolling && !reduced ? undefined : cellIn(index, reduced);
 }
 
 /** A cell leaving: it lifts and fades, a beat after the one to its left. */
@@ -622,10 +696,6 @@ const CROSSFADE_IN = FadeIn.duration(CROSSFADE_MS).reduceMotion(
 const CROSSFADE_OUT = FadeOut.duration(CROSSFADE_MS).reduceMotion(
   ReduceMotion.Never,
 );
-/** Cells slide aside for a new leading digit rather than jump. */
-const CELL_LAYOUT = LinearTransition.duration(durations.move).easing(
-  curves.standard,
-);
 
 /** What every cell of one odometer shares. */
 interface Rig {
@@ -633,6 +703,10 @@ interface Rig {
   roll: SharedValue<Roll>;
   s: SharedValue<number>;
   shimmer: SharedValue<number>;
+  /** A figure's width, as the ones cell was laid out, once it has been. */
+  figure: SharedValue<number>;
+  /** The highest place always drawn (`floorPlace`). */
+  floor: number;
   /** The ink, which turns steam when stale. */
   ink: object;
   text: TextStyle[];
@@ -651,6 +725,27 @@ function useShimmer(shimmer: SharedValue<number>, index: number) {
     }),
     [index],
   );
+}
+
+/**
+ * A cell's width while a roll brings its place in or takes it away: shut
+ * while the place is a leading zero, opening as its digit rolls in
+ * (`cellOpen`), and its own otherwise, so the cells beside it close up on
+ * the UI thread, frame by frame with the roll, and no two are ever drawn
+ * over one another. `set` is a separator's width, which it has open; a
+ * digit's is a figure's, which the ones cell measures.
+ */
+function useOpening(rig: Rig, place: number, rolling: boolean, set?: number) {
+  const { v, roll, figure, floor } = rig;
+  const mark = set ?? 0;
+  return useAnimatedStyle(() => {
+    if (!rolling || place <= floor) return { width: mark > 0 ? mark : 'auto' };
+    const at = v.get();
+    const open = cellOpen(
+      placeInk(at, place, floor, rollPosition(at, place, roll.get())),
+    );
+    return { width: mark > 0 ? mark * open : openWidth(open, figure.get()) };
+  }, [rolling, place, floor, mark]);
 }
 
 /**
@@ -673,17 +768,20 @@ const ColumnRows = memo(function DigitColumnRows({
   motion: Motion;
   rig: Rig;
 }) {
-  const { v, roll, s, height } = rig;
+  const { v, roll, s, height, floor } = rig;
   const style = useAnimatedStyle(() => {
-    const pos =
-      motion === 'roll'
-        ? rollPosition(v.get(), place, roll.get())
-        : scrambleDigit(digit, place, s.get(), motion === 'unscramble');
+    const rolling = motion === 'roll';
+    const at = v.get();
+    const pos = rolling
+      ? rollPosition(at, place, roll.get())
+      : scrambleDigit(digit, place, s.get(), motion === 'unscramble');
+    const row = rowInView(pos, parity);
     return {
-      opacity: rowFade(rowInView(pos, parity), pos),
+      // A leading zero is blank: a digit rolls in over nothing.
+      opacity: rolling ? rowInk(row, pos, at, place, floor) : rowFade(row, pos),
       transform: [{ translateY: -pos * height }],
     };
-  }, [parity, motion, place, digit, height]);
+  }, [parity, motion, place, digit, height, floor]);
   return (
     <Reanimated.View style={[parity ? styles.over : undefined, style]}>
       {COLUMN.map((d, i) =>
@@ -738,12 +836,20 @@ const DigitCell = memo(function OdometerDigit({
   rig: Rig;
 }) {
   const wave = useShimmer(rig.shimmer, index);
+  const opens = useOpening(rig, place, motion === 'roll');
+  // The ones are always drawn, so they measure a figure's width for the
+  // cells that open (`openWidth`).
+  const { figure } = rig;
+  const onLayout = useCallback(
+    (event: LayoutChangeEvent) => figure.set(event.nativeEvent.layout.width),
+    [figure],
+  );
   return (
     <Reanimated.View
       entering={arrival(index, motion === 'roll', rig.reduced)}
       exiting={cellOut(index, rig.reduced)}
-      layout={rig.reduced ? undefined : CELL_LAYOUT}
-      style={[styles.cell, { height: rig.height }, wave]}
+      onLayout={place === 0 ? onLayout : undefined}
+      style={[styles.cell, { height: rig.height }, wave, opens]}
     >
       {motion === 'still' ? (
         <Reanimated.Text
@@ -771,25 +877,41 @@ const DigitCell = memo(function OdometerDigit({
 
 const MarkCell = memo(function OdometerMark({
   char,
+  place,
   index,
   rolling,
   rig,
 }: {
   char: string;
+  /** The place the separator follows, which it shows with. */
+  place: number;
   index: number;
   rolling: boolean;
   rig: Rig;
 }) {
   const wave = useShimmer(rig.shimmer, index);
+  const opens = useOpening(rig, place, rolling, rig.markWidth);
+  const { v, roll, floor } = rig;
+  const shows = useAnimatedStyle(() => {
+    if (!rolling || place <= floor) return { opacity: 1 };
+    const at = v.get();
+    return {
+      opacity: placeInk(at, place, floor, rollPosition(at, place, roll.get())),
+    };
+  }, [rolling, place, floor]);
   return (
     <Reanimated.View
       entering={arrival(index, rolling, rig.reduced)}
       exiting={cellOut(index, rig.reduced)}
-      layout={rig.reduced ? undefined : CELL_LAYOUT}
-      style={[styles.cell, { height: rig.height, width: rig.markWidth }, wave]}
+      style={[
+        styles.cell,
+        { height: rig.height, width: rig.markWidth },
+        wave,
+        opens,
+      ]}
     >
       <Reanimated.Text
-        style={[...rig.text, styles.mark, rig.ink]}
+        style={[...rig.text, styles.mark, rig.ink, shows]}
         maxFontSizeMultiplier={rig.maxScale}
       >
         {char}
@@ -971,12 +1093,16 @@ export function Odometer({
     });
   }
   const received = variant === 'row' && sign === '+';
+  const figure = useSharedValue(0);
+  const floor = floorPlace(unit);
   const rig = useMemo<Rig>(
     () => ({
       v,
       roll,
       s,
       shimmer,
+      figure,
+      floor,
       ink,
       text: received
         ? [base, styles.figure, styles.received]
@@ -986,7 +1112,20 @@ export function Odometer({
       maxScale,
       reduced,
     }),
-    [v, roll, s, shimmer, ink, base, received, scale, maxScale, reduced],
+    [
+      v,
+      roll,
+      s,
+      shimmer,
+      figure,
+      floor,
+      ink,
+      base,
+      received,
+      scale,
+      maxScale,
+      reduced,
+    ],
   );
   // Under Reduce Motion a changed digit is a new cell, so it crossfades
   // with the old one in place instead of changing under the eye.
@@ -1085,6 +1224,7 @@ export function Odometer({
                         <MarkCell
                           key={keyOf(cell)}
                           char={cell.char}
+                          place={cell.place}
                           index={i}
                           rolling={phase === 'roll'}
                           rig={rig}

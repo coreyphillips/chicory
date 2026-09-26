@@ -563,6 +563,40 @@ describe('Odometer', () => {
     expect(visibleText(tree).join('')).toBe('999sats');
   });
 
+  test('a place a roll brings in has no entrance of its own, and nothing slides across the figures', async () => {
+    // The device pass (P12): a count up drew "+0,888", its new cells grew
+    // on a clock of their own to a sliver of a 0, and the ones slid across
+    // the cells beside them on a layout transition, two figures in a cell.
+    // Now a new place opens on the UI thread with the roll, shut and blank
+    // below it (OdometerMath, a figure mid-roll).
+    const tree = await render(
+      <Odometer sats={999} unit="sats" variant="line" />,
+    );
+    act(() =>
+      tree.update(<Odometer sats={1_000} unit="sats" variant="line" />),
+    );
+    const cells = hosts(tree, node => flat(node).overflow === 'hidden');
+    expect(cells).toHaveLength(5);
+    const [thousands, comma] = cells;
+    expect(thousands.props.entering).toBeUndefined();
+    expect(comma.props.entering).toBeUndefined();
+    expect(hosts(tree, node => node.props.layout !== undefined)).toEqual([]);
+    // The ones measure a figure's width for the cells that open.
+    expect(typeof cells[4].props.onLayout).toBe('function');
+    expect(cells.slice(0, 4).map(cell => cell.props.onLayout)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    await act(async () => {});
+    expect(visibleText(tree).join('')).toBe('1,000sats');
+    // At rest every cell takes its own width.
+    for (const cell of hosts(tree, node => flat(node).overflow === 'hidden')) {
+      expect(flat(cell).width).not.toBe(0);
+    }
+  });
+
   test('a new unit swaps the cells without rolling', async () => {
     const tree = await render(
       <Odometer sats={120_000} unit="sats" variant="hero" />,
