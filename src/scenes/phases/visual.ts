@@ -45,6 +45,27 @@ export const BUD_OPEN = 0.08;
  */
 export const DORMANT_OPEN = 0.7;
 
+/**
+ * The network the launch restore opens on, once the stage can know it: the
+ * saved session's as soon as it has been read, or else the profile the
+ * restore settles on, once it is no longer the `first` the session started
+ * with, a stand-in. Null until then.
+ */
+export function openingNetwork(
+  saved: { network?: Network } | null | undefined,
+  profile: { network: Network },
+  first: { network: Network },
+): Network | null {
+  if (saved?.network) return saved.network;
+  return profile === first ? null : profile.network;
+}
+
+/**
+ * The longest the opening loader holds back for the network it opens on,
+ * before it shows in the tone it has.
+ */
+export const TONE_WAIT_MS = 1500;
+
 /** Slate stands in for bloom on every network whose coins are not real. */
 export function bloomTone(network: Network | null | undefined): BloomTone {
   return !network || network === 'mainnet' ? 'live' : 'test';

@@ -34,7 +34,12 @@ import { Welcome } from '../scenes/phases/Welcome';
 import { Picker } from '../scenes/phases/Picker';
 import { OpeningWallet } from '../scenes/phases/Loading';
 import { OfflineWallet } from '../scenes/phases/Offline';
-import { bloomTone, QUIET_MS, SIZES } from '../scenes/phases/visual';
+import {
+  bloomTone,
+  openingNetwork,
+  QUIET_MS,
+  SIZES,
+} from '../scenes/phases/visual';
 import { BackupTile } from '../scenes/home/BackupTile';
 import { vesselVisual } from '../scenes/home/visual';
 import { useAppActive } from '../scenes/home/useAppActive';
@@ -85,6 +90,15 @@ export function Stage({
     activeProfile,
   } = session;
   const stale = useStale(snapshot?.updatedAt);
+  // The network the launch restore opens on, once it is known: until then
+  // the session's profile is a stand-in for mainnet, and the loader holds
+  // back rather than chase in bloom and turn slate midway.
+  const [firstProfile] = useState(activeProfile);
+  const opensOn = openingNetwork(
+    session.rememberedSession,
+    activeProfile,
+    firstProfile,
+  );
   const savedWallet = useMemo(
     () => wallets.find(wallet => wallet.id === walletId),
     [wallets, walletId],
@@ -158,7 +172,12 @@ export function Stage({
       );
       break;
     case 'opening':
-      content = <Opening network={activeProfile.network} />;
+      content = (
+        <Opening
+          network={opensOn ?? activeProfile.network}
+          known={opensOn !== null}
+        />
+      );
       break;
     case 'saved':
       content = (

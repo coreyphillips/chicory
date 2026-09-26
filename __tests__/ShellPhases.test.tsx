@@ -21,6 +21,7 @@ import { WhisperProvider } from '../src/glyphs/Whisper';
 import { OpeningWallet } from '../src/scenes/phases/Loading';
 import { Opening } from '../src/scenes/phases/Opening';
 import { Picker } from '../src/scenes/phases/Picker';
+import { TONE_WAIT_MS, openingNetwork } from '../src/scenes/phases/visual';
 import { defaultProfile } from '../src/services/networks';
 import type { useWalletSession } from '../src/services/useWalletSession';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
@@ -320,6 +321,72 @@ describe('the app switcher', () => {
 });
 
 describe('the opening loader', () => {
+  test('knows the network it opens on from the saved session, or the profile the restore settles on', () => {
+    const first = defaultProfile('mainnet');
+    // Nothing read yet: the session's profile is a stand-in.
+    expect(openingNetwork(null, first, first)).toBeNull();
+    // The saved session is read first, and names it.
+    expect(openingNetwork({ network: 'regtest' }, first, first)).toBe(
+      'regtest',
+    );
+    // With none saved, the profile the restore settles on does.
+    expect(openingNetwork(null, defaultProfile('regtest'), first)).toBe(
+      'regtest',
+    );
+    expect(openingNetwork(null, defaultProfile('mainnet'), first)).toBe(
+      'mainnet',
+    );
+  });
+
+  test('holds back until it knows the network, so a test network never chases in bloom', async () => {
+    // The device pass (P12): on a regtest wallet the chase was bloom blue
+    // until the saved profile was read, then turned slate mid-chase.
+    jest.useFakeTimers();
+    try {
+      const first = defaultProfile('mainnet');
+      const staged = (over: Partial<Session>) => (
+        <Staged
+          phase={{ kind: 'opening' }}
+          live={sessionOf({
+            client: null,
+            initializing: true,
+            activeProfile: first,
+            ...over,
+          })}
+        />
+      );
+      const tree = await mount(staged({}));
+      const blooms = () => tree.root.findAllByType(Bloom);
+      expect(blooms()).toEqual([]);
+      // The saved session is read, and it chases in slate from its first
+      // frame.
+      await act(async () =>
+        tree.update(
+          staged({
+            rememberedSession: {
+              mode: 'device',
+              network: 'regtest',
+              locked: false,
+            },
+          }),
+        ),
+      );
+      expect(blooms().map(bloom => bloom.props.tone)).toEqual(['test']);
+      await act(async () => tree.unmount());
+      // A network never known holds it back only so long.
+      const slow = await mount(staged({}));
+      await act(async () => jest.advanceTimersByTime(TONE_WAIT_MS - 1));
+      expect(slow.root.findAllByType(Bloom)).toEqual([]);
+      await act(async () => jest.advanceTimersByTime(1));
+      expect(
+        slow.root.findAllByType(Bloom).map(bloom => bloom.props.tone),
+      ).toEqual(['live']);
+      await act(async () => slow.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('chases in the network’s tone, slate off mainnet', async () => {
     const tree = await mount(
       <GestureHandlerRootView>
