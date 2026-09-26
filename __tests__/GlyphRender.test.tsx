@@ -19,7 +19,6 @@ import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
 import Svg, {
   Circle,
   G,
-  Line,
   LinearGradient,
   Path,
   Pattern,
@@ -34,11 +33,14 @@ import { StatusRing, glyphRedraws, ringColor } from '../src/glyphs/StatusRing';
 import type { RingVisual } from '../src/glyphs/StatusRing';
 import {
   CHANNELIZE_MS,
+  HATCH_GAP,
   HEIGHTS,
   SHEEN_PEAK,
   SLATE_GLASS,
+  Stripes,
   Vessel,
   WAIT_WORDS,
+  hatchPath,
   segmentPlaces,
 } from '../src/glyphs/Vessel';
 import { Whisper, WhisperProvider } from '../src/glyphs/Whisper';
@@ -1095,9 +1097,9 @@ describe('Vessel', () => {
           nativeEvent: { layout: { width: 300, height: 8 } },
         }),
       );
-      const hatches = tree.root.findAllByType(Pattern);
+      const hatches = tree.root.findAllByType(Stripes);
       expect(hatches).toHaveLength(1);
-      expect(hatches[0].findByType(Line).props.stroke).toBe(palette.honey);
+      expect(hatches[0].props.color).toBe(palette.honey);
       // Sixty of the hundred thousand sit at the left, then thirty
       // spendable, then ten arriving.
       expect(segmentPlaces(0.6, 0.3, 300)).toEqual({
@@ -1138,7 +1140,7 @@ describe('Vessel', () => {
           .findAllByType(Svg)
           .filter(
             svg =>
-              svg.findAllByType(Pattern).length > 0 ||
+              svg.findAllByType(Stripes).length > 0 ||
               svg.findAllByType(LinearGradient).length > 0,
           );
       // The hatch out of reach and the sheen on the glass, and under Reduce
@@ -1182,9 +1184,27 @@ describe('Vessel', () => {
           nativeEvent: { layout: { width: 300, height: 8 } },
         }),
       );
-      const hatches = tree.root.findAllByType(Pattern);
+      const hatches = tree.root.findAllByType(Stripes);
       expect(hatches).toHaveLength(1);
-      expect(hatches[0].findByType(Line).props.stroke).toBe(palette.dust);
+      expect(hatches[0].props.color).toBe(palette.dust);
+    });
+
+    test('its hatch is stripes at 45 degrees across the whole art, never a rotated tile', async () => {
+      // The device pass (P14): a 4pt tile holding one upright line, turned
+      // 45 degrees by the pattern's transform, drew only a speck in each
+      // tile's corner, dust dots on an upright grid.
+      const tree = await away({ connected: true });
+      await act(async () =>
+        tree.root.findByProps({ accessible: true }).props.onLayout({
+          nativeEvent: { layout: { width: 300, height: 8 } },
+        }),
+      );
+      expect(tree.root.findAllByType(Pattern)).toEqual([]);
+      const [stripes] = tree.root.findAllByType(Stripes);
+      const path = stripes.findByType(Path);
+      expect(path.props.d).toBe(hatchPath(300, HEIGHTS.open, HATCH_GAP));
+      expect(path.props.transform).toBeUndefined();
+      await act(async () => tree.unmount());
     });
 
     test('a channel reserve alone draws nothing out of reach', async () => {
@@ -1428,15 +1448,50 @@ describe('Vessel', () => {
         nativeEvent: { layout: { width: 300, height: 8 } },
       }),
     );
-    expect(tree.root.findAllByType(Pattern)).toHaveLength(1);
+    expect(tree.root.findAllByType(Stripes)).toHaveLength(1);
+    expect(tree.root.findAllByType(Pattern)).toEqual([]);
     expect(tree.root.findAllByType(LinearGradient)).toEqual([]);
     // It covers only the glass, from the seam to the end.
     const glass = hosts(
       tree,
       node =>
-        flat(node).left === 150 && node.findAllByType(Pattern).length === 1,
+        flat(node).left === 150 && node.findAllByType(Stripes).length === 1,
     );
     expect(glass).toHaveLength(1);
+  });
+
+  test('the hatch is whole stripes at 45 degrees, evenly apart, over all the art', () => {
+    const width = 300;
+    const height = HEIGHTS.open;
+    const d = hatchPath(width, height, HATCH_GAP);
+    const lines = [
+      ...d.matchAll(/M(-?[\d.]+) (-?[\d.]+)L(-?[\d.]+) (-?[\d.]+)/g),
+    ].map(([, x1, y1, x2, y2]) => [x1, y1, x2, y2].map(Number));
+    expect(lines.length).toBeGreaterThan(50);
+    // Each rises to the right at 45 degrees, from past the bottom edge to
+    // past the top, so no end of a stripe is drawn inside the art.
+    for (const [x1, y1, x2, y2] of lines) {
+      expect(x2 - x1).toBeCloseTo(y1 - y2, 1);
+      expect(y1).toBeGreaterThan(height);
+      expect(y2).toBeLessThan(0);
+    }
+    // Every point of the art is within half a gap of a stripe: they run
+    // across it all, the lower half as well as the upper.
+    const sums = lines.map(([x1, y1]) => x1 + y1);
+    for (let x = 0; x <= width; x += 1.7) {
+      for (let y = 0; y <= height; y += 1.3) {
+        const nearest = Math.min(...sums.map(c => Math.abs(x + y - c)));
+        expect(nearest / Math.SQRT2).toBeLessThanOrEqual(HATCH_GAP / 2 + 0.01);
+      }
+    }
+    // Evenly apart, the gap across them, and placed from the left edge, so
+    // they hold still while the clip over them moves.
+    for (let k = 1; k < sums.length; k += 1) {
+      expect((sums[k] - sums[k - 1]) / Math.SQRT2).toBeCloseTo(HATCH_GAP, 1);
+    }
+    expect(hatchPath(120, height, HATCH_GAP)).toBe(
+      d.slice(0, hatchPath(120, height, HATCH_GAP).length),
+    );
   });
 });
 

@@ -15,15 +15,7 @@ import type {
   EntryExitAnimationFunction,
   SharedValue,
 } from 'react-native-reanimated';
-import Svg, {
-  Defs,
-  Line,
-  LinearGradient,
-  Path,
-  Pattern,
-  Rect,
-  Stop,
-} from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 import type { WalletRecord } from '@beignet/wallet-core';
 import { copy } from '../design/copy';
 import { GLYPHS, Glyph, strokeFor } from '../design/glyphs';
@@ -155,13 +147,11 @@ export function glassFill(look: VesselVisual['fill'], test: boolean): string {
   return look === 'glass' && test ? SLATE_GLASS : FILLS[look];
 }
 
-/** The out-of-reach share: a honey hatch over a faint honey wash. */
 /** The out-of-reach hatch: honey while unplugged, dust while held back. */
 const AWAY_TONES = {
   unplugged: { stroke: palette.honey, wash: alpha(palette.honey, 0.14) },
   held: { stroke: palette.dust, wash: alpha(palette.dust, 0.12) },
 };
-const AWAY_HATCH = 4;
 
 /** The pill's height, from nothing in flight to opened by a tap. */
 export const HEIGHTS = { hairline: 2, swollen: 8, open: 28 };
@@ -470,36 +460,72 @@ function WaitGlyph({
  */
 export const ART_HEIGHT = HEIGHTS.open;
 
+/** How far apart the hatch's stripes are, across them, in points. */
+export const HATCH_GAP = 4;
+
+/** How wide each stripe of the hatch is drawn, in points. */
+const HATCH_LINE = 1.5;
+
+/** Two places, enough for a point drawn at 3x. */
+const place = (value: number) => Math.round(value * 100) / 100;
+
+/**
+ * The hatch's stripes, `gap` points apart across them, as a path over a
+ * box `width` by `height`: each a line at 45 degrees rising to the right,
+ * from past the box's bottom edge to past its top, so the ends of every
+ * stripe, whatever their cap, lie outside the box, which clips them. The
+ * stripes are placed from the box's left edge, so a clip that grows or
+ * shrinks over them never moves them.
+ *
+ * Drawn as lines rather than a pattern tile: iOS drew a rotated tile's
+ * stripe as a speck in each tile's corner, and the hatch read as dots on a
+ * grid (P14).
+ */
+export function hatchPath(width: number, height: number, gap: number): string {
+  // Stripes at 45 degrees `gap` apart meet an edge `gap * sqrt 2` apart.
+  const step = gap * Math.SQRT2;
+  // Past each end by more than half the stripe's width.
+  const over = HATCH_LINE;
+  const first = -Math.ceil(height / step) * step;
+  const parts: string[] = [];
+  for (let x = first; x <= width + over; x += step) {
+    parts.push(
+      `M${place(x - over)} ${place(height + over)}L${place(
+        x + height + over,
+      )} ${place(-over)}`,
+    );
+  }
+  return parts.join('');
+}
+
+/**
+ * Stripes at 45 degrees in `color` across `width`, at the art's height, for
+ * the out-of-reach share and the arriving glass's still hatch.
+ */
+export function Stripes({ width, color }: { width: number; color: string }) {
+  return (
+    <Path
+      d={hatchPath(width, ART_HEIGHT, HATCH_GAP)}
+      fill="none"
+      stroke={color}
+      strokeWidth={HATCH_LINE}
+    />
+  );
+}
+
 /** Under Reduce Motion the glass holds a still 45 degree hatch instead. */
 function Hatch({ width }: { width: number }) {
   return (
     <Svg width={width} height={ART_HEIGHT}>
-      <Defs>
-        <Pattern
-          id="vesselHatch"
-          patternUnits="userSpaceOnUse"
-          width="4"
-          height="4"
-          patternTransform="rotate(45)"
-        >
-          <Line
-            x1="0"
-            y1="0"
-            x2="0"
-            y2="4"
-            stroke={HAIRLINE}
-            strokeWidth="1.5"
-          />
-        </Pattern>
-      </Defs>
-      <Rect width="100%" height="100%" fill="url(#vesselHatch)" />
+      <Stripes width={width} color={HAIRLINE} />
     </Svg>
   );
 }
 
 /**
- * The money out of reach: honey stripes over a faint honey wash, drawn
- * `width` wide and still while the clip around it moves.
+ * The money out of reach: stripes over a faint wash, honey while the
+ * primary is away and dust while it is held back, drawn `width` wide and
+ * still while the clip around it moves.
  */
 function AwayArt({
   width,
@@ -511,26 +537,8 @@ function AwayArt({
   const tone = AWAY_TONES[reach];
   return (
     <Svg width={width} height={ART_HEIGHT}>
-      <Defs>
-        <Pattern
-          id="vesselAway"
-          patternUnits="userSpaceOnUse"
-          width={AWAY_HATCH}
-          height={AWAY_HATCH}
-          patternTransform="rotate(45)"
-        >
-          <Line
-            x1="0"
-            y1="0"
-            x2="0"
-            y2={AWAY_HATCH}
-            stroke={tone.stroke}
-            strokeWidth="1.5"
-          />
-        </Pattern>
-      </Defs>
       <Rect width="100%" height="100%" fill={tone.wash} />
-      <Rect width="100%" height="100%" fill="url(#vesselAway)" />
+      <Stripes width={width} color={tone.stroke} />
     </Svg>
   );
 }
