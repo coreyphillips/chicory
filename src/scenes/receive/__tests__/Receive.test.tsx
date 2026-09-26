@@ -52,12 +52,13 @@ import {
 import { CONTROL as SEND_CONTROL } from '../../send/Controls';
 import { BANG, DrawnGlyph } from '../../send/DrawnGlyph';
 import { Unplugged } from '../../send/LoopingGlyphs';
-import { quietRing } from '../controls';
+import { CONTROL_ROW, quietRing } from '../controls';
 import { ReceiveHostContext, slotRoom } from '../host';
 import { Spin } from '../loops';
 import { CELEBRATION, receiveRefusal, requestFace } from '../model';
 import { ReceiveScene } from '../ReceiveScene';
 import { ACTIVITY, RequestStep } from '../RequestStep';
+import { SIGN } from '../QuoteStep';
 
 /**
  * Receive's accessibility, feedback and look (REDESIGN.md 6 and 9), driven
@@ -677,6 +678,50 @@ describe('the amount step', () => {
     await act(async () => tree.unmount());
   });
 
+  test('keeps the way on at one height from step to step, as Send does', async () => {
+    // Continue sat at about 750pt, the quote's create at 398 and the
+    // request's controls at 574 (P10, 18, 38 and 39).
+    const ROOM = 600;
+    const tree = await mount(
+      <ReceiveHostContext.Provider value={{ useBack: noop, room: ROOM }}>
+        <ReceiveScreen
+          client={clientOf()}
+          receivableSats={10_000}
+          onActivity={noop}
+          onBusy={noop}
+        />
+      </ReceiveHostContext.Provider>,
+    );
+    /**
+     * Where the control labelled `label` sits: in the row every step keeps
+     * its way on in, as the last thing in a step `ROOM` tall at least.
+     */
+    const place = (label: string) => {
+      const control = find(tree, label)!;
+      let row = control.parent!;
+      while (StyleSheet.flatten(row.props.style)?.minHeight !== CONTROL_ROW) {
+        row = row.parent!;
+      }
+      let step = row.parent!;
+      while (typeof step.type !== 'string') step = step.parent!;
+      const kids = step.children as ReactTestInstance[];
+      const style = StyleSheet.flatten(step.props.style);
+      return {
+        last: kids[kids.length - 1].findAll(node => node === row).length > 0,
+        room: style.height ?? style.minHeight,
+        centred: StyleSheet.flatten(row.props.style).alignItems,
+      };
+    };
+    const pinned = { last: true, room: ROOM, centred: 'center' };
+    expect(place(copy.receive.continue)).toEqual(pinned);
+    await toQuote(tree);
+    expect(place(copy.receive.create)).toEqual(pinned);
+    await tap(tree, copy.receive.create);
+    expect(place(copy.receive.createAnother)).toEqual(pinned);
+    expect(CONTROL_ROW).toBe(SEND_CONTROL + 16);
+    await act(async () => tree.unmount());
+  });
+
   test('without room, as alone, takes the height it needs', async () => {
     const tree = await screen(clientOf());
     expect(pinnedHeight(tree)).toBeUndefined();
@@ -892,19 +937,30 @@ describe('the quote', () => {
       'text',
       'text',
     ]);
-    // A glyph column, then a sign column, then the value, each line started
-    // at the same edge.
+    // A glyph column, then an operator column of one width, then the value
+    // set right in tabular figures, so the sums line up by place (P10,
+    // 38-c3-quote, where "− 0 sats" and "= 20,000 sats" sat left-aligned).
     const columns = lines.map(line => {
-      const [glyph, sign] = line.children as ReactTestInstance[];
+      const [glyph, sign, value] = line.children as ReactTestInstance[];
+      const figures = StyleSheet.flatten(value.props.style);
       return [
         StyleSheet.flatten(glyph.props.style).width,
-        StyleSheet.flatten(sign.props.style).minWidth,
+        StyleSheet.flatten(sign.props.style).width,
+        figures.textAlign,
+        figures.flexGrow,
+        figures.fontVariant,
       ];
     });
     expect(columns).toEqual([
-      [24, 16],
-      [24, 16],
+      [24, SIGN, 'right', 1, ['tabular-nums']],
+      [24, SIGN, 'right', 1, ['tabular-nums']],
     ]);
+    // Every line as wide as the widest, so the values end at one edge.
+    let both = lines[0].parent!;
+    while (!both.findAll(node => node === lines[1]).length) {
+      both = both.parent!;
+    }
+    expect(StyleSheet.flatten(both.props.style).alignItems).toBe('stretch');
     await act(async () => tree.unmount());
   });
 
@@ -1217,6 +1273,7 @@ describe('the celebration', () => {
     // The card goes once the bands have set off and it has faded.
     expect(QR_CARD_GONE).toBe(QR_TIMING.step * BANDS + QR_TIMING.dissolve);
     expect(CELEBRATION.track.delay).toBeGreaterThanOrEqual(QR_CARD_GONE);
+
     const opacity = async (celebrate: boolean) => {
       const tree = await mount(
         <ReceiveReceipt

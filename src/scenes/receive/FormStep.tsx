@@ -9,7 +9,13 @@ import { useLaunchLanding } from '../../stage/panes/Launch';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { radius, space, type as typography } from '../../theme';
 import { AmountCue, AmountFace } from './AmountCue';
-import { CONTROL, ErrorPip, GlyphButton, TARGET } from './controls';
+import {
+  CONTROL,
+  CONTROL_ROW,
+  ErrorPip,
+  GlyphButton,
+  TARGET,
+} from './controls';
 import type { Focus } from './focus';
 import { useReceiveHost } from './host';
 import type { AmountCue as Cue, Refused } from './model';
@@ -257,5 +263,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
+    minHeight: CONTROL_ROW,
   },
 });

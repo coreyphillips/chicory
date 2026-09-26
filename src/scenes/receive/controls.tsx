@@ -41,6 +41,17 @@ export const CONTROL = 88;
 /** The least a finger is given to press or hold (REDESIGN.md 3.4). */
 export const TARGET = 48;
 
+/** The quote's expiry ring, just outside the way on. */
+export const RING = CONTROL + 16;
+
+/**
+ * The row the way on sits in, at the bottom of every step: as tall as the
+ * quote's ring, so the way on's centre is at one height from the amount to
+ * the quote to the request, and the thumb stays where it was (P10, where it
+ * jumped from about 750pt to 398 to 574).
+ */
+export const CONTROL_ROW = RING;
+
 /** How long refresh takes to turn once as it arrives (REDESIGN.md 4). */
 const TURN_MS = 500;
 
