@@ -33,11 +33,21 @@ import { space } from '../theme';
 import type { Unit } from '../theme';
 
 /**
- * What arrived for a request (REDESIGN.md 5 and 6): a sage ring that is full
- * when the payment is complete, split into what arrived over what was asked
- * when only part of it has, and an orbit while it confirms on chain; the
- * amount that arrived under it; and for a Bitcoin receipt, each transaction
- * as a chip with a small ring that closes once it confirms.
+ * The mark a receipt lands on, Send's result's size (REDESIGN.md 5 and 6),
+ * which a paid code's card contracts into.
+ */
+export const RECEIPT_MARK = 120;
+
+/**
+ * What arrived for a request (REDESIGN.md 5 and 6): a mark that is a cream
+ * disc with an ink check and a sage rim when the payment is complete, as
+ * Send's done disc is, a sage arc of what arrived over what was asked when
+ * only part of it has, and an orbit while it confirms on chain; the amount
+ * that arrived under it; and for a Bitcoin receipt, each transaction as a
+ * chip with a small ring that closes once it confirms.
+ *
+ * `room` is the square the request's code filled: the mark sits at its
+ * centre, where the code's card lands, with the amount under it.
  *
  * `celebrate` plays the arrival the first time it is seen: the ring draws,
  * the amount counts up, and a completed payment draws its check and bursts
@@ -59,6 +69,7 @@ export function ReceiveReceipt({
   celebrate = false,
   bare = false,
   size = 96,
+  room,
   focusRef,
 }: {
   status: ReceiveStatus;
@@ -69,8 +80,10 @@ export function ReceiveReceipt({
   celebrate?: boolean;
   /** No ring and no amount of its own, under a header that has them. */
   bare?: boolean;
-  /** The ring's size, the same as the code it replaces. */
+  /** The mark's size. */
   size?: number;
+  /** The square the request's code filled, whose centre the mark takes. */
+  room?: number;
   /** Where a screen reader's focus is sent to hear what arrived. */
   focusRef?: Focus;
 }) {
@@ -207,7 +220,13 @@ export function ReceiveReceipt({
               }
             : undefined
         }
-        style={styles.head}
+        style={[
+          styles.head,
+          room !== undefined && {
+            minHeight: room,
+            paddingTop: Math.max(0, (room - size) / 2),
+          },
+        ]}
       >
         <Ring
           size={size}
@@ -226,7 +245,7 @@ export function ReceiveReceipt({
             sats={counted}
             unit={unit}
             masked={hidden}
-            variant={celebrate ? 'amountDetail' : 'line'}
+            variant={celebrate ? 'amount' : 'line'}
             color={completed ? palette.sage : palette.cream}
             sign="+"
             duration={play ? CELEBRATION.count.duration : undefined}
@@ -250,7 +269,8 @@ export function ReceiveReceipt({
   );
 }
 
-const STROKE = 4;
+/** The mark's rim: Send's 5 on its 120pt mark, and in step with it smaller. */
+const rimOf = (size: number) => Math.max(2.5, Math.round((size / 24) * 2) / 2);
 
 function Ring({
   size,
@@ -333,32 +353,47 @@ function Ring({
     };
   }, [completed, play, check, burst]);
 
-  const stroke = size >= 96 ? STROKE : 2.5;
+  const stroke = rimOf(size);
   const c = size / 2;
-  const r = c - stroke;
+  // On the mark's edge, as Send's result ring is and the sage arc is.
+  const r = c - stroke / 2;
   const around = 2 * Math.PI * r;
-  const glyph = Math.round(size * 0.36);
+  // Send's check is 56 on its 120pt disc; the other glyphs a little less.
+  const glyph = Math.round(size * (completed ? 0.47 : 0.37));
   const box = { width: size, height: size };
   const sage = (
     <DrawnArc size={size} stroke={stroke} color={palette.sage} share={arc} />
   );
   return (
     <View style={box}>
-      <Reanimated.View
-        testID="receipt-track"
-        style={[StyleSheet.absoluteFill, trackStyle]}
-      >
-        <Svg width={size} height={size}>
-          <Circle
-            cx={c}
-            cy={c}
-            r={r}
-            fill="none"
-            stroke={palette.husk}
-            strokeWidth={stroke}
-          />
-        </Svg>
-      </Reanimated.View>
+      {/* Done, it is Send's done disc, cream with an ink check, rimmed in
+          sage for money that came in. It is there from the start, under the
+          code's card, which lands on it and hands over (P10, 42-c3). */}
+      {completed ? (
+        <View
+          testID="receipt-disc"
+          style={[styles.disc, { borderRadius: size / 2 }]}
+        />
+      ) : null}
+      {/* The disc is its own ground when done; a husk track under the rim
+          would read as a dark outline on the cream while the rim draws. */}
+      {completed ? null : (
+        <Reanimated.View
+          testID="receipt-track"
+          style={[StyleSheet.absoluteFill, trackStyle]}
+        >
+          <Svg width={size} height={size}>
+            <Circle
+              cx={c}
+              cy={c}
+              r={r}
+              fill="none"
+              stroke={palette.husk}
+              strokeWidth={stroke}
+            />
+          </Svg>
+        </Reanimated.View>
+      )}
       <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
         {kind === 'split' ? (
           <Circle
@@ -387,7 +422,7 @@ function Ring({
           <DrawnGlyph
             name="check"
             size={glyph}
-            color={palette.sage}
+            color={palette.ink}
             progress={check}
           />
         ) : (
@@ -510,6 +545,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   petal: { position: 'absolute' },
+  disc: { ...StyleSheet.absoluteFill, backgroundColor: palette.cream },
   tx: {
     flexDirection: 'row',
     alignItems: 'center',

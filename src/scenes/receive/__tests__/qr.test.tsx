@@ -5,11 +5,14 @@ import Svg from 'react-native-svg';
 import {
   BANDS,
   FINDERS,
+  QR_CARD_GONE,
   QR_QUIET,
   QR_TIMING,
   QrBloom,
   bloomMotion,
   layerMotion,
+  leaveMs,
+  paidCard,
   qrGrid,
   qrLayers,
   qrModules,
@@ -281,6 +284,46 @@ describe('working a code out', () => {
     // Leaving is as it was: an implosion or a dissolve waits for nothing.
     for (const state of ['paid', 'expired', 'scattered'] as const) {
       expect(bloomMotion(2, state, 400)).toEqual(layerMotion(2, state));
+    }
+  });
+});
+
+describe('a paid code', () => {
+  test('leaves no module behind once its card has gone', () => {
+    // Faint module rings lingered inside the ring for about 5 frames after
+    // the card had gone (P10, 42-c3 frames 206-210).
+    for (let layer = 0; layer <= FINDERS; layer++) {
+      const motion = layerMotion(layer, 'paid');
+      expect(motion.delay + motion.duration).toBeLessThanOrEqual(QR_CARD_GONE);
+      expect(motion).toMatchObject({ opacity: 0, scale: 0.2 });
+    }
+    expect(leaveMs('paid')).toBe(QR_CARD_GONE);
+    // The bands go from the centre out, and the finders at once, before the
+    // card's corners round away from them.
+    const delays = Array.from(
+      { length: BANDS },
+      (_, band) => layerMotion(band, 'paid').delay,
+    );
+    expect(delays).toEqual([...delays].sort((a, b) => a - b));
+    expect(new Set(delays).size).toBe(BANDS);
+    expect(layerMotion(FINDERS, 'paid').delay).toBe(0);
+  });
+
+  test('contracts its card onto the disc it lands on, a circle at the end', () => {
+    for (const side of SIDES) {
+      const start = paidCard(0, side, 120, radius.qr);
+      expect(start).toEqual({ scale: 1, radius: radius.qr });
+      const end = paidCard(1, side, 120, radius.qr);
+      // Its side times its scale is the disc's, and its corner half its own
+      // side: a circle 120 across.
+      expect(side * end.scale).toBeCloseTo(120, 6);
+      expect(end.radius).toBe(side / 2);
+      // Never larger than it was, never smaller than the disc, on the way.
+      for (const c of [0.25, 0.5, 0.75]) {
+        const pose = paidCard(c, side, 120, radius.qr);
+        expect(side * pose.scale).toBeLessThanOrEqual(side);
+        expect(side * pose.scale).toBeGreaterThanOrEqual(120);
+      }
     }
   });
 });

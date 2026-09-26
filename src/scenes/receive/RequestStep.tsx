@@ -8,7 +8,7 @@ import Reanimated, {
   withTiming,
 } from 'react-native-reanimated';
 import type { ReceiveRequest, ReceiveStatus } from '@beignet/wallet-core';
-import { ReceiveReceipt } from '../../components/ReceiveReceipt';
+import { RECEIPT_MARK, ReceiveReceipt } from '../../components/ReceiveReceipt';
 import { copy } from '../../design/copy';
 import { Glyph, HISTORY_GLYPH } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
@@ -56,7 +56,10 @@ export const frameSide = (qr: number) => qr + RING_GAP * 2;
  *
  * An expired request dissolves and a reused address scatters, and either
  * way share and copy go, leaving plus as the way on. Money arriving implodes
- * the code into the receipt's ring where it stood.
+ * the code, its cream card contracting and rounding onto the receipt's
+ * 120pt mark at the code's centre, Send's done disc, with the amount under
+ * it (P10, 42-c3: the code had faded as a flat taupe square onto a 275pt
+ * ring). The mark is under the card, so the card lands on it and hands over.
  *
  * In the scene (`room`) the controls are pinned to the bottom of the step,
  * in the row the amount and the quote keep theirs in, so the thumb stays
@@ -121,7 +124,27 @@ export function RequestStep({
     <View style={[styles.request, room !== undefined && { minHeight: room }]}>
       <View style={styles.body}>
         <View style={styles.stage}>
-          <View style={receipt ? styles.over : undefined}>
+          {/* Under the code, so the card lands on the mark and hands over. The
+            keys keep the code the same code as the receipt arrives before
+            it, so it implodes rather than mounting again. */}
+          {receipt ? (
+            <ReceiveReceipt
+              key="receipt"
+              status={receipt}
+              amountSats={request.amountSats}
+              hidden={hidden}
+              unit={unit}
+              celebrate
+              size={RECEIPT_MARK}
+              room={side}
+              focusRef={focus}
+            />
+          ) : null}
+          <View
+            key="code"
+            pointerEvents="box-none"
+            style={receipt ? styles.over : undefined}
+          >
             <View style={[styles.frame, { width: side, height: side }]}>
               {/* Kept through expiry, so the ring can collapse as it ends. */}
               {face.qr === 'shown' || face.qr === 'expired' ? (
@@ -143,6 +166,7 @@ export function RequestStep({
                 ref={qrFocus}
                 value={request.uri}
                 size={qr}
+                lands={RECEIPT_MARK}
                 state={face.qr}
                 onPress={face.shareable ? onLift : undefined}
                 onLongPress={face.shareable ? onCopy : undefined}
@@ -173,18 +197,9 @@ export function RequestStep({
               ) : null}
             </View>
           </View>
-          {receipt ? (
-            <ReceiveReceipt
-              status={receipt}
-              amountSats={request.amountSats}
-              hidden={hidden}
-              unit={unit}
-              celebrate
-              size={side}
-              focusRef={focus}
-            />
-          ) : (
+          {receipt ? null : (
             <About
+              key="about"
               request={request}
               face={face}
               minutesLeft={minutesLeft}

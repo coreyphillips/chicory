@@ -75,7 +75,8 @@ export function DrawnGlyph({
 /**
  * An arc round a circle `size` across, from twelve o'clock clockwise,
  * covering `share` (0 to 1) of it: a ring drawing itself, or growing from
- * one share to another.
+ * one share to another. Its outer edge is the circle's, as Send's result
+ * ring's is.
  */
 export function DrawnArc({
   size,
@@ -89,7 +90,7 @@ export function DrawnArc({
   share: SharedValue<number>;
 }) {
   const c = size / 2;
-  const r = c - stroke;
+  const r = c - stroke / 2;
   const around = 2 * Math.PI * r;
   // One dash as long as the circle, slid back by what is not yet drawn: the
   // offset is a plain number, which the UI thread can set every frame.

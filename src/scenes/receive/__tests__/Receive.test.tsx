@@ -24,7 +24,10 @@ import {
   clearDiagnostics,
   recentDiagnostics,
 } from '../../../services/diagnosticLog';
-import { ReceiveReceipt } from '../../../components/ReceiveReceipt';
+import {
+  RECEIPT_MARK,
+  ReceiveReceipt,
+} from '../../../components/ReceiveReceipt';
 import { ReceiveRequestDetails } from '../../../components/ReceiveRequestDetails';
 import { copy } from '../../../design/copy';
 import { Glyph, HISTORY_GLYPH } from '../../../design/glyphs';
@@ -33,7 +36,12 @@ import { palette } from '../../../design/palette';
 import { CopyChip, chipText } from '../../../glyphs/CopyChip';
 import { ExpiryRing } from '../../../glyphs/ExpiryRing';
 import { Odometer } from '../../../glyphs/Odometer';
-import { BANDS, QR_CARD_GONE, QR_TIMING } from '../../../glyphs/QrBloom';
+import {
+  BANDS,
+  QR_CARD_GONE,
+  QR_TIMING,
+  QrBloom,
+} from '../../../glyphs/QrBloom';
 import * as tokens from '../../../motion/tokens';
 import { ReceiveScreen } from '../../../screens/Receive';
 import type { WalletAdapter } from '../../../services/wallet';
@@ -54,10 +62,11 @@ import { BANG, DrawnGlyph } from '../../send/DrawnGlyph';
 import { Unplugged } from '../../send/LoopingGlyphs';
 import { CONTROL_ROW, quietRing } from '../controls';
 import { ReceiveHostContext, slotRoom } from '../host';
+import { DrawnGlyph as DrawnMark } from '../draw';
 import { Spin } from '../loops';
 import { CELEBRATION, receiveRefusal, requestFace } from '../model';
 import { ReceiveScene } from '../ReceiveScene';
-import { ACTIVITY, RequestStep } from '../RequestStep';
+import { ACTIVITY, RequestStep, frameSide } from '../RequestStep';
 import { SIGN } from '../QuoteStep';
 
 /**
@@ -1273,11 +1282,17 @@ describe('the celebration', () => {
     // The card goes once the bands have set off and it has faded.
     expect(QR_CARD_GONE).toBe(QR_TIMING.step * BANDS + QR_TIMING.dissolve);
     expect(CELEBRATION.track.delay).toBeGreaterThanOrEqual(QR_CARD_GONE);
-
+    expect(CELEBRATION.ring.delay).toBeGreaterThanOrEqual(QR_CARD_GONE);
+    const part: ReceiveStatus = {
+      ...paid,
+      phase: 'partial',
+      receivedSats: 400,
+      confirmedSats: 400,
+    };
     const opacity = async (celebrate: boolean) => {
       const tree = await mount(
         <ReceiveReceipt
-          status={paid}
+          status={part}
           amountSats={1000}
           celebrate={celebrate}
         />,
@@ -1292,8 +1307,105 @@ describe('the celebration', () => {
       return shown;
     };
     expect(await opacity(true)).toBe(0);
-    // A still receipt, as a payment's detail keeps it, has its track.
+    // A still receipt has its track.
     expect(await opacity(false)).toBe(1);
+  });
+
+  test("lands on a 120pt cream disc with an ink check, as Send's result, the amount under it", async () => {
+    // It rested on a 275pt sage outline, the code's size, with a 65pt check
+    // lost in it (P10, 42-c3-received).
+    expect(RECEIPT_MARK).toBe(120);
+    const room = frameSide(264);
+    const tree = await mount(
+      <ReceiveReceipt
+        status={paid}
+        amountSats={1000}
+        celebrate
+        size={RECEIPT_MARK}
+        room={room}
+      />,
+    );
+    const [disc] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'receipt-disc',
+    );
+    expect(StyleSheet.flatten(disc.props.style)).toMatchObject({
+      backgroundColor: palette.cream,
+      borderRadius: RECEIPT_MARK / 2,
+    });
+    // Done is its own ground: no husk track under the rim.
+    expect(
+      tree.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.testID === 'receipt-track',
+      ),
+    ).toHaveLength(0);
+    const check = tree.root
+      .findAllByType(DrawnMark)
+      .find(glyph => glyph.props.name === 'check')!;
+    expect(check.props).toMatchObject({ color: palette.ink, size: 56 });
+    // The mark's centre is the code's centre, where the card lands.
+    const [head] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel?.startsWith(copy.receive.received),
+    );
+    expect(StyleSheet.flatten(head.props.style)).toMatchObject({
+      minHeight: room,
+      paddingTop: (room - RECEIPT_MARK) / 2,
+    });
+    // The amount under it at Send's 48pt, in sage.
+    const [amount] = tree.root
+      .findAllByType(Odometer)
+      .filter(odometer => odometer.props.sign === '+');
+    expect(amount.props).toMatchObject({
+      variant: 'amount',
+      color: palette.sage,
+    });
+    await act(async () => tree.unmount());
+  });
+
+  test('keeps the code over the mark it lands on, and tells it where', async () => {
+    const request = requestOf();
+    const tree = await mount(
+      <RequestStep
+        request={request}
+        createdAt={Date.now()}
+        face={requestFace({
+          request,
+          now: Date.now(),
+          paid: true,
+          ambiguous: false,
+          createdAt: Date.now(),
+        })}
+        minutesLeft={10}
+        receipt={paid}
+        hidden={false}
+        unit="sats"
+        qr={264}
+        error={null}
+        onLift={noop}
+        onCopy={noop}
+        copies={0}
+        onShare={noop}
+        onAgain={noop}
+        onActivity={noop}
+        focus={{ current: null }}
+      />,
+    );
+    // QrBloom is a memo: its function is drawn.
+    const drawnCode = (QrBloom as unknown as { type: React.ComponentType })
+      .type;
+    const code = tree.root.findByType(drawnCode);
+    expect(code.props).toMatchObject({ state: 'paid', lands: RECEIPT_MARK });
+    // Drawn after the receipt, so over it: the card covers the disc until
+    // it has landed on it.
+    const order = tree.root
+      .findAll(node => node.type === drawnCode || node.type === ReceiveReceipt)
+      .map(node => (node.type === drawnCode ? 'code' : 'receipt'));
+    expect(order).toEqual(['receipt', 'code']);
+    await act(async () => tree.unmount());
   });
 
   test('offers the list with a glyph that does not say money is still moving', async () => {

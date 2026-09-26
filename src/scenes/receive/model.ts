@@ -305,13 +305,14 @@ export function receiptTransactions(
 
 /**
  * The received celebration (REDESIGN.md 5), in ms from the moment money is
- * seen: the code implodes at once, the sage ring draws, the amount counts
- * up, and a completed payment draws its check and bursts its petals. The
- * ring's husk track waits for the code's cream card to go, so no dark ring
- * cuts across the code while it implodes; the sage arc draws over the cream.
+ * seen: the code implodes at once as its card contracts onto the receipt's
+ * mark, the amount counts up, the sage ring draws round the mark once the
+ * card has landed on it, and a completed payment draws its check and bursts
+ * its petals. The ring and its husk track wait for the code's card to go, so
+ * no dark ring cuts across the code while it implodes.
  */
 export const CELEBRATION = {
-  ring: { delay: 120, duration: 480 },
+  ring: { delay: QR_CARD_GONE, duration: 480 },
   track: { delay: QR_CARD_GONE, duration: 220 },
   count: { delay: 200, duration: 700 },
   check: { delay: 600, duration: 420 },
