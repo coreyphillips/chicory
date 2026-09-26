@@ -294,6 +294,11 @@ const vessels: Shot[] = [
       pendingSats: pendingSats - 7_500,
     }),
   ]),
+  // The pill swells from its hairline with its hatch drawn full height.
+  changing('vessel, swelling into money out of reach', () => [
+    vessel({}, { availableSats: totalSats, pendingSats: 0 }),
+    vessel({}, { availableSats: 28_929, pendingSats: 0, totalSats: 120_963 }),
+  ]),
   changing('vessel, a wait that changes', () => [
     vessel({}),
     vessel(decided('wait', 'fee-too-high')),
