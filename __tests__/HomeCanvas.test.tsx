@@ -15,6 +15,9 @@ import { BackupTile } from '../src/scenes/home/BackupTile';
 import { StatusRow } from '../src/scenes/home/StatusRow';
 import {
   LANDED_PT,
+  MINI_IN_BAND,
+  MINI_IN_ROW,
+  figureShown,
   glyphMorph,
   landedAt,
   launchPose,
@@ -210,15 +213,30 @@ const circles = (tree: ReactTestRenderer) =>
 describe('the mini strip', () => {
   const odometers = (tree: ReactTestRenderer) =>
     tree.root.findByType(HomeScreen).findAllByType(Odometer);
+  /** The figure the hero shows, of the two it keeps in one place. */
+  const seen = (tree: ReactTestRenderer) => {
+    const drawn = ['home-total', 'home-spendable'].filter(
+      id => flat(byTestID(tree, id)[0]).opacity !== 0,
+    );
+    expect(drawn).toHaveLength(1);
+    return byTestID(tree, drawn[0])[0].findByType(Odometer);
+  };
 
   test('is the hero itself, one element all the way, its unit readable', async () => {
     // The device pass (P10): a second odometer crossfaded in over the hero,
     // 8 to 12pt off it and rolling on a clock of its own, so for six frames
-    // two balances showed.
+    // two balances showed. The total and what can be spent are both drawn
+    // in the hero's one place, under its one scale, and only one is seen.
     const tree = await mount(<HomeAt hero={0} bar={0} />);
     const shown = odometers(tree);
-    expect(shown).toHaveLength(1);
-    expect(shown[0].props.variant).toBe('hero');
+    expect(shown).toHaveLength(2);
+    for (const odometer of shown) {
+      expect(odometer.props.variant).toBe('hero');
+      expect(
+        byTestID(tree, 'home-figures')[0].findAllByType(Odometer),
+      ).toContain(odometer);
+    }
+    expect(seen(tree)).toBe(shown[0]);
     expect(byTestID(tree, 'home-strip')).toEqual([]);
     // Shrunk to a third, its unit is grown back to its 15pt.
     const unit = shown[0].find(
@@ -273,15 +291,16 @@ describe('the mini strip', () => {
     const rolls = (to: number) =>
       timings.mock.calls.filter(([value]) => value === to).length;
     const tree = await mount(home(false));
-    expect(odometers(tree)[0].props.sats).toBe(read.balance.totalSats);
+    expect(seen(tree).props.sats).toBe(read.balance.totalSats);
     // Opening Send: what can be spent, in place. It never rolls down from
     // the total, which reads as money leaving.
     timings.mockClear();
     await act(async () => tree.update(home(true)));
-    expect(odometers(tree)[0].props.sats).toBe(read.balance.availableSats);
+    expect(seen(tree).props.sats).toBe(read.balance.availableSats);
     expect(rolls(read.balance.availableSats)).toBe(0);
     // Back home: the total again, in place, never rolling up.
     await act(async () => tree.update(home(false)));
+    expect(seen(tree).props.sats).toBe(read.balance.totalSats);
     expect(rolls(read.balance.totalSats)).toBe(0);
     // Money that moves rolls.
     const paid = snapshotOf({
@@ -296,6 +315,25 @@ describe('the mini strip', () => {
 });
 
 describe('the hero', () => {
+  test('changes figure under the move, never before it starts or once it has landed', () => {
+    // The device pass (P12): the full hero swapped 123,963 to 122,433 a
+    // frame before anything moved, reading as a drop, and coming back the
+    // strip swapped to the total while Send was still drawn whole.
+    const at = (hero: number, landing = MINI_IN_BAND) => ({ hero, landing });
+    // T1: the frame the scene is drawn, nothing has moved yet.
+    expect(figureShown(0, 1, at(1, MINI_IN_ROW), null)).toBe(0);
+    expect(figureShown(0, 1, at(1, MINI_IN_ROW), at(1, MINI_IN_ROW))).toBe(0);
+    // The first frame the hero shrinks, what can be spent.
+    expect(figureShown(0, 1, at(0.98), at(1, MINI_IN_ROW))).toBe(1);
+    // Coming back, the strip keeps what can be spent until it grows.
+    expect(figureShown(1, 0, at(0, MINI_IN_BAND), at(0, MINI_IN_BAND))).toBe(1);
+    expect(figureShown(1, 0, at(0.02, MINI_IN_ROW), at(0))).toBe(0);
+    // From the list to Send the hero stays a strip, and moves to the band.
+    expect(figureShown(0, 1, at(0, -20), at(0, MINI_IN_ROW))).toBe(1);
+    // Once changed, nothing moves it back.
+    expect(figureShown(1, 1, at(0.5), at(0.6))).toBe(1);
+  });
+
   test('keeps its line box when it steps down, so nothing under it moves', async () => {
     const tree = await mount(<HomeAt />);
     const [hero] = byTestID(tree, 'home-hero');

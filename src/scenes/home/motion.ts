@@ -112,6 +112,33 @@ export function heroPose(
   };
 }
 
+/** Where the hero stands in a frame: how far expanded, and where it lands. */
+export interface HeroStand {
+  hero: number;
+  landing: number;
+}
+
+/**
+ * Which of the hero's two figures is drawn, 0 the total and 1 what can be
+ * spent (REDESIGN.md 7, T1): `want` once the move toward it is under way,
+ * which it knows by the hero standing somewhere else this frame, `now`,
+ * than the frame before, and `shown` until then. So the full balance never
+ * changes its figure before anything moves, where it reads as money gone,
+ * and the strip never changes it while the scene it belongs to is still
+ * drawn whole. `before` is null for the first frame looked at.
+ */
+export function figureShown(
+  shown: number,
+  want: number,
+  now: HeroStand,
+  before: HeroStand | null,
+): number {
+  'worklet';
+  if (shown === want || !before) return shown;
+  const moved = now.hero !== before.hero || now.landing !== before.landing;
+  return moved ? want : shown;
+}
+
 /**
  * The vessel under the hero fades over the first .3 of the way to the mini
  * strip (REDESIGN.md 7, T5), so it is gone before the hero has shrunk much.

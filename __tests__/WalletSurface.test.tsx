@@ -228,11 +228,14 @@ test('hiding the balance masks the total, the available line and every row amoun
   );
   expect(visibleText(tree)).toContain('••••••');
   // The hero draws a figure to a cell, so the total is read from its cells:
-  // the mask and the unit, and not one digit.
-  const hero = drawnIn(
-    tree.root.findAll(node => node.props.testID === 'home-hero')[0],
-  );
-  expect(hero).toBe(`${MASK}sats`);
+  // the mask and the unit, and not one digit. So is what can be spent,
+  // which it keeps in the same place for Send and Receive.
+  for (const figure of ['home-total', 'home-spendable']) {
+    const hero = drawnIn(
+      tree.root.findAll(node => node.props.testID === figure)[0],
+    );
+    expect(hero).toBe(`${MASK}sats`);
+  }
   // Not on screen, and not to a screen reader either.
   const everything = allText(tree);
   for (const figure of ['261,500', '250,000', '11,500', '4,200']) {
