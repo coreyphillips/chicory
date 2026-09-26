@@ -233,6 +233,33 @@ export function glyphMorph(
   return 1 + clamp01(m) * (landed - 1);
 }
 
+/** The glyph grid, in units a side. */
+const GRID = 24;
+
+/**
+ * The stroke, in grid units, that draws the tapped circle's glyph `points`
+ * wide `m` of the way to the control: counter-scaled against both its growth
+ * into the control's glyph (`glyphMorph`) and the circle's own growth from
+ * `size` into the control, drawn at `scale`, which it travels with. So its
+ * line keeps the weight it is meant to have all the way, rather than
+ * swelling with the circle to twice the control's and thinning as it hands
+ * over. `glyph` and `to` are as for `glyphMorph`.
+ */
+export function glyphStroke(
+  m: number,
+  points: number,
+  glyph: number,
+  size: number,
+  to: number,
+  scale: number,
+): number {
+  'worklet';
+  const t = clamp01(m);
+  const grown = 1 + ((PRIMARY_CONTROL * scale) / size - 1) * t;
+  const drawn = (glyph / GRID) * glyphMorph(t, glyph, size, to) * grown;
+  return drawn > 0 ? points / drawn : 0;
+}
+
 /**
  * How much of the way the circles not tapped have faded by: two thirds,
  * which the pane spring reaches at about 140ms (REDESIGN.md 7, T1).

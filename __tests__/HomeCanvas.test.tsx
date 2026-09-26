@@ -2,11 +2,13 @@ import React from 'react';
 import { Dimensions, PixelRatio, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Reanimated from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../src/design/copy';
+import { GLYPHS, strokeFor } from '../src/design/glyphs';
 import { palette } from '../src/design/palette';
 import { Bloom } from '../src/glyphs/Bloom';
 import { HERO_SIZES, Odometer, unitScaleFor } from '../src/glyphs/Odometer';
@@ -20,6 +22,7 @@ import {
   MINI_IN_ROW,
   figureShown,
   glyphMorph,
+  glyphStroke,
   landedAt,
   launchPose,
   launchTravel,
@@ -593,6 +596,77 @@ describe('the circle becomes the control it lands on', () => {
     const held = launchLook('receive', { live: false, test: false });
     const landed = launchPose(1, true, 'receive', 0, 0, 88 * held.scale);
     expect(landed.scale * 56).toBeCloseTo(88 * 0.94);
+  });
+
+  test('its glyph keeps the weight of its line all the way, the control’s once it is the control', () => {
+    // The device pass (P12): the arrow grew with the circle, 56 to 88, to
+    // a 2.9pt line, and thinned to the control's as it handed over.
+    for (const look of [
+      launchLook('send', { live: true, test: false }),
+      launchLook('receive', { live: false, test: false }),
+    ]) {
+      const home = strokeFor(24);
+      const control = (strokeFor(look.glyph) * look.glyph * look.scale) / 24;
+      for (let away = 0; away <= 1; away += 0.05) {
+        // Points a grid unit is drawn at, as the glyph grows toward the
+        // control's and the circle grows into it, `m` of the way there.
+        const m = launchTravel(away);
+        const pose = launchPose(away, true, 'send', 0, 0, 88 * look.scale);
+        const drawn = glyphMorph(m, 24, 56, look.glyph) * pose.scale;
+        expect(
+          glyphStroke(m, control, 24, 56, look.glyph, look.scale) * drawn,
+        ).toBeCloseTo(control);
+        expect(
+          glyphStroke(m, home, 24, 56, look.glyph, look.scale) * drawn,
+        ).toBeCloseTo(home);
+      }
+      // Landed, it is drawn with the control's own stroke at the control's
+      // own size: its twin.
+      expect(
+        glyphStroke(1, control, 24, 56, look.glyph, look.scale),
+      ).toBeCloseTo(strokeFor(look.glyph));
+    }
+  });
+
+  test('the travelling circle draws its glyph with that line, not scaled from its own', async () => {
+    const look = launchLook('send', { live: true, test: false });
+    function Travelling({ m }: { m: number }) {
+      const toward = Reanimated.useSharedValue(m);
+      return (
+        <ActionCircle
+          glyph="send"
+          size={56}
+          label="Send"
+          hint=""
+          stale={false}
+          morph={{ look, toward }}
+        />
+      );
+    }
+    const tree = await mount(<Travelling m={1} />);
+    // Not the grid's glyph scaled up with the circle, whose line swells
+    // with it, but its strokes drawn with a line of their own
+    // (`glyphStroke`): its own glyph and the control's over it.
+    const drawings = tree.root.findAllByType(Svg);
+    const send = GLYPHS.send.map(part => part.d);
+    expect(
+      drawings.map(svg => svg.findAllByType(Path).map(path => path.props.d)),
+    ).toEqual([send, send]);
+    for (const svg of drawings) expect(svg.props.strokeWidth).toBeUndefined();
+    // At rest, with nowhere to go, it is the grid's glyph.
+    const resting = await mount(
+      <ActionCircle
+        glyph="send"
+        size={56}
+        label="Send"
+        hint=""
+        stale={false}
+      />,
+    );
+    const [still] = resting.root.findAllByType(Svg);
+    expect(still.props.strokeWidth).toBe(strokeFor(24));
+    await act(async () => tree.unmount());
+    await act(async () => resting.unmount());
   });
 
   test("the look is the one Send's and Receive's controls draw", async () => {
