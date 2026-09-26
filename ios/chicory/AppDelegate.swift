@@ -16,6 +16,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   var reactNativeDelegate: ReactNativeDelegate?
   var reactNativeFactory: RCTReactNativeFactory?
 
+  /// The privacy cover while it is up (REDESIGN.md 6, app switcher).
+  private var privacyCover: UIView?
+  /// The cover stood aside as the app went inactive for a prompt it raised.
+  private var skippedForPrompt = false
+
   func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -54,6 +59,60 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     window?.rootViewController?.view.backgroundColor = roast
 
     return true
+  }
+
+  // The privacy cover (REDESIGN.md 6, app switcher). iOS starts the app
+  // switcher's animation from a picture it takes as the app goes inactive,
+  // before React can draw its own cover, so the balance showed in the
+  // outgoing card. A plain roast view put over the window in this same call
+  // is in that picture. Behind a prompt the app raised itself (paste, the
+  // camera, Face ID) the screen stays, so the person sees what they are
+  // answering for, and over the lock, which shows nothing of the wallet, its
+  // bud stays in view behind Face ID. JavaScript says when, through
+  // PrivacyCover.
+  func applicationWillResignActive(_ application: UIApplication) {
+    if PrivacyCover.systemPromptOpen {
+      skippedForPrompt = true
+      return
+    }
+    if PrivacyCover.lockShown {
+      return
+    }
+    showPrivacyCover()
+  }
+
+  // No prompt outlasts going to the background, so the cover is up there
+  // whatever JavaScript said.
+  func applicationDidEnterBackground(_ application: UIApplication) {
+    showPrivacyCover()
+  }
+
+  // A prompt answered has done its work, so the flag is let go at once
+  // rather than after JavaScript's settle: a switch away just after it, with
+  // a recovery phrase on screen, is covered.
+  func applicationDidBecomeActive(_ application: UIApplication) {
+    privacyCover?.removeFromSuperview()
+    privacyCover = nil
+    if skippedForPrompt {
+      skippedForPrompt = false
+      PrivacyCover.promptAnswered()
+    }
+  }
+
+  /// Over everything in the window, at once: nothing fades that the switcher
+  /// could catch half drawn.
+  private func showPrivacyCover() {
+    guard let window = window else { return }
+    if let cover = privacyCover {
+      window.bringSubviewToFront(cover)
+      return
+    }
+    let cover = UIView(frame: window.bounds)
+    cover.backgroundColor = roast
+    cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    cover.accessibilityElementsHidden = true
+    window.addSubview(cover)
+    privacyCover = cover
   }
 
   // A payment link opened while the app runs reaches React Native's Linking,

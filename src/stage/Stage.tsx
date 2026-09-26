@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -8,6 +9,7 @@ import React, {
 import type { ReactNode } from 'react';
 import {
   AppState,
+  Platform,
   RefreshControl,
   StatusBar,
   StyleSheet,
@@ -52,6 +54,7 @@ import { SceneSlot } from './panes/SceneSlot';
 import { backupPending, walletOpen } from './phase';
 import type { Phase } from './phase';
 import type { Arrival } from './layout';
+import { tellLockShown } from './nativeCover';
 import { systemPromptOpen } from './systemPrompt';
 import { useBackHandler } from './useBackHandler';
 import { useStage } from './StageContext';
@@ -154,6 +157,15 @@ export function Stage({
   const { reduced } = useMotionPrefs();
   const awake = useAppActive();
   const covered = usePrivacyCover();
+  // iOS's native privacy cover leaves the lock in view as the stage's cover
+  // does (`nativeCover`), so its bud stays behind the lock's own Face ID
+  // prompt. It is told as the lock is committed, and as the lock goes,
+  // before the wallet under it is drawn.
+  useLayoutEffect(() => {
+    if (!locked) return;
+    tellLockShown(true);
+    return () => tellLockShown(false);
+  }, [locked]);
 
   // Decoration wakes with anything worth seeing (REDESIGN.md 3.5): a touch
   // anywhere under the root view, which carries `wakeOnTouch`, the app
@@ -432,10 +444,15 @@ export function Stage({
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
             >
-              <Bloom
-                size={SIZES.loader}
-                tone={bloomTone(activeProfile.network)}
-              />
+              {/* On iOS the native cover the switcher shows is plain, and
+                  this one is what shows for a moment on the way back, so it
+                  is plain there too: one look, not a step to the mark. */}
+              {Platform.OS === 'ios' ? null : (
+                <Bloom
+                  size={SIZES.loader}
+                  tone={bloomTone(activeProfile.network)}
+                />
+              )}
             </View>
           </LayoutAnimationConfig>
         ) : null}
