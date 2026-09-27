@@ -80,7 +80,7 @@ import { useFlashTint, useHoldTint } from '../stage/StageContext';
 import { duringSystemPrompt } from '../stage/systemPrompt';
 import {
   MASK,
-  amountIn,
+  amountText,
   space,
   statusLabel,
   type as typography,
@@ -94,12 +94,6 @@ export interface SendHandle {
   /** A code the scan overlay read for this Send. */
   receive: (code: string) => void;
 }
-
-/** An amount as the screen shows it, in `unit`, with its suffix. */
-const shownIn = (sats: number, unit: Unit) => {
-  const { value, suffix } = amountIn(sats, unit);
-  return `${value} ${suffix}`;
-};
 
 /** The payment `result` is, once the history shows it. */
 const paymentOf = (
@@ -161,10 +155,11 @@ function quoteExpired(): () => void {
  * the hold's place, and a fresh quote back on the amount; a result or the
  * held ring on its mark; and back in compose, on the amount.
  *
- * Amounts are shown in `unit`, the one the balance is in. While amounts are
- * hidden (`masked`) a result and the held ring show theirs as dots, as the
- * fee paid; a review never does, since it is where the payment is checked
- * before it is sent. A screen reader always hears sats.
+ * Amounts are shown in `unit`, the one the balance is in, and sats as
+ * `₿2,000` when `symbol` is on. While amounts are hidden (`masked`) a result
+ * and the held ring show theirs as dots, as the fee paid; a review never
+ * does, since it is where the payment is checked before it is sent. A screen
+ * reader always hears sats.
  *
  * A payment holds the stage busy for SEND_GRACE_MS at most. One still out
  * after that lets the stage go and moves to the held ring, so Close works
@@ -193,6 +188,7 @@ export function SendScreen({
   onDone,
   masked = false,
   unit = 'sats',
+  symbol = false,
   test = false,
   leaving = false,
   ref,
@@ -218,6 +214,8 @@ export function SendScreen({
   masked?: boolean;
   /** The unit the balance is shown in. */
   unit?: Unit;
+  /** Sats are drawn as `₿2,000` (`unitAffixes`). Entry stays in sats. */
+  symbol?: boolean;
   /** A test network, where slate stands in for bloom throughout. */
   test?: boolean;
   /**
@@ -961,6 +959,7 @@ export function SendScreen({
           <Amount
             sats={result.amountSats}
             unit={unit}
+            symbol={symbol}
             masked={masked}
             color={uncertain ? palette.honey : palette.cream}
           />
@@ -985,7 +984,7 @@ export function SendScreen({
               <Glyph name="question" size={16} color={palette.steam} />
             ) : (
               <Text style={styles.feeText} maxFontSizeMultiplier={LINE_SCALE}>
-                {masked ? MASK : shownIn(result.feeSats, unit)}
+                {masked ? MASK : amountText(result.feeSats, unit, symbol)}
               </Text>
             )}
           </View>
@@ -1035,6 +1034,7 @@ export function SendScreen({
             <Amount
               sats={shown}
               unit={unit}
+              symbol={symbol}
               masked={masked}
               color={paid ? palette.cream : palette.honey}
             />
@@ -1054,7 +1054,12 @@ export function SendScreen({
     content = (
       <>
         <View style={styles.body}>
-          <Amount ref={summary} sats={review.amountSats} unit={unit} />
+          <Amount
+            ref={summary}
+            sats={review.amountSats}
+            unit={unit}
+            symbol={symbol}
+          />
           {review.description ? (
             <Text
               style={styles.note}
@@ -1064,7 +1069,12 @@ export function SendScreen({
               {review.description}
             </Text>
           ) : null}
-          <ReviewLines review={review} unit={unit} spent={spent} />
+          <ReviewLines
+            review={review}
+            unit={unit}
+            symbol={symbol}
+            spent={spent}
+          />
         </View>
         <View style={styles.controls}>
           <View style={[styles.side, styles.start]}>
@@ -1137,6 +1147,7 @@ export function SendScreen({
           busy={busy}
           tone={tone}
           shake={amountShakes}
+          symbol={symbol}
         />
         <View style={styles.controls}>
           <View style={styles.side} />

@@ -1,7 +1,7 @@
 import type { Activity } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import type { GlyphName } from '../../design/glyphs';
-import { btc, number } from '../../theme';
+import { btc, number, unitAffixes } from '../../theme';
 import type { Unit } from '../../theme';
 
 /**
@@ -182,22 +182,25 @@ const BTC_DECIMALS = 8;
  * decimals, the zeros after the last significant one set apart as `dim` to
  * be drawn in dust. So a row in BTC lines up with the hero above it. An
  * amount with no significant decimal at all, a fee of nothing or a whole
- * bitcoin, dims all eight, as the hero does.
+ * bitcoin, dims all eight, as the hero does. With `symbol` on, sats are
+ * `₿` before the figures and no suffix (`unitAffixes`); BTC is unchanged.
  */
 export function figureOf(
   sats: number,
   unit: Unit,
-): { value: string; dim: string; suffix: string } {
-  if (unit === 'sats') return { value: number(sats), dim: '', suffix: 'sats' };
+  symbol = false,
+): { prefix: string; value: string; dim: string; suffix: string } {
+  const affixes = unitAffixes(unit, symbol);
+  if (unit === 'sats') return { ...affixes, value: number(sats), dim: '' };
   const text = btc(sats);
   const [whole, fraction = ''] = text.split('.');
-  if (!/^\d+$/.test(whole)) return { value: text, dim: '', suffix: 'BTC' };
+  if (!/^\d+$/.test(whole)) return { ...affixes, value: text, dim: '' };
   const decimals = fraction.padEnd(BTC_DECIMALS, '0');
   const kept = decimals.replace(/0+$/, '');
   return {
+    ...affixes,
     value: `${whole}.${kept}`,
     dim: decimals.slice(kept.length),
-    suffix: 'BTC',
   };
 }
 

@@ -62,6 +62,7 @@ export function QuoteStep({
   onEdit,
   onBlocked,
   focus,
+  symbol = false,
 }: {
   quote: ReceiveQuote;
   quotedAt: number;
@@ -77,11 +78,16 @@ export function QuoteStep({
   onEdit: () => void;
   onBlocked: () => void;
   focus: Focus;
+  /** Sats are drawn as `₿2,000` (`unitAffixes`). */
+  symbol?: boolean;
 }) {
   const live = usePaneActive();
   const { bloom } = useBloom();
   const test = useTestNetwork();
   const { room } = useReceiveHost();
+  const asked = quote.amountSats
+    ? amountIn(quote.amountSats, 'sats', symbol)
+    : null;
   const glyph = feeGlyph({
     offline,
     feeSats: quote.feeSats,
@@ -114,14 +120,16 @@ export function QuoteStep({
           onPress={live ? onEdit : undefined}
           style={styles.amount}
         >
-          {quote.amountSats ? (
+          {asked ? (
             <>
               <Text style={styles.figure} maxFontSizeMultiplier={1.2}>
-                {amountIn(quote.amountSats, 'sats').value}
+                {`${asked.prefix}${asked.value}`}
               </Text>
-              <Text style={styles.unit} maxFontSizeMultiplier={1.2}>
-                {amountIn(quote.amountSats, 'sats').suffix}
-              </Text>
+              {asked.suffix ? (
+                <Text style={styles.unit} maxFontSizeMultiplier={1.2}>
+                  {asked.suffix}
+                </Text>
+              ) : null}
             </>
           ) : (
             <Glyph name="infinity" size={56} color={palette.cream} />
@@ -145,7 +153,7 @@ export function QuoteStep({
                 −
               </Text>
               <Text style={styles.value} maxFontSizeMultiplier={1.4}>
-                {shownSats(quote.feeSats)}
+                {shownSats(quote.feeSats, symbol)}
               </Text>
             </Reanimated.View>
           </Whisper>
@@ -165,7 +173,7 @@ export function QuoteStep({
                 style={[styles.value, styles.net]}
                 maxFontSizeMultiplier={1.4}
               >
-                {shownSats(net)}
+                {shownSats(net, symbol)}
               </Text>
             </Reanimated.View>
           ) : null}

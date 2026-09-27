@@ -60,6 +60,7 @@ export function AmountField({
   empty,
   tone,
   shake,
+  symbol = false,
 }: {
   label?: string;
   value: string;
@@ -73,6 +74,8 @@ export function AmountField({
   empty?: ReactNode;
   tone?: keyof typeof TONES;
   shake?: number;
+  /** The unit is drawn as `₿` before the digits (`AmountReadout`). */
+  symbol?: boolean;
 }) {
   const live = usePaneActive();
   const digits = digitsOnly(value);
@@ -95,6 +98,7 @@ export function AmountField({
       tone={tone ? TONES[tone] : 'plain'}
       empty={empty}
       shake={shake}
+      symbol={symbol}
     >
       {presets?.length ? (
         <View style={styles.presets}>

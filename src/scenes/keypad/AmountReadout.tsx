@@ -32,7 +32,7 @@ import { riseIn } from '../../motion/presets';
 import { steady } from '../../motion/steady';
 import { curves, durations } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
-import { space, type as typography } from '../../theme';
+import { space, type as typography, unitAffixes } from '../../theme';
 import { BANG, DrawnGlyph } from '../send/DrawnGlyph';
 import type { Stroke } from '../send/DrawnGlyph';
 import { WaitingClock } from '../send/LoopingGlyphs';
@@ -276,6 +276,12 @@ export interface AmountReadoutProps {
   shake?: number;
   /** What sits between the amount and its keypad, such as preset chips. */
   children?: ReactNode;
+  /**
+   * The unit is drawn as the bitcoin sign before the digits, `₿2,000`,
+   * rather than "sats" after them (`unitAffixes`). What is keyed, and what
+   * a screen reader hears, stays in sats.
+   */
+  symbol?: boolean;
   ref?: Ref<ComponentRef<typeof View>>;
 }
 
@@ -318,6 +324,7 @@ export function AmountReadout({
   empty,
   shake: shakes,
   children,
+  symbol = false,
   ref,
 }: AmountReadoutProps) {
   const digits = digitsOnly(value);
@@ -384,6 +391,7 @@ export function AmountReadout({
 
   const shown = grouped(digits);
   const color = TONES[tone];
+  const { prefix, suffix } = unitAffixes(UNIT, symbol);
   const marks = [editable ? null : 'lock', MARKS[tone]].filter(
     (mark): mark is GlyphName => mark !== null,
   );
@@ -403,6 +411,7 @@ export function AmountReadout({
       figures: Math.max(1, cells.length),
       separators: cells.filter(cell => cell.text.endsWith(',')).length,
       marks: marks.map(mark => MARK_GAP + (mark === 'lock' ? MARK : STATE_PIP)),
+      symbol,
     },
     field,
     Math.min(fontScale, AMOUNT_SCALE),
@@ -434,6 +443,18 @@ export function AmountReadout({
           style={[styles.wash, flashStyle]}
         />
         <Reanimated.View layout={rowMove(field)} style={styles.amount}>
+          {prefix ? (
+            <Text
+              style={[
+                styles.digits,
+                sized,
+                cells.length ? { color } : styles.empty,
+              ]}
+              maxFontSizeMultiplier={AMOUNT_SCALE}
+            >
+              {prefix}
+            </Text>
+          ) : null}
           {cells.length ? (
             cells.map(cell => (
               <Reanimated.View
@@ -461,9 +482,11 @@ export function AmountReadout({
           )}
           {/* The unit and the marks stand where the digits end, at once, so
             no digit is ever drawn over them on its way in. */}
-          <Text style={styles.unit} maxFontSizeMultiplier={AMOUNT_SCALE}>
-            {UNIT}
-          </Text>
+          {suffix ? (
+            <Text style={styles.unit} maxFontSizeMultiplier={AMOUNT_SCALE}>
+              {suffix}
+            </Text>
+          ) : null}
           {marks.map(mark => (
             <Reanimated.View
               key={mark}

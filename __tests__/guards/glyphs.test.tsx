@@ -20,6 +20,7 @@ import { Whisper, WhisperProvider } from '../../src/glyphs/Whisper';
 import { copy } from '../../src/design/copy';
 import { ringVisual } from '../../src/scenes/activity/visual';
 import { Pane } from '../../src/stage/panes/Pane';
+import type { Unit } from '../../src/theme';
 import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
 import {
@@ -119,6 +120,28 @@ const odometers: GuardedState[] = [
     'a sent row, hidden',
     <Odometer sats={4_200} unit="sats" variant="row" sign="-" masked />,
   ),
+  ...VARIANTS.map(variant =>
+    still(
+      `the ${variant} odometer, sats as ₿`,
+      <Odometer sats={totalSats} unit="sats" symbol variant={variant} />,
+    ),
+  ),
+  still(
+    'the hero in BTC, sats as ₿',
+    <Odometer sats={totalSats} unit="btc" symbol variant="hero" />,
+  ),
+  still(
+    'the hero hidden, sats as ₿',
+    <Odometer sats={totalSats} unit="sats" symbol variant="hero" masked />,
+  ),
+  still(
+    'a received row, sats as ₿',
+    <Odometer sats={4_200} unit="sats" symbol variant="row" sign="+" />,
+  ),
+  still(
+    'a sent row, sats as ₿',
+    <Odometer sats={4_200} unit="sats" symbol variant="row" sign="-" />,
+  ),
   {
     name: 'the hero after a roll',
     render: async () => {
@@ -169,6 +192,28 @@ const vesselOf = (lfbw: Partial<Lfbw>, over: object = {}) => {
   );
 };
 
+const opened = (name: string, unit: Unit, symbol = false): GuardedState => ({
+  name,
+  render: async () => {
+    const tree = await mount(
+      <Vessel
+        availableSats={availableSats}
+        pendingSats={pendingSats}
+        unit={unit}
+        symbol={symbol}
+      />,
+    );
+    const root = tree.root.findByProps({ accessible: true });
+    const touch = { nativeEvent: { pageX: 0, pageY: 0 } };
+    await act(async () => {
+      root.props.onResponderGrant(touch);
+      root.props.onResponderRelease(touch);
+    });
+    return tree;
+  },
+  data,
+});
+
 const vessels: GuardedState[] = [
   ...WAITS.map(([why, lfbw]) => still(`the vessel for ${why}`, vesselOf(lfbw))),
   still(
@@ -177,26 +222,8 @@ const vessels: GuardedState[] = [
   ),
   still('the vessel hidden', vesselOf({}, { masked: true })),
   still('the vessel stale', vesselOf({}, { stale: true })),
-  {
-    name: 'the vessel opened by a tap',
-    render: async () => {
-      const tree = await mount(
-        <Vessel
-          availableSats={availableSats}
-          pendingSats={pendingSats}
-          unit="btc"
-        />,
-      );
-      const root = tree.root.findByProps({ accessible: true });
-      const touch = { nativeEvent: { pageX: 0, pageY: 0 } };
-      await act(async () => {
-        root.props.onResponderGrant(touch);
-        root.props.onResponderRelease(touch);
-      });
-      return tree;
-    },
-    data,
-  },
+  opened('the vessel opened by a tap', 'btc'),
+  opened('the vessel opened by a tap, sats as ₿', 'sats', true),
 ];
 
 const PULSES: PulseState[] = ['live', 'reconnecting', 'failed', 'hidden'];

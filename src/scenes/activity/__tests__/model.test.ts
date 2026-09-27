@@ -134,6 +134,8 @@ describe('the search', () => {
     expect(found('0.0001')).toEqual([ten.id]);
     expect(found('0.00010000 btc')).toEqual([ten.id]);
     expect(found('4,200')).toEqual([lunch.id]);
+    // As a row draws it with the bitcoin sign on.
+    expect(found('₿10,000')).toEqual([ten.id]);
   });
 
   test('finds a payment by the note it carries', () => {
@@ -144,6 +146,7 @@ describe('the search', () => {
 describe('an amount as a row draws it', () => {
   test('sats group in threes, as everywhere', () => {
     expect(figureOf(10_000, 'sats')).toEqual({
+      prefix: '',
       value: '10,000',
       dim: '',
       suffix: 'sats',
@@ -153,22 +156,26 @@ describe('an amount as a row draws it', () => {
   test('BTC keeps all eight decimals, its trailing zeros set apart for dust', () => {
     // The hero draws 0.00062235 BTC; the rows under it line up with it.
     expect(figureOf(5_000, 'btc')).toEqual({
+      prefix: '',
       value: '0.00005',
       dim: '000',
       suffix: 'BTC',
     });
     expect(figureOf(62_235, 'btc')).toEqual({
+      prefix: '',
       value: '0.00062235',
       dim: '',
       suffix: 'BTC',
     });
     // With no significant decimal, all eight dim, as the hero draws them.
     expect(figureOf(100_000_000, 'btc')).toEqual({
+      prefix: '',
       value: '1.',
       dim: '00000000',
       suffix: 'BTC',
     });
     expect(figureOf(0, 'btc')).toEqual({
+      prefix: '',
       value: '0.',
       dim: '00000000',
       suffix: 'BTC',
@@ -189,6 +196,27 @@ describe('an amount as a row draws it', () => {
         .join('');
       expect(`${figure.value}${figure.dim}`).toBe(drawn);
       expect(figure.dim).toBe(dimmed);
+    }
+  });
+
+  test('with the bitcoin sign on, sats are ₿ before the figures and nothing after', () => {
+    expect(figureOf(2_000, 'sats', true)).toEqual({
+      prefix: '₿',
+      value: '2,000',
+      dim: '',
+      suffix: '',
+    });
+    expect(figureOf(0, 'sats', true)).toEqual({
+      prefix: '₿',
+      value: '0',
+      dim: '',
+      suffix: '',
+    });
+  });
+
+  test('BTC is the same with the bitcoin sign on, its dust decimals and all', () => {
+    for (const sats of [0, 5_000, 62_235, 100_000_000, 250_010_000]) {
+      expect(figureOf(sats, 'btc', true)).toEqual(figureOf(sats, 'btc'));
     }
   });
 });

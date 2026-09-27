@@ -246,14 +246,50 @@ export const STATUS_LABELS: Record<PaymentStatus, string> = {
 export const statusLabel = (status: PaymentStatus): string =>
   STATUS_LABELS[status] ?? status;
 
-/** One amount, rendered in the unit the user chose, with its suffix. */
+/** The bitcoin sign, U+20BF. */
+const BITCOIN_SIGN = '₿';
+
+/**
+ * What stands on either side of an amount's figures in `unit`. `symbol` is
+ * the Settings choice to draw the integer face as BIP 177 does, `₿2,000`
+ * rather than `2,000 sats`: the same integer, the sign before it and no word
+ * after it. BTC keeps its suffix either way.
+ */
+export const unitAffixes = (
+  unit: Unit,
+  symbol = false,
+): { prefix: string; suffix: string } =>
+  unit === 'btc'
+    ? { prefix: '', suffix: 'BTC' }
+    : symbol
+    ? { prefix: BITCOIN_SIGN, suffix: '' }
+    : { prefix: '', suffix: 'sats' };
+
+/**
+ * One amount, rendered in the unit the user chose, with what stands either
+ * side of it (`unitAffixes`). A sign, where one is drawn, goes before the
+ * prefix: `−₿2,000`.
+ */
 export const amountIn = (
   value: number,
   unit: Unit,
-): { value: string; suffix: string } =>
-  unit === 'btc'
-    ? { value: btc(value), suffix: 'BTC' }
-    : { value: number(value), suffix: 'sats' };
+  symbol = false,
+): { prefix: string; value: string; suffix: string } => ({
+  ...unitAffixes(unit, symbol),
+  value: unit === 'btc' ? btc(value) : number(value),
+});
+
+/** One amount as a line of text: `2,000 sats`, `₿2,000` or `0.00002 BTC`. */
+export const amountText = (
+  value: number,
+  unit: Unit,
+  symbol = false,
+): string => {
+  const shown = amountIn(value, unit, symbol);
+  return `${shown.prefix}${shown.value}${
+    shown.suffix ? ` ${shown.suffix}` : ''
+  }`;
+};
 
 export const compact = (value: string, length = 12) =>
   value.length > length * 2 + 3

@@ -71,6 +71,21 @@ describe('negative controls', () => {
     expect(found).toEqual([]);
   });
 
+  test('an amount with the bitcoin sign before it passes, and prose around it fails', async () => {
+    const found = await violations(
+      <FakeScene>
+        <Text>₿2,000</Text>
+        <Text>
+          {'−'}
+          <Text>₿</Text>
+          {'2,000'}
+        </Text>
+        <Text>Pay ₿2,000 now</Text>
+      </FakeScene>,
+    );
+    expect(found.map(item => item.text)).toEqual(['Pay ₿2,000 now']);
+  });
+
   test('a placeholder with words fails', async () => {
     const found = await violations(
       <FakeScene>
@@ -148,6 +163,11 @@ describe('shapes that are data', () => {
     '- 500',
     '0.00012345 BTC',
     '0.5₿',
+    '₿2,000',
+    '−₿2,000',
+    '+₿2,000',
+    '₿0',
+    '₿••••••',
     'sats',
     'BTC',
     '₿',
@@ -171,6 +191,11 @@ describe('shapes that are data', () => {
     '100:00',
     '1.',
     'OK',
+    'Send ₿2,000',
+    '₿2,000 pending',
+    '₿2,000 sats',
+    '₿0.00002000 BTC',
+    '₿ is a bitcoin',
   ])('%p fails', async text => {
     const found = await violations(<Text>{text}</Text>);
     expect(found.map(item => item.text)).toEqual([text]);

@@ -89,6 +89,13 @@ export const settings = {
     lockFailed: 'Could not change the lock.',
     haptics: 'Haptics',
     hapticsFailed: 'Could not save the haptics setting.',
+    /** Draws the sats face as BIP 177 does, `₿2,000`. Off by default. */
+    symbol: 'Show sats as ₿',
+    symbolLabel: 'Show sats with the bitcoin sign',
+    /** `₿` still reads as whole bitcoin to many; this says it counts sats. */
+    symbolNote:
+      '₿2,000 is 2,000 sats, not 2,000 BTC, as BIP 177 writes it. BTC amounts stay as they are.',
+    symbolFailed: 'Could not save the bitcoin symbol setting.',
   },
 
   diagnostics: {

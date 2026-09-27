@@ -73,7 +73,7 @@ export function HomePane({
 }) {
   const { state, actions } = useStage();
   const panes = usePanes();
-  const { hidden, setHidden, unit, setUnit } = view;
+  const { hidden, setHidden, unit, setUnit, symbol } = view;
   const network = snapshot.wallet.network;
 
   // On its way to Send or Receive the hero shows what can be spent rather
@@ -219,6 +219,7 @@ export function HomePane({
         snapshot={snapshot}
         hidden={hidden}
         unit={unit}
+        symbol={symbol}
         stale={stale}
         countUp={countUp}
         spendable={spending}

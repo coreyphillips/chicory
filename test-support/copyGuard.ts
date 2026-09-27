@@ -26,11 +26,14 @@ export interface CopyViolation {
 
 /**
  * Strings that are data by their shape: an amount with an optional sign and
- * unit, a bare unit, the balance mask, a countdown, and runs of separators or
- * math signs.
+ * unit, the sats face with the bitcoin sign before its digits (`₿2,000`,
+ * `−₿2,000`, masked `₿••••••`), a bare unit, the balance mask, a countdown,
+ * and runs of separators or math signs.
  */
 const SHAPES = [
   /^[+\-−]?\s?[\d,]+(\.\d{1,8})?(\s?(sats?|BTC|₿))?$/,
+  /^[+\-−]?\s?₿[\d,]+$/,
+  /^₿•+$/,
   /^(sats?|BTC|₿)$/,
   /^•+$/,
   /^\d{1,2}:\d{2}$/,

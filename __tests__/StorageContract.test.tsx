@@ -24,10 +24,14 @@ const SESSION = 'com.beignet.wallet.last-session';
 const SNAPSHOT = 'com.beignet.wallet.last-snapshot';
 const PROFILES = 'com.beignet.wallet.network-profiles';
 /**
- * Services the redesign adds on purpose. Main never reads them, so a build of
- * main installed over the redesign ignores them.
+ * Services added on purpose since the fixture was recorded: the redesign's
+ * haptics switch and the bitcoin symbol switch. A build from before them
+ * never reads them, so one installed over this ignores them.
  */
-const ADDED_BY_REDESIGN = ['com.beignet.wallet.haptics'];
+const ADDED_ON_PURPOSE = [
+  'com.beignet.wallet.haptics',
+  'com.beignet.wallet.bitcoin-symbol',
+];
 
 type Write = string;
 let records: Map<string, string>;
@@ -315,7 +319,7 @@ test('no secure-store service is named in the source beyond main and the redesig
     'com.beignet.wallet.network-profiles',
     // Prefixes that the code composes with a suffix at runtime.
     'com.beignet.wallet',
-    ...ADDED_BY_REDESIGN,
+    ...ADDED_ON_PURPOSE,
   ];
   const unexpected = Array.from(found).filter(name => !allowed.includes(name));
   expect(unexpected).toEqual([]);

@@ -90,6 +90,7 @@ export function ActivityScreen({
   onQuery,
   hidden = false,
   unit = 'sats',
+  symbol = false,
   banner,
   refreshError,
   onRetry,
@@ -103,6 +104,8 @@ export function ActivityScreen({
   onQuery?: (value: string) => void;
   hidden?: boolean;
   unit?: Unit;
+  /** Sats are drawn as `₿2,000` (`unitAffixes`). */
+  symbol?: boolean;
   /** Something that must stay above the list, such as a pending backup. */
   banner?: ReactNode;
   /** Why the last refresh failed, when it did: a retry joins the bar. */
@@ -164,12 +167,13 @@ export function ActivityScreen({
           band={row.band}
           hidden={hidden}
           unit={unit}
+          symbol={symbol}
           test={test}
           index={index}
           onPress={onDetail}
         />
       ),
-    [hidden, unit, test, onDetail],
+    [hidden, unit, symbol, test, onDetail],
   );
   const { bottom } = useSafeAreaInsets();
   const inset = sheet ? sheet.bottomInset : bottom;

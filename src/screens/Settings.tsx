@@ -413,6 +413,47 @@ function Haptics() {
 }
 
 /**
+ * Settings > Show sats as ₿: the sats face drawn as BIP 177 draws it,
+ * `₿2,000`, off unless turned on. The choice is the canvas view's
+ * (`useCanvasView`), so it holds across leaving Settings and a lock, and it
+ * is saved before it is shown: a save that fails leaves the switch where it
+ * was and says why.
+ */
+function BitcoinSymbol({
+  on,
+  onChange,
+}: {
+  on: boolean;
+  onChange: (on: boolean) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <>
+      <Toggle
+        label={words.phone.symbol}
+        accessibilityLabel={words.phone.symbolLabel}
+        value={on}
+        disabled={busy}
+        onValueChange={async next => {
+          setBusy(true);
+          setError('');
+          try {
+            await onChange(next);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : words.phone.symbolFailed);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+      <Body>{words.phone.symbolNote}</Body>
+      {error ? <Note tone="error">{error}</Note> : null}
+    </>
+  );
+}
+
+/**
  * Start over on this phone. The action sits behind a link and a second,
  * explicit button, and behind the app lock when one is on, because it deletes
  * keys and channel state that a phrase alone does not bring back. The lock's
@@ -542,8 +583,10 @@ type Part = (typeof ORDER)[number];
 /**
  * Settings, the one scene that keeps words (REDESIGN.md rule 2), trimmed to
  * what a person comes here to do: the wallet and its network, the recovery
- * phrase, the primary node, this phone's lock and haptics, diagnostics, and
- * the ways out of this wallet. Every safety line stays.
+ * phrase, the primary node, this phone's lock and haptics and how it draws
+ * sats, diagnostics, and the ways out of this wallet. Every safety line
+ * stays. The sats switch is drawn where the canvas hands its view in
+ * (`symbol` and `onSymbol`).
  *
  * While the recovery phrase still has to be saved, its section leads the
  * page in honey. Once the hold confirms it, it slides back to its place and
@@ -562,6 +605,8 @@ export function SettingsScreen({
   onErase,
   backupPending = false,
   onBackupSaved,
+  symbol = false,
+  onSymbol,
 }: {
   snapshot: WalletSnapshot;
   client: WalletAdapter;
@@ -577,6 +622,10 @@ export function SettingsScreen({
   backupPending?: boolean;
   /** The owner held to confirm the phrase is written down. */
   onBackupSaved?: () => void;
+  /** Sats are drawn as `₿2,000`. */
+  symbol?: boolean;
+  /** Saves the sats choice, then shows it; throws when it cannot be saved. */
+  onSymbol?: (on: boolean) => Promise<void>;
 }) {
   // null while the wallet is being asked; '' when it reports no version.
   const [engineVersion, setEngineVersion] = useState<string | null>(null);
@@ -674,6 +723,7 @@ export function SettingsScreen({
       >
         <AppLock />
         <Haptics />
+        {onSymbol ? <BitcoinSymbol on={symbol} onChange={onSymbol} /> : null}
       </Section>
     ),
     diagnostics: (

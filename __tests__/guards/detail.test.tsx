@@ -34,7 +34,12 @@ const EVERY = everyActivity();
 function detail(
   name: string,
   item: Activity,
-  props: { hidden?: boolean; unit?: 'sats' | 'btc'; test?: boolean } = {},
+  props: {
+    hidden?: boolean;
+    unit?: 'sats' | 'btc';
+    symbol?: boolean;
+    test?: boolean;
+  } = {},
 ): GuardedState {
   return {
     name,
@@ -117,6 +122,21 @@ const GUARDED: GuardedState[] = [
   ...Object.entries(EVERY).map(([name, item]) => detail(name, item)),
   ...Object.entries(EVERY).map(([name, item]) =>
     detail(`hidden: ${name}`, item, { hidden: true }),
+  ),
+  ...Object.entries(EVERY).map(([name, item]) =>
+    detail(`sats as ₿: ${name}`, item, { symbol: true }),
+  ),
+  detail('sats as ₿, hidden: a partial receipt', EVERY['request partly paid'], {
+    symbol: true,
+    hidden: true,
+  }),
+  detail(
+    'sats as ₿, in BTC: an estimated fee',
+    EVERY['sent with an estimated fee'],
+    {
+      symbol: true,
+      unit: 'btc',
+    },
   ),
   detail('in BTC: sent', EVERY['sent completed'], { unit: 'btc' }),
   detail('in BTC: an estimated fee', EVERY['sent with an estimated fee'], {

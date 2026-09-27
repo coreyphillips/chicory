@@ -84,6 +84,7 @@ export function DetailLayer({
               client={client}
               hidden={view.hidden}
               unit={view.unit}
+              symbol={view.symbol}
               onRefresh={session.refresh}
               onBusy={actions.setBusy}
               test={isTestNetwork(snapshot.wallet.network)}

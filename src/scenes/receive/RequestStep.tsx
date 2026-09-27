@@ -74,6 +74,7 @@ export function RequestStep({
   trackingError,
   hidden,
   unit,
+  symbol = false,
   qr,
   error,
   onLift,
@@ -94,6 +95,8 @@ export function RequestStep({
   trackingError?: string;
   hidden: boolean;
   unit: Unit;
+  /** Sats are drawn as `₿2,000` (`unitAffixes`). */
+  symbol?: boolean;
   /** How wide the code's card is drawn, its quiet zone included. */
   qr: number;
   error: Refused | null;
@@ -134,6 +137,7 @@ export function RequestStep({
               amountSats={request.amountSats}
               hidden={hidden}
               unit={unit}
+              symbol={symbol}
               celebrate
               size={RECEIPT_MARK}
               room={side}
@@ -203,6 +207,7 @@ export function RequestStep({
               request={request}
               face={face}
               minutesLeft={minutesLeft}
+              symbol={symbol}
               focus={status ? undefined : focus}
             />
           )}
@@ -253,7 +258,11 @@ export function RequestStep({
             onPress={onAgain}
           >
             {/* What is owed gives away what arrived, so it hides with it. */}
-            {remainder === null ? null : hidden ? MASK : shownSats(remainder)}
+            {remainder === null
+              ? null
+              : hidden
+              ? MASK
+              : shownSats(remainder, symbol)}
           </GlyphButton>
         </View>
         <View style={[styles.side, styles.end]}>
@@ -318,11 +327,13 @@ function About({
   request,
   face,
   minutesLeft,
+  symbol,
   focus,
 }: {
   request: ReceiveRequest;
   face: RequestFace;
   minutesLeft: number;
+  symbol: boolean;
   focus?: Focus;
 }) {
   const { bloom } = useBloom();
@@ -354,7 +365,7 @@ function About({
       >
         {request.amountSats ? (
           <Text style={styles.amount} maxFontSizeMultiplier={1.4}>
-            {shownSats(request.amountSats)}
+            {shownSats(request.amountSats, symbol)}
           </Text>
         ) : (
           <Glyph name="infinity" size={28} color={palette.cream} />

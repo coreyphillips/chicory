@@ -11,7 +11,7 @@ import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
 import { curves, durations } from '../../motion/tokens';
-import { amountIn, space, type as typography } from '../../theme';
+import { amountText, space, type as typography } from '../../theme';
 import type { Unit } from '../../theme';
 import { reviewFigures, reviewRail } from './model';
 import { useBloom } from './tone';
@@ -37,15 +37,16 @@ export const WIDEST_SIGNS = '+ ≤';
 function Figure({
   figure,
   unit,
+  symbol,
   rail,
 }: {
   figure: ReviewFigure;
   unit: Unit;
+  symbol: boolean;
   rail?: ReturnType<typeof reviewRail>;
 }) {
   const bloom = useBloom();
   const total = figure.key === 'total';
-  const shown = amountIn(figure.sats, unit);
   return (
     <View
       accessible
@@ -76,7 +77,7 @@ function Figure({
         style={[styles.amount, total && styles.total]}
         maxFontSizeMultiplier={LINE_SCALE}
       >
-        {`${shown.value} ${shown.suffix}`}
+        {amountText(figure.sats, unit, symbol)}
       </Text>
     </View>
   );
@@ -103,18 +104,21 @@ export const SPENT_OPACITY = 0.4;
  * comes to. Each line's words, as the engine and the old screen named them,
  * are what a screen reader hears. Engine warnings are honey pips.
  *
- * The figures are in `unit`, the one the balance is shown in. They are
- * never hidden: a review is where the payment is checked before it is sent.
- * Once the hold commits (`spent`) there is nothing left to check, so the
- * sum dims back and the screen reads as money going out.
+ * The figures are in `unit`, the one the balance is shown in, and sats as
+ * `₿2,000` with `symbol` on. They are never hidden: a review is where the
+ * payment is checked before it is sent. Once the hold commits (`spent`)
+ * there is nothing left to check, so the sum dims back and the screen reads
+ * as money going out.
  */
 export function ReviewLines({
   review,
   unit = 'sats',
+  symbol = false,
   spent = false,
 }: {
   review: SendReview;
   unit?: Unit;
+  symbol?: boolean;
   spent?: boolean;
 }) {
   const rail = reviewRail(review);
@@ -137,6 +141,7 @@ export function ReviewLines({
           key={figure.key}
           figure={figure}
           unit={unit}
+          symbol={symbol}
           rail={index === 0 ? rail : undefined}
         />
       ))}

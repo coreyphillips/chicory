@@ -389,6 +389,27 @@ describe('Odometer', () => {
     expect(heroSize(6, 1, 'sats', 300, 1.2)).toBe(48);
   });
 
+  test('with the bitcoin sign on, the hero keeps no room for "sats" and is never smaller for it', () => {
+    // The sign counts as a figure before the digits, and nothing trails
+    // them: 261,500 sats in 280pt steps down to 56, ₿261,500 stays at 64.
+    expect(heroSize(6, 1, 'sats', 280, 1)).toBe(56);
+    expect(heroSize(7, 1, '', 280, 1)).toBe(64);
+    for (const room of [240, 280, 300, 342, 390]) {
+      for (const scale of [1, 1.2]) {
+        for (let digits = 1; digits <= 16; digits++) {
+          const marks = Math.floor((digits - 1) / 3);
+          for (const sign of [0, 1]) {
+            expect(
+              heroSize(digits + sign + 1, marks, '', room, scale),
+            ).toBeGreaterThanOrEqual(
+              heroSize(digits + sign, marks, 'sats', room, scale),
+            );
+          }
+        }
+      }
+    }
+  });
+
   test('the figures crossfade on a step in size, not on a new unit or a first measure', () => {
     const at = (size: number, unit: 'sats' | 'btc' = 'sats', measured = true) =>
       ({ unit, size, measured } as const);

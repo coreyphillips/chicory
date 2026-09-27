@@ -124,8 +124,8 @@ async function reviewed(client: object, request = ADDRESS, props: Drawn = {}) {
 }
 
 /** Reviewed and committed with the hold, as a screen reader commits it. */
-async function sent(client: object, request = fresh()) {
-  const tree = await reviewed(client, request);
+async function sent(client: object, request = fresh(), props: Drawn = {}) {
+  const tree = await reviewed(client, request, props);
   await activate(tree, 'Send 4,200 sats');
   return tree;
 }
@@ -440,6 +440,57 @@ const GUARDED: GuardedState[] = [
         ADDRESS,
       ),
     data: onReview,
+  },
+  {
+    name: 'sats as ₿: compose, empty',
+    render: () => draw({ initialRequest: ADDRESS, symbol: true }),
+    data: onChip,
+  },
+  {
+    name: 'sats as ₿: compose, an amount keyed in',
+    render: async () => {
+      const tree = await draw({ initialRequest: ADDRESS, symbol: true });
+      await enterAmount(tree, '4200');
+      return tree;
+    },
+    data: onChip,
+  },
+  {
+    name: 'sats as ₿: compose, an amount the request fixes',
+    render: () => draw({ initialRequest: INVOICE, symbol: true }),
+    data: guardData(snapshot, [shortRequest(INVOICE)]),
+  },
+  {
+    name: 'sats as ₿: review',
+    render: () =>
+      reviewed(
+        reviewing({
+          feeSats: 11,
+          estimatedFeeSats: 1,
+          feeLabel: 'Maximum routing fee',
+          totalSats: 4_211,
+        }),
+        ADDRESS,
+        { symbol: true },
+      ),
+    data: onReview,
+  },
+  {
+    name: 'sats as ₿: completed',
+    render: () =>
+      sent(paying(Promise.resolve(outcome('completed'))), fresh(), {
+        symbol: true,
+      }),
+    data: onResult,
+  },
+  {
+    name: 'sats as ₿: completed, hidden',
+    render: () =>
+      sent(paying(Promise.resolve(outcome('completed'))), fresh(), {
+        symbol: true,
+        masked: true,
+      }),
+    data: onResult,
   },
 ];
 

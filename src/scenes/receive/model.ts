@@ -8,7 +8,7 @@ import { copy } from '../../design/copy';
 import type { GlyphName } from '../../design/glyphs';
 import { QR_CARD_GONE } from '../../glyphs/QrBloom';
 import type { QrState } from '../../glyphs/QrBloom';
-import { amountIn } from '../../theme';
+import { amountText } from '../../theme';
 
 /**
  * What Receive shows for each state, as pure answers (REDESIGN.md 6,
@@ -26,10 +26,9 @@ export const OFFLINE_MIN_SATS = 354;
 const LATE_SHARE = 0.1;
 const LATE_MS = 60_000;
 
-/** An amount as the screen shows it in sats: "4,200 sats". */
-export function shownSats(value: number): string {
-  const { value: figure, suffix } = amountIn(value, 'sats');
-  return `${figure} ${suffix}`;
+/** An amount as the screen shows it in sats: "4,200 sats", or "₿4,200". */
+export function shownSats(value: number, symbol = false): string {
+  return amountText(value, 'sats', symbol);
 }
 
 /** The digits typed, as sats; nothing typed is 0. */

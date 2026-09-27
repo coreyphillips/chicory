@@ -104,6 +104,7 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   onPress,
   hidden = false,
   unit = 'sats',
+  symbol = false,
   band,
   test = false,
   index = 0,
@@ -112,6 +113,8 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   onPress: (item: Activity, rect?: Rect) => void;
   hidden?: boolean;
   unit?: Unit;
+  /** Sats are drawn as `₿2,000` (`unitAffixes`). */
+  symbol?: boolean;
   /** Pinned to the honey band at the top of the list, and where in it. */
   band?: Band;
   /** On a test network, whose rings are slate where they would be bloom. */
@@ -161,7 +164,7 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   const status = activityStatus(item);
   const ring = ringVisual(item);
   const look = amountVisual(item);
-  const amount = figureOf(item.amountSats, unit);
+  const amount = figureOf(item.amountSats, unit, symbol);
   const label = hidden
     ? copy.activity.rowHidden(item.title, status)
     : look.open
@@ -216,12 +219,16 @@ export const ActivityRow = React.memo(function ActivityRowItem({
                     { color: TONES[look.tone], fontWeight: look.weight },
                   ]}
                 >
-                  {hidden ? MASK : `${look.sign}${amount.value}`}
+                  {hidden
+                    ? `${amount.prefix}${MASK}`
+                    : `${look.sign}${amount.prefix}${amount.value}`}
                   {/* A BTC amount's trailing zeros, in dust, as the hero. */}
                   {!hidden && amount.dim ? (
                     <Text style={styles.dim}>{amount.dim}</Text>
                   ) : null}
-                  <Text style={styles.unit}> {amount.suffix}</Text>
+                  {amount.suffix ? (
+                    <Text style={styles.unit}> {amount.suffix}</Text>
+                  ) : null}
                 </Text>
                 <Strike struck={look.struck} />
               </View>

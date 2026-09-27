@@ -113,6 +113,7 @@ export function HomeScreen({
   snapshot,
   hidden = false,
   unit = 'sats',
+  symbol = false,
   stale = false,
   onSend,
   onReceive,
@@ -132,6 +133,11 @@ export function HomeScreen({
   snapshot: WalletSnapshot;
   hidden?: boolean;
   unit?: Unit;
+  /**
+   * Sats are drawn as `₿2,000` (`unitAffixes`). The tap still rolls only
+   * between sats and BTC, and the balance is still read out in sats.
+   */
+  symbol?: boolean;
   stale?: boolean;
   onSend: () => void;
   onReceive: () => void;
@@ -540,6 +546,7 @@ export function HomeScreen({
                         sats={balance.totalSats}
                         countUp={countUp}
                         unit={unit}
+                        symbol={symbol}
                         masked={hidden}
                         stale={stale}
                         variant="hero"
@@ -555,6 +562,7 @@ export function HomeScreen({
                       <Odometer
                         sats={balance.availableSats}
                         unit={unit}
+                        symbol={symbol}
                         masked={hidden}
                         stale={stale}
                         variant="hero"
@@ -579,6 +587,7 @@ export function HomeScreen({
                   lfbw={snapshot.wallet.lfbw}
                   connected={snapshot.primary.connected}
                   unit={unit}
+                  symbol={symbol}
                   masked={hidden}
                   stale={stale}
                   test={test}
