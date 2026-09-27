@@ -1,27 +1,35 @@
 import React, { useState } from 'react';
+import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import * as Keychain from 'react-native-keychain';
+import { useSharedValue } from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
+import { DemoWalletClient } from '@beignet/wallet-core';
 import type { ReceiveRequest, SendReview } from '@beignet/wallet-core';
 import { AmountField } from '../src/components/AmountField';
 import { copy } from '../src/design/copy';
 import { Odometer } from '../src/glyphs/Odometer';
 import { ActivityRow } from '../src/scenes/activity/ActivityRow';
+import { HomePane } from '../src/scenes/home/HomePane';
 import { shownSats } from '../src/scenes/receive/model';
 import { ReceiveScreen } from '../src/screens/Receive';
 import { SendScreen } from '../src/screens/Send';
-import { SettingsScreen } from '../src/screens/Settings';
 import { HomeScreen } from '../src/screens/Wallet';
-import {
-  loadSymbolPreference,
-  setSymbolPreference,
-} from '../src/services/symbolPreference';
 import type { WalletAdapter } from '../src/services/wallet';
 import { useCanvasView } from '../src/stage/Canvas';
+import type { CanvasSession } from '../src/stage/Canvas';
 import { clearHeldRequests } from '../src/stage/heldRequests';
-import { amountIn, amountText, unitAffixes } from '../src/theme';
-import type { Unit } from '../src/theme';
+import { stops } from '../src/stage/layout';
+import { Pane, PanesProvider } from '../src/stage/panes/Pane';
+import { StageProvider, useStageStore } from '../src/stage/StageContext';
+import {
+  SYMBOL_SCALE,
+  amountIn,
+  amountText,
+  nextFace,
+  type as typography,
+  unitAffixes,
+} from '../src/theme';
 import {
   NOW,
   activityOf,
@@ -31,54 +39,29 @@ import {
 } from '../test-support/fixtures';
 import { mount } from '../test-support/guard';
 import { enterAmount } from '../test-support/keypad';
-import { drawnIn, find, press, visibleText } from '../test-support/query';
+import { drawnIn, press, visibleText } from '../test-support/query';
 
 /**
- * Settings > Show sats as ₿ (BIP 177): the sats face drawn as `₿2,000`
- * rather than `2,000 sats`, off unless turned on. Only what is drawn
- * changes: BTC is as it was, a screen reader still hears sats, and what is
- * keyed, sent and asked for is the same integer in sats.
+ * The sats face drawn as BIP 177 draws it, `₿2,000` rather than
+ * `2,000 sats`, as the second stop of the tap on the balance: sats, then
+ * ₿, then BTC. Only what is drawn changes: BTC is as it was, a screen
+ * reader still hears sats, and what is keyed, sent and asked for is the
+ * same integer in sats.
  */
 
-const SERVICE = 'com.beignet.wallet.bitcoin-symbol';
 const noop = () => {};
 const MAINNET = { wallet: { network: 'mainnet' as const } };
 
-/** The secure store, as a map the keychain mock reads and writes. */
-let records: Map<string, string>;
-beforeEach(() => {
-  clearHeldRequests();
-  records = new Map();
-  jest
-    .mocked(Keychain.getGenericPassword)
-    .mockImplementation(async options =>
-      records.has(options?.service || '')
-        ? ({ password: records.get(options?.service || '') } as never)
-        : false,
-    );
-  jest
-    .mocked(Keychain.setGenericPassword)
-    .mockImplementation(async (_name, value, options) => {
-      records.set(options?.service || '', value);
-      return { service: options?.service } as never;
-    });
-});
-afterEach(() => {
-  jest.mocked(Keychain.getGenericPassword).mockReset().mockResolvedValue(false);
-  jest
-    .mocked(Keychain.setGenericPassword)
-    .mockReset()
-    .mockResolvedValue({ service: 'test' } as never);
-});
+beforeEach(() => clearHeldRequests());
 
 /** The host node with `testID`. */
-const byId = (tree: ReactTestRenderer, testID: string) =>
-  tree.root.find(
+const byId = (tree: ReactTestRenderer | ReactTestInstance, testID: string) =>
+  ('root' in tree ? tree.root : tree).find(
     node => typeof node.type === 'string' && node.props.testID === testID,
   );
 
 describe('the formatter', () => {
-  test('sats with the switch off, as today', () => {
+  test('sats, as today', () => {
     expect(amountIn(2_000, 'sats')).toEqual({
       prefix: '',
       value: '2,000',
@@ -87,7 +70,7 @@ describe('the formatter', () => {
     expect(amountText(2_000, 'sats')).toBe('2,000 sats');
   });
 
-  test('sats with the switch on: the sign before, no space, and no word after', () => {
+  test('sats as ₿: the sign before, no space, and no word after', () => {
     expect(amountIn(2_000, 'sats', true)).toEqual({
       prefix: '₿',
       value: '2,000',
@@ -123,205 +106,199 @@ describe('the formatter', () => {
   });
 });
 
-describe('the saved choice', () => {
-  test('is off when nothing is saved, and when the store cannot be read', async () => {
-    expect(await loadSymbolPreference()).toBe(false);
-    records.set(SERVICE, 'garbled');
-    expect(await loadSymbolPreference()).toBe(false);
-    jest
-      .mocked(Keychain.getGenericPassword)
-      .mockRejectedValueOnce(new Error('locked'));
-    expect(await loadSymbolPreference()).toBe(false);
+describe('the tap on the balance', () => {
+  test('rolls from sats to ₿ to BTC and back to sats', () => {
+    const sats = { unit: 'sats', symbol: false } as const;
+    const symbol = { unit: 'sats', symbol: true } as const;
+    const btc = { unit: 'btc', symbol: false } as const;
+    expect(nextFace(sats.unit, sats.symbol)).toEqual(symbol);
+    expect(nextFace(symbol.unit, symbol.symbol)).toEqual(btc);
+    expect(nextFace(btc.unit, btc.symbol)).toEqual(sats);
+    // BTC goes back to sats whatever the sign was left at.
+    expect(nextFace('btc', true)).toEqual(sats);
   });
 
-  test('is kept under a service of its own, not the haptics one', async () => {
-    await setSymbolPreference(true);
-    expect(Keychain.setGenericPassword).toHaveBeenLastCalledWith(
-      'beignet-bitcoin-symbol',
-      'on',
-      expect.objectContaining({ service: SERVICE }),
-    );
-    expect(records.get('com.beignet.wallet.haptics')).toBeUndefined();
-    expect(await loadSymbolPreference()).toBe(true);
-    await setSymbolPreference(false);
-    expect(records.get(SERVICE)).toBe('off');
-    expect(await loadSymbolPreference()).toBe(false);
-  });
-
-  test('a save the store refuses throws', async () => {
-    jest.mocked(Keychain.setGenericPassword).mockResolvedValueOnce(false);
-    await expect(setSymbolPreference(true)).rejects.toThrow(
-      copy.settings.phone.symbolFailed,
-    );
-  });
-});
-
-describe('the Settings switch', () => {
-  const client = {
-    connection: { url: 'embedded:', token: '' },
-    demo: false,
-    getConfig: jest.fn().mockResolvedValue({ engineVersion: '0.23.1' }),
-    snapshot: jest.fn(),
-    getRecoveryPhrase: jest.fn(),
-    updatePrimary: jest.fn(),
-    retrySetup: jest.fn(),
-  } as unknown as WalletAdapter;
+  const session: CanvasSession = {
+    error: '',
+    switchError: '',
+    refreshing: false,
+    connecting: false,
+    refresh: jest.fn(),
+    manualRefresh: jest.fn(),
+    disconnect: jest.fn(),
+    chooseWallet: jest.fn(),
+    switchNetwork: jest.fn(),
+    eraseDevice: jest.fn(),
+  };
+  const client = new DemoWalletClient();
 
   /**
-   * The stage's view, as the app keeps it across a lock: Settings drawn
-   * over it while `open`, and the balance's figures drawn by it otherwise,
-   * which a lock or leaving Settings leaves the view to hold.
+   * Home on the canvas with the stage's own view, which outlives Home as
+   * it does a lock: `home` false takes Home away and keeps the view.
    */
-  function Stage({ open }: { open: boolean }) {
+  function Stage({ home }: { home: boolean }) {
+    const stage = useStageStore();
     const view = useCanvasView();
-    return open ? (
-      <SettingsScreen
-        snapshot={snapshotOf()}
-        client={client}
-        switchError=""
-        onDisconnect={noop}
-        onChooseWallet={noop}
-        onRefresh={noop}
-        onNetwork={async () => {}}
-        symbol={view.symbol}
-        onSymbol={view.setSymbol}
-      />
-    ) : (
-      <Odometer
-        sats={2_000}
-        unit={view.unit}
-        symbol={view.symbol}
-        variant="hero"
-      />
-    );
-  }
-
-  const toggle = (tree: ReactTestRenderer) =>
-    tree.root.findAll(
-      node =>
-        node.props.accessibilityLabel === copy.settings.phone.symbolLabel &&
-        typeof node.props.onValueChange === 'function',
-    )[0];
-
-  test('is off on a fresh install, and says what ₿ means', async () => {
-    const tree = await mount(<Stage open />);
-    expect(toggle(tree).props.value).toBe(false);
-    expect(visibleText(tree)).toContain(copy.settings.phone.symbol);
-    expect(visibleText(tree)).toContain(copy.settings.phone.symbolNote);
-    expect(Keychain.getGenericPassword).toHaveBeenCalledWith(
-      expect.objectContaining({ service: SERVICE }),
-    );
-    await act(async () => tree.unmount());
-  });
-
-  test('turned on, is saved, holds across leaving Settings and a lock, and is read back at launch', async () => {
-    const tree = await mount(<Stage open />);
-    await act(async () => toggle(tree).props.onValueChange(true));
-    expect(records.get(SERVICE)).toBe('on');
-    expect(toggle(tree).props.value).toBe(true);
-    // Settings gone, as leaving it or a lock takes it: the view keeps it.
-    await act(async () => tree.update(<Stage open={false} />));
-    expect(drawnIn(tree.root)).toBe('₿2,000');
-    await act(async () => tree.update(<Stage open />));
-    expect(toggle(tree).props.value).toBe(true);
-    await act(async () => tree.unmount());
-    // A cold start reads it from the store.
-    const again = await mount(<Stage open={false} />);
-    expect(drawnIn(again.root)).toBe('₿2,000');
-    await act(async () => again.update(<Stage open />));
-    expect(toggle(again).props.value).toBe(true);
-    // And turned off, it is drawn in sats again, and stays so.
-    await act(async () => toggle(again).props.onValueChange(false));
-    expect(records.get(SERVICE)).toBe('off');
-    await act(async () => again.update(<Stage open={false} />));
-    expect(drawnIn(again.root)).toBe('2,000sats');
-    await act(async () => again.unmount());
-  });
-
-  test('a choice that could not be saved leaves the switch where it was and says why', async () => {
-    jest.mocked(Keychain.setGenericPassword).mockResolvedValueOnce(false);
-    const tree = await mount(<Stage open />);
-    await act(async () => toggle(tree).props.onValueChange(true));
-    expect(toggle(tree).props.value).toBe(false);
-    expect(visibleText(tree)).toContain(copy.settings.phone.symbolFailed);
-    expect(records.has(SERVICE)).toBe(false);
-    await act(async () => tree.update(<Stage open={false} />));
-    expect(drawnIn(tree.root)).toBe('2,000sats');
-    await act(async () => tree.unmount());
-  });
-
-  test('is not drawn where no view is handed in', async () => {
-    const tree = await mount(
-      <SettingsScreen
-        snapshot={snapshotOf()}
-        client={client}
-        switchError=""
-        onDisconnect={noop}
-        onChooseWallet={noop}
-        onRefresh={noop}
-        onNetwork={async () => {}}
-      />,
-    );
-    expect(toggle(tree)).toBeUndefined();
-    await act(async () => tree.unmount());
-  });
-});
-
-describe('the hero', () => {
-  /** Home, its tap rolling the unit as the canvas's view does. */
-  function Home({ symbol }: { symbol: boolean }) {
-    const [unit, setUnit] = useState<Unit>('sats');
+    const panes = {
+      seam: useSharedValue(0),
+      hero: useSharedValue(1),
+      bar: useSharedValue(1),
+      cover: useSharedValue(0),
+      scan: useSharedValue(0),
+      pull: useSharedValue(0),
+      stops: stops(844, { top: 0 }),
+    };
     return (
       <GestureHandlerRootView>
-        <HomeScreen
-          snapshot={snapshotOf(MAINNET)}
-          unit={unit}
-          symbol={symbol}
-          onSend={noop}
-          onReceive={noop}
-          onActivity={noop}
-          onDetail={noop}
-          onToggleUnit={() =>
-            setUnit(value => (value === 'sats' ? 'btc' : 'sats'))
-          }
-        />
+        <StageProvider value={stage}>
+          <PanesProvider value={panes}>
+            {home ? (
+              <Pane active>
+                <HomePane
+                  snapshot={snapshotOf(MAINNET)}
+                  client={client}
+                  session={session}
+                  view={view}
+                  stale={false}
+                  backup={null}
+                  arrived={0}
+                  home
+                />
+              </Pane>
+            ) : null}
+          </PanesProvider>
+        </StageProvider>
       </GestureHandlerRootView>
     );
   }
+
+  /** The balance, the control a tap rolls. */
+  const balance = (tree: ReactTestRenderer) =>
+    byId(tree, 'home-hero').findAll(
+      node =>
+        node.props.accessibilityRole === 'button' &&
+        typeof node.props.onPress === 'function',
+    )[0];
   const total = (tree: ReactTestRenderer) => drawnIn(byId(tree, 'home-total'));
+  const tap = (tree: ReactTestRenderer) =>
+    act(async () => balance(tree).props.onPress());
   const sats = copy.home.totalBalance(261_500, 'sats');
   const btc = copy.home.totalBalance(261_500, 'btc');
 
-  test('draws ₿ before the figures, and is still heard in sats', async () => {
-    const tree = await mount(<Home symbol />);
+  test('draws each face in turn, and says sats for both integer faces', async () => {
+    const tree = await mount(<Stage home />);
+    expect(total(tree)).toBe('261,500sats');
+    expect(balance(tree).props.accessibilityLabel).toBe(sats);
+    await tap(tree);
     expect(total(tree)).toBe('₿261,500');
-    const [balance] = byId(tree, 'home-hero').findAll(
-      node =>
-        typeof node.type === 'string' &&
-        node.props.accessibilityRole === 'button',
-    );
-    expect(balance.props.accessibilityLabel).toBe(sats);
-    expect(balance.props.accessibilityLabel).toContain(
+    expect(balance(tree).props.accessibilityLabel).toBe(sats);
+    expect(balance(tree).props.accessibilityLabel).toContain(
       copy.amount.spoken(261_500),
     );
-    expect(drawnIn(balance)).toContain('₿261,500');
+    await tap(tree);
+    expect(total(tree)).toBe('0.00261500BTC');
+    expect(balance(tree).props.accessibilityLabel).toBe(btc);
+    await tap(tree);
+    expect(total(tree)).toBe('261,500sats');
     await act(async () => tree.unmount());
   });
 
-  test('a tap rolls only between ₿ and BTC, and BTC is as it was', async () => {
-    const off = await mount(<Home symbol={false} />);
-    expect(total(off)).toBe('261,500sats');
-    await act(async () => find(off, sats)!.props.onPress());
-    const inBtc = total(off);
-    await act(async () => off.unmount());
-
-    const tree = await mount(<Home symbol />);
-    await act(async () => find(tree, sats)!.props.onPress());
-    expect(total(tree)).toBe(inBtc);
-    expect(total(tree)).toBe('0.00261500BTC');
-    expect(find(tree, btc)).toBeDefined();
-    await act(async () => find(tree, btc)!.props.onPress());
+  test("a screen reader's action rolls it the same way", async () => {
+    const tree = await mount(<Stage home />);
+    const roll = () =>
+      act(async () =>
+        balance(tree).props.onAccessibilityAction({
+          nativeEvent: { actionName: 'unit' },
+        }),
+      );
+    expect(balance(tree).props.accessibilityHint).toBe(copy.home.unitHint);
+    await roll();
     expect(total(tree)).toBe('₿261,500');
+    await roll();
+    expect(total(tree)).toBe('0.00261500BTC');
+    await act(async () => tree.unmount());
+  });
+
+  test('the face holds while Home is away, as across a lock', async () => {
+    const tree = await mount(<Stage home />);
+    await tap(tree);
+    expect(total(tree)).toBe('₿261,500');
+    await act(async () => tree.update(<Stage home={false} />));
+    await act(async () => tree.update(<Stage home />));
+    expect(total(tree)).toBe('₿261,500');
+    await act(async () => tree.unmount());
+  });
+
+  test('BTC is drawn the same whichever face came before it', async () => {
+    function Alone({ symbol }: { symbol: boolean }) {
+      const [unit, setUnit] = useState<'sats' | 'btc'>('sats');
+      return (
+        <GestureHandlerRootView>
+          <HomeScreen
+            snapshot={snapshotOf(MAINNET)}
+            unit={unit}
+            symbol={symbol}
+            onSend={noop}
+            onReceive={noop}
+            onActivity={noop}
+            onDetail={noop}
+            onToggleUnit={() => setUnit('btc')}
+          />
+        </GestureHandlerRootView>
+      );
+    }
+    const drawn: string[] = [];
+    for (const symbol of [false, true]) {
+      const tree = await mount(<Alone symbol={symbol} />);
+      await tap(tree);
+      drawn.push(total(tree));
+      await act(async () => tree.unmount());
+    }
+    expect(drawn).toEqual(['0.00261500BTC', '0.00261500BTC']);
+  });
+});
+
+describe('the bitcoin sign beside large figures', () => {
+  const flat = (node: ReactTestInstance) =>
+    StyleSheet.flatten(node.props.style) as {
+      fontSize?: number;
+      lineHeight?: number;
+      alignSelf?: string;
+    };
+  /** The text node drawing `₿`, and one drawing a figure, under `node`. */
+  const texts = (node: ReactTestInstance) => {
+    const all = node.findAll(
+      at => typeof at.type === 'string' && at.children.length > 0,
+    );
+    const sign = all.find(at => at.children.join('') === '₿')!;
+    const figure = all.find(at => /^\d$/.test(at.children.join('')))!;
+    return { sign: flat(sign), figure: flat(figure) };
+  };
+
+  test('is a little smaller than the hero, in its line box', async () => {
+    const tree = await mount(
+      <Odometer sats={2_000} unit="sats" symbol variant="hero" />,
+    );
+    const { sign, figure } = texts(tree.root);
+    expect(figure.fontSize).toBe(typography.hero.fontSize);
+    expect(sign.fontSize).toBe(typography.hero.fontSize * SYMBOL_SCALE);
+    expect(sign.lineHeight).toBe(figure.lineHeight);
+    await act(async () => tree.unmount());
+  });
+
+  test('is as much smaller than the keyed digits, centred on them', async () => {
+    const tree = await mount(
+      <AmountField value="2000" onChangeText={noop} symbol />,
+    );
+    const readout = tree.root.find(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === copy.amount.field,
+    );
+    const { sign, figure } = texts(readout);
+    expect(sign.fontSize).toBe((figure.fontSize ?? 0) * SYMBOL_SCALE);
+    expect(sign.lineHeight).toBe(figure.lineHeight);
+    expect(sign.alignSelf).toBe('center');
     await act(async () => tree.unmount());
   });
 });
@@ -409,7 +386,7 @@ describe('a send', () => {
     warnings: [],
   };
 
-  /** Keys 4,200 on the keypad and reviews it, with the switch as given. */
+  /** Keys 4,200 on the keypad and reviews it, in the face given. */
   async function reviewed(symbol: boolean) {
     const prepareSend = jest.fn().mockResolvedValue(review);
     const tree = await mount(

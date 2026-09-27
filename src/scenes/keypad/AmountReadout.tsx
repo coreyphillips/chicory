@@ -32,7 +32,12 @@ import { riseIn } from '../../motion/presets';
 import { steady } from '../../motion/steady';
 import { curves, durations } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
-import { space, type as typography, unitAffixes } from '../../theme';
+import {
+  SYMBOL_SCALE,
+  space,
+  type as typography,
+  unitAffixes,
+} from '../../theme';
 import { BANG, DrawnGlyph } from '../send/DrawnGlyph';
 import type { Stroke } from '../send/DrawnGlyph';
 import { WaitingClock } from '../send/LoopingGlyphs';
@@ -447,7 +452,8 @@ export function AmountReadout({
             <Text
               style={[
                 styles.digits,
-                sized,
+                styles.symbol,
+                { fontSize: size * SYMBOL_SCALE, lineHeight: amountLine(size) },
                 cells.length ? { color } : styles.empty,
               ]}
               maxFontSizeMultiplier={AMOUNT_SCALE}
@@ -530,6 +536,9 @@ const styles = StyleSheet.create({
   },
   amount: { flexDirection: 'row', alignItems: 'baseline' },
   digits: { ...typography.amount, color: palette.cream },
+  // Smaller than the digits, in their line box and centred on them, as the
+  // odometer draws it, rather than standing on their baseline.
+  symbol: { alignSelf: 'center' },
   empty: { color: palette.dust },
   face: { flexDirection: 'row', alignItems: 'center' },
   unit: { ...typography.heroUnit, color: palette.steam, marginLeft: 6 },

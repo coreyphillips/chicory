@@ -37,7 +37,6 @@ import { isTestNetwork } from '../scenes/home/visual';
 import { ReceiveScene } from '../scenes/receive/ReceiveScene';
 import { SendScene } from '../scenes/send/SendScene';
 import { SettingsLayer } from '../scenes/settings/SettingsLayer';
-import { useSymbolPreference } from '../services/symbolPreference';
 import type { useWalletSession } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
 import { colors, radius, space } from '../theme';
@@ -106,14 +105,13 @@ export interface Backup {
  * canvas, because the canvas goes away under a lock or a network switch and a
  * hidden balance must still be hidden when it comes back.
  *
- * `symbol` is the saved Settings choice to draw the sats face as `₿2,000`
- * (`useSymbolPreference`), and `setSymbol` saves a change before it shows
- * it. It is read as the stage mounts, at launch.
+ * `unit` and `symbol` are the face a tap on the balance rolls through
+ * (`nextFace`): sats, sats drawn as `₿2,000`, and BTC.
  */
 export function useCanvasView() {
   const [hidden, setHidden] = useState(false);
   const [unit, setUnit] = useState<Unit>('sats');
-  const { on: symbol, set: setSymbol } = useSymbolPreference();
+  const [symbol, setSymbol] = useState(false);
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
   return {

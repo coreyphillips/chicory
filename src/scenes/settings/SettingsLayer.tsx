@@ -95,7 +95,6 @@ export function SettingsLayer({
   snapshot,
   client,
   session,
-  view,
   backup,
 }: RegionProps) {
   // Settings covers the whole canvas, under the system bars too, so it
@@ -160,8 +159,6 @@ export function SettingsLayer({
             onErase={session.eraseDevice}
             backupPending={backup?.pending}
             onBackupSaved={backup?.onSaved}
-            symbol={view.symbol}
-            onSymbol={view.setSymbol}
           />
         </View>
       </SceneSlot>

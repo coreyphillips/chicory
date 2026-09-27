@@ -36,7 +36,13 @@ import { fract, useAwake, useLoop } from '../motion/loops';
 import { steady } from '../motion/steady';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
-import { MASK, space, type as typography, unitAffixes } from '../theme';
+import {
+  MASK,
+  SYMBOL_SCALE,
+  space,
+  type as typography,
+  unitAffixes,
+} from '../theme';
 import type { Unit } from '../theme';
 
 /**
@@ -60,8 +66,9 @@ import type { Unit } from '../theme';
  * Without an `accessibilityLabel` it reads the amount in sats.
  *
  * With `symbol` on, sats are drawn as BIP 177 draws them: the bitcoin sign
- * before the figures, after any sign, in their face and size, and no unit
- * after them (`unitAffixes`). A screen reader still hears sats.
+ * before the figures, after any sign, in their face a little smaller and
+ * centred on them (SYMBOL_SCALE), and no unit after them (`unitAffixes`). A
+ * screen reader still hears sats.
  *
  * The hero sizes itself to fit `room`, the width its container measured,
  * and until it has one the window's width between the page edges. When it
@@ -453,13 +460,13 @@ export function unitScaleFor(scaled: number, fontSize: number): number {
  * until it fits, and 40 when nothing does. Never `adjustsFontSizeToFit`,
  * which would shrink it per frame.
  *
- * The bitcoin sign is drawn in the figures' face and counts as one more
- * figure. U+20BF is no wider than a zero in the iOS system face or in
- * Android's Roboto 3. Android 11 and earlier, whose Roboto lacks it, draw it
- * from Noto Sans Symbols a little wider, 0.65em, within what FIGURE_EM
- * already allows over the other figures. Either way it takes less room than
- * "sats" and its gap, so a balance in `₿` is never drawn smaller than in
- * sats.
+ * The bitcoin sign is drawn in the figures' face at SYMBOL_SCALE of their
+ * size, and counts as that share of a figure. U+20BF is no wider than a
+ * zero in the iOS system face or in Android's Roboto 3. Android 11 and
+ * earlier, whose Roboto lacks it, draw it from Noto Sans Symbols a little
+ * wider, 0.65em, within what FIGURE_EM already allows over the other
+ * figures. Either way it takes less room than "sats" and its gap, so a
+ * balance in `₿` is never drawn smaller than in sats.
  */
 export function heroSize(
   figures: number,
@@ -1108,7 +1115,7 @@ export function Odometer({
   const figures =
     (dots ? DOTS.length : cells.length - marks) +
     (signed ? 1 : 0) +
-    prefix.length;
+    prefix.length * SYMBOL_SCALE;
   const measured = room !== undefined;
   const fitted = heroSize(
     figures,
@@ -1121,6 +1128,11 @@ export function Odometer({
   // Each step to another size in the same unit keys the figures afresh, so
   // the old ones fade out as the new ones fade in.
   const size = base.fontSize ?? 0;
+  // In the figures' line box, so it is centred on them.
+  const symbolSize = {
+    fontSize: size * SYMBOL_SCALE,
+    letterSpacing: (base.letterSpacing ?? 0) * SYMBOL_SCALE,
+  };
   const [step, setStep] = useState({ unit, size, measured, count: 0 });
   if (step.unit !== unit || step.size !== size || step.measured !== measured) {
     const next = { unit, size, measured };
@@ -1247,7 +1259,7 @@ export function Odometer({
                   <Reanimated.Text
                     entering={cellIn(0, reduced)}
                     exiting={cellOut(0, reduced)}
-                    style={[...rig.text, ink]}
+                    style={[...rig.text, symbolSize, ink]}
                     maxFontSizeMultiplier={maxScale}
                   >
                     {prefix}

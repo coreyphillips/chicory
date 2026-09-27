@@ -31,6 +31,7 @@ import {
   startRoll,
 } from '../src/glyphs/Odometer';
 import { pingPose, pulseScale } from '../src/glyphs/PulseDot';
+import { SYMBOL_SCALE } from '../src/theme';
 import {
   badgeAt,
   drawPlan,
@@ -390,17 +391,18 @@ describe('Odometer', () => {
   });
 
   test('with the bitcoin sign on, the hero keeps no room for "sats" and is never smaller for it', () => {
-    // The sign counts as a figure before the digits, and nothing trails
-    // them: 261,500 sats in 280pt steps down to 56, ₿261,500 stays at 64.
+    // The sign counts as its share of a figure before the digits, and
+    // nothing trails them: 261,500 sats in 280pt steps down to 56,
+    // ₿261,500 stays at 64.
     expect(heroSize(6, 1, 'sats', 280, 1)).toBe(56);
-    expect(heroSize(7, 1, '', 280, 1)).toBe(64);
+    expect(heroSize(6 + SYMBOL_SCALE, 1, '', 280, 1)).toBe(64);
     for (const room of [240, 280, 300, 342, 390]) {
       for (const scale of [1, 1.2]) {
         for (let digits = 1; digits <= 16; digits++) {
           const marks = Math.floor((digits - 1) / 3);
           for (const sign of [0, 1]) {
             expect(
-              heroSize(digits + sign + 1, marks, '', room, scale),
+              heroSize(digits + sign + SYMBOL_SCALE, marks, '', room, scale),
             ).toBeGreaterThanOrEqual(
               heroSize(digits + sign, marks, 'sats', room, scale),
             );

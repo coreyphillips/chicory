@@ -250,10 +250,10 @@ export const statusLabel = (status: PaymentStatus): string =>
 const BITCOIN_SIGN = '₿';
 
 /**
- * What stands on either side of an amount's figures in `unit`. `symbol` is
- * the Settings choice to draw the integer face as BIP 177 does, `₿2,000`
- * rather than `2,000 sats`: the same integer, the sign before it and no word
- * after it. BTC keeps its suffix either way.
+ * What stands on either side of an amount's figures in `unit`. `symbol`
+ * draws the integer face as BIP 177 does, `₿2,000` rather than `2,000 sats`:
+ * the same integer, the sign before it and no word after it. BTC keeps its
+ * suffix either way.
  */
 export const unitAffixes = (
   unit: Unit,
@@ -264,6 +264,28 @@ export const unitAffixes = (
     : symbol
     ? { prefix: BITCOIN_SIGN, suffix: '' }
     : { prefix: '', suffix: 'sats' };
+
+/**
+ * The face a tap on the balance rolls to: sats, then the same integer after
+ * the bitcoin sign, then BTC, then sats again.
+ */
+export const nextFace = (
+  unit: Unit,
+  symbol: boolean,
+): { unit: Unit; symbol: boolean } =>
+  unit === 'btc'
+    ? { unit: 'sats', symbol: false }
+    : symbol
+    ? { unit: 'btc', symbol: false }
+    : { unit: 'sats', symbol: true };
+
+/**
+ * The share of the figures' size the bitcoin sign is set at where the
+ * figures are drawn on their own, as the odometer and the keypad draw them,
+ * centred on them in their line box. In a line of text it is set at the
+ * text's size.
+ */
+export const SYMBOL_SCALE = 0.75;
 
 /**
  * One amount, rendered in the unit the user chose, with what stands either
