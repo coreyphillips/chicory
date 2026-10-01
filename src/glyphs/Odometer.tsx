@@ -59,10 +59,11 @@ import type { Unit } from '../theme';
  *
  * One shared value in sats drives every column on the UI thread, so a roll
  * costs no renders past its first and last. At rest each cell is a single
- * digit; the columns exist only while something moves. A new unit lifts the
- * old cells away and rises the new ones in, hiding scrambles the digits
- * before six dots scale in, and a stale amount turns steam while a dip runs
- * across its cells. Under Reduce Motion every change is a short crossfade.
+ * digit; the columns exist only while something moves. A new unit or face
+ * lifts the old cells away and rises the new ones in, hiding scrambles the
+ * digits before six dots scale in, and a stale amount turns steam while a
+ * dip runs across its cells. Under Reduce Motion every change is a short
+ * crossfade.
  *
  * The whole odometer is one element to a screen reader; the cells are hidden.
  * Without an `accessibilityLabel` it reads the amount in sats.
@@ -706,16 +707,17 @@ const STEP_OUT = FadeOut.duration(durations.crossfade).reduceMotion(
 
 /**
  * Whether the figures crossfade on the way from one size to the next: only
- * for a step with the unit unchanged, whose cells would otherwise jump, and
- * only between sizes fitted to the same room, so the first measure does
- * not fade the hero in again.
+ * for a step with the face unchanged (the unit, and whether the bitcoin
+ * sign stands before it), whose cells would otherwise jump, and only
+ * between sizes fitted to the same room, so the first measure does not fade
+ * the hero in again. A new face swaps the cells instead.
  */
 export function stepsSize(
-  before: { unit: Unit; size: number; measured: boolean },
-  after: { unit: Unit; size: number; measured: boolean },
+  before: { face: string; size: number; measured: boolean },
+  after: { face: string; size: number; measured: boolean },
 ): boolean {
   return (
-    before.unit === after.unit &&
+    before.face === after.face &&
     before.measured === after.measured &&
     before.size !== after.size
   );
@@ -1104,6 +1106,9 @@ export function Odometer({
   // Its unit stays, before the dots or after them, as it says nothing.
   const signed = masked ? null : sign;
   const { prefix, suffix } = unitAffixes(unit, symbol);
+  // What the cells are drawn in: a tap from sats to ₿ swaps them as one to
+  // BTC does, rather than sliding the same cells over to make room.
+  const face = `${prefix}${unit}`;
   const motion: Motion = phase === 'rest' ? 'still' : phase;
   const cells =
     phase === 'roll' ? rollCells(span, sats, unit) : cellsFor(sats, unit);
@@ -1128,7 +1133,7 @@ export function Odometer({
     scale,
   );
   const base = variant === 'hero' ? HERO_AT[fitted] : VARIANTS[variant];
-  // Each step to another size in the same unit keys the figures afresh, so
+  // Each step to another size in the same face keys the figures afresh, so
   // the old ones fade out as the new ones fade in.
   const size = base.fontSize ?? 0;
   // In the figures' line box. In a row or a line it stands on their baseline,
@@ -1142,9 +1147,9 @@ export function Odometer({
       : symbolBeside(size, base.lineHeight ?? size, scale, !dots),
     { letterSpacing: (base.letterSpacing ?? 0) * share },
   ];
-  const [step, setStep] = useState({ unit, size, measured, count: 0 });
-  if (step.unit !== unit || step.size !== size || step.measured !== measured) {
-    const next = { unit, size, measured };
+  const [step, setStep] = useState({ face, size, measured, count: 0 });
+  if (step.face !== face || step.size !== size || step.measured !== measured) {
+    const next = { face, size, measured };
     setStep({
       ...next,
       count: step.count + (stepsSize(step, next) ? 1 : 0),
@@ -1188,7 +1193,7 @@ export function Odometer({
   // Under Reduce Motion a changed digit is a new cell, so it crossfades
   // with the old one in place instead of changing under the eye.
   const keyOf = (cell: OdometerCell) =>
-    `${unit}${cell.key}${
+    `${face}${cell.key}${
       reduced && cell.kind === 'digit' ? `:${cell.digit}` : ''
     }`;
 

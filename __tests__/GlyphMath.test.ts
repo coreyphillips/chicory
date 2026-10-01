@@ -412,13 +412,15 @@ describe('Odometer', () => {
     }
   });
 
-  test('the figures crossfade on a step in size, not on a new unit or a first measure', () => {
-    const at = (size: number, unit: 'sats' | 'btc' = 'sats', measured = true) =>
-      ({ unit, size, measured } as const);
+  test('the figures crossfade on a step in size, not on a new face or a first measure', () => {
+    const at = (size: number, face = 'sats', measured = true) =>
+      ({ face, size, measured } as const);
     expect(stepsSize(at(64), at(56))).toBe(true);
     expect(stepsSize(at(56), at(56))).toBe(false);
     // A new unit brings its own cells in at the new size.
     expect(stepsSize(at(64), at(56, 'btc'))).toBe(false);
+    // So does the bitcoin sign before the same unit.
+    expect(stepsSize(at(56), at(64, '₿sats'))).toBe(false);
     // The first measure replaces the window's guess without a fade.
     expect(stepsSize(at(64, 'sats', false), at(48))).toBe(false);
   });
