@@ -71,6 +71,7 @@ export function ReceiveScene({
                 disabled={stale}
                 hidden={view.hidden}
                 unit={view.unit}
+                symbol={view.symbol}
                 onRefresh={session.refresh}
                 onActivity={actions.openActivity}
                 onBusy={actions.setBusy}

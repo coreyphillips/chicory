@@ -148,6 +148,7 @@ interface Drawn {
   backup?: Backup | null;
   hidden?: boolean;
   unit?: Unit;
+  symbol?: boolean;
   shown?: CanvasSceneName;
 }
 
@@ -163,11 +164,12 @@ function HomeRegions({
   backup = null,
   hidden = false,
   unit = 'sats',
+  symbol = false,
   shown = 'home',
 }: Drawn) {
   const own = useStageStore();
   stage = store ?? own;
-  const view = { ...useCanvasView(), hidden, unit };
+  const view = { ...useCanvasView(), hidden, unit, symbol };
   panes = {
     seam: useSharedValue(0),
     hero: useSharedValue(1),
@@ -257,6 +259,10 @@ const GUARDED: GuardedState[] = [
   }),
   state('hidden', { hidden: true }),
   state('btc', { unit: 'btc' }),
+  state('sats as ₿', { symbol: true }),
+  state('sats as ₿, hidden', { symbol: true, hidden: true }),
+  state('sats as ₿, in btc', { symbol: true, unit: 'btc' }),
+  state('sats as ₿, stale', { symbol: true, stale: true }),
   state('test network', { snapshot: snapshotOf() }),
   state('backup pending', { backup: pendingBackup() }),
   state('backup pending, away from home', {
@@ -307,6 +313,10 @@ const GUARDED: GuardedState[] = [
   state('vessel: hidden', {
     hidden: true,
     snapshot: snapshotOf({ wallet: MAINNET, lfbw: channelize('failed') }),
+  }),
+  state('vessel: in flight, sats as ₿', {
+    symbol: true,
+    snapshot: snapshotOf({ wallet: MAINNET, lfbw: {} }),
   }),
 ];
 

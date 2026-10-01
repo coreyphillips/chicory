@@ -31,6 +31,7 @@ import {
   startRoll,
 } from '../src/glyphs/Odometer';
 import { pingPose, pulseScale } from '../src/glyphs/PulseDot';
+import { SYMBOL_SCALE } from '../src/theme';
 import {
   badgeAt,
   drawPlan,
@@ -389,13 +390,37 @@ describe('Odometer', () => {
     expect(heroSize(6, 1, 'sats', 300, 1.2)).toBe(48);
   });
 
-  test('the figures crossfade on a step in size, not on a new unit or a first measure', () => {
-    const at = (size: number, unit: 'sats' | 'btc' = 'sats', measured = true) =>
-      ({ unit, size, measured } as const);
+  test('with the bitcoin sign on, the hero keeps no room for "sats" and is never smaller for it', () => {
+    // The sign counts as its share of a figure before the digits, and
+    // nothing trails them: 261,500 sats in 280pt steps down to 56,
+    // ₿261,500 stays at 64.
+    expect(heroSize(6, 1, 'sats', 280, 1)).toBe(56);
+    expect(heroSize(6 + SYMBOL_SCALE, 1, '', 280, 1)).toBe(64);
+    for (const room of [240, 280, 300, 342, 390]) {
+      for (const scale of [1, 1.2]) {
+        for (let digits = 1; digits <= 16; digits++) {
+          const marks = Math.floor((digits - 1) / 3);
+          for (const sign of [0, 1]) {
+            expect(
+              heroSize(digits + sign + SYMBOL_SCALE, marks, '', room, scale),
+            ).toBeGreaterThanOrEqual(
+              heroSize(digits + sign, marks, 'sats', room, scale),
+            );
+          }
+        }
+      }
+    }
+  });
+
+  test('the figures crossfade on a step in size, not on a new face or a first measure', () => {
+    const at = (size: number, face = 'sats', measured = true) =>
+      ({ face, size, measured } as const);
     expect(stepsSize(at(64), at(56))).toBe(true);
     expect(stepsSize(at(56), at(56))).toBe(false);
     // A new unit brings its own cells in at the new size.
     expect(stepsSize(at(64), at(56, 'btc'))).toBe(false);
+    // So does the bitcoin sign before the same unit.
+    expect(stepsSize(at(56), at(64, '₿sats'))).toBe(false);
     // The first measure replaces the window's guess without a fade.
     expect(stepsSize(at(64, 'sats', false), at(48))).toBe(false);
   });

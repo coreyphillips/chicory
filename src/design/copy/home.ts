@@ -9,7 +9,7 @@ export const home = {
     return `Total balance ${amount.value} ${amount.suffix}`;
   },
   balanceHidden: 'Balance hidden',
-  unitHint: 'Switches between satoshis and BTC.',
+  unitHint: 'Switches between satoshis, the bitcoin sign and BTC.',
   hideHint: 'Masks every amount on screen.',
   showBalance: 'Show balance',
   hideBalance: 'Hide balance',

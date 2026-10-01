@@ -79,6 +79,7 @@ export function FormStep({
   onContinue,
   onBlocked,
   focus,
+  symbol = false,
 }: {
   amount: string;
   onAmount: (next: string) => void;
@@ -104,6 +105,8 @@ export function FormStep({
   onContinue: () => void;
   onBlocked: () => void;
   focus: Focus;
+  /** The amount's unit is drawn as `₿` before its digits. */
+  symbol?: boolean;
 }) {
   const live = usePaneActive();
   const { bloom } = useBloom();
@@ -184,6 +187,7 @@ export function FormStep({
           cue.over || refusedAmount ? 'radish' : cue.under ? 'dust' : undefined
         }
         shake={asked.times}
+        symbol={symbol}
       />
     </>
   );

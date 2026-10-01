@@ -14,6 +14,7 @@ import { Glyph, HISTORY_GLYPH } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
+import { inlineAmount } from '../../glyphs/InlineAmount';
 import { QrBloom } from '../../glyphs/QrBloom';
 import { Whisper } from '../../glyphs/Whisper';
 import { riseIn, stagger } from '../../motion/presets';
@@ -33,7 +34,7 @@ import { useReceiveHost } from './host';
 import { Rock } from './loops';
 import type { Refused, RequestFace } from './model';
 import { useBloom, useTestNetwork } from './tone';
-import { lateAt, remainderSats, requestRails, shownSats } from './model';
+import { lateAt, remainderSats, requestRails } from './model';
 
 /**
  * The glyph of the way to the payment list from a receipt, the one Send's
@@ -47,6 +48,9 @@ export const RING_GAP = 8;
 
 /** A request's frame for a code's card `qr` points across. */
 export const frameSide = (qr: number) => qr + RING_GAP * 2;
+
+/** The size of the amount lines, the request's and what is still owed. */
+const LINE = typography.line.fontSize;
 
 /**
  * A request and what becomes of it (REDESIGN.md 6, Receive). The code
@@ -74,6 +78,7 @@ export function RequestStep({
   trackingError,
   hidden,
   unit,
+  symbol = false,
   qr,
   error,
   onLift,
@@ -94,6 +99,8 @@ export function RequestStep({
   trackingError?: string;
   hidden: boolean;
   unit: Unit;
+  /** Sats are drawn as `₿2,000` (`unitAffixes`). */
+  symbol?: boolean;
   /** How wide the code's card is drawn, its quiet zone included. */
   qr: number;
   error: Refused | null;
@@ -134,6 +141,7 @@ export function RequestStep({
               amountSats={request.amountSats}
               hidden={hidden}
               unit={unit}
+              symbol={symbol}
               celebrate
               size={RECEIPT_MARK}
               room={side}
@@ -203,6 +211,7 @@ export function RequestStep({
               request={request}
               face={face}
               minutesLeft={minutesLeft}
+              symbol={symbol}
               focus={status ? undefined : focus}
             />
           )}
@@ -253,7 +262,11 @@ export function RequestStep({
             onPress={onAgain}
           >
             {/* What is owed gives away what arrived, so it hides with it. */}
-            {remainder === null ? null : hidden ? MASK : shownSats(remainder)}
+            {remainder === null
+              ? null
+              : hidden
+              ? MASK
+              : inlineAmount(remainder, 'sats', symbol, LINE)}
           </GlyphButton>
         </View>
         <View style={[styles.side, styles.end]}>
@@ -318,11 +331,13 @@ function About({
   request,
   face,
   minutesLeft,
+  symbol,
   focus,
 }: {
   request: ReceiveRequest;
   face: RequestFace;
   minutesLeft: number;
+  symbol: boolean;
   focus?: Focus;
 }) {
   const { bloom } = useBloom();
@@ -354,7 +369,7 @@ function About({
       >
         {request.amountSats ? (
           <Text style={styles.amount} maxFontSizeMultiplier={1.4}>
-            {shownSats(request.amountSats)}
+            {inlineAmount(request.amountSats, 'sats', symbol, LINE)}
           </Text>
         ) : (
           <Glyph name="infinity" size={28} color={palette.cream} />

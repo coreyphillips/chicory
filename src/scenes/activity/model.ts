@@ -50,14 +50,17 @@ function matchesFilter(item: Activity, filter: string) {
 
 /**
  * The amount as a search can find it: its bare digits, and as a row draws
- * it in either unit, with and without its unit ("10,000 sats", "0.0001").
+ * it in either unit, with and without its unit ("10,000 sats", "₿10,000",
+ * "0.0001").
  */
 function amountTexts(sats: number): string[] {
   const inSats = figureOf(sats, 'sats');
+  const inSymbol = figureOf(sats, 'sats', true);
   const inBtc = figureOf(sats, 'btc');
   return [
     String(sats),
     `${inSats.value} ${inSats.suffix}`,
+    `${inSymbol.prefix}${inSymbol.value}`,
     `${inBtc.value}${inBtc.dim} ${inBtc.suffix}`,
   ];
 }

@@ -154,6 +154,10 @@ const odometers: Shot[] = [
     )),
   ),
   glyph('odometer, hero in BTC', () => hero({ unit: 'btc' })),
+  glyph('odometer, hero in ₿', () => hero({ symbol: true })),
+  glyph('odometer, hero in ₿, hidden', () =>
+    hero({ symbol: true, masked: true }),
+  ),
   glyph('odometer, hero stepped down for the whole supply', () =>
     hero({ sats: 2_100_000_000_000_000, unit: 'btc' }),
   ),
@@ -163,6 +167,12 @@ const odometers: Shot[] = [
   glyph('odometer, a sent row, hidden', () => (
     <Odometer sats={4_200} unit="sats" variant="row" sign="-" masked />
   )),
+  glyph('odometer, a received row in ₿', () => (
+    <Odometer sats={4_200} unit="sats" symbol variant="row" sign="+" />
+  )),
+  glyph('odometer, a sent detail in ₿', () => (
+    <Odometer sats={4_200} unit="sats" symbol variant="amountDetail" sign="-" />
+  )),
   changing('odometer, rolling', () =>
     [availableSats, totalSats, totalSats + 1_234_567, 0].map(sats =>
       hero({ sats }),
@@ -170,6 +180,17 @@ const odometers: Shot[] = [
   ),
   changing('odometer, swapping unit', () =>
     (['sats', 'btc', 'sats'] as const).map(unit => hero({ unit })),
+  ),
+  // Each tap on the balance: sats, then ₿, then BTC, and sats again.
+  changing('odometer, rolling through its faces', () =>
+    (
+      [
+        ['sats', false],
+        ['sats', true],
+        ['btc', false],
+        ['sats', false],
+      ] as const
+    ).map(([unit, symbol]) => hero({ unit, symbol })),
   ),
   changing('odometer, hiding and showing', () =>
     [false, true, false].map(masked => hero({ masked })),
@@ -281,6 +302,16 @@ const vessels: Shot[] = [
     const label = copy.home.split(availableSats, pendingSats);
     return {
       view: vessel(decided('wait', 'below-floor')),
+      steps: [
+        drive => drive.fire(label, 'onResponderGrant', TOUCH),
+        drive => drive.fire(label, 'onResponderRelease', TOUCH),
+      ],
+    };
+  }),
+  touched('vessel in ₿, opened by a tap', () => {
+    const label = copy.home.split(availableSats, pendingSats);
+    return {
+      view: vessel(decided('wait', 'below-floor'), { symbol: true }),
       steps: [
         drive => drive.fire(label, 'onResponderGrant', TOUCH),
         drive => drive.fire(label, 'onResponderRelease', TOUCH),

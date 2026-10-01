@@ -24,6 +24,7 @@ import { canvasScene, launchLook } from '../../stage/layout';
 import { useBuild } from '../../stage/panes/Build';
 import { usePanes } from '../../stage/panes/Pane';
 import { useStage } from '../../stage/StageContext';
+import { nextFace } from '../../theme';
 import { reviewOpensLive } from '../send/model';
 import type { Point } from './ActionCircle';
 import { rowBack } from './motion';
@@ -73,7 +74,7 @@ export function HomePane({
 }) {
   const { state, actions } = useStage();
   const panes = usePanes();
-  const { hidden, setHidden, unit, setUnit } = view;
+  const { hidden, setHidden, unit, setUnit, symbol, setSymbol } = view;
   const network = snapshot.wallet.network;
 
   // On its way to Send or Receive the hero shows what can be spent rather
@@ -205,10 +206,11 @@ export function HomePane({
     (origin?: Point) => actions.openScan(origin),
     [actions],
   );
-  const toggleUnit = useCallback(
-    () => setUnit(value => (value === 'sats' ? 'btc' : 'sats')),
-    [setUnit],
-  );
+  const toggleUnit = useCallback(() => {
+    const next = nextFace(unit, symbol);
+    setUnit(next.unit);
+    setSymbol(next.symbol);
+  }, [unit, symbol, setUnit, setSymbol]);
   const toggleHidden = useCallback(
     () => setHidden(value => !value),
     [setHidden],
@@ -219,6 +221,7 @@ export function HomePane({
         snapshot={snapshot}
         hidden={hidden}
         unit={unit}
+        symbol={symbol}
         stale={stale}
         countUp={countUp}
         spendable={spending}

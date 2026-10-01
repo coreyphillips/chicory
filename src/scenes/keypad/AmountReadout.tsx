@@ -32,7 +32,12 @@ import { riseIn } from '../../motion/presets';
 import { steady } from '../../motion/steady';
 import { curves, durations } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
-import { space, type as typography } from '../../theme';
+import {
+  space,
+  symbolBeside,
+  type as typography,
+  unitAffixes,
+} from '../../theme';
 import { BANG, DrawnGlyph } from '../send/DrawnGlyph';
 import type { Stroke } from '../send/DrawnGlyph';
 import { WaitingClock } from '../send/LoopingGlyphs';
@@ -276,6 +281,12 @@ export interface AmountReadoutProps {
   shake?: number;
   /** What sits between the amount and its keypad, such as preset chips. */
   children?: ReactNode;
+  /**
+   * The unit is drawn as the bitcoin sign before the digits, `₿2,000`,
+   * rather than "sats" after them (`unitAffixes`). What is keyed, and what
+   * a screen reader hears, stays in sats.
+   */
+  symbol?: boolean;
   ref?: Ref<ComponentRef<typeof View>>;
 }
 
@@ -318,6 +329,7 @@ export function AmountReadout({
   empty,
   shake: shakes,
   children,
+  symbol = false,
   ref,
 }: AmountReadoutProps) {
   const digits = digitsOnly(value);
@@ -384,6 +396,7 @@ export function AmountReadout({
 
   const shown = grouped(digits);
   const color = TONES[tone];
+  const { prefix, suffix } = unitAffixes(UNIT, symbol);
   const marks = [editable ? null : 'lock', MARKS[tone]].filter(
     (mark): mark is GlyphName => mark !== null,
   );
@@ -398,14 +411,16 @@ export function AmountReadout({
     setRoom(last => (last === measured ? last : measured));
   }, []);
   const field = room ?? width - 2 * space.xl;
+  const textScale = Math.min(fontScale, AMOUNT_SCALE);
   const size = amountSize(
     {
       figures: Math.max(1, cells.length),
       separators: cells.filter(cell => cell.text.endsWith(',')).length,
       marks: marks.map(mark => MARK_GAP + (mark === 'lock' ? MARK : STATE_PIP)),
+      symbol,
     },
     field,
-    Math.min(fontScale, AMOUNT_SCALE),
+    textScale,
   );
   const sized =
     size === AMOUNT_SIZES[0]
@@ -434,6 +449,20 @@ export function AmountReadout({
           style={[styles.wash, flashStyle]}
         />
         <Reanimated.View layout={rowMove(field)} style={styles.amount}>
+          {prefix ? (
+            <Text
+              style={[
+                styles.digits,
+                styles.symbol,
+                symbolBeside(size, amountLine(size), textScale),
+                { lineHeight: amountLine(size) },
+                cells.length ? { color } : styles.empty,
+              ]}
+              maxFontSizeMultiplier={AMOUNT_SCALE}
+            >
+              {prefix}
+            </Text>
+          ) : null}
           {cells.length ? (
             cells.map(cell => (
               <Reanimated.View
@@ -461,9 +490,11 @@ export function AmountReadout({
           )}
           {/* The unit and the marks stand where the digits end, at once, so
             no digit is ever drawn over them on its way in. */}
-          <Text style={styles.unit} maxFontSizeMultiplier={AMOUNT_SCALE}>
-            {UNIT}
-          </Text>
+          {suffix ? (
+            <Text style={styles.unit} maxFontSizeMultiplier={AMOUNT_SCALE}>
+              {suffix}
+            </Text>
+          ) : null}
           {marks.map(mark => (
             <Reanimated.View
               key={mark}
@@ -507,6 +538,10 @@ const styles = StyleSheet.create({
   },
   amount: { flexDirection: 'row', alignItems: 'baseline' },
   digits: { ...typography.amount, color: palette.cream },
+  // Smaller than the digits, in their line box and centred on them, as the
+  // odometer draws it (`symbolBeside`), rather than standing on their
+  // baseline.
+  symbol: { alignSelf: 'center' },
   empty: { color: palette.dust },
   face: { flexDirection: 'row', alignItems: 'center' },
   unit: { ...typography.heroUnit, color: palette.steam, marginLeft: 6 },

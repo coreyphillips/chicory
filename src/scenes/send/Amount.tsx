@@ -8,20 +8,22 @@ import type { Unit } from '../../theme';
 
 /**
  * An amount of a payment at 48pt, with its unit, in `color`, drawn by the
- * odometer: in the unit the balance is shown in, and as its six dots while
- * amounts are hidden (`masked`). It is one element to a screen reader, read
- * as the amount in sats, or as hidden. `ref` is that element, where a screen
- * reader lands on a review.
+ * odometer: in the unit the balance is shown in, sats as `₿2,000` with
+ * `symbol` on, and as its six dots while amounts are hidden (`masked`). It
+ * is one element to a screen reader, read as the amount in sats, or as
+ * hidden. `ref` is that element, where a screen reader lands on a review.
  */
 export function Amount({
   sats,
   unit = 'sats',
+  symbol = false,
   masked = false,
   color = palette.cream,
   ref,
 }: {
   sats: number;
   unit?: Unit;
+  symbol?: boolean;
   masked?: boolean;
   color?: string;
   ref?: Ref<ComponentRef<typeof View>>;
@@ -42,6 +44,7 @@ export function Amount({
         <Odometer
           sats={sats}
           unit={unit}
+          symbol={symbol}
           masked={masked}
           variant="amount"
           color={color}

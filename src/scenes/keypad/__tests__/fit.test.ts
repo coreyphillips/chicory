@@ -82,6 +82,37 @@ test('the figures and the unit grow with the text, the gaps and marks do not', (
   expect(amountSize(long, FIELD, 1.2)).toBeLessThan(amountSize(long, FIELD, 1));
 });
 
+test('with the bitcoin sign on, the row keeps a figure before the digits, not "sats" after them', () => {
+  const symbol = (digits: string, marks: number[] = []) => ({
+    ...rowOf(digits, marks),
+    symbol: true,
+  });
+  // One figure's width and no gap: narrower than the four letters and
+  // their gap at every size.
+  for (const size of AMOUNT_SIZES) {
+    expect(readoutWidth(symbol('4200'), size, 1)).toBeLessThan(
+      readoutWidth(rowOf('4200'), size, 1),
+    );
+  }
+  // So it is never drawn smaller than it is in sats, refused or not.
+  for (const digits of ['4200', '999999999', '9'.repeat(16)]) {
+    for (const marks of [[], [PIP]]) {
+      for (const [field, scale] of [
+        [FIELD, 1],
+        [375 - 48, 1.2],
+      ]) {
+        const size = amountSize(symbol(digits, marks), field, scale);
+        expect(size).toBeGreaterThanOrEqual(
+          amountSize(rowOf(digits, marks), field, scale),
+        );
+        expect(
+          readoutWidth(symbol(digits, marks), size, scale),
+        ).toBeLessThanOrEqual(field - 2 * SHAKE_TRAVEL);
+      }
+    }
+  }
+});
+
 test('each size keeps the amount line in step, 56 on 48', () => {
   expect(amountLine(48)).toBe(56);
   for (const size of AMOUNT_SIZES) {

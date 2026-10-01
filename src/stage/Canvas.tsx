@@ -104,10 +104,14 @@ export interface Backup {
  * How the wallet is being looked at. The stage keeps it rather than the
  * canvas, because the canvas goes away under a lock or a network switch and a
  * hidden balance must still be hidden when it comes back.
+ *
+ * `unit` and `symbol` are the face a tap on the balance rolls through
+ * (`nextFace`): sats, sats drawn as `₿2,000`, and BTC.
  */
 export function useCanvasView() {
   const [hidden, setHidden] = useState(false);
   const [unit, setUnit] = useState<Unit>('sats');
+  const [symbol, setSymbol] = useState(false);
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
   return {
@@ -115,6 +119,8 @@ export function useCanvasView() {
     setHidden,
     unit,
     setUnit,
+    symbol,
+    setSymbol,
     filter,
     setFilter,
     query,

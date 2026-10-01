@@ -22,10 +22,11 @@ import { press } from './shots';
 import type { Shot, Step } from './shots';
 import {
   hideBalance,
+  inBtc,
+  inSymbol,
   open,
   remembered,
   staged,
-  swapUnit,
   wallet,
 } from './staged';
 
@@ -63,7 +64,13 @@ const homes: Shot[] = [
   })),
   wallet('home, a backup to save', () => ({ session: backupToSave })),
   wallet('home, hidden', () => ({ steps: [hideBalance] })),
-  wallet('home in BTC', () => ({ steps: [swapUnit] })),
+  wallet('home in ₿', () => ({ steps: inSymbol })),
+  wallet('home in ₿, hidden', () => ({ steps: [...inSymbol, hideBalance] })),
+  wallet('home in ₿, stale', () => ({
+    snapshot: stale(onMainnet()),
+    steps: inSymbol,
+  })),
+  wallet('home in BTC', () => ({ steps: inBtc })),
   wallet('home, a payment held', () => ({
     snapshot: onMainnet({ activity: [activityOf('sent', 'uncertain')] }),
   })),
@@ -140,10 +147,15 @@ const activities: Shot[] = [
     open: [open.activity()],
     steps: [hideBalance],
   })),
+  wallet('activity in ₿', () => ({
+    snapshot: onMainnet({ activity: rows() }),
+    open: [open.activity()],
+    steps: inSymbol,
+  })),
   wallet('activity in BTC', () => ({
     snapshot: onMainnet({ activity: rows() }),
     open: [open.activity()],
-    steps: [swapUnit],
+    steps: inBtc,
   })),
   wallet('activity, filtered to requests', () => ({
     snapshot: onMainnet({ activity: rows() }),
@@ -186,9 +198,10 @@ const details: Shot[] = [
   ...Object.keys(everyActivity()).map(name => detail(`detail, ${name}`, name)),
   detail('detail on a test network', 'received with a note', { test: true }),
   detail('detail, hidden', 'sent completed', { steps: [hideBalance] }),
-  detail('detail in BTC', 'sent with an estimated fee', {
-    steps: [swapUnit],
-  }),
+  detail('detail in ₿', 'sent with an estimated fee', { steps: inSymbol }),
+  detail('detail in ₿, received', 'received completed', { steps: inSymbol }),
+  detail('detail in ₿, a request paid', 'request paid', { steps: inSymbol }),
+  detail('detail in BTC', 'sent with an estimated fee', { steps: inBtc }),
 ];
 
 // Settings.

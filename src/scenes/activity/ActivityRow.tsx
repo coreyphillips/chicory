@@ -18,6 +18,7 @@ import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
+import { InlineSign } from '../../glyphs/InlineAmount';
 import { StatusRing } from '../../glyphs/StatusRing';
 import { Whisper } from '../../glyphs/Whisper';
 import { riseIn } from '../../motion/presets';
@@ -80,6 +81,8 @@ const ARRIVE = -8;
 
 /** The strike through a failed or expired amount draws over this long. */
 const STRIKE_MS = 300;
+/** The size a row's amount is set at. */
+const FIGURE_SIZE = typography.row.fontSize;
 
 const TONES: Record<AmountVisual['tone'], string> = {
   sage: palette.sage,
@@ -104,6 +107,7 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   onPress,
   hidden = false,
   unit = 'sats',
+  symbol = false,
   band,
   test = false,
   index = 0,
@@ -112,6 +116,8 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   onPress: (item: Activity, rect?: Rect) => void;
   hidden?: boolean;
   unit?: Unit;
+  /** Sats are drawn as `₿2,000` (`unitAffixes`). */
+  symbol?: boolean;
   /** Pinned to the honey band at the top of the list, and where in it. */
   band?: Band;
   /** On a test network, whose rings are slate where they would be bloom. */
@@ -161,7 +167,7 @@ export const ActivityRow = React.memo(function ActivityRowItem({
   const status = activityStatus(item);
   const ring = ringVisual(item);
   const look = amountVisual(item);
-  const amount = figureOf(item.amountSats, unit);
+  const amount = figureOf(item.amountSats, unit, symbol);
   const label = hidden
     ? copy.activity.rowHidden(item.title, status)
     : look.open
@@ -216,12 +222,26 @@ export const ActivityRow = React.memo(function ActivityRowItem({
                     { color: TONES[look.tone], fontWeight: look.weight },
                   ]}
                 >
-                  {hidden ? MASK : `${look.sign}${amount.value}`}
+                  {amount.prefix ? (
+                    // The payment's sign, then the bitcoin sign at its share
+                    // of the line, then the figures.
+                    <>
+                      {hidden ? null : look.sign}
+                      <InlineSign prefix={amount.prefix} size={FIGURE_SIZE} />
+                      {hidden ? MASK : amount.value}
+                    </>
+                  ) : hidden ? (
+                    MASK
+                  ) : (
+                    `${look.sign}${amount.value}`
+                  )}
                   {/* A BTC amount's trailing zeros, in dust, as the hero. */}
                   {!hidden && amount.dim ? (
                     <Text style={styles.dim}>{amount.dim}</Text>
                   ) : null}
-                  <Text style={styles.unit}> {amount.suffix}</Text>
+                  {amount.suffix ? (
+                    <Text style={styles.unit}> {amount.suffix}</Text>
+                  ) : null}
                 </Text>
                 <Strike struck={look.struck} />
               </View>

@@ -246,14 +246,117 @@ export const STATUS_LABELS: Record<PaymentStatus, string> = {
 export const statusLabel = (status: PaymentStatus): string =>
   STATUS_LABELS[status] ?? status;
 
-/** One amount, rendered in the unit the user chose, with its suffix. */
+/** The bitcoin sign, U+20BF. */
+const BITCOIN_SIGN = '₿';
+
+/**
+ * What stands on either side of an amount's figures in `unit`. `symbol`
+ * draws the integer face as BIP 177 does, `₿2,000` rather than `2,000 sats`:
+ * the same integer, the sign before it and no word after it. BTC keeps its
+ * suffix either way.
+ */
+export const unitAffixes = (
+  unit: Unit,
+  symbol = false,
+): { prefix: string; suffix: string } =>
+  unit === 'btc'
+    ? { prefix: '', suffix: 'BTC' }
+    : symbol
+    ? { prefix: BITCOIN_SIGN, suffix: '' }
+    : { prefix: '', suffix: 'sats' };
+
+/**
+ * The face a tap on the balance rolls to: sats, then the same integer after
+ * the bitcoin sign, then BTC, then sats again.
+ */
+export const nextFace = (
+  unit: Unit,
+  symbol: boolean,
+): { unit: Unit; symbol: boolean } =>
+  unit === 'btc'
+    ? { unit: 'sats', symbol: false }
+    : symbol
+    ? { unit: 'btc', symbol: false }
+    : { unit: 'sats', symbol: true };
+
+/**
+ * How the bitcoin sign is set beside figures, as measured on a phone in each
+ * platform's system face. SF Pro on iOS draws it at the weight asked for.
+ * Android draws it at one weight whatever is asked, a little heavier than
+ * the light figures, and taller against its figures than SF's, so each
+ * platform has its own shares, chosen so the sign looks the same on both.
+ *
+ * - `display`: beside figures drawn on their own, as the odometer, the keypad
+ *   and the quote draw them, the sign is this share of their size, about nine
+ *   tenths of a figure's height.
+ * - `text`: inside a line of text, standing on its baseline, the share at
+ *   which the sign's top meets the figures' tops. At a display share it reads
+ *   as a superscript there, and at the text's own size it overshoots them.
+ * - `drop`: how far below the figures' middle the sign's glyph sits in its
+ *   face, as a share of their size, when both are centred in one line box.
+ * - `natural`: the face's own line height, as a share of its size, on a
+ *   platform that centres text in its line box only when the box is at least
+ *   that tall. iOS sets a line box any shorter from its top, so large figures
+ *   in their tight box (72 for 64pt) ride half the shortfall high, 2.2pt,
+ *   while the smaller sign, whose own line height fits, stays centred.
+ * - `kern`: a display sign drawn in by this share of the figures' size, so the
+ *   gap after it is the gap between two figures. SF leaves it 2pt wider at
+ *   64pt; Roboto's is already theirs.
+ */
+const SIGN_SET = Platform.select({
+  ios: { display: 0.75, text: 0.9, drop: 0, natural: 1.193, kern: 0.03 },
+  default: { display: 0.7, text: 0.85, drop: 0.046, natural: 0, kern: 0 },
+});
+
+/** The bitcoin sign's share of figures drawn on their own (`SIGN_SET`). */
+export const SYMBOL_SCALE = SIGN_SET.display;
+
+/** The bitcoin sign's share of a line of text it stands in (`SIGN_SET`). */
+export const TEXT_SYMBOL_SCALE = SIGN_SET.text;
+
+/**
+ * How far the bitcoin sign is raised beside figures set at `size` in a line
+ * box `line` tall, so its middle is theirs (`SIGN_SET`): what its glyph
+ * drops, and half of what the figures ride high in a box shorter than their
+ * own line height.
+ */
+export const symbolLift = (size: number, line: number): number =>
+  SIGN_SET.drop * size + Math.max(0, SIGN_SET.natural * size - line) / 2;
+
+/**
+ * The bitcoin sign beside light figures set at `size` on their own, in their
+ * face and their line box `line` tall: at SYMBOL_SCALE of their size, a
+ * weight heavier so its strokes, scaled down, are as thick as theirs, raised
+ * so its middle is theirs (`symbolLift`), and drawn in to their spacing.
+ * `scale` is how much the system's text size grows the figures, which the
+ * lift and kern follow. Beside the mask's dots, which keep their own spacing,
+ * it is not drawn in (`kern`).
+ */
+export const symbolBeside = (
+  size: number,
+  line: number,
+  scale = 1,
+  kern = true,
+): TextStyle => ({
+  fontSize: size * SIGN_SET.display,
+  fontWeight: '400',
+  marginRight: kern ? -SIGN_SET.kern * size * scale : 0,
+  transform: [{ translateY: -symbolLift(size, line) * scale }],
+});
+
+/**
+ * One amount, rendered in the unit the user chose, with what stands either
+ * side of it (`unitAffixes`). A sign, where one is drawn, goes before the
+ * prefix: `−₿2,000`.
+ */
 export const amountIn = (
   value: number,
   unit: Unit,
-): { value: string; suffix: string } =>
-  unit === 'btc'
-    ? { value: btc(value), suffix: 'BTC' }
-    : { value: number(value), suffix: 'sats' };
+  symbol = false,
+): { prefix: string; value: string; suffix: string } => ({
+  ...unitAffixes(unit, symbol),
+  value: unit === 'btc' ? btc(value) : number(value),
+});
 
 export const compact = (value: string, length = 12) =>
   value.length > length * 2 + 3

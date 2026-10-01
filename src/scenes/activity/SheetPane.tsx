@@ -183,6 +183,7 @@ export function SheetPane({
           snapshot={snapshot}
           hidden={view.hidden}
           unit={view.unit}
+          symbol={view.symbol}
           onDetail={actions.openDetail}
           filter={view.filter}
           onFilter={view.setFilter}

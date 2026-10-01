@@ -521,6 +521,50 @@ const GUARDED: GuardedState[] = [
     mount(<ReceiveReceipt status={receiptOf('partial')} amountSats={10_000} />),
   ),
 
+  // Sats drawn as ₿.
+  form('sats as ₿: any amount', receive(clientOf(), [], { symbol: true })),
+  form(
+    'sats as ₿: an amount chosen',
+    receive(clientOf(), [amount('10000')], { symbol: true }),
+  ),
+  form(
+    'sats as ₿: offline on, over the cap',
+    receive(
+      clientOf({ offline: true }),
+      [tap(copy.receive.offline), amount('60000')],
+      { symbol: true },
+    ),
+  ),
+  state(
+    'sats as ₿: a quote with a fee',
+    receive(
+      clientOf({ quote: quoteOf({ feeSats: 100, netSats: 9_900 }) }),
+      toQuote,
+      { symbol: true },
+    ),
+  ),
+  state(
+    'sats as ₿: a request',
+    receive(clientOf(), toRequest, { symbol: true }),
+  ),
+  state(
+    'sats as ₿: part of it here',
+    receipt(receiptOf('partial'), { symbol: true }),
+  ),
+  state(
+    'sats as ₿: part of it here, hidden',
+    receipt(receiptOf('partial'), { symbol: true, hidden: true }),
+  ),
+  state(
+    'sats as ₿: a payment received',
+    receipt(receiptOf('completed'), { symbol: true }),
+  ),
+  state(
+    'sats as ₿: a payment received, in BTC',
+    receipt(receiptOf('completed'), { symbol: true, unit: 'btc' }),
+    ['0.00010000'],
+  ),
+
   // A request as a payment's detail keeps it.
   detail('a detail, awaiting payment', payments['request pending']),
   detail('a detail, copied', payments['request pending'], [

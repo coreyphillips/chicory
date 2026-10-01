@@ -29,8 +29,9 @@ import { unreachableSats, vesselVisual } from '../scenes/home/visual';
 import type { VesselVisual } from '../scenes/home/visual';
 import { Unplugged } from '../scenes/send/LoopingGlyphs';
 import { usePaneActive } from '../stage/panes/Pane';
-import { amountIn, radius, space, type as typography } from '../theme';
+import { radius, space, type as typography } from '../theme';
 import type { Unit } from '../theme';
+import { inlineAmount } from './InlineAmount';
 import { Whisper } from './Whisper';
 
 /**
@@ -73,6 +74,8 @@ export interface VesselProps {
    */
   connected?: boolean;
   unit: Unit;
+  /** Sats are drawn as `₿2,000` (`unitAffixes`). */
+  symbol?: boolean;
   masked?: boolean;
   stale?: boolean;
   /** A test network's wallet: slate stands in for bloom (REDESIGN.md 3.1). */
@@ -156,6 +159,8 @@ const AWAY_TONES = {
 /** The pill's height, from nothing in flight to opened by a tap. */
 export const HEIGHTS = { hairline: 2, swollen: 8, open: 28 };
 const OPEN_MS = 3000;
+/** The size the opened vessel's figures are set at. */
+const FIGURE_SIZE = typography.meta.fontSize;
 /** A tap that travels further than this was a drag, not a tap. */
 const TAP_SLOP = 10;
 /** The pill is thin, so its touch area reaches the 48pt minimum around it. */
@@ -587,6 +592,7 @@ export function Vessel({
   lfbw,
   connected = true,
   unit,
+  symbol = false,
   masked = false,
   stale = false,
   test = false,
@@ -873,8 +879,8 @@ export function Vessel({
       : copy.home.heldBack;
   const words = [reachWords, wait].filter(Boolean).join(' ') || null;
   const tone = visual.tone === 'bloom' ? spendable : TONES[visual.tone];
-  const available = amountIn(availableSats, unit);
-  const arriving = amountIn(pendingSats, unit);
+  const available = inlineAmount(availableSats, unit, symbol, FIGURE_SIZE);
+  const arriving = inlineAmount(pendingSats, unit, symbol, FIGURE_SIZE);
   return (
     <View
       accessible
@@ -946,11 +952,11 @@ export function Vessel({
               style={styles.figures}
             >
               <Text style={styles.figure} maxFontSizeMultiplier={1.4}>
-                {`${available.value} ${available.suffix}`}
+                {available}
               </Text>
               {pendingSats > 0 ? (
                 <Text style={styles.figure} maxFontSizeMultiplier={1.4}>
-                  {`${arriving.value} ${arriving.suffix}`}
+                  {arriving}
                 </Text>
               ) : null}
             </Reanimated.View>

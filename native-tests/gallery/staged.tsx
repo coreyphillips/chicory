@@ -68,8 +68,17 @@ export function staged(
 /** Hides the balance, through the hero's own handler. */
 export const hideBalance: Step = drive => drive.call('onToggleHidden');
 
-/** Shows the balance in the other unit, through the hero's own handler. */
+/**
+ * Rolls the balance on to its next face, through the hero's own handler:
+ * sats, then the same integer after the bitcoin sign, then BTC (`nextFace`).
+ */
 export const swapUnit: Step = drive => drive.call('onToggleUnit');
+
+/** The balance after the bitcoin sign, one tap on from sats. */
+export const inSymbol: Step[] = [swapUnit];
+
+/** The balance in BTC, two taps on from sats. */
+export const inBtc: Step[] = [swapUnit, swapUnit];
 
 /** What the app remembers of the wallet on `network`, as it was last open. */
 export const remembered = (

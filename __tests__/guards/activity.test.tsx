@@ -55,6 +55,7 @@ function list(
     query?: string;
     hidden?: boolean;
     unit?: Unit;
+    symbol?: boolean;
     refreshError?: string;
     wallet?: Partial<WalletRecord>;
   } = {},
@@ -74,6 +75,7 @@ function list(
             onQuery={noop}
             hidden={props.hidden}
             unit={props.unit}
+            symbol={props.symbol}
             refreshError={props.refreshError}
             onRetry={noop}
           />
@@ -174,6 +176,17 @@ const GUARDED: GuardedState[] = [
   list('every ring, hidden, on mainnet', ALL_ROWS, {
     hidden: true,
     wallet: MAINNET,
+  }),
+  ...Object.entries(EVERY).map(([name, item]) =>
+    list(`row, sats as ₿: ${name}`, [item], { symbol: true }),
+  ),
+  list('every ring, hidden, sats as ₿', ALL_ROWS, {
+    hidden: true,
+    symbol: true,
+  }),
+  list('rows in BTC, sats as ₿', ALL_ROWS.slice(0, 10), {
+    unit: 'btc',
+    symbol: true,
   }),
   list('rows in BTC', ALL_ROWS.slice(0, 10), { unit: 'btc' }),
   list(

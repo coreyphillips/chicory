@@ -89,11 +89,12 @@ const ROW_HEIGHT = HOME.row;
  * is waiting and why, and the action row is three circles: Send, Scan and
  * Receive.
  *
- * Tapping the hero rolls it between sats and BTC, and a long press hides it;
- * a screen reader has both as actions. Pulling the pane down opens the
- * status row's mark petal by petal, through the canvas's `pull`, and letting
- * go once it is in full flower starts a refresh. An old balance gates the
- * actions, which say so and refresh when tapped rather than act.
+ * Tapping the hero rolls it from sats to `₿` to BTC and back to sats
+ * (`nextFace`), and a long press hides it; a screen reader has both as
+ * actions. Pulling the pane down opens the status row's mark petal by petal,
+ * through the canvas's `pull`, and letting go once it is in full flower
+ * starts a refresh. An old balance gates the actions, which say so and
+ * refresh when tapped rather than act.
  *
  * On the canvas `progress` carries the panes: `hero` shrinks the balance into
  * a mini strip, fading the vessel first, which rests in the band under the
@@ -113,6 +114,7 @@ export function HomeScreen({
   snapshot,
   hidden = false,
   unit = 'sats',
+  symbol = false,
   stale = false,
   onSend,
   onReceive,
@@ -132,6 +134,11 @@ export function HomeScreen({
   snapshot: WalletSnapshot;
   hidden?: boolean;
   unit?: Unit;
+  /**
+   * Sats are drawn as `₿2,000` (`unitAffixes`). The balance is still read
+   * out in sats.
+   */
+  symbol?: boolean;
   stale?: boolean;
   onSend: () => void;
   onReceive: () => void;
@@ -540,6 +547,7 @@ export function HomeScreen({
                         sats={balance.totalSats}
                         countUp={countUp}
                         unit={unit}
+                        symbol={symbol}
                         masked={hidden}
                         stale={stale}
                         variant="hero"
@@ -555,6 +563,7 @@ export function HomeScreen({
                       <Odometer
                         sats={balance.availableSats}
                         unit={unit}
+                        symbol={symbol}
                         masked={hidden}
                         stale={stale}
                         variant="hero"
@@ -579,6 +588,7 @@ export function HomeScreen({
                   lfbw={snapshot.wallet.lfbw}
                   connected={snapshot.primary.connected}
                   unit={unit}
+                  symbol={symbol}
                   masked={hidden}
                   stale={stale}
                   test={test}

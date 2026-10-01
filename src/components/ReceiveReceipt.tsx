@@ -66,6 +66,7 @@ export function ReceiveReceipt({
   amountSats,
   hidden = false,
   unit = 'sats',
+  symbol = false,
   celebrate = false,
   bare = false,
   size = 96,
@@ -76,6 +77,8 @@ export function ReceiveReceipt({
   amountSats: number | null;
   hidden?: boolean;
   unit?: Unit;
+  /** Sats are drawn as `₿2,000` (`unitAffixes`). */
+  symbol?: boolean;
   /** Plays the arrival, where the request's code was. */
   celebrate?: boolean;
   /** No ring and no amount of its own, under a header that has them. */
@@ -179,6 +182,7 @@ export function ReceiveReceipt({
             <Odometer
               sats={status.receivedSats}
               unit={unit}
+              symbol={symbol}
               masked={hidden}
               variant="line"
               color={palette.sage}
@@ -188,6 +192,7 @@ export function ReceiveReceipt({
             <Odometer
               sats={amountSats}
               unit={unit}
+              symbol={symbol}
               masked={hidden}
               variant="line"
               color={palette.steam}
@@ -244,6 +249,7 @@ export function ReceiveReceipt({
           <Odometer
             sats={counted}
             unit={unit}
+            symbol={symbol}
             masked={hidden}
             variant={celebrate ? 'amount' : 'line'}
             color={completed ? palette.sage : palette.cream}
@@ -256,6 +262,7 @@ export function ReceiveReceipt({
               <Odometer
                 sats={amountSats}
                 unit={unit}
+                symbol={symbol}
                 masked={hidden}
                 variant="line"
                 color={palette.steam}

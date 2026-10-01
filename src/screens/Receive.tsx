@@ -54,6 +54,7 @@ export function ReceiveScreen({
   disabled = false,
   hidden = false,
   unit = 'sats',
+  symbol = false,
   onActivity,
   onRefresh,
   onBusy,
@@ -73,6 +74,8 @@ export function ReceiveScreen({
   hidden?: boolean;
   /** The unit amounts that arrive are shown in. */
   unit?: Unit;
+  /** Sats are drawn as `₿2,000` (`unitAffixes`). Entry stays in sats. */
+  symbol?: boolean;
   onActivity: () => void;
   onRefresh?: () => void;
   onBusy: (busy: boolean) => void;
@@ -423,6 +426,7 @@ export function ReceiveScreen({
               trackingError={tracking?.error}
               hidden={hidden}
               unit={unit}
+              symbol={symbol}
               qr={qr}
               error={error}
               onLift={lift}
@@ -456,6 +460,7 @@ export function ReceiveScreen({
               }}
               onBlocked={blocked}
               focus={focus}
+              symbol={symbol}
             />
           ) : (
             <FormStep
@@ -488,6 +493,7 @@ export function ReceiveScreen({
               onContinue={price}
               onBlocked={blocked}
               focus={focus}
+              symbol={symbol}
             />
           )}
         </Reanimated.View>

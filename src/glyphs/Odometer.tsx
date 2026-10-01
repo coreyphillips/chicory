@@ -36,7 +36,15 @@ import { fract, useAwake, useLoop } from '../motion/loops';
 import { steady } from '../motion/steady';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
-import { MASK, space, type as typography } from '../theme';
+import {
+  MASK,
+  SYMBOL_SCALE,
+  TEXT_SYMBOL_SCALE,
+  space,
+  symbolBeside,
+  type as typography,
+  unitAffixes,
+} from '../theme';
 import type { Unit } from '../theme';
 
 /**
@@ -51,13 +59,20 @@ import type { Unit } from '../theme';
  *
  * One shared value in sats drives every column on the UI thread, so a roll
  * costs no renders past its first and last. At rest each cell is a single
- * digit; the columns exist only while something moves. A new unit lifts the
- * old cells away and rises the new ones in, hiding scrambles the digits
- * before six dots scale in, and a stale amount turns steam while a dip runs
- * across its cells. Under Reduce Motion every change is a short crossfade.
+ * digit; the columns exist only while something moves. A new unit or face
+ * lifts the old cells away and rises the new ones in, hiding scrambles the
+ * digits before six dots scale in, and a stale amount turns steam while a
+ * dip runs across its cells. Under Reduce Motion every change is a short
+ * crossfade.
  *
  * The whole odometer is one element to a screen reader; the cells are hidden.
  * Without an `accessibilityLabel` it reads the amount in sats.
+ *
+ * With `symbol` on, sats are drawn as BIP 177 draws them: the bitcoin sign
+ * before the figures, after any sign, and no unit after them (`unitAffixes`).
+ * Beside the large figures it is a little smaller and centred on them
+ * (`symbolBeside`); in a row or a line it stands on their baseline, its top
+ * level with theirs (TEXT_SYMBOL_SCALE). A screen reader still hears sats.
  *
  * The hero sizes itself to fit `room`, the width its container measured,
  * and until it has one the window's width between the page edges. When it
@@ -74,6 +89,8 @@ export type OdometerVariant =
 export interface OdometerProps {
   sats: number;
   unit: Unit;
+  /** Sats are drawn as `₿2,000` rather than `2,000 sats`. */
+  symbol?: boolean;
   masked?: boolean;
   stale?: boolean;
   variant: OdometerVariant;
@@ -441,10 +458,19 @@ export function unitScaleFor(scaled: number, fontSize: number): number {
 }
 
 /**
- * The hero's font size for `figures` digits (and a sign, if any) and
- * `marks` separators beside `suffix`, in `room` points at `scale` times the
- * type size: 64, stepping down to 56, 48 and 40 until it fits, and 40 when
- * nothing does. Never `adjustsFontSizeToFit`, which would shrink it per frame.
+ * The hero's font size for `figures` digits (and a sign and the bitcoin
+ * sign, if any) and `marks` separators beside `suffix`, if any, in `room`
+ * points at `scale` times the type size: 64, stepping down to 56, 48 and 40
+ * until it fits, and 40 when nothing does. Never `adjustsFontSizeToFit`,
+ * which would shrink it per frame.
+ *
+ * The bitcoin sign is drawn in the figures' face at SYMBOL_SCALE of their
+ * size, and counts as that share of a figure. U+20BF is no wider than a
+ * zero in the iOS system face or in Android's Roboto 3. Android 11 and
+ * earlier, whose Roboto lacks it, draw it from Noto Sans Symbols a little
+ * wider, 0.65em, within what FIGURE_EM already allows over the other
+ * figures. Either way it takes less room than "sats" and its gap, so a
+ * balance in `₿` is never drawn smaller than in sats.
  */
 export function heroSize(
   figures: number,
@@ -453,7 +479,7 @@ export function heroSize(
   room: number,
   scale: number,
 ): number {
-  const unit = suffix.length * UNIT_EM * UNIT_SIZE + UNIT_GAP;
+  const unit = suffix ? suffix.length * UNIT_EM * UNIT_SIZE + UNIT_GAP : 0;
   const fits = (size: number) => {
     const figure = FIGURE_EM * size + heroSpacing(size);
     return (figures * figure + marks * MARK_EM * size + unit) * scale <= room;
@@ -579,8 +605,6 @@ const HERO_AT: Record<number, TextStyle> = Object.fromEntries(
   ]),
 );
 
-const SUFFIX: Record<Unit, string> = { sats: 'sats', btc: 'BTC' };
-
 /** Big figures stop growing sooner, so they never outrun the screen. */
 const MAX_SCALE: Record<OdometerVariant, number> = {
   hero: 1.2,
@@ -683,16 +707,17 @@ const STEP_OUT = FadeOut.duration(durations.crossfade).reduceMotion(
 
 /**
  * Whether the figures crossfade on the way from one size to the next: only
- * for a step with the unit unchanged, whose cells would otherwise jump, and
- * only between sizes fitted to the same room, so the first measure does
- * not fade the hero in again.
+ * for a step with the face unchanged (the unit, and whether the bitcoin
+ * sign stands before it), whose cells would otherwise jump, and only
+ * between sizes fitted to the same room, so the first measure does not fade
+ * the hero in again. A new face swaps the cells instead.
  */
 export function stepsSize(
-  before: { unit: Unit; size: number; measured: boolean },
-  after: { unit: Unit; size: number; measured: boolean },
+  before: { face: string; size: number; measured: boolean },
+  after: { face: string; size: number; measured: boolean },
 ): boolean {
   return (
-    before.unit === after.unit &&
+    before.face === after.face &&
     before.measured === after.measured &&
     before.size !== after.size
   );
@@ -956,6 +981,7 @@ const DotCell = memo(function OdometerDot({
 export function Odometer({
   sats,
   unit,
+  symbol = false,
   masked = false,
   stale = false,
   variant,
@@ -1077,7 +1103,12 @@ export function Odometer({
 
   const dots = masked && phase !== 'scramble';
   // A masked amount is its dots alone: a sign would say which way it went.
+  // Its unit stays, before the dots or after them, as it says nothing.
   const signed = masked ? null : sign;
+  const { prefix, suffix } = unitAffixes(unit, symbol);
+  // What the cells are drawn in: a tap from sats to ₿ swaps them as one to
+  // BTC does, rather than sliding the same cells over to make room.
+  const face = `${prefix}${unit}`;
   const motion: Motion = phase === 'rest' ? 'still' : phase;
   const cells =
     phase === 'roll' ? rollCells(span, sats, unit) : cellsFor(sats, unit);
@@ -1090,22 +1121,35 @@ export function Odometer({
   // not give away how long it is.
   const marks = dots ? 0 : cells.filter(cell => cell.kind === 'mark').length;
   const figures =
-    (dots ? DOTS.length : cells.length - marks) + (signed ? 1 : 0);
+    (dots ? DOTS.length : cells.length - marks) +
+    (signed ? 1 : 0) +
+    prefix.length * SYMBOL_SCALE;
   const measured = room !== undefined;
   const fitted = heroSize(
     figures,
     marks,
-    SUFFIX[unit],
+    suffix,
     room ?? width - 2 * space.xl,
     scale,
   );
   const base = variant === 'hero' ? HERO_AT[fitted] : VARIANTS[variant];
-  // Each step to another size in the same unit keys the figures afresh, so
+  // Each step to another size in the same face keys the figures afresh, so
   // the old ones fade out as the new ones fade in.
   const size = base.fontSize ?? 0;
-  const [step, setStep] = useState({ unit, size, measured, count: 0 });
-  if (step.unit !== unit || step.size !== size || step.measured !== measured) {
-    const next = { unit, size, measured };
+  // In the figures' line box. In a row or a line it stands on their baseline,
+  // its top level with theirs; beside large figures it is centred on them
+  // and drawn in to their spacing, but not beside the mask's dots.
+  const textual = variant === 'row' || variant === 'line';
+  const share = textual ? TEXT_SYMBOL_SCALE : SYMBOL_SCALE;
+  const symbolStyle = [
+    textual
+      ? { fontSize: size * share }
+      : symbolBeside(size, base.lineHeight ?? size, scale, !dots),
+    { letterSpacing: (base.letterSpacing ?? 0) * share },
+  ];
+  const [step, setStep] = useState({ face, size, measured, count: 0 });
+  if (step.face !== face || step.size !== size || step.measured !== measured) {
+    const next = { face, size, measured };
     setStep({
       ...next,
       count: step.count + (stepsSize(step, next) ? 1 : 0),
@@ -1149,13 +1193,14 @@ export function Odometer({
   // Under Reduce Motion a changed digit is a new cell, so it crossfades
   // with the old one in place instead of changing under the eye.
   const keyOf = (cell: OdometerCell) =>
-    `${unit}${cell.key}${
+    `${face}${cell.key}${
       reduced && cell.kind === 'digit' ? `:${cell.digit}` : ''
     }`;
 
   // Shrunk by its container, the unit holds a readable size, grown about
   // its left end near its baseline, and the whole shifts left by half of
-  // what the unit grew, so it stays centred.
+  // what the unit grew, so it stays centred. The bitcoin sign is one of the
+  // figures, and shrinks with them.
   const unitWidth = useSharedValue(0);
   const counter = useAnimatedStyle(() => {
     if (!scaled) return {};
@@ -1163,10 +1208,10 @@ export function Odometer({
   }, [scaled, size]);
   const centred = useAnimatedStyle(() => {
     if (!scaled) return {};
-    const grown = unitScaleFor(scaled.get(), size) - 1;
+    const grown = suffix ? unitScaleFor(scaled.get(), size) - 1 : 0;
     return { transform: [{ translateX: (-unitWidth.get() * grown) / 2 }] };
-  }, [scaled, size]);
-  const unitText = (
+  }, [scaled, size, suffix]);
+  const unitText = suffix ? (
     <Reanimated.Text
       key={unit}
       entering={cellIn(0, reduced)}
@@ -1174,9 +1219,9 @@ export function Odometer({
       style={[typography.heroUnit, styles.unit]}
       maxFontSizeMultiplier={maxScale}
     >
-      {SUFFIX[unit]}
+      {suffix}
     </Reanimated.Text>
-  );
+  ) : null;
 
   const label =
     accessibilityLabel ??
@@ -1224,6 +1269,16 @@ export function Odometer({
                     {signed === '-' ? '−' : '+'}
                   </Reanimated.Text>
                 ) : null}
+                {prefix ? (
+                  <Reanimated.Text
+                    entering={cellIn(0, reduced)}
+                    exiting={cellOut(0, reduced)}
+                    style={[...rig.text, ...symbolStyle, ink]}
+                    maxFontSizeMultiplier={maxScale}
+                  >
+                    {prefix}
+                  </Reanimated.Text>
+                ) : null}
                 {dots
                   ? DOTS.map((_, i) => (
                       <DotCell key={`mask${i}`} index={i} rig={rig} />
@@ -1253,7 +1308,7 @@ export function Odometer({
               </View>
             </LayoutAnimationConfig>
           </Reanimated.View>
-          {scaled ? (
+          {scaled && unitText ? (
             <Reanimated.View
               onLayout={event => unitWidth.set(event.nativeEvent.layout.width)}
               style={[styles.unitBox, counter]}

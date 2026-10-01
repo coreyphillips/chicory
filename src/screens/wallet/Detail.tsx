@@ -11,6 +11,7 @@ import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { CopyChip } from '../../glyphs/CopyChip';
+import { InlineSign } from '../../glyphs/InlineAmount';
 import { Odometer } from '../../glyphs/Odometer';
 import { StatusRing } from '../../glyphs/StatusRing';
 import { Whisper } from '../../glyphs/Whisper';
@@ -42,6 +43,8 @@ import type { Unit } from '../../theme';
  * amounts do (REDESIGN.md 3.3).
  */
 const LINE_CAP = 1.4;
+/** The size of a line's value, a fee among them. */
+const ROW_SIZE = typography.row.fontSize;
 
 const TONES: Record<AmountVisual['tone'], string> = {
   sage: palette.sage,
@@ -76,6 +79,7 @@ export function DetailScreen({
   client,
   hidden = false,
   unit = 'sats',
+  symbol = false,
   onRefresh,
   onBusy,
   test = false,
@@ -84,6 +88,8 @@ export function DetailScreen({
   client?: WalletAdapter;
   hidden?: boolean;
   unit?: Unit;
+  /** Sats are drawn as `₿2,000` (`unitAffixes`). */
+  symbol?: boolean;
   onRefresh?: () => void;
   onBusy?: (busy: boolean) => void;
   /** On a test network, whose ring is slate where it would be bloom. */
@@ -97,7 +103,7 @@ export function DetailScreen({
   const [entering] = useState(() => headerIn(flight, item));
 
   const date = dateLabel(item.timestamp);
-  const fee = figureOf(item.feeSats, unit);
+  const fee = figureOf(item.feeSats, unit, symbol);
   const feeUnknown = item.feeKnown === false;
   const feeLabel = feeUnknown
     ? copy.detail.feeUnavailable
@@ -196,6 +202,7 @@ export function DetailScreen({
             <Odometer
               sats={item.amountSats}
               unit={unit}
+              symbol={symbol}
               masked={hidden}
               variant="amountDetail"
               color={TONES[look.tone]}
@@ -238,8 +245,13 @@ export function DetailScreen({
                       {fee.value}
                       <Text style={styles.dim}>{fee.dim}</Text> {fee.suffix}
                     </>
-                  ) : (
+                  ) : fee.suffix ? (
                     `${fee.value} ${fee.suffix}`
+                  ) : (
+                    <>
+                      <InlineSign prefix={fee.prefix} size={ROW_SIZE} />
+                      {fee.value}
+                    </>
                   )}
                 </Text>
               </>
@@ -268,6 +280,7 @@ export function DetailScreen({
             amountSats={item.receiveRequest?.amountSats ?? item.amountSats}
             hidden={hidden}
             unit={unit}
+            symbol={symbol}
             bare
           />
         </Reanimated.View>

@@ -1,5 +1,5 @@
 import { SHAKE } from '../../motion/tokens';
-import { type as typography } from '../../theme';
+import { SYMBOL_SCALE, type as typography } from '../../theme';
 
 /**
  * How big the keyed amount is drawn so its row fits the field it sits in
@@ -25,7 +25,12 @@ export const AMOUNT_SIZES = [48, 40, 32, 26, 20, 16];
 const FIGURE_EM = 0.6;
 const SEPARATOR_EM = 0.3;
 
-/** The unit after the figures, "sats" at heroUnit's 15pt, and its gap. */
+/**
+ * The unit after the figures, "sats" at heroUnit's 15pt, and its gap. The
+ * bitcoin sign that stands in for it before them is drawn in the figures'
+ * face at SYMBOL_SCALE of their size, that share of a figure wide, with no
+ * gap.
+ */
 const UNIT_WIDTH = 4 * 0.62 * 15;
 const UNIT_GAP = 6;
 
@@ -40,6 +45,8 @@ export interface ReadoutRow {
   separators: number;
   /** Each mark after the unit, as wide as it is drawn, with its gap. */
   marks: number[];
+  /** The unit is the bitcoin sign before the figures, not "sats" after. */
+  symbol?: boolean;
 }
 
 /**
@@ -55,6 +62,9 @@ export function readoutWidth(
   const figures =
     (row.figures * FIGURE_EM + row.separators * SEPARATOR_EM) * size;
   const marks = row.marks.reduce((sum, mark) => sum + mark, 0);
+  if (row.symbol) {
+    return scale * (figures + FIGURE_EM * SYMBOL_SCALE * size) + marks;
+  }
   return scale * (figures + UNIT_WIDTH) + UNIT_GAP + marks;
 }
 
