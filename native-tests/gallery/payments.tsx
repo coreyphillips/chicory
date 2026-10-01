@@ -26,7 +26,7 @@ import {
 } from './fakes';
 import { press } from './shots';
 import type { Shot, Step } from './shots';
-import { hideBalance, open, wallet } from './staged';
+import { hideBalance, inSymbol, open, wallet } from './staged';
 
 /** Keys `digits` in on the keypad, one key a step. */
 const keyed = (digits: string): Step[] =>
@@ -143,6 +143,14 @@ const sends: Shot[] = [
   sent('sent, with amounts hidden', async () => resultOf('completed'), [
     hideBalance,
   ]),
+  send('an amount keyed in, in ₿', () => ({
+    steps: [...inSymbol, ...AMOUNT_4200],
+  })),
+  send('review in ₿', () => ({
+    client: { prepareSend: async () => reviewOf({}) },
+    steps: [...inSymbol, ...AMOUNT_4200, REVIEW],
+  })),
+  sent('sent in ₿', async () => resultOf('completed'), inSymbol),
   sent('on its way', async () => resultOf('pending')),
   sent('unknown', async () => resultOf('uncertain')),
   sent('unknown, the connection ended mid-send', async () => {
@@ -315,7 +323,15 @@ const receives: Shot[] = [
     },
     steps: TO_QUOTE,
   })),
+  receive('the quote in ₿, with a fee', () => ({
+    client: {
+      quoteReceive: async input =>
+        quoteOf(input, { feeSats: 100, netSats: 9_900 }),
+    },
+    steps: [...inSymbol, ...TO_QUOTE],
+  })),
   receive('the request', () => ({ steps: TO_REQUEST })),
+  receive('the request in ₿', () => ({ steps: [...inSymbol, ...TO_REQUEST] })),
   receive('the request, for any amount', () => ({
     steps: [CONTINUE, CREATE],
   })),
