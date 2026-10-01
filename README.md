@@ -2,6 +2,11 @@
 
 A Lightning-first wallet for iOS and Android, running the Beignet engine on the phone itself, built on React Native 0.87.1. One balance, Send, Receive, Activity with details, and Settings. Payment requests and Bitcoin addresses share one send flow with an explicit amount and fee review. Receive produces a unified request QR after showing the receive fee.
 
+<p align="center">
+  <img src="docs/screenshots/chicory-ios.png" width="100%" alt="Chicory on iOS: the balance with a payment just received, the activity history, a payment checked before it is held to send, and a receive request's code">
+</p>
+<p align="center"><sub>Home, Activity, Send and Receive, drawn from the state gallery's sample wallet.</sub></p>
+
 The app's design, from its product rules to its motion, is specified in [REDESIGN.md](REDESIGN.md).
 
 App version 0.6.1 (Android `versionCode` 7). The version shown in Settings comes from `package.json`; `android/app/build.gradle` and the Xcode `MARKETING_VERSION` are kept in step with it.
@@ -22,7 +27,7 @@ App version 0.6.1 (Android `versionCode` 7). The version shown in Settings comes
 
 The app lock, when enabled, is asked for on launch and after a spell in the background. While locked no vault is opened and no engine is started, so nothing runs for someone who has not authenticated. A lock that cannot be read fails open rather than stranding you out of your own wallet.
 
-Amounts are entered in satoshis, with separators added for reading and stripped before the value is parsed. Balances can be displayed in sats or BTC by tapping the balance; entry stays in satoshis so no decimal parsing enters the money path.
+Amounts are entered in satoshis, with separators added for reading and stripped before the value is parsed. Tapping the balance rolls it from sats to the same integer after the bitcoin sign, `₿2,000`, as [BIP 177](https://github.com/bitcoin/bips/blob/master/bip-0177.mediawiki) writes it, then to BTC and back to sats. A screen reader hears sats on both integer faces, and entry stays in satoshis so no decimal parsing enters the money path.
 
 ## The wallet runs on this phone
 
