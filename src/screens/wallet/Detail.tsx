@@ -11,6 +11,7 @@ import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { CopyChip } from '../../glyphs/CopyChip';
+import { InlineSign } from '../../glyphs/InlineAmount';
 import { Odometer } from '../../glyphs/Odometer';
 import { StatusRing } from '../../glyphs/StatusRing';
 import { Whisper } from '../../glyphs/Whisper';
@@ -42,6 +43,8 @@ import type { Unit } from '../../theme';
  * amounts do (REDESIGN.md 3.3).
  */
 const LINE_CAP = 1.4;
+/** The size of a line's value, a fee among them. */
+const ROW_SIZE = typography.row.fontSize;
 
 const TONES: Record<AmountVisual['tone'], string> = {
   sage: palette.sage,
@@ -243,9 +246,12 @@ export function DetailScreen({
                       <Text style={styles.dim}>{fee.dim}</Text> {fee.suffix}
                     </>
                   ) : fee.suffix ? (
-                    `${fee.prefix}${fee.value} ${fee.suffix}`
+                    `${fee.value} ${fee.suffix}`
                   ) : (
-                    `${fee.prefix}${fee.value}`
+                    <>
+                      <InlineSign prefix={fee.prefix} size={ROW_SIZE} />
+                      {fee.value}
+                    </>
                   )}
                 </Text>
               </>

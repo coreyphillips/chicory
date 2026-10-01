@@ -287,10 +287,13 @@ export function visibleText(tree: ReactTestRenderer): string[] {
  * it is "261,500sats" again, and a masked amount is its dots and unit alone.
  */
 export function drawnIn(node: ReactTestInstance): string {
-  return node
-    .findAll(at => typeof at.type === 'string')
-    .flatMap(at =>
-      at.children.filter((child): child is string => typeof child === 'string'),
+  return node.children
+    .map(child =>
+      typeof child !== 'string'
+        ? drawnIn(child)
+        : typeof node.type === 'string'
+        ? child
+        : '',
     )
     .join('');
 }

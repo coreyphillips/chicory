@@ -18,6 +18,7 @@ import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
+import { InlineSign } from '../../glyphs/InlineAmount';
 import { StatusRing } from '../../glyphs/StatusRing';
 import { Whisper } from '../../glyphs/Whisper';
 import { riseIn } from '../../motion/presets';
@@ -80,6 +81,8 @@ const ARRIVE = -8;
 
 /** The strike through a failed or expired amount draws over this long. */
 const STRIKE_MS = 300;
+/** The size a row's amount is set at. */
+const FIGURE_SIZE = typography.row.fontSize;
 
 const TONES: Record<AmountVisual['tone'], string> = {
   sage: palette.sage,
@@ -219,9 +222,19 @@ export const ActivityRow = React.memo(function ActivityRowItem({
                     { color: TONES[look.tone], fontWeight: look.weight },
                   ]}
                 >
-                  {hidden
-                    ? `${amount.prefix}${MASK}`
-                    : `${look.sign}${amount.prefix}${amount.value}`}
+                  {amount.prefix ? (
+                    // The payment's sign, then the bitcoin sign at its share
+                    // of the line, then the figures.
+                    <>
+                      {hidden ? null : look.sign}
+                      <InlineSign prefix={amount.prefix} size={FIGURE_SIZE} />
+                      {hidden ? MASK : amount.value}
+                    </>
+                  ) : hidden ? (
+                    MASK
+                  ) : (
+                    `${look.sign}${amount.value}`
+                  )}
                   {/* A BTC amount's trailing zeros, in dust, as the hero. */}
                   {!hidden && amount.dim ? (
                     <Text style={styles.dim}>{amount.dim}</Text>

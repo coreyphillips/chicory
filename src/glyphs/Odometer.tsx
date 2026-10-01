@@ -39,7 +39,9 @@ import { useMotionPrefs } from '../motion/useMotionPrefs';
 import {
   MASK,
   SYMBOL_SCALE,
+  TEXT_SYMBOL_SCALE,
   space,
+  symbolBeside,
   type as typography,
   unitAffixes,
 } from '../theme';
@@ -66,9 +68,10 @@ import type { Unit } from '../theme';
  * Without an `accessibilityLabel` it reads the amount in sats.
  *
  * With `symbol` on, sats are drawn as BIP 177 draws them: the bitcoin sign
- * before the figures, after any sign, in their face a little smaller and
- * centred on them (SYMBOL_SCALE), and no unit after them (`unitAffixes`). A
- * screen reader still hears sats.
+ * before the figures, after any sign, and no unit after them (`unitAffixes`).
+ * Beside the large figures it is a little smaller and centred on them
+ * (`symbolBeside`); in a row or a line it stands on their baseline, its top
+ * level with theirs (TEXT_SYMBOL_SCALE). A screen reader still hears sats.
  *
  * The hero sizes itself to fit `room`, the width its container measured,
  * and until it has one the window's width between the page edges. When it
@@ -1128,11 +1131,17 @@ export function Odometer({
   // Each step to another size in the same unit keys the figures afresh, so
   // the old ones fade out as the new ones fade in.
   const size = base.fontSize ?? 0;
-  // In the figures' line box, so it is centred on them.
-  const symbolSize = {
-    fontSize: size * SYMBOL_SCALE,
-    letterSpacing: (base.letterSpacing ?? 0) * SYMBOL_SCALE,
-  };
+  // In the figures' line box. In a row or a line it stands on their baseline,
+  // its top level with theirs; beside large figures it is centred on them
+  // and drawn in to their spacing, but not beside the mask's dots.
+  const textual = variant === 'row' || variant === 'line';
+  const share = textual ? TEXT_SYMBOL_SCALE : SYMBOL_SCALE;
+  const symbolStyle = [
+    textual
+      ? { fontSize: size * share }
+      : symbolBeside(size, base.lineHeight ?? size, scale, !dots),
+    { letterSpacing: (base.letterSpacing ?? 0) * share },
+  ];
   const [step, setStep] = useState({ unit, size, measured, count: 0 });
   if (step.unit !== unit || step.size !== size || step.measured !== measured) {
     const next = { unit, size, measured };
@@ -1259,7 +1268,7 @@ export function Odometer({
                   <Reanimated.Text
                     entering={cellIn(0, reduced)}
                     exiting={cellOut(0, reduced)}
-                    style={[...rig.text, symbolSize, ink]}
+                    style={[...rig.text, ...symbolStyle, ink]}
                     maxFontSizeMultiplier={maxScale}
                   >
                     {prefix}

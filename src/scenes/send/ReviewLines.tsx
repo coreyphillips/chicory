@@ -9,9 +9,10 @@ import Reanimated, {
 import type { SendReview } from '@beignet/wallet-core';
 import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
+import { inlineAmount } from '../../glyphs/InlineAmount';
 import { Whisper } from '../../glyphs/Whisper';
 import { curves, durations } from '../../motion/tokens';
-import { amountText, space, type as typography } from '../../theme';
+import { space, type as typography } from '../../theme';
 import type { Unit } from '../../theme';
 import { reviewFigures, reviewRail } from './model';
 import { useBloom } from './tone';
@@ -26,6 +27,9 @@ export const LINE_SCALE = 1.4;
  * amounts after them start and end together.
  */
 export const WIDEST_SIGNS = '+ ≤';
+
+/** The size the sum's amounts are set at. */
+const LINE_SIZE = typography.line.fontSize;
 
 /**
  * One line of the sum, as one element: the rail on the first line, its
@@ -77,7 +81,7 @@ function Figure({
         style={[styles.amount, total && styles.total]}
         maxFontSizeMultiplier={LINE_SCALE}
       >
-        {amountText(figure.sats, unit, symbol)}
+        {inlineAmount(figure.sats, unit, symbol, LINE_SIZE)}
       </Text>
     </View>
   );

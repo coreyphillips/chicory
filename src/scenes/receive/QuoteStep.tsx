@@ -1,15 +1,22 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import Reanimated from 'react-native-reanimated';
 import type { ReceiveQuote } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
+import { inlineAmount } from '../../glyphs/InlineAmount';
 import { Whisper } from '../../glyphs/Whisper';
 import { stagger } from '../../motion/presets';
 import { usePaneActive } from '../../stage/panes/Pane';
-import { amountIn, space, type as typography } from '../../theme';
+import { amountIn, space, symbolBeside, type as typography } from '../../theme';
 import {
   CONTROL,
   CONTROL_ROW,
@@ -21,7 +28,7 @@ import {
 } from './controls';
 import type { Focus } from './focus';
 import { useReceiveHost } from './host';
-import { feeGlyph, shownSats } from './model';
+import { feeGlyph } from './model';
 import type { Refused } from './model';
 import { useBloom, useTestNetwork } from './tone';
 
@@ -30,6 +37,13 @@ import { useBloom, useTestNetwork } from './tone';
  * after them start together (P10, 38-c3-quote).
  */
 export const SIGN = 24;
+
+/** The size the asked amount's figures are set at. */
+const FIGURE = typography.amount.fontSize;
+/** The size of the fee and net lines. */
+const LINE = typography.line.fontSize;
+/** How far the system's text size grows the asked amount. */
+const FIGURE_SCALE = 1.2;
 
 /**
  * A quote for a request (REDESIGN.md 6, Receive): the amount, what the
@@ -85,6 +99,7 @@ export function QuoteStep({
   const { bloom } = useBloom();
   const test = useTestNetwork();
   const { room } = useReceiveHost();
+  const { fontScale } = useWindowDimensions();
   const asked = quote.amountSats
     ? amountIn(quote.amountSats, 'sats', symbol)
     : null;
@@ -120,16 +135,34 @@ export function QuoteStep({
           onPress={live ? onEdit : undefined}
           style={styles.amount}
         >
-          {asked ? (
-            <>
-              <Text style={styles.figure} maxFontSizeMultiplier={1.2}>
-                {`${asked.prefix}${asked.value}`}
+          {asked?.prefix ? (
+            // The bitcoin sign as the keypad before this step drew it.
+            <View style={styles.signed}>
+              <Text
+                style={[
+                  styles.figure,
+                  symbolBeside(
+                    FIGURE,
+                    typography.amount.lineHeight,
+                    Math.min(fontScale, FIGURE_SCALE),
+                  ),
+                ]}
+                maxFontSizeMultiplier={FIGURE_SCALE}
+              >
+                {asked.prefix}
               </Text>
-              {asked.suffix ? (
-                <Text style={styles.unit} maxFontSizeMultiplier={1.2}>
-                  {asked.suffix}
-                </Text>
-              ) : null}
+              <Text style={styles.figure} maxFontSizeMultiplier={FIGURE_SCALE}>
+                {asked.value}
+              </Text>
+            </View>
+          ) : asked ? (
+            <>
+              <Text style={styles.figure} maxFontSizeMultiplier={FIGURE_SCALE}>
+                {asked.value}
+              </Text>
+              <Text style={styles.unit} maxFontSizeMultiplier={FIGURE_SCALE}>
+                {asked.suffix}
+              </Text>
             </>
           ) : (
             <Glyph name="infinity" size={56} color={palette.cream} />
@@ -153,7 +186,7 @@ export function QuoteStep({
                 −
               </Text>
               <Text style={styles.value} maxFontSizeMultiplier={1.4}>
-                {shownSats(quote.feeSats, symbol)}
+                {inlineAmount(quote.feeSats, 'sats', symbol, LINE)}
               </Text>
             </Reanimated.View>
           </Whisper>
@@ -173,7 +206,7 @@ export function QuoteStep({
                 style={[styles.value, styles.net]}
                 maxFontSizeMultiplier={1.4}
               >
-                {shownSats(net, symbol)}
+                {inlineAmount(net, 'sats', symbol, LINE)}
               </Text>
             </Reanimated.View>
           ) : null}
@@ -244,6 +277,8 @@ const styles = StyleSheet.create({
   },
   figure: { ...typography.amount, color: palette.cream },
   unit: { ...typography.heroUnit, color: palette.steam },
+  // The bitcoin sign and the figures, with no gap between them.
+  signed: { flexDirection: 'row' },
   // As wide as its widest line, and every line as wide, so each value set
   // to the right ends at one edge.
   lines: { alignItems: 'stretch', gap: space.xs },

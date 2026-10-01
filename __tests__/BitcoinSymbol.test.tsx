@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { Dimensions, StyleSheet, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSharedValue } from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
@@ -8,10 +8,10 @@ import { DemoWalletClient } from '@beignet/wallet-core';
 import type { ReceiveRequest, SendReview } from '@beignet/wallet-core';
 import { AmountField } from '../src/components/AmountField';
 import { copy } from '../src/design/copy';
+import { inlineAmount } from '../src/glyphs/InlineAmount';
 import { Odometer } from '../src/glyphs/Odometer';
 import { ActivityRow } from '../src/scenes/activity/ActivityRow';
 import { HomePane } from '../src/scenes/home/HomePane';
-import { shownSats } from '../src/scenes/receive/model';
 import { ReceiveScreen } from '../src/screens/Receive';
 import { SendScreen } from '../src/screens/Send';
 import { HomeScreen } from '../src/screens/Wallet';
@@ -24,9 +24,10 @@ import { Pane, PanesProvider } from '../src/stage/panes/Pane';
 import { StageProvider, useStageStore } from '../src/stage/StageContext';
 import {
   SYMBOL_SCALE,
+  TEXT_SYMBOL_SCALE,
   amountIn,
-  amountText,
   nextFace,
+  symbolLift,
   type as typography,
   unitAffixes,
 } from '../src/theme';
@@ -60,41 +61,65 @@ const byId = (tree: ReactTestRenderer | ReactTestInstance, testID: string) =>
     node => typeof node.type === 'string' && node.props.testID === testID,
   );
 
+/** An amount inside a line of text at 20pt, read as it is drawn. */
+async function inLine(sats: number, unit: 'sats' | 'btc', symbol: boolean) {
+  const tree = await mount(<Text>{inlineAmount(sats, unit, symbol, 20)}</Text>);
+  const drawn = drawnIn(tree.root);
+  await act(async () => tree.unmount());
+  return drawn;
+}
+
 describe('the formatter', () => {
-  test('sats, as today', () => {
+  test('sats, as today', async () => {
     expect(amountIn(2_000, 'sats')).toEqual({
       prefix: '',
       value: '2,000',
       suffix: 'sats',
     });
-    expect(amountText(2_000, 'sats')).toBe('2,000 sats');
+    expect(await inLine(2_000, 'sats', false)).toBe('2,000 sats');
   });
 
-  test('sats as ₿: the sign before, no space, and no word after', () => {
+  test('sats as ₿: the sign before, no space, and no word after', async () => {
     expect(amountIn(2_000, 'sats', true)).toEqual({
       prefix: '₿',
       value: '2,000',
       suffix: '',
     });
-    expect(amountText(2_000, 'sats', true)).toBe('₿2,000');
-    expect(amountText(1_023_486_000, 'sats', true)).toBe('₿1,023,486,000');
-    expect(shownSats(10_000, true)).toBe('₿10,000');
+    expect(await inLine(2_000, 'sats', true)).toBe('₿2,000');
+    expect(await inLine(1_023_486_000, 'sats', true)).toBe('₿1,023,486,000');
   });
 
-  test('BTC is the same either way, with its suffix', () => {
+  test('BTC is the same either way, with its suffix', async () => {
     for (const sats of [0, 2_000, 10_000, 100_000_000]) {
       expect(amountIn(sats, 'btc', true)).toEqual(amountIn(sats, 'btc'));
-      expect(amountText(sats, 'btc', true)).toBe(amountText(sats, 'btc'));
+      expect(await inLine(sats, 'btc', true)).toBe(
+        await inLine(sats, 'btc', false),
+      );
     }
-    expect(amountText(2_000, 'btc', true)).toBe('0.00002 BTC');
+    expect(await inLine(2_000, 'btc', true)).toBe('0.00002 BTC');
     expect(unitAffixes('btc', true)).toEqual({ prefix: '', suffix: 'BTC' });
   });
 
-  test('a value the formatter refuses is its placeholder, in either face', () => {
+  test('a value the formatter refuses is its placeholder, in either face', async () => {
     for (const refused of [1.5, -1, Number.NaN]) {
-      expect(amountText(refused, 'sats')).toBe('- sats');
-      expect(amountText(refused, 'sats', true)).toBe('₿-');
+      expect(await inLine(refused, 'sats', false)).toBe('- sats');
+      expect(await inLine(refused, 'sats', true)).toBe('₿-');
     }
+  });
+
+  test('in a line of text the sign stands at its share of the line', async () => {
+    const tree = await mount(
+      <Text style={{ fontSize: 20 }}>
+        {inlineAmount(2_000, 'sats', true, 20)}
+      </Text>,
+    );
+    const sign = tree.root.find(
+      node => typeof node.type === 'string' && node.children.join('') === '₿',
+    );
+    expect(StyleSheet.flatten(sign.props.style).fontSize).toBe(
+      20 * TEXT_SYMBOL_SCALE,
+    );
+    await act(async () => tree.unmount());
   });
 
   test('what is heard stays in sats', () => {
@@ -259,11 +284,16 @@ describe('the tap on the balance', () => {
 });
 
 describe('the bitcoin sign beside large figures', () => {
+  // The system's text size grows the large figures up to 1.2 times, and
+  // the lift with them.
+  const GROWN = Math.min(Dimensions.get('window').fontScale, 1.2);
   const flat = (node: ReactTestInstance) =>
     StyleSheet.flatten(node.props.style) as {
       fontSize?: number;
       lineHeight?: number;
       alignSelf?: string;
+      fontWeight?: string;
+      transform?: Array<{ translateY?: number }>;
     };
   /** The text node drawing `₿`, and one drawing a figure, under `node`. */
   const texts = (node: ReactTestInstance) => {
@@ -283,6 +313,26 @@ describe('the bitcoin sign beside large figures', () => {
     expect(figure.fontSize).toBe(typography.hero.fontSize);
     expect(sign.fontSize).toBe(typography.hero.fontSize * SYMBOL_SCALE);
     expect(sign.lineHeight).toBe(figure.lineHeight);
+    // A weight over the light figures, so its smaller strokes match theirs,
+    // and raised so its middle is theirs.
+    expect(figure.fontWeight).toBe('300');
+    expect(sign.fontWeight).toBe('400');
+    expect(sign.transform).toEqual([
+      {
+        translateY:
+          -symbolLift(figure.fontSize ?? 0, figure.lineHeight ?? 0) * GROWN,
+      },
+    ]);
+    await act(async () => tree.unmount());
+  });
+
+  test('in a row, stands on the figures at its share of the line', async () => {
+    const tree = await mount(
+      <Odometer sats={2_000} unit="sats" symbol variant="row" sign="+" />,
+    );
+    const { sign, figure } = texts(tree.root);
+    expect(sign.fontSize).toBe((figure.fontSize ?? 0) * TEXT_SYMBOL_SCALE);
+    expect(sign.transform).toBeUndefined();
     await act(async () => tree.unmount());
   });
 
@@ -299,6 +349,13 @@ describe('the bitcoin sign beside large figures', () => {
     expect(sign.fontSize).toBe((figure.fontSize ?? 0) * SYMBOL_SCALE);
     expect(sign.lineHeight).toBe(figure.lineHeight);
     expect(sign.alignSelf).toBe('center');
+    expect(sign.fontWeight).toBe('400');
+    expect(sign.transform).toEqual([
+      {
+        translateY:
+          -symbolLift(figure.fontSize ?? 0, figure.lineHeight ?? 0) * GROWN,
+      },
+    ]);
     await act(async () => tree.unmount());
   });
 });
@@ -420,9 +477,8 @@ describe('a send', () => {
   test('a review draws ₿ and is heard in sats', async () => {
     const { tree } = await reviewed(true);
     expect(drawnIn(summary(tree))).toBe('₿4,200');
-    expect(visibleText(tree)).toEqual(
-      expect.arrayContaining(['₿20', '₿4,220']),
-    );
+    expect(drawnIn(tree.root)).toContain('₿20');
+    expect(drawnIn(tree.root)).toContain('₿4,220');
     expect(visibleText(tree).join(' ')).not.toContain('sats');
     await act(async () => tree.unmount());
   });
@@ -479,19 +535,19 @@ describe('a receive', () => {
     await enterAmount(tree, '10000');
     await press(tree, copy.receive.continue);
     await settle();
-    const quoted = visibleText(tree);
+    const quoted = drawnIn(tree.root);
     await press(tree, copy.receive.create);
     await settle();
-    const made = visibleText(tree);
+    const made = drawnIn(tree.root);
     await act(async () => tree.unmount());
     return { client, quoted, made };
   }
 
   test('draws the quote and the request in ₿', async () => {
     const { quoted, made } = await requested(true);
-    expect(quoted).toEqual(
-      expect.arrayContaining(['₿10,000', '₿100', '₿9,900']),
-    );
+    for (const amount of ['₿10,000', '₿100', '₿9,900']) {
+      expect(quoted).toContain(amount);
+    }
     expect(quoted).not.toContain('sats');
     expect(made).toContain('₿10,000');
   });

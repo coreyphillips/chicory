@@ -33,8 +33,8 @@ import { steady } from '../../motion/steady';
 import { curves, durations } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
 import {
-  SYMBOL_SCALE,
   space,
+  symbolBeside,
   type as typography,
   unitAffixes,
 } from '../../theme';
@@ -411,6 +411,7 @@ export function AmountReadout({
     setRoom(last => (last === measured ? last : measured));
   }, []);
   const field = room ?? width - 2 * space.xl;
+  const textScale = Math.min(fontScale, AMOUNT_SCALE);
   const size = amountSize(
     {
       figures: Math.max(1, cells.length),
@@ -419,7 +420,7 @@ export function AmountReadout({
       symbol,
     },
     field,
-    Math.min(fontScale, AMOUNT_SCALE),
+    textScale,
   );
   const sized =
     size === AMOUNT_SIZES[0]
@@ -453,7 +454,8 @@ export function AmountReadout({
               style={[
                 styles.digits,
                 styles.symbol,
-                { fontSize: size * SYMBOL_SCALE, lineHeight: amountLine(size) },
+                symbolBeside(size, amountLine(size), textScale),
+                { lineHeight: amountLine(size) },
                 cells.length ? { color } : styles.empty,
               ]}
               maxFontSizeMultiplier={AMOUNT_SCALE}
@@ -537,7 +539,8 @@ const styles = StyleSheet.create({
   amount: { flexDirection: 'row', alignItems: 'baseline' },
   digits: { ...typography.amount, color: palette.cream },
   // Smaller than the digits, in their line box and centred on them, as the
-  // odometer draws it, rather than standing on their baseline.
+  // odometer draws it (`symbolBeside`), rather than standing on their
+  // baseline.
   symbol: { alignSelf: 'center' },
   empty: { color: palette.dust },
   face: { flexDirection: 'row', alignItems: 'center' },

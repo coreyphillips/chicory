@@ -26,6 +26,7 @@ import type { GlyphName } from '../design/glyphs';
 import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
 import { CopyChip } from '../glyphs/CopyChip';
+import { inlineAmount } from '../glyphs/InlineAmount';
 import { sceneIn, sceneOut, smooth } from '../motion/presets';
 import { announceSafety } from '../motion/speech';
 import { AmountReadout } from '../scenes/keypad/AmountReadout';
@@ -78,13 +79,7 @@ import { useLaunchLanding } from '../stage/panes/Launch';
 import { usePaneActive } from '../stage/panes/Pane';
 import { useFlashTint, useHoldTint } from '../stage/StageContext';
 import { duringSystemPrompt } from '../stage/systemPrompt';
-import {
-  MASK,
-  amountText,
-  space,
-  statusLabel,
-  type as typography,
-} from '../theme';
+import { MASK, space, statusLabel, type as typography } from '../theme';
 import type { Unit } from '../theme';
 
 /** What a Send on the canvas asks of the screen inside it. */
@@ -984,7 +979,14 @@ export function SendScreen({
               <Glyph name="question" size={16} color={palette.steam} />
             ) : (
               <Text style={styles.feeText} maxFontSizeMultiplier={LINE_SCALE}>
-                {masked ? MASK : amountText(result.feeSats, unit, symbol)}
+                {masked
+                  ? MASK
+                  : inlineAmount(
+                      result.feeSats,
+                      unit,
+                      symbol,
+                      typography.line.fontSize,
+                    )}
               </Text>
             )}
           </View>
