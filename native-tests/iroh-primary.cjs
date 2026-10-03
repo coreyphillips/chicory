@@ -57,16 +57,20 @@ async function wait(label, read) {
     dfRelay: true,
     logger: { debug() {}, info() {}, warn() {}, error() {} },
   });
+  await wait(
+    'primary Electrum connected',
+    () => primary.getHealth().electrumConnected,
+  );
   btc('sendtoaddress', await primary.getNewAddress(), '0.00500000');
   btc('-generate', '1');
   await wait('primary funded', async () => {
     await primary.refreshWallet();
     return primary.getBalance().onchain >= 500000;
   });
-  const primaryUri = await wait(
-    'Iroh address published',
-    () => primary.getInfo().irohUri,
-  );
+  const primaryUri = await wait('Iroh address published', () => {
+    const uri = primary.getInfo().irohUri;
+    return uri?.includes('?relay=') ? uri : null;
+  });
   const settings = {
     network: 'regtest',
     primaryUri,
@@ -151,7 +155,8 @@ async function wait(label, read) {
       });
       if (phase === 'initial') {
         const next = await command({ operation: 'restart' });
-        assert.equal(next.irohUri, info.irohUri);
+        assert.match(info.nativeEndpointId, /^[0-9a-f]{64}$/);
+        assert.equal(next.nativeEndpointId, info.nativeEndpointId);
         console.log('PASS native endpoint identity after restart');
         await wait('native channel reestablished', async () =>
           (await rpc('/channels')).some(c => c.htlcUsable),

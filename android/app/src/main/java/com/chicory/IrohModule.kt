@@ -12,7 +12,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** One outbound BOLT 8 stream per connection. No Lightning keys or frames are interpreted here. */
 class IrohModule(context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    // Serialize ownership and cancellation off the UI thread, including FFI and encoding work.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
     private val endpoints = ConcurrentHashMap<String, Endpoint>()
     private data class Link(val owner: String, val connection: Connection, val stream: BiStream)
     private val links = ConcurrentHashMap<String, Link>()
@@ -26,43 +27,50 @@ class IrohModule(context: ReactApplicationContext) : ReactContextBaseJavaModule(
     private fun link(id: String) = links[id] ?: error("Iroh connection is closed")
 
     @ReactMethod fun bind(id: String, secret: String, relays: String, discovery: Boolean, promise: Promise) {
-        val job = run(promise) {
-            IrohAndroid.installAndroidContext(reactApplicationContext)
-            val key = Base64.decode(secret, Base64.NO_WRAP)
-            require(key.size == 32)
-            val mode = if (relays.isEmpty()) RelayMode.defaultMode() else strings(relays).let {
-                if (it.isEmpty()) RelayMode.disabled() else RelayMode.customFromUrls(it)
-            }
-            val endpoint = try { Endpoint.bind(EndpointOptions(
-                preset = if (discovery) presetN0() else presetMinimal(),
-                secretKey = key, alpns = emptyList(), relayMode = mode,
-            )) } finally { key.fill(0) }
-            if (!currentCoroutineContext().isActive) { endpoint.shutdown(); error("Iroh endpoint closed") }
-            endpoints[id] = endpoint
-            endpoint.id().toString()
+        run(promise) {
+            val job = currentCoroutineContext().job
+            binding[id] = job
+            try {
+                IrohAndroid.installAndroidContext(reactApplicationContext)
+                val key = Base64.decode(secret, Base64.NO_WRAP)
+                require(key.size == 32)
+                val mode = if (relays.isEmpty()) RelayMode.defaultMode() else strings(relays).let {
+                    if (it.isEmpty()) RelayMode.disabled() else RelayMode.customFromUrls(it)
+                }
+                val endpoint = try { Endpoint.bind(EndpointOptions(
+                    preset = if (discovery) presetN0() else presetMinimal(),
+                    secretKey = key, alpns = emptyList(), relayMode = mode,
+                )) } finally { key.fill(0) }
+                if (!currentCoroutineContext().isActive) {
+                    withContext(NonCancellable) { endpoint.shutdown() }
+                    error("Iroh endpoint closed")
+                }
+                endpoints[id] = endpoint
+                endpoint.id().toString()
+            } finally { binding.remove(id, job) }
         }
-        binding[id] = job
-        job.invokeOnCompletion { binding.remove(id, job) }
     }
     @ReactMethod fun connect(owner: String, id: String, peer: String, relay: String, addresses: String, promise: Promise) {
-        val job = run(promise) {
-            val endpoint = endpoints[owner] ?: error("Iroh endpoint is closed")
-            val conn = endpoint.connect(EndpointAddr(EndpointId.fromString(peer), relay.ifEmpty { null }, strings(addresses)), "beignet/bolt8/1".toByteArray())
+        run(promise) {
+            val job = currentCoroutineContext().job
+            dialing[id] = owner to job
             try {
-                conn.setMaxConcurrentBiStreams(0u)
-                conn.setMaxConcurrentUniStreams(0u)
-                val stream = conn.openBi()
-                currentCoroutineContext().ensureActive()
-                if (endpoints[owner] !== endpoint) error("Iroh endpoint closed")
-                links[id] = Link(owner, conn, stream)
-                // Already advertised stream credits cannot be withdrawn. Reject any extra stream.
-                scope.launch { try { conn.acceptBi(); conn.close(1, "Unexpected stream".toByteArray()) } catch (_: Exception) {} }
-                scope.launch { try { conn.acceptUni(); conn.close(1, "Unexpected stream".toByteArray()) } catch (_: Exception) {} }
-                null
-            } catch (e: Exception) { conn.close(0, byteArrayOf()); throw e }
+                val endpoint = endpoints[owner] ?: error("Iroh endpoint is closed")
+                val conn = endpoint.connect(EndpointAddr(EndpointId.fromString(peer), relay.ifEmpty { null }, strings(addresses)), "beignet/bolt8/1".toByteArray())
+                try {
+                    conn.setMaxConcurrentBiStreams(0u)
+                    conn.setMaxConcurrentUniStreams(0u)
+                    val stream = conn.openBi()
+                    currentCoroutineContext().ensureActive()
+                    if (endpoints[owner] !== endpoint) error("Iroh endpoint closed")
+                    links[id] = Link(owner, conn, stream)
+                    // Already advertised stream credits cannot be withdrawn. Reject any extra stream.
+                    scope.launch { try { conn.acceptBi(); conn.close(1, "Unexpected stream".toByteArray()) } catch (_: Exception) {} }
+                    scope.launch { try { conn.acceptUni(); conn.close(1, "Unexpected stream".toByteArray()) } catch (_: Exception) {} }
+                    null
+                } catch (e: Exception) { conn.close(0, byteArrayOf()); throw e }
+            } finally { dialing.remove(id, owner to job) }
         }
-        dialing[id] = owner to job
-        job.invokeOnCompletion { dialing.remove(id) }
     }
     @ReactMethod fun read(id: String, limit: Double, promise: Promise) { run(promise) {
         require(limit >= 1 && limit <= 65536 && limit == limit.toInt().toDouble())
@@ -92,11 +100,13 @@ class IrohModule(context: ReactApplicationContext) : ReactContextBaseJavaModule(
         endpoints.remove(id)?.shutdown(); null
     } }
     override fun invalidate() {
-        binding.values.forEach { it.cancel() }
-        dialing.keys.toList().forEach(::closeLink)
-        links.keys.toList().forEach(::closeLink)
-        val remaining = endpoints.values.toList(); endpoints.clear()
-        scope.launch { try { remaining.forEach { it.shutdown() } } finally { scope.cancel() } }
+        scope.launch {
+            binding.values.forEach { it.cancel() }
+            dialing.keys.toList().forEach(::closeLink)
+            links.keys.toList().forEach(::closeLink)
+            val remaining = endpoints.values.toList(); endpoints.clear()
+            try { remaining.forEach { it.shutdown() } } finally { scope.cancel() }
+        }
         super.invalidate()
     }
 }

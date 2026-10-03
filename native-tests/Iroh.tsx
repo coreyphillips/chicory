@@ -1,13 +1,23 @@
 /** Isolated regtest entry, built only with a separate application identifier. */
 import 'react-native-url-polyfill/auto';
 import React, { useEffect, useState } from 'react';
-import { AppRegistry, ScrollView, Text } from 'react-native';
+import { AppRegistry, NativeModules, ScrollView, Text } from 'react-native';
 import { openDeviceWallet } from '../src/embedded/client';
 import { installNativeCrypto } from '../src/embedded/random';
 
 const host = 'http://127.0.0.1:31079';
 async function run(report: (message: string) => void) {
   installNativeCrypto();
+  let nativeEndpointId = '';
+  const native = NativeModules.ChicoryIroh;
+  const bind = native.bind.bind(native);
+  native.bind = async (...args: unknown[]) => {
+    const id = await bind(...args);
+    if (!/^[0-9a-f]{64}$/.test(id))
+      throw Error('Missing native endpoint identity');
+    nativeEndpointId = id;
+    return id;
+  };
   const settings = await (await fetch(host + '/config')).json();
   if (settings.network !== 'regtest' || !settings.primaryUri.includes('@iroh:'))
     throw Error('Iroh regtest only');
@@ -33,7 +43,7 @@ async function run(report: (message: string) => void) {
     });
   await fetch(host + '/ready', {
     method: 'POST',
-    body: JSON.stringify(await request('/info')),
+    body: JSON.stringify({ ...(await request('/info')), nativeEndpointId }),
   });
   report('Native Iroh wallet ready');
   while (true) {
@@ -46,7 +56,7 @@ async function run(report: (message: string) => void) {
         client = await openDeviceWallet(settings);
         client.selectWallet(wallet.id);
         await client.startWallet();
-        result = await request('/info');
+        result = { ...(await request('/info')), nativeEndpointId };
       } else {
         if (
           ![

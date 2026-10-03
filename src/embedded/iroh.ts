@@ -1,4 +1,4 @@
-import { AppState, NativeModules } from 'react-native';
+import { AppState, NativeModules, Platform } from 'react-native';
 import { Buffer } from 'buffer';
 import { IrohTransport } from '@beignet/portable-engine';
 import type {
@@ -90,13 +90,17 @@ export const createNativeIrohEndpoint: IrohEndpointFactory = async options => {
     return binding;
   };
   const endpointId = await bind();
-  let wasBackground = AppState.currentState === 'background';
+  let backgroundSince =
+    AppState.currentState === 'background' ? Date.now() : null;
   const lifecycle = AppState.addEventListener('change', state => {
-    if (state === 'background') wasBackground = true;
-    if (state !== 'active' || !wasBackground || closed) return;
-    wasBackground = false;
+    if (state === 'background' && backgroundSince === null)
+      backgroundSince = Date.now();
+    if (state !== 'active' || backgroundSince === null || closed) return;
+    const elapsed = Date.now() - backgroundSince;
+    backgroundSince = null;
+    if (Platform.OS !== 'ios' || elapsed < 30000) return;
     // iOS can suspend sockets without a close event. Rebind the same identity
-    // on resume and let the engine reconnect its durable peer records.
+    // after a prolonged background stay and let the engine reconnect durable peers.
     const previous = owner;
     owner = handle();
     binding = null;

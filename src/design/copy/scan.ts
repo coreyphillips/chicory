@@ -5,6 +5,12 @@
 export const scan = {
   /** The overlay's name for a screen reader, where an eyebrow used to say it. */
   title: 'Scan',
+  primaryTitle: 'Scan primary node QR',
+  primaryPrivacy:
+    'Chicory reads your primary node QR. Nothing is recorded or sent.',
+  primaryNoCamera:
+    'Enable the camera in settings, or paste your primary node address.',
+  primaryDetected: 'Primary node address found.',
   /** Its name once the camera turns out to be off. */
   camera: 'Camera',
   aim: 'Point at the code.',

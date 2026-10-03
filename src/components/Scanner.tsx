@@ -599,11 +599,7 @@ const Reticle = memo(function ReticleMarks({
       accessible
       accessibilityRole="image"
       accessibilityLabel={copy.scan.aim}
-      accessibilityHint={
-        primary
-          ? 'Chicory reads your primary node QR. Nothing is recorded or sent.'
-          : copy.scan.privacy
-      }
+      accessibilityHint={primary ? copy.scan.primaryPrivacy : copy.scan.privacy}
       accessibilityValue={
         mode === 'checking' ? { text: copy.scan.starting } : undefined
       }
@@ -746,7 +742,7 @@ function CameraOff({
         accessibilityHint={
           denied
             ? primary
-              ? 'Enable the camera in settings, or paste your primary node address.'
+              ? copy.scan.primaryNoCamera
               : copy.scan.noCamera
             : copy.scan.missingHint
         }
@@ -953,9 +949,7 @@ export function Scanner({
     if (!reduced) pinch.set(withSpring(CAUGHT_SCALE, springs.snap));
     haptics.thud();
     announce(
-      purpose === 'primary'
-        ? 'Primary node address found.'
-        : copy.scan.detected,
+      purpose === 'primary' ? copy.scan.primaryDetected : copy.scan.detected,
     );
     onDetected(
       validate ? validate(value) : normalizePaymentLink(value) || value,
@@ -1119,7 +1113,7 @@ export function Scanner({
             access === 'denied'
               ? copy.scan.camera
               : purpose === 'primary'
-              ? 'Scan primary node QR'
+              ? copy.scan.primaryTitle
               : copy.scan.title
           }
           style={styles.title}

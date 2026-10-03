@@ -1,4 +1,4 @@
-import { AppState, NativeModules } from 'react-native';
+import { AppState, NativeModules, Platform } from 'react-native';
 import { Buffer } from 'buffer';
 import { createNativeIrohEndpoint } from '../src/embedded/iroh';
 
@@ -22,6 +22,8 @@ const bridge = {
 };
 beforeEach(() => {
   jest.clearAllMocks();
+  Platform.OS = 'ios';
+  AppState.currentState = 'active';
   NativeModules.ChicoryIroh = bridge;
   bridge.bind.mockResolvedValue(id);
   bridge.connect.mockResolvedValue(undefined);
@@ -29,6 +31,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   jest.useRealTimers();
+  jest.restoreAllMocks();
 });
 
 test('native bind receives the wallet identity and one connection carries ordered byte writes', async () => {
@@ -96,7 +99,9 @@ test('foreground rebind closes suspended sockets and keeps the identity', async 
   const closed = jest.fn();
   socket.on('close', closed);
   const listener = jest.mocked(AppState.addEventListener).mock.calls[before][1];
+  const now = jest.spyOn(Date, 'now').mockReturnValue(1000);
   listener('background');
+  now.mockReturnValue(32000);
   listener('active');
   await new Promise<void>(resolve => setImmediate(resolve));
   expect(closed).toHaveBeenCalled();
@@ -125,7 +130,9 @@ test('closing during resume cleanup cannot bind an endpoint afterward', async ()
       }),
   );
   const listener = jest.mocked(AppState.addEventListener).mock.calls[before][1];
+  const now = jest.spyOn(Date, 'now').mockReturnValue(1000);
   listener('background');
+  now.mockReturnValue(32000);
   listener('active');
   await Promise.resolve();
   const closing = endpoint.close();
@@ -147,7 +154,9 @@ test('a resume bind that times out during cleanup cannot start later', async () 
       }),
   );
   const listener = jest.mocked(AppState.addEventListener).mock.calls[before][1];
+  const now = jest.spyOn(Date, 'now').mockReturnValue(1000);
   listener('background');
+  now.mockReturnValue(32000);
   listener('active');
   await jest.advanceTimersByTimeAsync(15001);
   finish();
@@ -155,3 +164,29 @@ test('a resume bind that times out during cleanup cannot start later', async () 
   expect(bridge.bind).toHaveBeenCalledTimes(1);
   await endpoint.close();
 });
+
+test.each([
+  ['ios', 2000],
+  ['android', 60000],
+] as const)(
+  'keeps %s connections alive after %d ms away',
+  async (os, elapsed) => {
+    Platform.OS = os;
+    const before = jest.mocked(AppState.addEventListener).mock.calls.length;
+    const endpoint = await createNativeIrohEndpoint({ secretKey: key });
+    const socket = await endpoint.connect({ endpointId: peer }, 1000);
+    const closed = jest.fn();
+    socket.on('close', closed);
+    const listener = jest.mocked(AppState.addEventListener).mock.calls[
+      before
+    ][1];
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1000);
+    listener('background');
+    now.mockReturnValue(1000 + elapsed);
+    listener('active');
+    await Promise.resolve();
+    expect(closed).not.toHaveBeenCalled();
+    expect(bridge.bind).toHaveBeenCalledTimes(1);
+    await endpoint.close();
+  },
+);

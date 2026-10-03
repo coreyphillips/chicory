@@ -305,20 +305,16 @@ function PrimarySection({
             focus
           />
           <Action
-            label="Scan primary node QR"
+            label={p.scan}
             glyph="scan"
             tone="quiet"
             onPress={() => setScanning(true)}
           />
           {/@iroh:/i.test(primary) ? (
             <>
-              <Note>
-                Iroh is experimental. Your primary node and its relay can see
-                your phone's IP address. Use this for a node you control. Tor
-                remains the default.
-              </Note>
+              <Note>{p.iroh}</Note>
               <Field
-                label="Optional Tor fallback URI"
+                label={p.fallback}
                 value={fallback}
                 onChangeText={setFallback}
                 autoCapitalize="none"
@@ -326,10 +322,7 @@ function PrimarySection({
                 mono
                 editable={!busy}
               />
-              <Note>
-                Use the onion address for the same node key. Lightning falls
-                back to Tor if Iroh is slow or unavailable.
-              </Note>
+              <Note>{p.fallbackHint}</Note>
             </>
           ) : null}
           <Note>{p.keeps}</Note>
