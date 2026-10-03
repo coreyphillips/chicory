@@ -45,9 +45,11 @@ function withDeadline<T>(
  * polyfill on `globalThis` before either call site below runs.
  */
 function decoder(): { decode(input: Uint8Array): string } {
-  return new (globalThis as unknown as {
-    TextDecoder: new () => { decode(input: Uint8Array): string };
-  }).TextDecoder();
+  return new (
+    globalThis as unknown as {
+      TextDecoder: new () => { decode(input: Uint8Array): string };
+    }
+  ).TextDecoder();
 }
 
 /** Map the original unnamespaced vault to its actual chain once, without copying state. */
@@ -146,6 +148,7 @@ function uriHost(uri: unknown): string {
   const at = uri.indexOf('@');
   if (at < 0) return '';
   const hostPort = uri.slice(at + 1);
+  if (/^iroh:/i.test(hostPort)) return 'iroh';
   const colon = hostPort.lastIndexOf(':');
   return (colon > 0 ? hostPort.slice(0, colon) : hostPort).trim();
 }
@@ -168,10 +171,12 @@ export async function openDeviceWallet(
     { createPortableRuntime, createRelaySocketFactory },
     { openEncryptedDeviceStorage },
     { nativeSocketFactory },
+    { createNativeIrohEndpoint },
   ] = await Promise.all([
     import('@beignet/portable-engine'),
     import('./storage'),
     import('./network'),
+    import('./iroh'),
   ]);
   const preferences = await loadDevicePreferences();
   const storage = await openEncryptedDeviceStorage(
@@ -230,13 +235,16 @@ export async function openDeviceWallet(
     // dial awaits the same promise and a bootstrap failure is reported there.
     if (
       settings.transport === 'native' &&
-      (isOnionHost(storedPrimaryHost) || isOnionHost(uriHost(settings.primaryUri)))
+      isOnionHost(storedPrimaryHost || uriHost(settings.primaryUri))
     ) {
       void ensureTorReady().catch(() => {});
     }
     engine = await createPortableRuntime({
       ...storage,
       socketFactory,
+      ...(settings.transport === 'native'
+        ? { iroh: { factory: createNativeIrohEndpoint } }
+        : {}),
       electrum: settings.electrum,
       onDiagnostic,
     });

@@ -516,7 +516,9 @@ const Reticle = memo(function ReticleMarks({
   reduced,
   running,
   cues,
+  primary = false,
 }: {
+  primary?: boolean;
   mode: ReticleMode;
   side: number;
   from: number;
@@ -597,7 +599,11 @@ const Reticle = memo(function ReticleMarks({
       accessible
       accessibilityRole="image"
       accessibilityLabel={copy.scan.aim}
-      accessibilityHint={copy.scan.privacy}
+      accessibilityHint={
+        primary
+          ? 'Chicory reads your primary node QR. Nothing is recorded or sent.'
+          : copy.scan.privacy
+      }
       accessibilityValue={
         mode === 'checking' ? { text: copy.scan.starting } : undefined
       }
@@ -720,7 +726,13 @@ function GlyphButton({
  * off and dust when this build has no camera at all. A long press whispers
  * why (REDESIGN.md rule 3).
  */
-function CameraOff({ access }: { access: 'denied' | 'missing' }) {
+function CameraOff({
+  access,
+  primary = false,
+}: {
+  access: 'denied' | 'missing';
+  primary?: boolean;
+}) {
   const denied = access === 'denied';
   const label = denied ? copy.scan.denied : copy.scan.missing;
   return (
@@ -731,7 +743,13 @@ function CameraOff({ access }: { access: 'denied' | 'missing' }) {
         accessible
         accessibilityRole="image"
         accessibilityLabel={label}
-        accessibilityHint={denied ? copy.scan.noCamera : copy.scan.missingHint}
+        accessibilityHint={
+          denied
+            ? primary
+              ? 'Enable the camera in settings, or paste your primary node address.'
+              : copy.scan.noCamera
+            : copy.scan.missingHint
+        }
         style={styles.status}
       >
         <Glyph
@@ -771,12 +789,16 @@ function TestFlask({ top }: { top: number }) {
 
 export function Scanner({
   onDetected,
+  validate,
+  purpose = 'payment',
   onCancel,
   live = true,
   onAccess,
   test = false,
 }: {
   onDetected: (value: string) => void;
+  validate?: (value: string) => string;
+  purpose?: 'payment' | 'primary';
   onCancel: () => void;
   /**
    * Whether the camera may mount. The scan overlay holds it back until its
@@ -930,8 +952,14 @@ export function Scanner({
     sage.set(withTiming(1, { ...FADE, duration: durations.tick }));
     if (!reduced) pinch.set(withSpring(CAUGHT_SCALE, springs.snap));
     haptics.thud();
-    announce(copy.scan.detected);
-    onDetected(normalizePaymentLink(value) || value);
+    announce(
+      purpose === 'primary'
+        ? 'Primary node address found.'
+        : copy.scan.detected,
+    );
+    onDetected(
+      validate ? validate(value) : normalizePaymentLink(value) || value,
+    );
   }
 
   // Every refused read flashes the corners radish. Only a loud one shakes
@@ -955,10 +983,20 @@ export function Scanner({
     if (loud) nudge.set(shake());
   }
 
+  function validationError(value: string): string | null {
+    if (!validate) return refusal(value);
+    try {
+      validate(value);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Invalid node address.';
+    }
+  }
+
   function read(raw: string | undefined) {
     const value = raw?.trim();
     if (claimed.current || !value) return;
-    const reason = refusal(value);
+    const reason = validationError(value);
     if (!reason) {
       take(value);
       return;
@@ -995,7 +1033,7 @@ export function Scanner({
       refusePaste(copy.scan.clipboardEmpty);
       return;
     }
-    const reason = refusal(value);
+    const reason = validationError(value);
     if (reason) refusePaste(reason);
     else take(value);
   }
@@ -1078,18 +1116,23 @@ export function Scanner({
           accessible
           accessibilityRole="header"
           accessibilityLabel={
-            access === 'denied' ? copy.scan.camera : copy.scan.title
+            access === 'denied'
+              ? copy.scan.camera
+              : purpose === 'primary'
+              ? 'Scan primary node QR'
+              : copy.scan.title
           }
           style={styles.title}
         />
         <View pointerEvents="box-none" style={styles.stage}>
           {fallback ? (
             <>
-              <CameraOff access={access} />
+              <CameraOff access={access} primary={purpose === 'primary'} />
               {controls}
             </>
           ) : (
             <Reticle
+              primary={purpose === 'primary'}
               mode={mode}
               side={side}
               from={flight(width, height, side)}

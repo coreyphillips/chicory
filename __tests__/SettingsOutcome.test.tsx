@@ -5,6 +5,7 @@ import HapticFeedback from 'react-native-haptic-feedback';
 import * as Keychain from 'react-native-keychain';
 import type { WalletRecord, WalletSnapshot } from '@beignet/wallet-core';
 import { copy } from '../src/design/copy';
+import { Scanner } from '../src/components/Scanner';
 import { GLYPHS } from '../src/design/glyphs';
 import type { GlyphName } from '../src/design/glyphs';
 import { haptics } from '../src/design/haptics';
@@ -720,4 +721,27 @@ describe('the wallet picker', () => {
     expect(state('Open First')).toEqual({ disabled: true, busy: false });
     await act(async () => tree.unmount());
   });
+});
+
+test('the primary QR scanner accepts an Iroh address and saves its optional onion fallback', async () => {
+  const key = '02' + 'a'.repeat(64);
+  const uri = `${key}@iroh:${'b'.repeat(64)}`;
+  const fallback = `${key}@${'a'.repeat(56)}.onion:9735`;
+  const adapter = client();
+  const tree = await render(base, adapter);
+  await act(async () => press(tree, 'Change primary node').props.onPress());
+  await act(async () => press(tree, 'Scan primary node QR').props.onPress());
+  const scanner = tree.root.findByType(Scanner);
+  expect(scanner.props.purpose).toBe('primary');
+  expect(scanner.props.validate(uri)).toBe(uri);
+  expect(() => scanner.props.validate('not a node')).toThrow();
+  await act(async () => scanner.props.onDetected(uri));
+  expect(field(tree, 'Node address').props.value).toBe(uri);
+  expect(text(tree)).toContain('Iroh is experimental');
+  await act(async () =>
+    field(tree, 'Optional Tor fallback URI').props.onChangeText(fallback),
+  );
+  await act(async () => press(tree, 'Save primary node').props.onPress());
+  expect(adapter.updatePrimary).toHaveBeenCalledWith(uri, fallback);
+  await act(async () => tree.unmount());
 });
