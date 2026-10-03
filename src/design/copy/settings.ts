@@ -69,6 +69,11 @@ export const settings = {
     copied: 'Node address copied',
     change: 'Change primary node',
     save: 'Save primary node',
+    scan: 'Scan primary node QR',
+    iroh: "Iroh is experimental and requires Native networking. Your primary node and its relay can see your phone's IP address. Use this for a node you control. Tor remains the default.",
+    fallback: 'Optional Tor fallback URI',
+    fallbackHint:
+      'Use the onion address for the same node key. Lightning falls back to Tor if Iroh is slow or unavailable.',
     cancel: 'Cancel',
     keeps:
       'Existing channels and funds stay. The new node is trusted for instant funding.',

@@ -448,10 +448,13 @@ describe('opening a device wallet', () => {
   });
 
   const onionPrimary = `${'ab'.repeat(33)}@${ONION}:9735`;
-  const registry = (primaryUri: string) =>
+  const registry = (primaryUri: string, fallbackUri?: string) =>
     Buffer.from(
       JSON.stringify({
-        record: { network: 'regtest', lfbw: { enabled: true, primaryUri } },
+        record: {
+          network: 'regtest',
+          lfbw: { enabled: true, primaryUri, primaryFallbackUri: fallbackUri },
+        },
       }),
     );
 
@@ -468,6 +471,58 @@ describe('opening a device wallet', () => {
     }
     // Started once here; the engine's own dial later joins the same start.
     expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([undefined, onionPrimary])(
+    'Iroh warms Tor only with an onion fallback: %s',
+    async fallback => {
+      const read = mockStorage.volume.read;
+      mockStorage.volume.read = (() =>
+        registry(
+          `${'ab'.repeat(33)}@iroh:${'cd'.repeat(32)}`,
+          fallback,
+        )) as unknown as typeof read;
+      try {
+        await openDeviceWallet(
+          profile({ host: '127.0.0.1', port: 60001, tls: false }),
+        );
+        expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(
+          fallback ? 1 : 0,
+        );
+        expect(
+          require('@beignet/portable-engine').createPortableRuntime,
+        ).toHaveBeenCalledWith(
+          expect.objectContaining({
+            iroh: { factory: expect.any(Function), discovery: false },
+          }),
+        );
+      } finally {
+        mockStorage.volume.read = read;
+      }
+    },
+  );
+
+  test('a stored Iroh primary explains how to recover from Relay networking and releases storage', async () => {
+    const read = mockStorage.volume.read;
+    mockStorage.volume.read = (() =>
+      registry(
+        `${'ab'.repeat(33)}@iroh:${'cd'.repeat(32)}`,
+      )) as unknown as typeof read;
+    try {
+      await expect(
+        openDeviceWallet({
+          ...profile({ host: '127.0.0.1', port: 60001, tls: false }, 'relay'),
+          relayUrl: 'wss://relay.example',
+          relayToken: 'x'.repeat(32),
+        }),
+      ).rejects.toThrow('Select Native in Network settings');
+      expect(
+        require('@beignet/portable-engine').createPortableRuntime,
+      ).not.toHaveBeenCalled();
+      expect(mockStorage.close).toHaveBeenCalled();
+    } finally {
+      mockStorage.volume.read = read;
+    }
   });
 
   test('an onion primary in the profile warms Tor at open too', async () => {

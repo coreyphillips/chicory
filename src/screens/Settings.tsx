@@ -1,8 +1,10 @@
+import { Scanner } from '../components/Scanner';
 import React, { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Modal, StyleSheet, Text, View } from 'react-native';
 import Reanimated from 'react-native-reanimated';
-import { DEFAULT_PRIMARY_URI } from '@beignet/wallet-core';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { DEFAULT_PRIMARY_URI, validatePrimaryUri } from '@beignet/wallet-core';
 import type { Network, WalletSnapshot } from '@beignet/wallet-core';
 import { RecoveryPhrase } from '../components/RecoveryPhrase';
 import { announce } from '../design/announce';
@@ -226,10 +228,16 @@ function PrimarySection({
   index: number;
   outcome: SettingsOutcome;
   busy: boolean;
-  onSave: (uri: string, done: () => void) => Promise<void>;
+  onSave: (
+    uri: string,
+    done: () => void,
+    fallbackUri?: string,
+  ) => Promise<void>;
   onRetry: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [fallback, setFallback] = useState(snapshot.primary.fallbackUri || '');
   // Closing the editor removes the field a screen reader was on, so it goes
   // back to the control that opened it.
   const [closed, setClosed] = useState(false);
@@ -245,8 +253,29 @@ function PrimarySection({
   // leave the previous address one tap from being saved.
   useEffect(() => {
     setPrimary(snapshot.primary.uri || DEFAULT_PRIMARY_URI);
-  }, [snapshot.primary.uri]);
+    setFallback(snapshot.primary.fallbackUri || '');
+  }, [snapshot.primary.uri, snapshot.primary.fallbackUri]);
   const p = words.primary;
+  if (scanning)
+    return (
+      <Modal
+        visible
+        onRequestClose={() => setScanning(false)}
+        animationType="slide"
+      >
+        <GestureHandlerRootView style={styles.scanner}>
+          <Scanner
+            purpose="primary"
+            validate={validatePrimaryUri}
+            onDetected={value => {
+              setPrimary(value);
+              setScanning(false);
+            }}
+            onCancel={() => setScanning(false)}
+          />
+        </GestureHandlerRootView>
+      </Modal>
+    );
   return (
     <Section
       glyph="bolt"
@@ -275,11 +304,38 @@ function PrimarySection({
             editable={!busy}
             focus
           />
+          <Action
+            label={p.scan}
+            glyph="scan"
+            tone="quiet"
+            onPress={() => setScanning(true)}
+          />
+          {/@iroh:/i.test(primary) ? (
+            <>
+              <Note>{p.iroh}</Note>
+              <Field
+                label={p.fallback}
+                value={fallback}
+                onChangeText={setFallback}
+                autoCapitalize="none"
+                multiline
+                mono
+                editable={!busy}
+              />
+              <Note>{p.fallbackHint}</Note>
+            </>
+          ) : null}
           <Note>{p.keeps}</Note>
           <Action
             label={p.save}
             glyph="check"
-            onPress={() => onSave(primary.trim(), close)}
+            onPress={() =>
+              onSave(
+                primary.trim(),
+                close,
+                /@iroh:/i.test(primary) ? fallback.trim() : undefined,
+              )
+            }
             busy={busy}
             disabled={!primary.trim()}
           />
@@ -597,9 +653,14 @@ export function SettingsScreen({
     };
   }, [client]);
 
-  async function savePrimary(uri: string, done: () => void) {
+  async function savePrimary(
+    uri: string,
+    done: () => void,
+    fallbackUri?: string,
+  ) {
     await run(words.primary.saving, async () => {
-      await client.updatePrimary(uri);
+      if (fallbackUri === undefined) await client.updatePrimary(uri);
+      else await client.updatePrimary(uri, fallbackUri);
       done();
       onRefresh();
       // The change has committed. Whether the wallet has reconnected to it is a
@@ -710,6 +771,7 @@ export function SettingsScreen({
 const DOT = 7;
 
 const styles = StyleSheet.create({
+  scanner: { flex: 1, backgroundColor: palette.espresso },
   page: { gap: space.md },
   stack: { gap: space.md },
   connection: { flexDirection: 'row', alignItems: 'center', gap: space.xs },

@@ -233,3 +233,7 @@ Receiving offline is an opt-in on the Receive screen ("Receive offline", off by 
 An offline receive is only for a channel that already exists with the primary and has room for the amount; it never has the primary open one. The primary must run Beignet 0.21.8 or newer with settlement enabled. The app reports unsupported preparation without silently issuing an online-only invoice.
 
 See [FFOR validation](FFOR-VALIDATION.md) for simulator and funded regtest evidence, commands, and deployment limits.
+
+## Iroh primary phone link
+
+An experimental Iroh URI or QR from Beignet Umbrel can be used as the primary node in Settings, with an optional same-key Tor fallback. The native bindings require a rebuilt app and raise the iOS minimum to 17.5. See [Iroh setup and validation](docs/IROH.md) for privacy details, dependency pins, the isolated simulator payment check, and remaining device qualification.

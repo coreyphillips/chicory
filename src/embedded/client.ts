@@ -45,9 +45,11 @@ function withDeadline<T>(
  * polyfill on `globalThis` before either call site below runs.
  */
 function decoder(): { decode(input: Uint8Array): string } {
-  return new (globalThis as unknown as {
-    TextDecoder: new () => { decode(input: Uint8Array): string };
-  }).TextDecoder();
+  return new (
+    globalThis as unknown as {
+      TextDecoder: new () => { decode(input: Uint8Array): string };
+    }
+  ).TextDecoder();
 }
 
 /** Map the original unnamespaced vault to its actual chain once, without copying state. */
@@ -146,6 +148,7 @@ function uriHost(uri: unknown): string {
   const at = uri.indexOf('@');
   if (at < 0) return '';
   const hostPort = uri.slice(at + 1);
+  if (/^iroh:/i.test(hostPort)) return 'iroh';
   const colon = hostPort.lastIndexOf(':');
   return (colon > 0 ? hostPort.slice(0, colon) : hostPort).trim();
 }
@@ -168,10 +171,12 @@ export async function openDeviceWallet(
     { createPortableRuntime, createRelaySocketFactory },
     { openEncryptedDeviceStorage },
     { nativeSocketFactory },
+    { createNativeIrohEndpoint },
   ] = await Promise.all([
     import('@beignet/portable-engine'),
     import('./storage'),
     import('./network'),
+    import('./iroh'),
   ]);
   const preferences = await loadDevicePreferences();
   const storage = await openEncryptedDeviceStorage(
@@ -190,14 +195,24 @@ export async function openDeviceWallet(
   try {
     const registryBytes = storage.volume.read('/wallet/registry.json');
     let storedPrimaryHost = '';
+    let storedFallbackHost = '';
     if (registryBytes) {
       try {
         const record = JSON.parse(decoder().decode(registryBytes)).record;
         assertWalletNetwork([record], settings.network);
         storedPrimaryHost = uriHost(record?.lfbw?.primaryUri);
+        storedFallbackHost = uriHost(record?.lfbw?.primaryFallbackUri);
       } finally {
         registryBytes.fill(0);
       }
+    }
+    if (
+      settings.transport === 'relay' &&
+      (storedPrimaryHost || uriHost(settings.primaryUri)) === 'iroh'
+    ) {
+      throw new Error(
+        'Iroh requires Native networking. Select Native in Network settings before opening this wallet.',
+      );
     }
     preferences.profiles[settings.network] = settings;
     preferences.selectedNetwork = settings.network;
@@ -230,13 +245,17 @@ export async function openDeviceWallet(
     // dial awaits the same promise and a bootstrap failure is reported there.
     if (
       settings.transport === 'native' &&
-      (isOnionHost(storedPrimaryHost) || isOnionHost(uriHost(settings.primaryUri)))
+      (isOnionHost(storedPrimaryHost || uriHost(settings.primaryUri)) ||
+        isOnionHost(storedFallbackHost))
     ) {
       void ensureTorReady().catch(() => {});
     }
     engine = await createPortableRuntime({
       ...storage,
       socketFactory,
+      ...(settings.transport === 'native'
+        ? { iroh: { factory: createNativeIrohEndpoint, discovery: false } }
+        : {}),
       electrum: settings.electrum,
       onDiagnostic,
     });
