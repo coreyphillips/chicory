@@ -54,13 +54,16 @@ react {
     autolinkLibrariesWithApp()
 }
 
-// These local packages live outside React Native's default bundle input tree.
-// Track their contents so a normal release build cannot reuse stale wallet code.
+// Track installed wallet packages, including development symlinks, so a
+// release build cannot reuse a bundle from before a dependency pin changed.
 tasks.withType(com.facebook.react.tasks.BundleHermesCTask).configureEach {
-    inputs.files(fileTree("$rootDir/../../../shared/src"))
+    inputs.file("$rootDir/../package-lock.json")
+        .withPropertyName("walletDependencyPins")
+        .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+    inputs.files(fileTree("$rootDir/../node_modules/@beignet/wallet-core/src"))
         .withPropertyName("beignetWalletCore")
         .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
-    inputs.files(fileTree("$rootDir/../../../beignet-engine/dist"))
+    inputs.files(fileTree("$rootDir/../node_modules/@beignet/portable-engine/dist"))
         .withPropertyName("beignetPortableEngine")
         .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
 }
@@ -127,4 +130,9 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+}
+
+// Package the dedicated native fixture only when explicitly requested.
+if (project.hasProperty("offlineReceiveQualification")) {
+    apply from: "../../native-tests/android-qualification.gradle"
 }

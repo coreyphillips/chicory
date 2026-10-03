@@ -17,6 +17,9 @@ const offlineRange = (cap?: number) =>
 export const receive = {
   // The form.
   continue: 'Continue',
+  dismissRetry: 'Stop retrying this request',
+  dismissRetryHint:
+    'Return to ordinary Receive. Any reserved capacity stays held until the request is safely resolved.',
   enterAmount: 'Enter an amount for your payment request.',
   addNote: 'Add a note',
   note: 'Note · optional',

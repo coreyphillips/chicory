@@ -75,6 +75,7 @@ export function QuoteStep({
   onRequote,
   onEdit,
   onBlocked,
+  onDismissRetry,
   focus,
   symbol = false,
 }: {
@@ -91,6 +92,7 @@ export function QuoteStep({
   onRequote: () => void;
   onEdit: () => void;
   onBlocked: () => void;
+  onDismissRetry?: () => void;
   focus: Focus;
   /** Sats are drawn as `₿2,000` (`unitAffixes`). */
   symbol?: boolean;
@@ -214,7 +216,17 @@ export function QuoteStep({
         <WarningPips warnings={quote.warnings} />
       </View>
       <Reanimated.View entering={stagger(3)} style={styles.controls}>
-        <View style={styles.side} />
+        <View style={styles.side}>
+          {onDismissRetry && (
+            <GlyphButton
+              glyph="close"
+              label={copy.receive.dismissRetry}
+              hint={copy.receive.dismissRetryHint}
+              busy={busy}
+              onPress={onDismissRetry}
+            />
+          )}
+        </View>
         <View style={styles.create}>
           <View pointerEvents="none" style={styles.ring}>
             <ExpiryRing

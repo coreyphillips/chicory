@@ -662,7 +662,11 @@ export function HomeScreen({
                     glyph="receive"
                     size={HOME.circle}
                     label={copy.home.receive}
-                    hint={copy.home.receiveHint}
+                    hint={
+                      balance.unresolvedOfflineSlots
+                        ? `${copy.home.receiveHint} An offline request still holds inbound capacity. Ordinary payments use the remaining capacity.`
+                        : copy.home.receiveHint
+                    }
                     stale={stale}
                     onAct={whileLive(onReceive)}
                     onRefresh={refresh}

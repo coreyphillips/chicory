@@ -1,3 +1,4 @@
+import * as Keychain from 'react-native-keychain';
 import React, { useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -1715,4 +1716,117 @@ describe('a test network', () => {
       await act(async () => tree.unmount());
     }
   });
+});
+
+describe('concurrent offline request retry', () => {
+  test('keeps explicit offline mode and the same quote after interrupted creation', async () => {
+    const priced = quoteOf({
+      id: 'durable-request-123456',
+      amountSats: 1000,
+      mode: 'offline',
+      concurrentVersion: 2,
+    });
+    const client = clientOf({
+      getConfig: jest.fn().mockResolvedValue({ offlineReceiveAvailable: true }),
+      quoteReceive: jest.fn().mockResolvedValue(priced),
+      receive: jest
+        .fn()
+        .mockRejectedValueOnce(
+          Object.assign(Error('Request pending'), { code: 'RECEIVE_PENDING' }),
+        )
+        .mockResolvedValue(requestOf({ offlineReceive: true })),
+    });
+    const tree = await screen(client, { offlineReceivableSats: 50000 });
+    await tap(tree, copy.receive.offline);
+    await enterAmount(tree, '1000');
+    await tap(tree, copy.receive.continue);
+    expect(client.quoteReceive).toHaveBeenLastCalledWith(
+      expect.objectContaining({ mode: 'offline', amountSats: 1000 }),
+    );
+    await tap(tree, copy.receive.create);
+    expect(find(tree, copy.receive.create)).toBeDefined();
+    await tap(tree, copy.receive.create);
+    expect(client.receive).toHaveBeenNthCalledWith(1, priced);
+    expect(client.receive).toHaveBeenNthCalledWith(2, priced);
+    expect(client.quoteReceive).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+});
+
+test('a cold restored expired retry can be dismissed without releasing its reservation or blocking ordinary receive', async () => {
+  const draft = {
+    id: 'saved-offline-request-1234',
+    amountSats: 1000,
+    description: '',
+  };
+  jest
+    .mocked(Keychain.getGenericPassword)
+    .mockResolvedValue({ password: JSON.stringify(draft) } as never);
+  jest.mocked(Keychain.resetGenericPassword).mockResolvedValue(true);
+  const client = clientOf({
+    getConfig: jest.fn().mockResolvedValue({ offlineReceiveAvailable: true }),
+    quoteReceive: jest
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(Error('Invoice expired'), { code: 'INVOICE_EXPIRED' }),
+      )
+      .mockResolvedValue(quoteOf()),
+  });
+  const tree = await screen(client, {
+    walletId: 'wallet-retry',
+    offlineReceivableSats: 0,
+  });
+  await tap(tree, copy.receive.continue);
+  expect(client.quoteReceive).toHaveBeenLastCalledWith(
+    expect.objectContaining({ mode: 'offline', requestId: draft.id }),
+  );
+  await tap(tree, copy.receive.dismissRetry);
+  expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({
+    service: 'com.beignet.wallet.offline-request.wallet-retry',
+  });
+  await tap(tree, copy.receive.continue);
+  expect(client.quoteReceive).toHaveBeenLastCalledWith(
+    expect.not.objectContaining({ mode: 'offline' }),
+  );
+  expect(client.receive).not.toHaveBeenCalled();
+  await act(async () => tree.unmount());
+});
+
+test('an unreadable retry draft permits ordinary receive but requires dismissal before new offline work', async () => {
+  jest
+    .mocked(Keychain.getGenericPassword)
+    .mockRejectedValue(Error('Secure storage unavailable'));
+  jest.mocked(Keychain.resetGenericPassword).mockResolvedValue(true);
+  const client = clientOf({
+    getConfig: jest.fn().mockResolvedValue({ offlineReceiveAvailable: true }),
+  });
+  const tree = await screen(client, {
+    walletId: 'wallet-unreadable',
+    offlineReceivableSats: 50000,
+  });
+  await tap(tree, copy.receive.offline);
+  await enterAmount(tree, '1000');
+  await tap(tree, copy.receive.continue);
+  expect(client.quoteReceive).not.toHaveBeenCalled();
+  await tap(tree, copy.receive.offline);
+  await tap(tree, copy.receive.continue);
+  expect(client.quoteReceive).toHaveBeenLastCalledWith(
+    expect.not.objectContaining({ mode: 'offline' }),
+  );
+  await act(async () => tree.unmount());
+  const restored = await screen(client, {
+    walletId: 'wallet-unreadable',
+    offlineReceivableSats: 50000,
+  });
+  await tap(restored, copy.receive.dismissRetry);
+  expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({
+    service: 'com.beignet.wallet.offline-request.wallet-unreadable',
+  });
+  await tap(restored, copy.receive.offline);
+  await enterAmount(restored, '1000');
+  await tap(restored, copy.receive.continue);
+  expect(client.quoteReceive).toHaveBeenLastCalledWith(
+    expect.objectContaining({ mode: 'offline' }),
+  );
+  await act(async () => restored.unmount());
 });

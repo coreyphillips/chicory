@@ -1,0 +1,162 @@
+{
+  "ios": {
+    "build": {
+      "platform": "ios",
+      "runtime": "iOS 26.2 simulator, iPhone 17 Pro, arm64",
+      "xcode": "Xcode 26.2\nBuild version 17C52",
+      "configuration": "Release",
+      "entry": "native-tests/OfflineReceive.tsx",
+      "bundleId": "com.chicory.concurrenttest",
+      "appVersion": "0.6.1",
+      "build": "7",
+      "pins": {
+        "@beignet/portable-engine": "github:coreyphillips/beignet-portable-engine#a0275a007dbcc280e81619911090de875eccfc24",
+        "@beignet/wallet-core": "github:coreyphillips/beignet-wallet-core#dcbb538f530e275b5b768512c683737de5f455e8"
+      },
+      "binarySha256": "caf18f1b78707d59271f6dccfacbdaed0797cb662de030c33a5b2f7f1f7aef2c",
+      "hermesBundleSha256": "2cb586f3fddab20271337c07651f52ecad40c2562d5e2556b3a7f447cdbac689",
+      "portableRuntimeSha256": "5a3c1ecd8217a639da3d3b7a4f89256928ea94501c2dbb14b70538ec634bb679",
+      "walletCoreSha256": "0d47433406b97797f6a00d0a8aecf814172719e3cfc29c661e230853135f090a"
+    },
+    "launches": [
+      {
+        "platform": "ios",
+        "app": "com.chicory.concurrenttest",
+        "pid": 10264,
+        "run": 1,
+        "hermes": true,
+        "walletCount": 0
+      },
+      {
+        "platform": "ios",
+        "app": "com.chicory.concurrenttest",
+        "pid": 10677,
+        "run": 2,
+        "hermes": true,
+        "walletCount": 1
+      },
+      {
+        "platform": "ios",
+        "app": "com.chicory.concurrenttest",
+        "pid": 10813,
+        "run": 3,
+        "hermes": true,
+        "walletCount": 1
+      }
+    ],
+    "checkpoints": [
+      {
+        "label": "active offline book",
+        "totalSats": 101000,
+        "availableSats": 96000,
+        "reservedInboundSats": 20000,
+        "unresolvedOfflineSlots": 1
+      },
+      {
+        "label": "cold start 1",
+        "totalSats": 121000,
+        "availableSats": 116000,
+        "reservedInboundSats": 0,
+        "unresolvedOfflineSlots": 0
+      },
+      {
+        "label": "cold start 2",
+        "totalSats": 121000,
+        "availableSats": 116000,
+        "reservedInboundSats": 0,
+        "unresolvedOfflineSlots": 0
+      },
+      {
+        "label": "draining unknown reservation",
+        "totalSats": 147000,
+        "availableSats": 142000,
+        "reservedInboundSats": 17000,
+        "unresolvedOfflineSlots": 1
+      }
+    ],
+    "result": "passed"
+  },
+  "android": {
+    "build": {
+      "platform": "android",
+      "configuration": "offlineReceiveTest (Release base)",
+      "entry": "native-tests/OfflineReceive.tsx",
+      "applicationId": "com.chicory.offlinereceivetest",
+      "abis": [
+        "arm64-v8a"
+      ],
+      "api": "37",
+      "androidRelease": "17",
+      "gradle": "9.4.1",
+      "ndk": "27.1.12297006",
+      "reactNative": "0.87.1",
+      "appVersion": "0.6.1",
+      "versionCode": 7,
+      "pins": {
+        "@beignet/portable-engine": "github:coreyphillips/beignet-portable-engine#a0275a007dbcc280e81619911090de875eccfc24",
+        "@beignet/wallet-core": "github:coreyphillips/beignet-wallet-core#dcbb538f530e275b5b768512c683737de5f455e8"
+      },
+      "apkSha256": "0f038c166faa3374c73d8a1f11620e5777d136f0c43188c0bc8477d25a54e851",
+      "hermesBundleSha256": "040db6a775964969007ca58a2685c6db3bb6e9a8489dc3dd2afc933d4713b81e",
+      "portableRuntimeSha256": "5a3c1ecd8217a639da3d3b7a4f89256928ea94501c2dbb14b70538ec634bb679",
+      "walletCoreSha256": "0d47433406b97797f6a00d0a8aecf814172719e3cfc29c661e230853135f090a"
+    },
+    "launches": [
+      {
+        "platform": "android",
+        "app": "com.chicory.offlinereceivetest",
+        "pid": 9857,
+        "run": 1,
+        "hermes": true,
+        "walletCount": 0
+      },
+      {
+        "platform": "android",
+        "app": "com.chicory.offlinereceivetest",
+        "pid": 9957,
+        "run": 2,
+        "hermes": true,
+        "walletCount": 1
+      },
+      {
+        "platform": "android",
+        "app": "com.chicory.offlinereceivetest",
+        "pid": 10032,
+        "run": 3,
+        "hermes": true,
+        "walletCount": 1
+      }
+    ],
+    "checkpoints": [
+      {
+        "label": "active offline book",
+        "totalSats": 101000,
+        "availableSats": 96000,
+        "reservedInboundSats": 20000,
+        "unresolvedOfflineSlots": 1
+      },
+      {
+        "label": "cold start 1",
+        "totalSats": 121000,
+        "availableSats": 116000,
+        "reservedInboundSats": 0,
+        "unresolvedOfflineSlots": 0
+      },
+      {
+        "label": "cold start 2",
+        "totalSats": 121000,
+        "availableSats": 116000,
+        "reservedInboundSats": 0,
+        "unresolvedOfflineSlots": 0
+      },
+      {
+        "label": "draining unknown reservation",
+        "totalSats": 147000,
+        "availableSats": 142000,
+        "reservedInboundSats": 17000,
+        "unresolvedOfflineSlots": 1
+      }
+    ],
+    "result": "passed"
+  }
+}

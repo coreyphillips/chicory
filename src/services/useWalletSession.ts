@@ -1,3 +1,4 @@
+import { clearOfflineReceiveDrafts } from './offlineReceiveDraft';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { EmbeddedWalletClient } from '@beignet/wallet-core';
@@ -979,6 +980,7 @@ export function useWalletSession(view: WalletSessionView) {
       await eraseDeviceStorage();
       await clearSeedSource();
       await clearCachedSnapshot();
+      await clearOfflineReceiveDrafts();
       await clearWalletSession();
       if (generation.current !== current) return;
       setRememberedSession(null);

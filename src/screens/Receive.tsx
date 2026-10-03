@@ -35,6 +35,12 @@ import { recordDiagnostic } from '../services/diagnosticLog';
 import { useReceiveStatus } from '../services/useReceiveStatus';
 import { errorMessage as message } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
+import {
+  loadOfflineReceiveDraft,
+  saveOfflineReceiveDraft,
+  clearOfflineReceiveDraft,
+} from '../services/offlineReceiveDraft';
+import type { OfflineReceiveDraft } from '../services/offlineReceiveDraft';
 import { usePaneActive } from '../stage/panes/Pane';
 import { useHoldTint } from '../stage/StageContext';
 import type { Unit } from '../theme';
@@ -51,6 +57,8 @@ export function ReceiveScreen({
   client,
   receivableSats = 0,
   offlineReceivableSats,
+  walletId,
+  primaryOfflineAvailable,
   disabled = false,
   hidden = false,
   unit = 'sats',
@@ -68,6 +76,8 @@ export function ReceiveScreen({
    * hold one. Undefined when the engine does not say.
    */
   offlineReceivableSats?: number;
+  walletId?: string;
+  primaryOfflineAvailable?: boolean | null;
   /** Set when the wallet's balance is too old to quote against. */
   disabled?: boolean;
   /** Amounts that arrive are masked, as the balance is. */
@@ -119,22 +129,22 @@ export function ReceiveScreen({
       active = false;
     };
   }, [client]);
-  // Nor is it offered when no channel can hold one: an offline receive needs
-  // a channel with the primary that holds none of this wallet's balance. An
-  // engine that does not say how much fits leaves that to the quote.
+  // The engine reports remaining capacity and the primary's negotiated support.
   const offlineOffered =
     offlineAvailable &&
+    primaryOfflineAvailable !== false &&
     (offlineReceivableSats === undefined || offlineReceivableSats > 0);
   // An amount is needed when the primary has to provide the capacity (a
   // just-in-time receive is quoted on it), when it changed under a quote, and
   // for an offline receive, whose slot holds one fixed amount.
   const amountRequired = receivableSats <= 0 || capacityChanged || offline;
+  const pendingOffline = useRef<OfflineReceiveDraft | null>(null);
   const [amount, setAmount] = useState('');
   const cue = amountCue({
     amount,
     required: amountRequired,
     offline,
-    cap: offlineReceivableSats,
+    cap: pendingOffline.current ? undefined : offlineReceivableSats,
   });
   const ready = !(amountRequired && cue.empty) && !cue.over && !cue.under;
   const [description, setDescription] = useState('');
@@ -150,6 +160,39 @@ export function ReceiveScreen({
   // Each refusal of a control shakes it once.
   const [refusals, setRefusals] = useState(0);
   const [offlineRefusals, setOfflineRefusals] = useState(0);
+  const [draftReady, setDraftReady] = useState(!walletId);
+  const [draftReadFailed, setDraftReadFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    if (!walletId) return;
+    setDraftReady(false);
+    loadOfflineReceiveDraft(walletId)
+      .then(draft => {
+        if (!active) return;
+        pendingOffline.current = draft;
+        setDraftReadFailed(false);
+        if (draft) {
+          setAmount(String(draft.amountSats));
+          setDescription(draft.description);
+          setOffline(true);
+        }
+        setDraftReady(true);
+      })
+      .catch(e => {
+        if (active) {
+          setDraftReadFailed(true);
+          setDraftReady(true);
+          setError({
+            message: message(e),
+            code: 'REQUEST_SAVE_FAILED',
+            amount: false,
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [walletId]);
   const [lifted, setLifted] = useState(false);
   // Each copy of the request turns the copy control to a check and back.
   const [copies, setCopies] = useState(0);
@@ -190,13 +233,6 @@ export function ReceiveScreen({
     : null;
   const quoteExpired = quote ? lapsed || now >= quote.expiresAt : false;
   const step = request ? 'request' : quote ? 'quote' : 'form';
-  // Back to the ordinary request when an offline one no longer fits, but only
-  // on the form: creating an offline request reserves its channel, which takes
-  // the figure to 0 while that request is still on screen.
-  useEffect(() => {
-    if (step === 'form' && !offlineOffered) setOffline(false);
-  }, [step, offlineOffered]);
-
   // The night tint while the request being made, or shown, is an offline one.
   const night = request ? !!request.offlineReceive && !face?.expired : offline;
   useHoldTint(night ? 'night' : null);
@@ -267,15 +303,37 @@ export function ReceiveScreen({
   }
 
   async function price() {
-    if (working.current || disabled || !ready) return;
+    if (working.current || disabled || !ready || !draftReady) return;
     working.current = true;
     setBusy(true);
     setError(null);
     try {
+      if (offline && draftReadFailed)
+        throw Error(
+          'The saved request could not be read. Stop retrying it before creating another offline request.',
+        );
+      const pending = pendingOffline.current;
+      const requestedAmount = amount.trim() ? parseSats(amount) : undefined;
+      if (
+        offline &&
+        pending &&
+        (pending.amountSats !== requestedAmount ||
+          pending.description !== description.trim())
+      )
+        throw Error(
+          'Resume the saved offline request with its original amount and note. Check Activity before creating another.',
+        );
       const next = await client.quoteReceive({
         amountSats: amount.trim() ? parseSats(amount) : undefined,
         description: description.trim(),
-        ...(offline ? { mode: 'offline' as const } : {}),
+        ...(offline
+          ? {
+              mode: 'offline' as const,
+              requestId:
+                pending?.id ??
+                (quote?.mode === 'offline' ? quote.id : undefined),
+            }
+          : {}),
       });
       setQuote(next);
       setQuotedAt(Date.now());
@@ -284,11 +342,9 @@ export function ReceiveScreen({
       // The infinity shakes to a sprout instead: an amount is needed after all.
       const needsAmount = codeOf(e) === 'AMOUNT_REQUIRED';
       if (needsAmount) setCapacityChanged(true);
-      // Or the moon shakes off: the engine will not take this one offline,
-      // and never makes it an ordinary request by itself.
+      // Keep the explicit mode when the engine refuses an offline request.
       const offlineRefused = offline && codeOf(e) === 'RECEIVE_UNAVAILABLE';
       if (offlineRefused) {
-        setOffline(false);
         setOfflineRefusals(count => count + 1);
       }
       const refused = refuse(e, !needsAmount && !offlineRefused);
@@ -306,7 +362,24 @@ export function ReceiveScreen({
     setBusy(true);
     setError(null);
     try {
+      if (offline && walletId) {
+        const draft = {
+          id: quote.id,
+          amountSats: quote.amountSats!,
+          description: quote.description,
+        };
+        await saveOfflineReceiveDraft(walletId, draft);
+        pendingOffline.current = draft;
+      }
       setRequest(await client.receive(quote));
+      if (offline && walletId) {
+        try {
+          await clearOfflineReceiveDraft(walletId);
+          pendingOffline.current = null;
+        } catch (e) {
+          recordDiagnostic({ phase: 'ui', message: message(e) });
+        }
+      }
       setCreatedAt(Date.now());
       setQuote(null);
       onRefresh?.();
@@ -317,8 +390,28 @@ export function ReceiveScreen({
         recordDiagnostic({ phase: 'ui', message: message(e), code: codeOf(e) });
       } else {
         refuse(e);
-        setQuote(null);
+        if (!offline) setQuote(null);
       }
+    } finally {
+      working.current = false;
+      setBusy(false);
+    }
+  }
+  async function dismissRetry() {
+    if (working.current || !walletId) return;
+    working.current = true;
+    setBusy(true);
+    try {
+      await clearOfflineReceiveDraft(walletId);
+      pendingOffline.current = null;
+      setQuote(null);
+      setOffline(false);
+      setError(null);
+      setDraftReady(true);
+      setDraftReadFailed(false);
+      announce(copy.receive.dismissRetryHint);
+    } catch (e) {
+      refuse(e);
     } finally {
       working.current = false;
       setBusy(false);
@@ -459,6 +552,11 @@ export function ReceiveScreen({
                 setError(null);
               }}
               onBlocked={blocked}
+              onDismissRetry={
+                pendingOffline.current || draftReadFailed
+                  ? dismissRetry
+                  : undefined
+              }
               focus={focus}
               symbol={symbol}
             />
@@ -472,13 +570,13 @@ export function ReceiveScreen({
                 if (error?.amount) setError(null);
               }}
               cue={cue}
-              cap={offlineReceivableSats}
+              cap={pendingOffline.current ? undefined : offlineReceivableSats}
               amountMessage={amountMessage}
               note={description}
               onNote={setDescription}
               noteOpen={noteOpen}
               onNoteOpen={setNoteOpen}
-              offlineOffered={offlineOffered}
+              offlineOffered={offlineOffered || offline}
               offline={offline}
               offlineRefused={offlineRefusals}
               onOffline={next => {
@@ -492,6 +590,11 @@ export function ReceiveScreen({
               shake={refusals}
               onContinue={price}
               onBlocked={blocked}
+              onDismissRetry={
+                pendingOffline.current || draftReadFailed
+                  ? dismissRetry
+                  : undefined
+              }
               focus={focus}
               symbol={symbol}
             />
