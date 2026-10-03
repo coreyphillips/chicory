@@ -1,0 +1,11 @@
+// Disposable regtest application. The production release keeps its network policy.
+android {
+    buildTypes {
+        offlineReceiveTest {
+            initWith release
+            applicationIdSuffix ".offlinereceivetest"
+            matchingFallbacks = ["release"]
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
+        }
+    }
+}

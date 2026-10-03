@@ -313,10 +313,16 @@ test('no secure-store service is named in the source beyond main and the redesig
     'com.beignet.wallet.lock',
     'com.beignet.wallet.lock-guard',
     'com.beignet.wallet.network-profiles',
+    // Durable offline request identity is scoped per wallet and erased with it.
+    'com.beignet.wallet.offline-request',
     // Prefixes that the code composes with a suffix at runtime.
     'com.beignet.wallet',
     ...ADDED_BY_REDESIGN,
   ];
-  const unexpected = Array.from(found).filter(name => !allowed.includes(name));
+  const unexpected = Array.from(found).filter(
+    name =>
+      !allowed.includes(name) &&
+      !name.startsWith('com.beignet.wallet.offline-request.'),
+  );
   expect(unexpected).toEqual([]);
 });

@@ -78,6 +78,7 @@ export function FormStep({
   shake,
   onContinue,
   onBlocked,
+  onDismissRetry,
   focus,
   symbol = false,
 }: {
@@ -104,6 +105,7 @@ export function FormStep({
   shake: number;
   onContinue: () => void;
   onBlocked: () => void;
+  onDismissRetry?: () => void;
   focus: Focus;
   /** The amount's unit is drawn as `₿` before its digits. */
   symbol?: boolean;
@@ -200,7 +202,17 @@ export function FormStep({
   // which Continue's own layout does not see, so it is measured again then.
   const controls = (
     <View style={styles.controls} onLayout={landing.onLayout}>
-      <View style={styles.side} />
+      <View style={styles.side}>
+        {onDismissRetry && (
+          <GlyphButton
+            glyph="close"
+            label={copy.receive.dismissRetry}
+            hint={copy.receive.dismissRetryHint}
+            busy={busy}
+            onPress={onDismissRetry}
+          />
+        )}
+      </View>
       {/* Home's Receive circle lands exactly on it (REDESIGN.md 7, T2), and
           it is unseen until the circle hands over, so the two are never
           drawn apart. */}

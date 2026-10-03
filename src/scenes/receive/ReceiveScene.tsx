@@ -68,6 +68,10 @@ export function ReceiveScene({
                 client={client}
                 receivableSats={snapshot.balance.receivableSats}
                 offlineReceivableSats={snapshot.balance.offlineReceivableSats}
+                walletId={snapshot.wallet.id}
+                primaryOfflineAvailable={
+                  snapshot.primary?.offlineReceiveAvailable
+                }
                 disabled={stale}
                 hidden={view.hidden}
                 unit={view.unit}

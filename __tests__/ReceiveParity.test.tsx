@@ -984,7 +984,7 @@ test('an offline amount above what a channel can hold is stopped on the form', a
   await act(async () => tree.unmount());
 });
 
-test('the offline box turns itself off when the room goes, but not under a request it reserved', async () => {
+test('capacity changes preserve explicit offline mode until the user switches to ordinary receive', async () => {
   const client = offlineClient();
   const screen = (offlineReceivableSats: number) => (
     <ReceiveScreen
@@ -1000,11 +1000,14 @@ test('the offline box turns itself off when the room goes, but not under a reque
     tree = create(screen(30000));
   });
   await act(async () => press(tree, 'Receive offline').props.onPress());
-  // On the form, a refresh that finds no room hides the box and drops the
-  // choice, so Continue asks for the ordinary request.
+  // Losing capacity cannot silently change the requested receive mode.
+  // Ordinary receiving remains available after an explicit mode change.
   await act(async () => tree.update(screen(0)));
-  expect(hasOfflineBox(tree)).toBe(false);
+  expect(offlineSwitch(tree).props.accessibilityState.checked).toBe(true);
   await enterAmount(tree, '1000');
+  expect(disabled(tree, 'Continue')).toBe(true);
+  expect(client.quoteReceive).not.toHaveBeenCalled();
+  await act(async () => press(tree, 'Receive offline').props.onPress());
   await act(async () => {
     await press(tree, 'Continue').props.onPress();
   });
@@ -1462,7 +1465,7 @@ describe('the safety states on a request', () => {
     await act(async () => tree.unmount());
   });
 
-  test('an offline receive the engine refuses shakes the moon off and makes nothing by itself', async () => {
+  test('an offline refusal preserves the selected mode and makes nothing by itself', async () => {
     const said = spoken();
     const why =
       'Your node cannot prepare this payment request right now. Try again shortly.';
@@ -1496,7 +1499,7 @@ describe('the safety states on a request', () => {
     expect(quoteReceive).toHaveBeenCalledWith(
       expect.objectContaining({ mode: 'offline' }),
     );
-    expect(offlineSwitch(tree).props.accessibilityState.checked).toBe(false);
+    expect(offlineSwitch(tree).props.accessibilityState.checked).toBe(true);
     expect(find(tree, 'Create request')).toBeUndefined();
     expect(alerts(tree)).toContain(why);
     expect(said.mock.calls.map(call => call[0])).toContain(why);

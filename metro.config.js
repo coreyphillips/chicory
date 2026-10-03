@@ -9,6 +9,9 @@ const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
 const siblings = [
   path.resolve(__dirname, '../../shared'),
   path.resolve(__dirname, '../../beignet-engine'),
+  ...(process.env.BEIGNET_QUALIFICATION_FOLDERS || '')
+    .split(path.delimiter)
+    .filter(Boolean),
 ].filter(dir => fs.existsSync(dir));
 
 const config = {
