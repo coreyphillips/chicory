@@ -32,6 +32,14 @@ The restored ordinary release additionally includes the explicit opacity protect
 
 All 3,252 app tests across 111 suites, type checks and lint pass (zero errors, eight existing warnings); the final pin, worklet and entrance checks also pass. Portable has 181 passing tests and four green CI checks.
 
+## Unpaid invoice follow-up in 0.6.2
+
+Portable engine `b9e4435a4c37b53b2f9b49d2d72b6c0df8177c71` fixes a drain admission bug. An unpaid receive invoice already has a pending incoming payment record. That record alone no longer produces "Wait for the pending payment to finish". Pending outgoing or unidentified payments, explicit in-flight records, incoming HTLCs, unsettled commitments, splices, offline reservations and recovery holds keep their existing guards.
+
+All 184 portable tests, types, build and four CI checks pass, with independent review. The live regression against published beignet 0.27.0 created an unpaid invoice, restarted the wallet, drained the channel and loose coins, then verified both confirmed payouts and exclusion of a later 1,000 sat receipt. A separate regtest check drained a 20,000 sat ordinary deposit before any confirmation: its 19,502 sat payout spent the still-unconfirmed deposit, and both confirmed in the next block. This does not relax pending-splice or unresolved-HTLC admission.
+
+The app pins that merged engine, with version 0.6.2 and native build number 8 on both platforms. The 83 affected engine, send-max and Settings tests pass, together with type checks and lint (zero errors, eight existing warnings). The earlier full app and physical-device qualification above applies to the prior 0.6.1 release; this follow-up uses the live engine regression and targeted app checks.
+
 ## Isolated fixture entry
 
 Keep an ordinary release APK before installing the fixture. Its normal `index.js` entry never imports the fixture or its observer. The fixture prefixes every generic Keychain service and every SQLite filename, including the runtime lease, probes, migration reads and deletion opens, with `send-max-fixture-v1.`. Credential enumeration only exposes that prefix. Alternate SQLite open APIs, directory overrides and path separators are rejected. Public module bindings must match the wrappers before any wallet or App module loads.
