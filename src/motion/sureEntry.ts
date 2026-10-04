@@ -41,7 +41,9 @@ export function endingWith(entering: Entrance, ended: () => void): Entrance {
       callback: (finished: boolean) => {
         'worklet';
         if (own) own(finished);
-        scheduleOnRN(ended);
+        // Cancellation can leave the view at its hidden initial values.
+        // Keep the grace timer armed until an entrance actually finishes.
+        if (finished) scheduleOnRN(ended);
       },
     };
   };

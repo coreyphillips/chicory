@@ -53,10 +53,10 @@ test('an entrance that ends says so, after its own callback, and keeps its motio
   animation.callback?.(true);
   await handedBack();
   expect(heard).toEqual(['own', 'ended']);
-  // One cut short has ended too: the view is wherever it was left.
+  // A cancellation has not proved that the view reached its visible values.
   run(endingWith(entrance(), () => heard.push('cut'))).callback?.(false);
   await handedBack();
-  expect(heard).toContain('cut');
+  expect(heard).not.toContain('cut');
 });
 
 /** Renders a view's sure entry and hands back what it last returned. */
@@ -108,4 +108,21 @@ test('no entrance has nothing to wait for', () => {
   });
   act(() => jest.advanceTimersByTime(ENTRY_GRACE_MS));
   expect(seen.current?.key).toBe('entering');
+});
+
+test('a cancelled entrance keeps recovery armed and remounts visibly after the grace', async () => {
+  const own = jest.fn();
+  const { seen } = probe(entrance(own), 1_000);
+  await act(async () => {
+    run(seen.current?.entering).callback?.(false);
+    await handedBack();
+  });
+  expect(own).toHaveBeenCalledWith(false);
+  expect(seen.current?.state).toBe('entering');
+  act(() => jest.advanceTimersByTime(1_000));
+  expect(seen.current).toMatchObject({
+    key: 'rested',
+    state: 'stalled',
+    entering: undefined,
+  });
 });

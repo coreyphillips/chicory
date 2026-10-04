@@ -70,8 +70,12 @@ export function pulseScale(t: number): number {
 const dotIn: EntryExitAnimationFunction = () => {
   'worklet';
   return {
-    initialValues: { transform: [{ scale: 0 }] },
-    animations: { transform: [{ scale: withSpring(1, springs.snap) }] },
+    // Keep visibility explicit through Android's entering-view cleanup.
+    initialValues: { opacity: 1, transform: [{ scale: 0 }] },
+    animations: {
+      opacity: 1,
+      transform: [{ scale: withSpring(1, springs.snap) }],
+    },
   };
 };
 /** Leaving, it shrinks to nothing. */

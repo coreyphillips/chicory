@@ -395,6 +395,24 @@ describe('the canvas arriving', () => {
     await act(async () => still.unmount());
   });
 
+  test('the sheet and connection dot restore visibility in their animation frames', async () => {
+    const tree = await render(<OnCanvas arrival="load" />);
+    const dot = tree.root.findAll(
+      node =>
+        node.props.accessibilityLabel === copy.health.fresh &&
+        typeof node.props.entering === 'function',
+    )[0];
+    expect(dot).toBeDefined();
+    // Android inserts entering views at opacity zero. These entrances must
+    // write their own visible opacity, even before native cleanup commits.
+    for (const view of [sheetLayer(tree), dot]) {
+      const animation = view.props.entering({});
+      expect(animation.initialValues.opacity).toBe(1);
+      expect(animation.animations.opacity).toBe(1);
+    }
+    await act(async () => tree.unmount());
+  });
+
   test('the hero counts up from 0 on its beat, and always says the balance', async () => {
     // The device pass (P12): the count waited for the JavaScript thread to
     // hear the beat while the fade did not, so every cold launch faded the

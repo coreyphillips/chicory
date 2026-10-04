@@ -189,8 +189,11 @@ export function riseFrom(
   return () => {
     'worklet';
     return {
-      initialValues: { transform: [{ translateY: distance }] },
+      // Android initially hides entering views. Carry opacity through the
+      // animation itself so visibility does not depend on its cleanup commit.
+      initialValues: { opacity: 1, transform: [{ translateY: distance }] },
       animations: {
+        opacity: 1,
         transform: [
           { translateY: steady(withDelay(delay, withSpring(0, springs.pane))) },
         ],
