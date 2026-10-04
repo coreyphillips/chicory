@@ -15,7 +15,7 @@ import {
   requestOf,
   walletOf,
 } from '../../test-support/fixtures';
-import { decided, fresh, onMainnet, sessionOf, stale } from './fakes';
+import { ADDRESS, decided, fresh, onMainnet, sessionOf, stale } from './fakes';
 import type { Session } from './fakes';
 import { setBiometry } from './sealed';
 import { press } from './shots';
@@ -238,6 +238,27 @@ const settingsShots: Shot[] = [
   })),
   settings('with the network editor open', () => ({
     steps: [press(words.wallet.serversLabel)],
+  })),
+  settings('emptying to an address', () => ({
+    snapshot: onMainnet(),
+    steps: [press(words.empty.link)],
+  })),
+  settings('reviewing a wallet drain', () => ({
+    snapshot: onMainnet(),
+    steps: [
+      press(words.empty.link),
+      drive => drive.type(words.empty.address, ADDRESS),
+      press(words.empty.review),
+    ],
+  })),
+  settings('wallet drain pending', () => ({
+    snapshot: onMainnet(),
+    steps: [
+      press(words.empty.link),
+      drive => drive.type(words.empty.address, ADDRESS),
+      press(words.empty.review),
+      drive => drive.activate(words.empty.send),
+    ],
   })),
   settings('changing the primary node', () => ({
     steps: [press(words.primary.change)],

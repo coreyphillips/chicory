@@ -15,19 +15,22 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { parseSats } from '@beignet/wallet-core';
 import type {
   Activity,
+  MaxQuote,
   SendResult,
   SendReview,
   WalletSnapshot,
 } from '@beignet/wallet-core';
 import { Scanner } from '../components/Scanner';
+import { Chip } from '../components/ui';
 import { copy } from '../design/copy';
 import { Glyph, HISTORY_GLYPH } from '../design/glyphs';
 import type { GlyphName } from '../design/glyphs';
 import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
 import { CopyChip } from '../glyphs/CopyChip';
+import { Whisper } from '../glyphs/Whisper';
 import { inlineAmount } from '../glyphs/InlineAmount';
-import { sceneIn, sceneOut, smooth } from '../motion/presets';
+import { riseIn, sceneIn, sceneOut, smooth } from '../motion/presets';
 import { announceSafety } from '../motion/speech';
 import { AmountReadout } from '../scenes/keypad/AmountReadout';
 import { digitsOnly, grouped } from '../scenes/keypad/keys';
@@ -47,6 +50,7 @@ import {
   fixedAmount,
   heldVisual,
   isUncertain,
+  isPayAllReview,
   resultVisual,
   reviewRail,
   requestRefusal,
@@ -172,6 +176,8 @@ export function SendScreen({
   client,
   initialRequest = '',
   disabled = false,
+  primaryConnected = false,
+  quoteRevision,
   onActivity,
   onRefresh,
   onBusy,
@@ -193,6 +199,10 @@ export function SendScreen({
   initialRequest?: string;
   /** Set when the wallet's balance is too old to spend against. */
   disabled?: boolean;
+  /** A max is available only while the primary is connected. */
+  primaryConnected?: boolean;
+  /** A refreshed snapshot also refreshes the quote's fee and reserve figures. */
+  quoteRevision?: number;
   onActivity: () => void;
   onRefresh: () => void;
   onBusy: (busy: boolean) => void;
@@ -234,6 +244,11 @@ export function SendScreen({
   // request or amount survives a scan that is cancelled or replaces it.
   const [scanning, setScanning] = useState(initialScanning);
   const [amount, setAmount] = useState('');
+  const [maximum, setMaximum] = useState<
+    (MaxQuote & { request: string }) | null
+  >(null);
+  const [maxFor, setMaxFor] = useState<string | null>(null);
+  const maxSelected = maxFor === request;
   const [review, setReview] = useState<SendReview | null>(null);
   const [reviewedAt, setReviewedAt] = useState(0);
   const [expired, setExpired] = useState(false);
@@ -285,6 +300,51 @@ export function SendScreen({
       }
     : null;
   const held = known?.status === 'completed' ? known : seen ?? known;
+  const canQuoteMax =
+    collapsed &&
+    fixedSats === null &&
+    !disabled &&
+    primaryConnected &&
+    !review &&
+    !result &&
+    !held &&
+    !busy &&
+    live &&
+    !leaving &&
+    failure?.target !== 'request';
+  useEffect(() => {
+    setMaximum(null);
+    if (!canQuoteMax) return;
+    let current = true;
+    client
+      .quoteMax({ request: request.trim() })
+      .then(quote => {
+        if (
+          current &&
+          Number.isSafeInteger(quote.amountSats) &&
+          quote.amountSats > 0
+        )
+          setMaximum({ ...quote, request });
+      })
+      .catch(() => {
+        // A chip is absent until a usable quote arrives. Continue still reports
+        // a refusal when the person asks to review a payment.
+      });
+    return () => {
+      current = false;
+    };
+  }, [
+    client,
+    request,
+    canQuoteMax,
+    quoteRevision,
+    balance?.availableSats,
+    balance?.totalSats,
+  ]);
+  useEffect(() => {
+    if (maxFor === request && maximum?.request === request)
+      setAmount(String(maximum.amountSats));
+  }, [maximum, maxFor, request]);
   // The request whose held ring is on screen, if one is, for a payment's
   // late answer to follow.
   const watching = useRef('');
@@ -549,6 +609,7 @@ export function SendScreen({
    * errors). Returns whether it was taken.
    */
   function accept(code: string): boolean {
+    if (code !== request) setMaxFor(null);
     setRequest(code);
     setScanning(false);
     const refused = requestRefusal(code);
@@ -677,8 +738,14 @@ export function SendScreen({
     try {
       const next = await client.prepareSend({
         request: request.trim(),
-        amountSats:
-          fixedSats === null && amount.trim() ? parseSats(amount) : undefined,
+        ...(maxSelected
+          ? { max: true }
+          : {
+              amountSats:
+                fixedSats === null && amount.trim()
+                  ? parseSats(amount)
+                  : undefined,
+            }),
       });
       if (!mounted.current) return;
       setReview(next);
@@ -905,6 +972,7 @@ export function SendScreen({
   }
 
   function typed(text: string) {
+    setMaxFor(null);
     setRequest(text);
     setCollapsed(false);
     setFailure(null);
@@ -1056,12 +1124,25 @@ export function SendScreen({
     content = (
       <>
         <View style={styles.body}>
-          <Amount
-            ref={summary}
-            sats={review.amountSats}
-            unit={unit}
-            symbol={symbol}
-          />
+          <Whisper
+            label={copy.send.maxKept(review.keptSats ?? 0)}
+            enabled={review.max === true}
+          >
+            <Amount
+              ref={summary}
+              sats={
+                isPayAllReview(review)
+                  ? review.minRecipientSats
+                  : review.amountSats
+              }
+              minimum={isPayAllReview(review)}
+              hint={
+                review.max ? copy.send.maxKept(review.keptSats ?? 0) : undefined
+              }
+              unit={unit}
+              symbol={symbol}
+            />
+          </Whisper>
           {review.description ? (
             <Text
               style={styles.note}
@@ -1089,7 +1170,11 @@ export function SendScreen({
           </View>
           <Commit
             ref={control}
-            accessibilityLabel={copy.send.sendSats(review.amountSats)}
+            accessibilityLabel={
+              review.max
+                ? copy.send.sendMax
+                : copy.send.sendSats(review.amountSats)
+            }
             summary={reviewWords(review)}
             expiresAt={review.expiresAt}
             createdAt={reviewedAt}
@@ -1110,8 +1195,15 @@ export function SendScreen({
     );
   } else {
     const amountFailure = failure?.target === 'amount' ? failure : null;
-    const shownAmount = fixedSats === null ? amount : String(fixedSats);
-    const tone: AmountTone = amountFailure
+    const shownAmount =
+      fixedSats !== null
+        ? String(fixedSats)
+        : maxSelected && maximum?.request === request
+        ? String(maximum.amountSats)
+        : amount;
+    const tone: AmountTone = maxSelected
+      ? 'plain'
+      : amountFailure
       ? amountFailure.tone === 'honey'
         ? 'over-spendable'
         : 'over-total'
@@ -1140,6 +1232,7 @@ export function SendScreen({
             live
               ? text => {
                   setAmount(digitsOnly(text));
+                  setMaxFor(null);
                   if (amountFailure) setFailure(null);
                 }
               : undefined
@@ -1150,7 +1243,27 @@ export function SendScreen({
           tone={tone}
           shake={amountShakes}
           symbol={symbol}
-        />
+        >
+          {canQuoteMax && maximum?.request === request ? (
+            <Reanimated.View entering={riseIn()} style={styles.maximum}>
+              <Chip
+                label={copy.amount.spoken(maximum.amountSats)}
+                selected={maxSelected}
+                disabled={busy}
+                maxFontSizeMultiplier={LINE_SCALE}
+                onPress={
+                  live && !busy
+                    ? () => {
+                        setAmount(String(maximum.amountSats));
+                        setMaxFor(request);
+                        setFailure(null);
+                      }
+                    : undefined
+                }
+              />
+            </Reanimated.View>
+          ) : null}
+        </AmountReadout>
         <View style={styles.controls}>
           <View style={styles.side} />
           {/* Home's Send circle lands exactly on it (REDESIGN.md 7, T1),
@@ -1251,6 +1364,11 @@ const styles = StyleSheet.create({
     paddingVertical: space.lg,
   },
   note: { ...typography.row, color: palette.steam, textAlign: 'center' },
+  maximum: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingVertical: space.xs,
+  },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',

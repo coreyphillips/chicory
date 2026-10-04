@@ -1,6 +1,7 @@
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
 import { mergeActivity, mergeSnapshot } from '../src/services/activityMerge';
 import { activityOf, receiptOf } from '../test-support/fixtures';
+import { drainReviewOf } from '../native-tests/gallery/fakes';
 
 /**
  * A wallet never shows less than it already knew. The engine can answer a
@@ -12,6 +13,55 @@ import { activityOf, receiptOf } from '../test-support/fixtures';
 const ids = (rows: readonly Activity[]) => rows.map(row => row.id);
 const completed = (rows: readonly Activity[]) =>
   rows.filter(row => row.status === 'completed');
+
+test('the combined drain replaces both cached component sends', () => {
+  const close = activityOf('sent', 'completed', { seed: 40, rail: 'chain' });
+  const sweepLeg = activityOf('sent', 'completed', { seed: 41, rail: 'chain' });
+  const drain: Activity = {
+    ...close,
+    id: 'drain:combined',
+    drain: {
+      ...drainReviewOf().drain!,
+      requestId: 'combined',
+      revision: 5,
+      phase: 'completed',
+      txids: [close.txid!, sweepLeg.txid!],
+    },
+  };
+  expect(mergeActivity([close, sweepLeg], [drain])).toEqual([drain]);
+  expect(mergeActivity([drain], [close, sweepLeg])).toEqual([drain]);
+  for (const status of ['pending', 'uncertain'] as const) {
+    const ongoing: Activity = {
+      ...drain,
+      status,
+      drain: { ...drain.drain!, phase: 'pending', revision: 6 },
+    };
+    expect(mergeActivity([ongoing], [])).toEqual([ongoing]);
+    expect(mergeActivity([ongoing], [close, sweepLeg])).toEqual([ongoing]);
+  }
+});
+
+test('drain progress follows revisions, including a verified reorg', () => {
+  const done: Activity = {
+    ...activityOf('sent', 'completed', { seed: 42 }),
+    drain: {
+      ...drainReviewOf().drain!,
+      revision: 5,
+      phase: 'completed',
+    },
+  };
+  const stale: Activity = {
+    ...done,
+    status: 'pending',
+    drain: { ...done.drain!, revision: 2, phase: 'preparing' },
+  };
+  expect(mergeActivity([done], [stale])).toEqual([done]);
+  const reorg: Activity = {
+    ...stale,
+    drain: { ...stale.drain!, revision: 6, phase: 'pending' },
+  };
+  expect(mergeActivity([done], [reorg])).toEqual([reorg]);
+});
 
 /**
  * The regtest run from the issue: receives of 50,000, 50,000 and 25,000 over

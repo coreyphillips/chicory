@@ -84,12 +84,45 @@ export interface ReviewFigure {
   value: string;
 }
 
+export function isPayAllReview(review: SendReview): review is SendReview & {
+  minRecipientSats: number;
+  maxFeeSats: number;
+  debitSats: number;
+  debitMsat: string;
+} {
+  return (
+    review.max === true &&
+    review.route === 'lightning' &&
+    typeof review.minRecipientSats === 'number' &&
+    typeof review.maxFeeSats === 'number' &&
+    typeof review.debitSats === 'number' &&
+    typeof review.debitMsat === 'string'
+  );
+}
+
 /**
  * What a payment will cost, as the review lays it out (REDESIGN.md 6,
  * Send): `+ ≤` the most the fee can be, `≈` what the route priced should
  * cost when there is an estimate, and `=` the most it all comes to.
  */
 export function reviewFigures(review: SendReview): ReviewFigure[] {
+  if (isPayAllReview(review))
+    return [
+      {
+        key: 'fee',
+        signs: '≤',
+        sats: review.maxFeeSats,
+        label: copy.send.routingFeeAtMost,
+        value: copy.amount.spoken(review.maxFeeSats),
+      },
+      {
+        key: 'total',
+        signs: '',
+        sats: review.debitSats,
+        label: copy.send.totalDebit,
+        value: copy.amount.spoken(review.debitSats),
+      },
+    ];
   const estimate = review.estimatedFeeSats;
   const figures: ReviewFigure[] = [
     {
@@ -130,6 +163,15 @@ const sentence = (text: string) =>
  * holding is left for a screen reader to find on its own.
  */
 export function reviewWords(review: SendReview): string {
+  if (isPayAllReview(review))
+    return [
+      copy.send.payAllFacts(
+        review.minRecipientSats,
+        review.maxFeeSats,
+        review.debitSats,
+      ),
+      ...review.warnings.map(sentence),
+    ].join(' ');
   const figures = reviewFigures(review);
   const total = figures.filter(figure => figure.key === 'total');
   const rest = figures.filter(figure => figure.key !== 'total');

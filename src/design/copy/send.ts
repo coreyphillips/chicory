@@ -22,6 +22,18 @@ export const send = {
   amountWaits: 'Enter an amount first.',
   preparing: 'Preparing the payment.',
   sendSats: (value: number) => `Send ${sats(value)}`,
+  sendMax: 'Send everything you can',
+  recipientAtLeast: (value: number) => `Recipient at least ${sats(value)}`,
+  routingFeeAtMost: 'Routing fee at most',
+  totalDebit: 'Total debit',
+  payAllFacts: (recipient: number, fee: number, debit: number) =>
+    `Recipient at least ${sats(recipient)}. Routing fee at most ${sats(
+      fee,
+    )}. Total debit ${sats(debit)}.`,
+  maxKept: (value: number) =>
+    `Everything you can send.${
+      value > 0 ? ` ${sats(value)} stay in your channel.` : ''
+    }`,
   holdHint: 'Hold to send.',
   quoteExpires: (seconds: number) => `Fee quote expires in ${seconds}s`,
   refreshQuote: 'Refresh quote',

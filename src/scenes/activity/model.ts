@@ -77,6 +77,8 @@ function matchesQuery(item: Activity, needle: string) {
     has(item.txid) ||
     has(item.paymentHash) ||
     has(item.address) ||
+    has(item.drain?.address) ||
+    item.drain?.txids.some(has) ||
     amountTexts(item.amountSats).some(has)
   );
 }

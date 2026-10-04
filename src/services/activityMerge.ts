@@ -34,27 +34,30 @@ export function mergeActivity(
   known: readonly Activity[],
   read: readonly Activity[],
 ): Activity[] {
-  if (known.length === 0) return [...read];
   const byId = new Map(read.map(row => [row.id, row]));
   const before = new Map(known.map(row => [row.id, row]));
   const out: Activity[] = read.map(row => {
     const was = before.get(row.id);
+    if (was?.drain && row.drain)
+      return was.drain.revision > row.drain.revision ? was : row;
     return was && settledLightning(was) && row.status !== 'completed'
       ? was
       : row;
   });
   const kept = known.filter(
-    row => row.status === 'completed' && !byId.has(row.id),
+    row => (row.status === 'completed' || row.drain) && !byId.has(row.id),
   );
-  if (kept.length === 0) return out;
   const merged = [...out, ...kept];
+  const drainTxids = new Set(merged.flatMap(row => row.drain?.txids ?? []));
   const shown = merged.filter(
     row =>
-      !kept.includes(row) ||
-      !row.txid ||
-      !merged.some(other => other !== row && other.txid === row.txid),
+      (row.drain || !row.txid || !drainTxids.has(row.txid)) &&
+      (row.drain ||
+        !kept.includes(row) ||
+        !row.txid ||
+        !merged.some(other => other !== row && other.txid === row.txid)),
   );
-  return shown.sort((a, b) => b.timestamp - a.timestamp);
+  return kept.length ? shown.sort((a, b) => b.timestamp - a.timestamp) : shown;
 }
 
 /**

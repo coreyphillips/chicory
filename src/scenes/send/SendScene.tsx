@@ -108,6 +108,8 @@ export function SendScene({
               client={client}
               initialRequest={prefill}
               disabled={stale}
+              primaryConnected={snapshot.primary.connected}
+              quoteRevision={snapshot.updatedAt}
               balance={snapshot.balance}
               activity={snapshot.activity}
               onActivity={actions.openActivity}

@@ -139,12 +139,15 @@ export function DetailScreen({
       glyph: 'hash',
     });
   }
-  if (item.txid && !listed.has(item.txid)) {
-    chips.push({
-      label: copy.detail.transaction,
-      value: item.txid,
-      glyph: 'chain',
-    });
+  for (const txid of new Set(
+    item.drain?.txids ?? (item.txid ? [item.txid] : []),
+  )) {
+    if (!listed.has(txid))
+      chips.push({
+        label: copy.detail.transaction,
+        value: txid,
+        glyph: 'chain',
+      });
   }
   if (item.paymentHash) {
     chips.push({
@@ -153,10 +156,11 @@ export function DetailScreen({
       glyph: 'bolt',
     });
   }
-  if (item.address) {
+  const address = item.drain?.address ?? item.address;
+  if (address) {
     chips.push({
       label: copy.detail.address,
-      value: item.address,
+      value: address,
       glyph: 'pin',
     });
   }
@@ -301,7 +305,7 @@ export function DetailScreen({
           {/* Led by a glyph for what the value is, like the lines above,
               each in a chip that hugs it and shows it copies. */}
           {chips.map(chip => (
-            <View key={chip.label} style={styles.line}>
+            <View key={`${chip.label}:${chip.value}`} style={styles.line}>
               <Glyph name={chip.glyph} size={20} color={palette.dust} />
               <View style={styles.chip}>
                 <CopyChip label={chip.label} value={chip.value} />

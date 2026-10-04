@@ -89,6 +89,28 @@ const refused = (name: string, code: string, before: Step[] = AMOUNT_4200) =>
 const sends: Shot[] = [
   send('empty', () => ({ request: '' })),
   send('a request taken as a chip'),
+  send('max amount chip selected', () => ({
+    steps: [press(copy.amount.spoken(198_000))],
+  })),
+  send('max Lightning review with three bounds', () => ({
+    client: {
+      prepareSend: async () =>
+        reviewOf({
+          max: true,
+          amountSats: 198_000,
+          minRecipientSats: 198_000,
+          feeSats: 2_000,
+          maxFeeSats: 2_000,
+          totalSats: 200_000,
+          debitSats: 200_000,
+          debitMsat: '200000000',
+          maxFeeMsat: '2000000',
+          keptSats: 1_402,
+          keptReason: 'commitment-cost',
+        }),
+    },
+    steps: [press(copy.amount.spoken(198_000)), REVIEW],
+  })),
   send('an amount the request fixes', () => ({ request: INVOICE })),
   send('an amount keyed in', () => ({ steps: keyed('4200') })),
   send('more than can be sent now', () => ({ steps: keyed('255000') })),

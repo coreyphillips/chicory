@@ -237,3 +237,5 @@ See [FFOR validation](FFOR-VALIDATION.md) for simulator and funded regtest evide
 ## Iroh primary phone link
 
 An experimental Iroh URI or QR from Beignet Umbrel can be used as the primary node in Settings, with an optional same-key Tor fallback. The native bindings require a rebuilt app and raise the iOS minimum to 17.5. See [Iroh setup and validation](docs/IROH.md) for privacy details, dependency pins, the isolated simulator payment check, and remaining device qualification.
+
+Send max and drain were qualified on a physical Pixel 10 Pro XL using release builds of the side app. A real JIT-funded max payment reached zero and survived restart; a reviewed channel close plus loose-coin sweep confirmed as one Activity row with both transaction IDs, while a later receipt stayed in the wallet. See [qualification evidence and the isolated fixture](docs/SEND-MAX-VALIDATION.md) for amounts, dependency pins, device coverage and the two issues found during the run.
