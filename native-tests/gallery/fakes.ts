@@ -5,6 +5,7 @@
  */
 import type {
   HostConfig,
+  DrainProgress,
   ReceiveInput,
   ReceiveQuote,
   ReceiveRequest,
@@ -183,10 +184,46 @@ const CONFIG: HostConfig = {
   electrumPresets: [],
   torAvailable: true,
   lfbwAvailable: true,
+  drainAvailable: true,
   offlineReceiveAvailable: false,
   jitQuoteAvailable: true,
   engineVersion: 'gallery',
 };
+
+export function drainReviewOf(address = ADDRESS): SendReview {
+  const progress: DrainProgress = {
+    requestId: 'gallery-drain-001',
+    revision: 1,
+    address,
+    phase: 'review',
+    amountSats: 261000,
+    feeSats: 500,
+    debitSats: 261500,
+    reviewedDebitSats: 261500,
+    closeAmountSats: 249600,
+    closeFeeSats: 400,
+    sweepAmountSats: 11400,
+    sweepFeeSats: 100,
+    feeEstimated: true,
+    txids: [],
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 120000,
+  };
+  return {
+    id: progress.requestId,
+    destination: address,
+    description: 'Empty wallet to an address',
+    amountSats: progress.amountSats,
+    feeSats: progress.feeSats,
+    totalSats: progress.debitSats,
+    feeLabel: 'Estimated network fees',
+    route: 'bitcoin',
+    method: 'drain',
+    drain: progress,
+    expiresAt: progress.expiresAt,
+    warnings: [],
+  };
+}
 
 /** What the engine says it offers, with `over` in place. */
 export const configOf = (over: Partial<HostConfig> = {}): HostConfig => ({
@@ -227,6 +264,7 @@ function diagnostics(): WalletDiagnostics {
  */
 export function clientOf(over: Partial<WalletAdapter> = {}): WalletAdapter {
   const wallet = walletOf();
+  let drain = drainReviewOf().drain!;
   return {
     connection: { url: 'embedded:', token: '' },
     demo: false,
@@ -246,15 +284,50 @@ export function clientOf(over: Partial<WalletAdapter> = {}): WalletAdapter {
     listWallets: async () => [wallet],
     createWallet: async () => ({ ...wallet, mnemonic: PHRASE }),
     snapshot: async () => fresh(),
+    quoteMax: async () => ({
+      amountSats: 198_000,
+      keptSats: 1_402,
+      keptReason: 'commitment-cost',
+    }),
+    prepareDrain: async ({ address }) => {
+      const review = drainReviewOf(address);
+      drain = review.drain!;
+      return review;
+    },
+    getDrain: async () => drain,
+    cancelDrain: async () =>
+      (drain = { ...drain, revision: drain.revision + 1, phase: 'cancelled' }),
     prepareSend: async input =>
       reviewOf(
         input.amountSats ? { amountSats: Number(input.amountSats) } : {},
       ),
-    send: async review =>
-      resultOf('completed', {
+    send: async review => {
+      if (review.method === 'drain') {
+        drain = {
+          ...drain,
+          revision: drain.revision + 1,
+          phase: 'pending',
+          feeEstimated: false,
+          startedAt: Date.now(),
+          txids: [hex(91), hex(92)],
+        };
+        return {
+          id: review.id,
+          status: 'pending',
+          amountSats: drain.amountSats,
+          feeSats: drain.feeSats,
+          feeKnown: true,
+          feeEstimated: false,
+          drain,
+          txid: drain.txids[0],
+          message: 'Wallet drain pending.',
+        };
+      }
+      return resultOf('completed', {
         amountSats: review.amountSats,
         feeSats: review.feeSats,
-      }),
+      });
+    },
     quoteReceive: async input => quoteOf(input),
     receive: async quote => requestFor(quote),
     getReceiveStatus: async () => receiptOf('waiting'),

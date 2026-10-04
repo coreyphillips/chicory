@@ -49,11 +49,13 @@ import {
  * for real; until then each renders a still version with the same props, and
  * this suite holds each to what its signature promises.
  */
+const rendered: ReactTestRenderer[] = [];
 async function render(element: React.ReactElement) {
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(element);
   });
+  rendered.push(tree);
   return tree;
 }
 
@@ -82,7 +84,8 @@ const payment: Activity = {
   reference: '',
 };
 
-afterEach(() => {
+afterEach(async () => {
+  for (const tree of rendered.splice(0)) await act(async () => tree.unmount());
   jest.restoreAllMocks();
   jest.useRealTimers();
 });

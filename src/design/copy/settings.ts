@@ -86,6 +86,36 @@ export const settings = {
     retried: 'Connection setup requested. Your wallet will update shortly.',
   },
 
+  empty: {
+    link: 'Empty wallet to an address',
+    warning:
+      'This closes your home channel and sends its balance and loose coins to one Bitcoin address. Your primary must stay connected. Your next receive can open a new channel.',
+    address: 'Bitcoin address',
+    addressOnly: 'Enter a Bitcoin address for this wallet network.',
+    noAmount: 'Use an address without a requested amount to empty this wallet.',
+    scan: 'Scan address QR',
+    paste: 'Paste address',
+    review: 'Review wallet drain',
+    arrives: 'Arrives',
+    fees: 'Estimated network fees',
+    sats: (amount: string) => `${amount} sats`,
+    estimate:
+      'The final closing fee may change. Coins received after this review stay in your wallet.',
+    send: 'Send everything',
+    hold: 'Hold to close your channel and send the reviewed balance.',
+    keep: 'Keep my channel',
+    working: 'Preparing the wallet drain',
+    pending:
+      'Your wallet is emptying to this address. Follow the single send in Activity while it confirms. Your next receive can open a new channel.',
+    uncertain:
+      'The wallet has not confirmed whether this drain started. Follow Activity before trying another send.',
+    completed: 'Wallet emptied. Your next receive can open a new channel.',
+    cancelled: 'Wallet drain cancelled. Your channel stays open.',
+    residual: (amount: string) =>
+      `${amount} sats received later remain in your wallet.`,
+    failed: 'Could not prepare the wallet drain.',
+  },
+
   phone: {
     heading: 'This phone',
     require: (name: string) => `Require ${name}`,

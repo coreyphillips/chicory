@@ -12,6 +12,7 @@ import { copy } from '../design/copy';
 import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
 import { dropOut, riseIn } from '../motion/presets';
+import { EmptyWallet } from '../scenes/settings/EmptyWallet';
 import { Diagnostics } from '../scenes/settings/Diagnostics';
 import {
   Action,
@@ -223,7 +224,9 @@ function PrimarySection({
   busy,
   onSave,
   onRetry,
+  children,
 }: {
+  children?: ReactNode;
   snapshot: WalletSnapshot;
   index: number;
   outcome: SettingsOutcome;
@@ -364,6 +367,7 @@ function PrimarySection({
               setClosed(false);
             }}
           />
+          {children}
           {!snapshot.primary.connected ? (
             <Action
               label={p.retry}
@@ -636,6 +640,7 @@ export function SettingsScreen({
 }) {
   // null while the wallet is being asked; '' when it reports no version.
   const [engineVersion, setEngineVersion] = useState<string | null>(null);
+  const [drainAvailable, setDrainAvailable] = useState(false);
   const { outcome, run, busy } = useSettingsOutcome();
 
   useEffect(() => {
@@ -645,7 +650,10 @@ export function SettingsScreen({
     Promise.resolve()
       .then(() => client.getConfig?.())
       .then(config => {
-        if (active) setEngineVersion(config?.engineVersion || '');
+        if (active) {
+          setEngineVersion(config?.engineVersion || '');
+          setDrainAvailable(config?.drainAvailable === true);
+        }
       })
       .catch(() => {});
     return () => {
@@ -724,7 +732,17 @@ export function SettingsScreen({
         busy={busy}
         onSave={savePrimary}
         onRetry={retry}
-      />
+      >
+        {drainAvailable ? (
+          <EmptyWallet
+            key={snapshot.wallet.id}
+            client={client}
+            snapshot={snapshot}
+            disabled={busy || !snapshot.primary.connected}
+            onRefresh={onRefresh}
+          />
+        ) : null}
+      </PrimarySection>
     ),
     phone: (
       <Section

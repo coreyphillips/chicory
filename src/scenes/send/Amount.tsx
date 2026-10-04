@@ -1,10 +1,11 @@
 import React from 'react';
 import type { ComponentRef, Ref } from 'react';
-import { View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
 import { Odometer } from '../../glyphs/Odometer';
 import type { Unit } from '../../theme';
+import { type as typography } from '../../theme';
 
 /**
  * An amount of a payment at 48pt, with its unit, in `color`, drawn by the
@@ -19,6 +20,8 @@ export function Amount({
   symbol = false,
   masked = false,
   color = palette.cream,
+  minimum = false,
+  hint,
   ref,
 }: {
   sats: number;
@@ -26,6 +29,8 @@ export function Amount({
   symbol?: boolean;
   masked?: boolean;
   color?: string;
+  minimum?: boolean;
+  hint?: string;
   ref?: Ref<ComponentRef<typeof View>>;
 }) {
   return (
@@ -33,14 +38,25 @@ export function Amount({
       ref={ref}
       accessible
       accessibilityLabel={
-        masked ? copy.amount.hidden : copy.amount.spoken(sats)
+        masked
+          ? copy.amount.hidden
+          : minimum
+          ? copy.send.recipientAtLeast(sats)
+          : copy.amount.spoken(sats)
       }
+      accessibilityHint={hint}
     >
       {/* The odometer is its own element too; here the wrapper speaks. */}
       <View
+        style={minimum ? styles.minimum : undefined}
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       >
+        {minimum && !masked ? (
+          <Text style={[styles.sign, { color }]} maxFontSizeMultiplier={1.2}>
+            ≥
+          </Text>
+        ) : null}
         <Odometer
           sats={sats}
           unit={unit}
@@ -53,3 +69,8 @@ export function Amount({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  minimum: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sign: { ...typography.amount },
+});
