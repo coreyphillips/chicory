@@ -10,7 +10,7 @@ Physical device: Pixel 10 Pro XL, Android release builds, October 4, 2026. All i
 
 ## Live results
 
-The ordinary release opened the saved side-app wallet. Its previous home channel was already closed. Settings correctly refused another cooperative drain, and no send was submitted against that wallet.
+The ordinary release opened the saved side-app wallet. Its previous home channel was already closed. Settings refused another cooperative drain, and no send was submitted against that wallet. The overly strict historical-channel check behind that refusal is corrected in 0.6.6 below.
 
 The `native-tests/SendMax.js` release entry then mounted the real `App` with separate secure-store services and SQLCipher database filenames. It retained the production wallet client, native TCP, real engine, real signatures and normal UI actions. Only fixture setup and public result observation were added. Every send used the normal review and hold controls. No recovery phrase or database key was exported.
 
@@ -87,3 +87,11 @@ ENTRY_FILE=native-tests/SendMax.js ./gradlew :app:assembleRelease \
 ```
 
 The Gradle init script selects only `com.chicory.redesign` and permits the fixture's loopback HTTP observer. The observer cannot request payments or operate the wallet. Create receive requests on the phone, pay their public invoices from the regtest payer, and inspect review and hold screens normally. Reinstall the ordinary release with `adb install -r` after qualification, preserving data. Restore any temporary animation and stay-awake settings and remove the added port forwards.
+
+## Repeated wallet drains in 0.6.6
+
+Portable engine `c4f3ac37bbada52ab771c98276ada6d6329c096a` fixes "Only the home channel can be emptied from this wallet" after a prior drain and new receive. Closed cooperative channels were counted until their chain monitors reached full anti-reorg depth. A CLOSED channel with cooperative classification, successful broadcast and a valid closing transaction ID is now historical for selecting the current home channel. The monitor and all history remain intact. Unknown or unproven closes, unresolved force closes, extra live channels and the existing payment, splice, recovery and reservation guards still block admission. Classification is checked again before dispatch.
+
+All 196 portable tests, build, types and four CI checks pass, with two independent reviews. Three regression scenarios failed before the fix. Published Beignet 0.27.0 regtest completed two drains across restarts, then received into a third channel and successfully reviewed another drain while both historical closes still had resolution `sweeping`. The second drain spent only the new 10,000 sat channel and later 1,000 sat coin. The third review covered only its new 10,000 sats. Both completed Activity entries retained their original payout references. Starting another drain while an earlier drain is still pending retains its existing restriction.
+
+Chicory pins the merged engine and retains wallet-core `cc544e6b712f4ef9042dd24e9a5b64def2f9f53b`, including the stable max chip and unconfirmed address-send fixes. All 126 affected Settings, send-max, guard and installed-engine tests across four suites, types and lint pass (zero errors, eight existing warnings). Installed portable and SQL bundles match the reviewed build after normalizing the local dependency directory in module paths. Package, Android and iOS use version 0.6.6/build 12. The release uses the normal ARM64 package and repository `debug.keystore`; no phone app is installed or operated for this follow-up.

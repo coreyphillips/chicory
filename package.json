@@ -1,6 +1,6 @@
 {
   "name": "chicory",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "private": true,
   "license": "MIT",
   "scripts": {
@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@beignet/portable-engine": "github:coreyphillips/beignet-portable-engine#c2ffc5a66bc98d0f0b93b485b055a1067edc3402",
+    "@beignet/portable-engine": "github:coreyphillips/beignet-portable-engine#c4f3ac37bbada52ab771c98276ada6d6329c096a",
     "@beignet/wallet-core": "github:coreyphillips/beignet-wallet-core#cc544e6b712f4ef9042dd24e9a5b64def2f9f53b",
     "@op-engineering/op-sqlite": "^18.2.0",
     "@react-native-clipboard/clipboard": "^1.16.3",
