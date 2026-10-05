@@ -15,6 +15,7 @@ import {
 import type { DeviceSettings } from '../embedded/client';
 import { recordDiagnostic } from './diagnosticLog';
 import { mergeSnapshot } from './activityMerge';
+import { markBoot, markEngine, noteRead } from './perf';
 import {
   defaultProfile,
   loadNetworkPreferences,
@@ -102,6 +103,43 @@ const POLL_FAILURE_LIMIT = 3;
  */
 const canCreateOn = (profile: NetworkProfile) => !!profile.primaryUri.trim();
 
+/** A compressed public key, as the engine names a peer. */
+const NODE_ID = /^0[23][0-9a-f]{64}$/i;
+
+/**
+ * The primary's public key, as `snapshot` knows it: the wallet record's own
+ * `primaryPubkey`, or else the key before the `@` of the primary's URI, in
+ * lower case. Empty when neither is a public key, as before a wallet's first
+ * read, which leaves the primary unknown.
+ */
+export function primaryPubkey(
+  snapshot: WalletSnapshot | null | undefined,
+): string {
+  const named = snapshot?.wallet?.lfbw?.primaryPubkey ?? '';
+  if (NODE_ID.test(named)) return named.toLowerCase();
+  const uri = snapshot?.primary?.uri ?? '';
+  const front = uri.slice(0, Math.max(0, uri.indexOf('@')));
+  return NODE_ID.test(front) ? front.toLowerCase() : '';
+}
+
+/**
+ * Notes how long a wallet read takes, and whether another was still out as
+ * it began, for the boot report (services/perf). `out` counts the reads
+ * under way. The read itself is handed back untouched for the caller to
+ * await, so timing it puts no step between the answer and its landing.
+ */
+function timeRead<T>(read: Promise<T>, out: { current: number }): Promise<T> {
+  const overlapped = out.current > 0;
+  out.current += 1;
+  const began = Date.now();
+  const settled = () => {
+    out.current -= 1;
+    noteRead(Date.now() - began, overlapped);
+  };
+  Promise.resolve(read).then(settled, settled);
+  return read;
+}
+
 export function useWalletSession(view: WalletSessionView) {
   const { onTab, onCloseSheet, paused = false } = view;
   // Read through a ref so the action callbacks do not have to be rebuilt on
@@ -113,6 +151,17 @@ export function useWalletSession(view: WalletSessionView) {
   const [deviceHint, setDeviceHint] = useState(false);
   const runtimeStarting = useRef(false);
   const ownedDevice = useRef<EmbeddedWalletClient | null>(null);
+  /**
+   * What the app knows of the open wallet: the state it opened on from the
+   * cache, merged with every read since. A wallet never shows less than it
+   * already knew, so a read lands through `land`, which puts back what the
+   * read lost (activityMerge) before it goes on the page and into the cache.
+   * It belongs to one wallet id, and is forgotten wherever the page is
+   * cleared, so nothing known of one wallet crosses to another.
+   */
+  const known = useRef<{ walletId: string; snapshot: WalletSnapshot } | null>(
+    null,
+  );
   // The engine reports the primary answering through its diagnostic hook.
   // That is the moment the balance changes from "reconnecting" to a figure
   // that can be sent, so it is read then, through a ref because the reader
@@ -126,10 +175,24 @@ export function useWalletSession(view: WalletSessionView) {
   const onDeviceDiagnostic = useCallback(
     (event: { phase: string; message: string; code?: string }) => {
       recordDiagnostic(event);
+      // The engine's own timings, for the boot report (services/perf). They
+      // are logged like any other event, so the copied report carries them;
+      // the Diagnostics page lists only the app's own errors, so they never
+      // show there as one.
+      if (event.phase === 'engine-perf') {
+        markEngine(event.message);
+        return;
+      }
+      // Only the primary's connection changes what can be spent. A peer
+      // connect names the peer by its public key; while the primary's is
+      // not known yet, as before a wallet's first read, any connect counts.
+      const primary = primaryPubkey(known.current?.snapshot);
       const connected =
-        event.phase === 'peer:connect' ||
+        (event.phase === 'peer:connect' &&
+          (!primary || String(event.message).toLowerCase() === primary)) ||
         (event.phase === 'primary-redial' && event.message === 'reconnected');
       if (!connected) return;
+      markBoot('primary-connected');
       // The handshake is done but the channel only counts as spendable once
       // reestablishment finishes a moment later, so read soon and once more
       // a few seconds on, instead of waiting for the next 12 second poll.
@@ -159,17 +222,6 @@ export function useWalletSession(view: WalletSessionView) {
   const snapshotRef = useRef<WalletSnapshot | null>(null);
   snapshotRef.current = snapshot;
   const pollFailures = useRef(0);
-  /**
-   * What the app knows of the open wallet: the state it opened on from the
-   * cache, merged with every read since. A wallet never shows less than it
-   * already knew, so a read lands through `land`, which puts back what the
-   * read lost (activityMerge) before it goes on the page and into the cache.
-   * It belongs to one wallet id, and is forgotten wherever the page is
-   * cleared, so nothing known of one wallet crosses to another.
-   */
-  const known = useRef<{ walletId: string; snapshot: WalletSnapshot } | null>(
-    null,
-  );
   /** The engine call a recovery is waiting on has not settled. */
   const recovering = useRef(false);
   /**
@@ -243,18 +295,27 @@ export function useWalletSession(view: WalletSessionView) {
   /**
    * Put the last state this wallet was seen in on the page while its engine
    * starts. A live snapshot that lands first is never replaced by the cache;
-   * the rows the cache knew and that read did not are kept beside it.
+   * the rows the cache knew and that read did not are kept beside it. It
+   * answers whether the cache had anything to put there.
    */
   const hydrate = useCallback(async (id: string, current: number) => {
     const cached = await loadCachedSnapshot(id);
-    if (!cached || generation.current !== current) return;
+    if (!cached || generation.current !== current) return false;
     const live = known.current?.walletId === id ? known.current.snapshot : null;
     const next = live ? mergeSnapshot(cached, live) : cached;
     known.current = { walletId: id, snapshot: next };
     setSnapshot(next);
+    return true;
   }, []);
 
-  const refresh = useCallback(async () => {
+  /**
+   * The wallet's reads under way, for the boot report's count of reads that
+   * overlapped (services/perf).
+   */
+  const readsOut = useRef(0);
+
+  /** One read of the wallet, onto the page. `refresh` decides when. */
+  const readOnce = useCallback(async () => {
     if (
       !client ||
       !walletId ||
@@ -267,7 +328,7 @@ export function useWalletSession(view: WalletSessionView) {
     // A background read shows no spinner: the figures on screen stay put and
     // are replaced when the new ones arrive.
     try {
-      const next = await client.snapshot();
+      const next = await timeRead(client.snapshot(), readsOut);
       if (generation.current === current) {
         pollFailures.current = 0;
         const before = snapshotRef.current;
@@ -306,6 +367,67 @@ export function useWalletSession(view: WalletSessionView) {
       }
     }
   }, [client, walletId, land]);
+
+  /**
+   * The read under way, and whether anyone asked for another while it ran.
+   * It belongs to one session generation, wallet and client.
+   */
+  const reading = useRef<{
+    key: string;
+    client: WalletAdapter;
+    again: boolean;
+    done: Promise<void>;
+  } | null>(null);
+
+  /**
+   * Read the wallet onto the page, joining a read already under way rather
+   * than starting a second beside it. The twelve second poll, the reads
+   * after the primary connects, a manual refresh and a recovery can all ask
+   * at once, and every read the engine answers costs the JS thread the same
+   * again, which on a launch is the thread the page is waiting on.
+   *
+   * A call that joins does not take the answer already on its way: it asks
+   * for one more read, which starts once the current one lands, and its
+   * promise settles after that. So a caller that has just had the engine
+   * resync, as a manual refresh and a recovery do, still gets a read begun
+   * after its resync, and any number of calls during one read add exactly
+   * one more. A new generation, wallet or client starts afresh, and a read
+   * of the old one asks for nothing more.
+   */
+  const refresh = useCallback((): Promise<void> => {
+    if (
+      !client ||
+      !walletId ||
+      runtimeStarting.current ||
+      closingInFlight.current
+    ) {
+      return Promise.resolve();
+    }
+    const current = generation.current;
+    const key = `${current}:${walletId}`;
+    const joined = reading.current;
+    if (joined && joined.key === key && joined.client === client) {
+      joined.again = true;
+      return joined.done;
+    }
+    const entry = { key, client, again: false, done: Promise.resolve() };
+    reading.current = entry;
+    entry.done = (async () => {
+      try {
+        do {
+          entry.again = false;
+          await readOnce();
+        } while (
+          entry.again &&
+          reading.current === entry &&
+          generation.current === current
+        );
+      } finally {
+        if (reading.current === entry) reading.current = null;
+      }
+    })();
+    return entry.done;
+  }, [client, walletId, readOnce]);
   refreshRef.current = refresh;
 
   const manualRefresh = useCallback(async () => {
@@ -506,7 +628,7 @@ export function useWalletSession(view: WalletSessionView) {
         await hydrate(wallet.id, current);
         try {
           if (wallet.status !== 'running') await client.startWallet();
-          const value = await client.snapshot();
+          const value = await timeRead(client.snapshot(), readsOut);
           if (generation.current === current) land(wallet.id, value);
         } catch (e) {
           if (generation.current === current) setError(errorMessage(e));
@@ -665,12 +787,18 @@ export function useWalletSession(view: WalletSessionView) {
         options?.onCommitted?.();
         if (selected) {
           // The wallet page opens now, on the last state this wallet was seen
-          // in, and the live figures replace it when the engine is up.
-          await hydrate(selected.id, current);
+          // in, and the live figures replace it when the engine is up. Each
+          // step is a mark in the boot report (services/perf).
+          const cached = await hydrate(selected.id, current);
+          markBoot('page-hydrated', cached ? undefined : 'nothing cached');
           try {
             await next.startWallet();
-            const value = await next.snapshot();
-            if (generation.current === current) land(selected.id, value);
+            markBoot('engine-started');
+            const value = await timeRead(next.snapshot(), readsOut);
+            if (generation.current === current) {
+              land(selected.id, value);
+              markBoot('first-live-read');
+            }
           } catch (e) {
             if (generation.current === current) setError(errorMessage(e));
           } finally {

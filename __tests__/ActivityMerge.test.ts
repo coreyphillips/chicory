@@ -1,5 +1,9 @@
 import type { Activity, WalletSnapshot } from '@beignet/wallet-core';
-import { mergeActivity, mergeSnapshot } from '../src/services/activityMerge';
+import {
+  mergeActivity,
+  mergeSnapshot,
+  settledLightning,
+} from '../src/services/activityMerge';
 import { activityOf, receiptOf } from '../test-support/fixtures';
 import { drainReviewOf } from '../native-tests/gallery/fakes';
 
@@ -265,5 +269,152 @@ describe('a snapshot merged into what the app knew', () => {
   test('is the read itself when nothing was known', () => {
     const read = snapshotOf([receive1]);
     expect(mergeSnapshot(null, read)).toBe(read);
+  });
+});
+
+/**
+ * The merge as it was before it looked rows up instead of searching for
+ * them, word for word, so the faster one is held to the same answer: the
+ * same rows, the very same objects, in the same order.
+ */
+function mergeActivityBefore(
+  known: readonly Activity[],
+  read: readonly Activity[],
+): Activity[] {
+  const byId = new Map(read.map(row => [row.id, row]));
+  const before = new Map(known.map(row => [row.id, row]));
+  const out: Activity[] = read.map(row => {
+    const was = before.get(row.id);
+    if (was?.drain && row.drain)
+      return was.drain.revision > row.drain.revision ? was : row;
+    return was && settledLightning(was) && row.status !== 'completed'
+      ? was
+      : row;
+  });
+  const kept = known.filter(
+    row => (row.status === 'completed' || row.drain) && !byId.has(row.id),
+  );
+  const merged = [...out, ...kept];
+  const drainTxids = new Set(merged.flatMap(row => row.drain?.txids ?? []));
+  const shown = merged.filter(
+    row =>
+      (row.drain || !row.txid || !drainTxids.has(row.txid)) &&
+      (row.drain ||
+        !kept.includes(row) ||
+        !row.txid ||
+        !merged.some(other => other !== row && other.txid === row.txid)),
+  );
+  return kept.length ? shown.sort((a, b) => b.timestamp - a.timestamp) : shown;
+}
+
+describe('the merge against the one before it', () => {
+  /** Park and Miller's generator, seeded, so a failing run can be run again. */
+  const seeded = (seed: number) => {
+    let state = seed;
+    return () => {
+      state = (state * 16807) % 2147483647;
+      return (state - 1) / 2147483646;
+    };
+  };
+  const STATUSES = [
+    'completed',
+    'pending',
+    'uncertain',
+    'failed',
+    'expired',
+  ] as const;
+  const KINDS = ['sent', 'received', 'request', 'transfer'] as const;
+  // Few ids, transactions and times, so reads and histories collide often:
+  // the same id read again, two rows on one transaction, equal times.
+  const IDS = ['a', 'b', 'c', 'd', 'e', 'f'];
+  const TXIDS = ['t1', 't2', 't3'];
+
+  function rowsFrom(random: () => number) {
+    const pick = <T>(list: readonly T[]): T =>
+      list[Math.floor(random() * list.length)];
+    const row = (): Activity => ({
+      id: pick(IDS),
+      kind: pick(KINDS),
+      title: 'Payment',
+      description: '',
+      amountSats: 1,
+      feeSats: 0,
+      status: pick(STATUSES),
+      timestamp: Math.floor(random() * 4),
+      reference: '',
+      ...(random() < 0.6 ? { txid: pick(TXIDS) } : {}),
+      ...(random() < 0.4 ? { paymentHash: 'hash' } : {}),
+      ...(random() < 0.2
+        ? {
+            drain: {
+              ...drainReviewOf().drain!,
+              revision: Math.floor(random() * 3),
+              txids: TXIDS.filter(() => random() < 0.3),
+            },
+          }
+        : {}),
+    });
+    // A history and a read drawn from one pool of rows, so the same object
+    // can be in both, or twice in either, beside rows made fresh.
+    const pool = Array.from({ length: 1 + Math.floor(random() * 8) }, row);
+    const some = (most: number) =>
+      Array.from({ length: Math.floor(random() * (most + 1)) }, () =>
+        random() < 0.75 ? pick(pool) : row(),
+      );
+    return { known: some(10), read: some(6) };
+  }
+
+  test('gives the same rows, as the same objects, in the same order, on random histories', () => {
+    const random = seeded(20261005);
+    const differs: number[] = [];
+    let twice = 0;
+    let shared = 0;
+    for (let run = 0; run < 3000; run++) {
+      const { known, read } = rowsFrom(random);
+      const expected = mergeActivityBefore(known, read);
+      const actual = mergeActivity(known, read);
+      if (
+        actual.length !== expected.length ||
+        actual.some((row, index) => row !== expected[index])
+      )
+        differs.push(run);
+      // That the runs reach the cases the lookups answer: a row put back
+      // twice, and a row put back that another row shares a transaction
+      // with.
+      const readIds = new Set(read.map(row => row.id));
+      const putBack = known.filter(
+        row =>
+          (row.status === 'completed' || row.drain) && !readIds.has(row.id),
+      );
+      if (new Set(putBack).size < putBack.length) twice += 1;
+      if (
+        putBack.some(
+          row =>
+            row.txid &&
+            [...read, ...putBack].some(
+              other => other !== row && other.txid === row.txid,
+            ),
+        )
+      )
+        shared += 1;
+    }
+    expect(differs).toEqual([]);
+    expect(twice).toBeGreaterThan(100);
+    expect(shared).toBeGreaterThan(100);
+  });
+
+  test('the same row listed twice is still one row to the transaction check, as before', () => {
+    const chain = activityOf('received', 'completed', {
+      seed: 30,
+      rail: 'chain',
+    });
+    expect(mergeActivity([chain, chain], [])).toEqual(
+      mergeActivityBefore([chain, chain], []),
+    );
+    expect(mergeActivity([chain, chain], [])).toEqual([chain, chain]);
+    // Two rows on one transaction are two rows, and neither is put back.
+    const other = { ...chain, id: 'other' };
+    expect(mergeActivity([chain, other], [])).toEqual([]);
+    expect(mergeActivityBefore([chain, other], [])).toEqual([]);
   });
 });

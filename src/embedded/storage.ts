@@ -3,6 +3,7 @@ import * as Keychain from 'react-native-keychain';
 import { Buffer } from 'buffer';
 import { NativeSqliteDatabase } from './sqlite';
 import { secureRandomBytes } from './random';
+import { markBoot } from '../services/perf';
 import type { Network } from '@beignet/wallet-core';
 export type StorageNamespace = Network | 'legacy';
 export const databaseKeyService = (namespace: StorageNamespace) =>
@@ -175,6 +176,7 @@ async function initializeStorage(
     encryptionKey = await getDatabaseKey(namespace, existingOnly);
     if (existingOnly) {
       // SQLITE_OPEN_READONLY cannot create a missing vault. Check before any writable open.
+      const opened = Date.now();
       const probe = open({
         name: safeDatabaseName('device-volume', namespace),
         encryptionKey,
@@ -185,6 +187,7 @@ async function initializeStorage(
           'SELECT content FROM files WHERE path = ?',
           ['/wallet/registry.json'],
         ).rows[0];
+        markBoot('open:probe', `${Date.now() - opened}ms`);
         if (!row?.content && !allowEmpty)
           throw new Error(
             'The saved wallet record is unavailable. No replacement wallet was created.',
@@ -203,6 +206,10 @@ async function initializeStorage(
     if (activeDatabases.has(name)) {
       throw new Error('This device wallet is already open.');
     }
+    // Each encrypted open is timed for the boot report (services/perf), up
+    // to the first statement that reads the file, which is where SQLCipher
+    // has to derive the key.
+    const opened = Date.now();
     const native = open({ name, encryptionKey });
     let database: NativeSqliteDatabase;
     try {
@@ -211,6 +218,10 @@ async function initializeStorage(
         throw new Error('Encrypted database support is unavailable.');
       }
       native.executeSync('SELECT count(*) AS count FROM sqlite_master');
+      markBoot(
+        `open:${path.slice(path.lastIndexOf('/') + 1) || path}`,
+        `${Date.now() - opened}ms`,
+      );
       database = new NativeSqliteDatabase(native);
     } catch (error) {
       native.close();

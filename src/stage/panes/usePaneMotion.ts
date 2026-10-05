@@ -67,9 +67,10 @@ const HALF = durations.crossfade / 2;
  * How long past the settle a move's lock may last before the transition
  * registry gives up on it: the panes run on a steady clock (`steady`), so a
  * frame that takes long to paint, as one that mounts a scene can, holds the
- * move and its lock back by about that long.
+ * move and its lock back by about that long. Taps give up on it at the same
+ * point (`settleBy` below).
  */
-const STALL_ALLOWANCE = 400;
+export const STALL_ALLOWANCE = 400;
 
 /**
  * Whether a move starts in the tick it is asked for rather than once the
@@ -126,6 +127,16 @@ export function veilNeeded(
  * travels: the sheet, the balance and the action row crossfade to where
  * they belong within 160ms, fading out over the first half and back in
  * over the second, the other fades take 160ms, and nothing is locked.
+ *
+ * The settle clock runs on the UI thread, but what it calls to lift the
+ * lock runs on the JS thread, which a busy engine can hold for seconds
+ * after the panes came to rest; a tap queued behind that work used to be
+ * refused for a move long over. So taps also go by a deadline of their own
+ * (`settleBy`): once the settle, the row's wait and STALL_ALLOWANCE have
+ * passed by the JS thread's clock, a tap is taken whether or not the
+ * callback has run. That only ever takes a tap the lock alone would have
+ * refused, and only once the panes are at rest. `blocking` still waits for
+ * the lock.
  */
 export function usePaneMotion(
   height: number,
@@ -149,6 +160,10 @@ export function usePaneMotion(
   const aimed = useRef(layout);
   // A move asked for and not started yet, and the lock it holds.
   const pending = useRef<{ start: () => void; end: () => void } | null>(null);
+  // When, by the JS thread's clock, the move under way has settled with room
+  // to spare, after which a tap is taken even if the lock has not lifted. A
+  // move that holds the lock and has not started has no such time yet.
+  const settleBy = useRef(Infinity);
 
   const aim = useCallback(
     (next: CanvasLayout, fling?: Fling) => {
@@ -184,6 +199,7 @@ export function usePaneMotion(
         };
       } else {
         end = begin(PANE_SETTLE_MS + rowWait(before, next) + STALL_ALLOWANCE);
+        settleBy.current = Infinity;
         const settled = () => {
           'worklet';
           scheduleOnRN(end);
@@ -215,6 +231,8 @@ export function usePaneMotion(
               ),
             ),
           );
+          settleBy.current =
+            Date.now() + SETTLE.duration + wait + STALL_ALLOWANCE;
         };
       }
       // A move asked for again before it started is replaced whole, and the
@@ -247,7 +265,7 @@ export function usePaneMotion(
 
   useLayoutEffect(() => {
     registry.current = {
-      moving: () => active.current,
+      moving: () => active.current && Date.now() < settleBy.current,
       follow: (next, fling) => aim(canvasLayout(next), fling),
     };
     return () => {

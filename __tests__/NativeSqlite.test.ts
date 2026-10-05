@@ -177,3 +177,99 @@ test('a low-level disk error poisons the connection and prevents later wire-stat
     database.close();
   }
 });
+
+/**
+ * The network map's rows (gossip) are the one thing the engine may write in
+ * batches: its storage coalesces them into one transaction when the database
+ * sets `portableGossipBatch`, so the primary's gossip is not one synced
+ * commit per message on the JS thread. Channel state is never batched.
+ */
+describe('gossip batching', () => {
+  const GOSSIP_TABLE =
+    'CREATE TABLE gossip_channels (scid_hex TEXT PRIMARY KEY, channel_json TEXT NOT NULL)';
+  const SAVE_CHANNEL =
+    'INSERT OR REPLACE INTO gossip_channels (scid_hex, channel_json) VALUES (?, ?)';
+
+  test('the phone database asks the engine to batch the network map', () => {
+    const database = new NativeSqliteDatabase(nativeDatabase(':memory:'));
+    try {
+      expect(database.portableGossipBatch).toBe(true);
+    } finally {
+      database.close();
+    }
+  });
+
+  test('the installed engine still batches on that flag, through the database transaction', () => {
+    // A fork that renamed the flag would quietly go back to a commit per
+    // message, so the bundle the app ships is read as it is.
+    const { fs, path, ROOT } =
+      require('../test-support/node') as typeof import('../test-support/node');
+    const bundle = fs.readFileSync(
+      path.join(
+        ROOT,
+        'node_modules/@beignet/portable-engine/dist/portable.cjs',
+      ),
+      'utf8',
+    );
+    expect(bundle).toContain('if (this.db.portableGossipBatch)');
+    expect(bundle).toMatch(
+      /new ReconstructableBatch\(\s*\(fn\) => this\.db\.transaction\(fn\)\(\)/,
+    );
+  });
+
+  test('a full batch of 500 rows is one transaction and one commit, and is there after a reopen', () => {
+    const path = `/tmp/beignet-native-gossip-${Date.now()}.sqlite`;
+    const operations: string[] = [];
+    let database = new NativeSqliteDatabase(nativeDatabase(path, operations));
+    try {
+      database.exec(GOSSIP_TABLE);
+      operations.length = 0;
+      // What the engine's batch queues, and how it flushes them: every
+      // queued write inside one call to the database's transaction.
+      const queued = Array.from(
+        { length: 500 },
+        (_, index) => () =>
+          database
+            .prepare(SAVE_CHANNEL)
+            .run(index.toString(16).padStart(16, '0'), `{"n":${index}}`),
+      );
+      database.transaction(() => {
+        for (const write of queued) write();
+      })();
+      expect(operations.filter(sql => sql === 'BEGIN IMMEDIATE')).toHaveLength(
+        1,
+      );
+      expect(operations.filter(sql => sql === 'COMMIT')).toHaveLength(1);
+      expect(operations).toHaveLength(502);
+      database.close();
+      database = new NativeSqliteDatabase(nativeDatabase(path));
+      expect(
+        database.prepare('SELECT count(*) AS count FROM gossip_channels').get()
+          ?.count,
+      ).toBe(500);
+    } finally {
+      database.close();
+      for (const suffix of ['', '-wal', '-shm']) {
+        rmSync(path + suffix, { force: true });
+      }
+    }
+  });
+
+  test('a batch that finds its database closed under it fails on its own, without reaching the driver', () => {
+    // An engine that misses its close deadline has its storage closed under
+    // it, and a batch it still holds then flushes onto the closed database.
+    const operations: string[] = [];
+    const database = new NativeSqliteDatabase(
+      nativeDatabase(':memory:', operations),
+    );
+    database.exec(GOSSIP_TABLE);
+    database.close();
+    operations.length = 0;
+    expect(() =>
+      database.transaction(() =>
+        database.prepare(SAVE_CHANNEL).run('00', '{}'),
+      )(),
+    ).toThrow('database is closed');
+    expect(operations).toEqual([]);
+  });
+});

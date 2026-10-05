@@ -40,6 +40,7 @@ import {
 } from '../src/stage/layout';
 import type { Arrival, CanvasSceneName } from '../src/stage/layout';
 import { COG_TURN, CornerControl } from '../src/stage/panes/CornerControl';
+import { STALL_ALLOWANCE } from '../src/stage/panes/usePaneMotion';
 import {
   EDGE,
   EdgeBack,
@@ -238,7 +239,12 @@ const passThrough = (tree: ReactTestRenderer) =>
       node.props.pointerEvents === 'box-none',
   ).length;
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  // A test that stopped short of putting the clock back must not hand fake
+  // timers to the next one.
+  jest.useRealTimers();
+});
 
 describe('the stage store', () => {
   test('a tap starts the panes toward where it leads, before the render', async () => {
@@ -1031,6 +1037,50 @@ describe('the canvas', () => {
     expect(sent.mock.invocationCallOrder[focused]).toBeLessThan(
       said.mock.invocationCallOrder[spoken],
     );
+    await act(async () => tree.unmount());
+    jest.useRealTimers();
+  });
+
+  test('a tap is taken once the panes have settled by the clock, though a busy thread has not yet lifted the lock', async () => {
+    jest.useFakeTimers();
+    // The settle clock lifts the lock through a callback on the JS thread,
+    // which a busy engine holds back long after the panes came to rest.
+    // Here it never arrives, and since no timer runs, neither does the
+    // lock's safety timeout: only the clock moves.
+    const timing = Reanimated.withTiming;
+    jest
+      .spyOn(Reanimated, 'withTiming')
+      .mockImplementation(((value, config, done) =>
+        timing(
+          value,
+          config,
+          config?.duration === PANE_SETTLE_MS ? undefined : done,
+        )) as typeof Reanimated.withTiming);
+    // The ordinary move, which takes the lock. A test above turns Reduce
+    // Motion on through the mock itself, which restoring spies does not undo.
+    jest
+      .mocked(AccessibilityInfo.isReduceMotionEnabled)
+      .mockResolvedValue(false);
+    const tree = await render(<OnCanvas />);
+    await settle();
+    const tapped = Date.now();
+    act(() => stage.actions.openSend());
+    expect(stage.state.scene.name).toBe('send');
+    expect(passThrough(tree)).toBe(0);
+    // While the panes are still on their way, back is refused.
+    jest.setSystemTime(tapped + PANE_SETTLE_MS - 1);
+    await act(async () => stage.actions.back());
+    expect(stage.state.scene.name).toBe('send');
+    // And for as long as a long frame could still be holding them back.
+    jest.setSystemTime(tapped + PANE_SETTLE_MS + STALL_ALLOWANCE - 1);
+    await act(async () => stage.actions.back());
+    expect(stage.state.scene.name).toBe('send');
+    // Past that they are at rest, so back is taken though the lock has not
+    // lifted: the slots still take no touches until it does.
+    jest.setSystemTime(tapped + PANE_SETTLE_MS + STALL_ALLOWANCE);
+    expect(passThrough(tree)).toBe(0);
+    await act(async () => stage.actions.back());
+    expect(stage.state.scene.name).toBe('home');
     await act(async () => tree.unmount());
     jest.useRealTimers();
   });
