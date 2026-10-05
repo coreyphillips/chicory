@@ -1,9 +1,7 @@
-import { Scanner } from '../components/Scanner';
 import React, { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Modal, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import Reanimated from 'react-native-reanimated';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { DEFAULT_PRIMARY_URI, validatePrimaryUri } from '@beignet/wallet-core';
 import type { Network, WalletSnapshot } from '@beignet/wallet-core';
 import { RecoveryPhrase } from '../components/RecoveryPhrase';
@@ -14,6 +12,7 @@ import { palette } from '../design/palette';
 import { dropOut, riseIn } from '../motion/presets';
 import { EmptyWallet } from '../scenes/settings/EmptyWallet';
 import { Diagnostics } from '../scenes/settings/Diagnostics';
+import { useFieldScan } from '../scenes/settings/fieldScan';
 import {
   Action,
   Body,
@@ -52,6 +51,7 @@ import {
 import type { BiometryKind } from '../services/lock';
 import { APP_VERSION } from '../version';
 import { space, type } from '../theme';
+import type { Unit } from '../theme';
 
 // The new wallet sheet and the picker are drawn in the Settings language
 // too, and the suites find them here.
@@ -216,6 +216,11 @@ function Connection({ connected }: { connected: boolean }) {
  * The node trusted for instant funding: whether it is connected, how its
  * setup went, its address, and a change that reports saving and reconnecting
  * as two separate outcomes.
+ *
+ * Its address can be scanned. The scan opens over Settings, which stays
+ * drawn and in place beneath it, and a code read fills the field, where a
+ * screen reader lands (`useFieldScan`); nothing is saved until Save is
+ * pressed.
  */
 function PrimarySection({
   snapshot,
@@ -239,7 +244,6 @@ function PrimarySection({
   onRetry: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
-  const [scanning, setScanning] = useState(false);
   const [fallback, setFallback] = useState(snapshot.primary.fallbackUri || '');
   // Closing the editor removes the field a screen reader was on, so it goes
   // back to the control that opened it.
@@ -259,26 +263,12 @@ function PrimarySection({
     setFallback(snapshot.primary.fallbackUri || '');
   }, [snapshot.primary.uri, snapshot.primary.fallbackUri]);
   const p = words.primary;
-  if (scanning)
-    return (
-      <Modal
-        visible
-        onRequestClose={() => setScanning(false)}
-        animationType="slide"
-      >
-        <GestureHandlerRootView style={styles.scanner}>
-          <Scanner
-            purpose="primary"
-            validate={validatePrimaryUri}
-            onDetected={value => {
-              setPrimary(value);
-              setScanning(false);
-            }}
-            onCancel={() => setScanning(false)}
-          />
-        </GestureHandlerRootView>
-      </Modal>
-    );
+  const scan = useFieldScan({
+    purpose: 'primary',
+    validate: validatePrimaryUri,
+    onCode: setPrimary,
+    test: testNetwork(snapshot.wallet.network),
+  });
   return (
     <Section
       glyph="bolt"
@@ -297,22 +287,30 @@ function PrimarySection({
           exiting={dropOut(8)}
           style={styles.stack}
         >
-          <Field
-            label={p.address}
-            value={primary}
-            onChangeText={setPrimary}
-            autoCapitalize="none"
-            multiline
-            mono
-            editable={!busy}
-            focus
-          />
-          <Action
-            label={p.scan}
-            glyph="scan"
-            tone="quiet"
-            onPress={() => setScanning(true)}
-          />
+          {/* Measured as the scan opens: a code read collapses into the
+              field, and the disc grows out of the button. */}
+          <View ref={scan.into} collapsable={false}>
+            <Field
+              label={p.address}
+              value={primary}
+              onChangeText={setPrimary}
+              autoCapitalize="none"
+              multiline
+              mono
+              editable={!busy}
+              focus={scan.landOn === 'field'}
+            />
+          </View>
+          {scan.camera}
+          <View ref={scan.from} collapsable={false}>
+            <Action
+              label={p.scan}
+              glyph="scan"
+              tone="quiet"
+              focus={scan.landOn === 'control'}
+              onPress={scan.open}
+            />
+          </View>
           {/@iroh:/i.test(primary) ? (
             <>
               <Note>{p.iroh}</Note>
@@ -365,6 +363,7 @@ function PrimarySection({
             onPress={() => {
               setEditing(true);
               setClosed(false);
+              scan.land('field');
             }}
           />
           {children}
@@ -618,10 +617,13 @@ export function SettingsScreen({
   onDisconnect,
   onChooseWallet,
   onRefresh,
+  onRead,
   onNetwork,
   onErase,
   backupPending = false,
   onBackupSaved,
+  unit = 'sats',
+  symbol = false,
 }: {
   snapshot: WalletSnapshot;
   client: WalletAdapter;
@@ -629,7 +631,16 @@ export function SettingsScreen({
   switchError: string;
   onDisconnect: () => void;
   onChooseWallet: () => void;
+  /**
+   * Restarts and resyncs the wallet behind the pull to refresh's spinner,
+   * for a change that moved it, such as a new primary node.
+   */
   onRefresh: () => void;
+  /**
+   * Reads the wallet again quietly, with no spinner and no resync, for
+   * Empty wallet following its progress. `onRefresh` stands in without one.
+   */
+  onRead?: () => unknown;
   onNetwork: (profile: NetworkProfile) => Promise<void>;
   /** Erase every device wallet from this phone. Device mode only. */
   onErase?: () => Promise<void>;
@@ -637,6 +648,10 @@ export function SettingsScreen({
   backupPending?: boolean;
   /** The owner held to confirm the phrase is written down. */
   onBackupSaved?: () => void;
+  /** The unit the balance is shown in, which Empty wallet's amounts take. */
+  unit?: Unit;
+  /** Sats are drawn as `₿2,000` (`unitAffixes`). */
+  symbol?: boolean;
 }) {
   // null while the wallet is being asked; '' when it reports no version.
   const [engineVersion, setEngineVersion] = useState<string | null>(null);
@@ -739,7 +754,9 @@ export function SettingsScreen({
             client={client}
             snapshot={snapshot}
             disabled={busy || !snapshot.primary.connected}
-            onRefresh={onRefresh}
+            onRead={onRead ?? onRefresh}
+            unit={unit}
+            symbol={symbol}
           />
         ) : null}
       </PrimarySection>
@@ -789,7 +806,6 @@ export function SettingsScreen({
 const DOT = 7;
 
 const styles = StyleSheet.create({
-  scanner: { flex: 1, backgroundColor: palette.espresso },
   page: { gap: space.md },
   stack: { gap: space.md },
   connection: { flexDirection: 'row', alignItems: 'center', gap: space.xs },

@@ -671,10 +671,33 @@ export function Row({
  * A setting's value, shown and selectable but not a control. Its label keeps
  * its words whole; its value, which may be data such as a server's address,
  * wraps however it must rather than shrink or be cut short.
+ *
+ * `said` is what a screen reader hears for the value where that is not what
+ * is drawn, as an amount drawn in the wallet's unit is heard in sats, and
+ * `focus` lands a screen reader on the line. With either, the line is one
+ * element to a screen reader, its label and then its value.
  */
-export function Line({ label, value }: { label: string; value: string }) {
+export function Line({
+  label,
+  value,
+  said,
+  focus = false,
+}: {
+  label: string;
+  value: string;
+  said?: string;
+  focus?: boolean;
+}) {
+  const target = useFocus(focus);
+  const whole = said !== undefined || focus;
   return (
-    <View style={styles.line}>
+    <View
+      ref={target}
+      accessible={whole || undefined}
+      accessibilityLabel={whole ? label : undefined}
+      accessibilityValue={whole ? { text: said ?? value } : undefined}
+      style={styles.line}
+    >
       <Text {...wholeWords(label)} style={styles.lineLabel}>
         {label}
       </Text>
@@ -955,8 +978,9 @@ export function Action({
 
 /**
  * A lighter control, set in words: a way out, a change, a cancel. Its `bloom`
- * tone is the accent, so slate on a test network. `focus` lands a screen
- * reader on it.
+ * tone is the accent, so slate on a test network. `busy` turns its glyph
+ * into an orbit, in the glyph's place, while what it asked for is under
+ * way, as an `Action` does. `focus` lands a screen reader on it.
  */
 export function Link({
   label,
@@ -964,6 +988,7 @@ export function Link({
   glyph,
   tone = 'bloom',
   disabled = false,
+  busy = false,
   focus = false,
 }: {
   label: string;
@@ -971,6 +996,7 @@ export function Link({
   glyph?: GlyphName;
   tone?: 'bloom' | 'steam' | 'radish';
   disabled?: boolean;
+  busy?: boolean;
   focus?: boolean;
 }) {
   const live = usePaneActive();
@@ -983,13 +1009,14 @@ export function Link({
       : tone === 'steam'
       ? palette.steam
       : accent;
+  const inactive = disabled || busy;
   return (
     <Pressable
       ref={target}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled }}
-      disabled={disabled}
+      accessibilityState={{ disabled: inactive, busy }}
+      disabled={inactive}
       hitSlop={HIT_SLOP}
       onPress={
         live
@@ -1002,10 +1029,14 @@ export function Link({
       style={({ pressed }) => [
         styles.link,
         pressed && styles.pressed,
-        disabled && styles.inactive,
+        inactive && styles.inactive,
       ]}
     >
-      {glyph ? <Glyph name={glyph} size={size} color={ink} /> : null}
+      {busy ? (
+        <Working size={size} color={ink} />
+      ) : glyph ? (
+        <Glyph name={glyph} size={size} color={ink} />
+      ) : null}
       <Text {...wholeWords(label)} style={[styles.linkLabel, { color: ink }]}>
         {label}
       </Text>
@@ -1097,7 +1128,11 @@ export function NetworkChoice<T extends string>({
   );
 }
 
-type NoteTone = 'info' | 'pending' | 'success' | 'warning' | 'error';
+/**
+ * What a note says of its line: something to know, under way, done, a
+ * safety line, or a failure.
+ */
+export type NoteTone = 'info' | 'pending' | 'success' | 'warning' | 'error';
 
 interface NoteLook {
   glyph: GlyphName;
@@ -1143,17 +1178,21 @@ export function noteLook(tone: NoteTone, { accent, soft }: Accent): NoteLook {
  * radish. It rises into place, and an outcome's check or bang draws itself
  * in, so a result is seen arriving rather than found. An error is an alert,
  * and is read out as it arrives, since it lands away from the press that
- * caused it. `focus` lands a screen reader on it.
+ * caused it. `focus` lands a screen reader on it. `said` is what a screen
+ * reader hears where that is not what is drawn, as a note with an amount in
+ * the wallet's unit is heard with it in sats.
  */
 export function Note({
   tone = 'info',
   glyph,
   focus = false,
+  said,
   children,
 }: {
   tone?: NoteTone;
   glyph?: GlyphName;
   focus?: boolean;
+  said?: string;
   children: string;
 }) {
   const look = noteLook(tone, useAccent());
@@ -1161,9 +1200,10 @@ export function Note({
   const target = useFocus(focus);
   const size = useGlyphSize(18);
   const error = tone === 'error';
+  const heard = said ?? children;
   useEffect(() => {
-    if (error) announce(children);
-  }, [error, children]);
+    if (error) announce(heard);
+  }, [error, heard]);
   return (
     <Reanimated.View
       entering={riseIn(8)}
@@ -1179,7 +1219,7 @@ export function Note({
           <Glyph name={shape} size={size} color={look.ink} />
         )}
       </View>
-      <Text ref={target} style={styles.noteText}>
+      <Text ref={target} accessibilityLabel={said} style={styles.noteText}>
         {children}
       </Text>
     </Reanimated.View>

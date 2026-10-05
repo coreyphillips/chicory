@@ -226,7 +226,7 @@ export function Canvas({
     return () => cancelAnimationFrame(frame);
   }, [build]);
   const [primaries] = useState<Primaries>(() => new Map());
-  usePrimaryFocus(primaries, scene, !!overlay);
+  usePrimaryFocus(primaries, scene, overlay);
   const arrived = useIncoming(snapshot);
   const region: RegionProps = {
     snapshot,
@@ -401,6 +401,22 @@ export function Canvas({
       (1 - (1 - COVERED.scale) * cover) * (1 - (1 - SCANNING.scale) * scan);
     return { opacity, transform: [{ scale }] };
   }, [reduced]);
+  // Settings is a layer over the canvas rather than a part of it, so the
+  // scan overlay dims and shrinks it on its own, as it does the canvas
+  // under it (REDESIGN.md 2.3). It shrinks on the pane that holds it, inside
+  // the view Settings slides in and out on, so the two never fight. It dims
+  // by a roast veil drawn over it rather than by its own opacity: Settings
+  // at half opacity let the canvas it covers show through it, a ghost of
+  // the balance behind the page, where the canvas itself dims toward the
+  // roast under it. Under Reduce Motion it only dims.
+  const settingsScanned = useAnimatedStyle(() => {
+    if (reduced) return {};
+    const scale = 1 - (1 - SCANNING.scale) * panes.scan.get();
+    return { transform: [{ scale }] };
+  }, [reduced]);
+  const settingsVeil = useAnimatedStyle(() => ({
+    opacity: (1 - SCANNING.opacity) * panes.scan.get(),
+  }));
   // Under Reduce Motion the sheet fades out and back in around its jump
   // instead of travelling (`veilOpacity`); otherwise the veil rests at 1.
   const sheetStyle = useAnimatedStyle(() => ({
@@ -408,16 +424,29 @@ export function Canvas({
     transform: [{ translateY: panes.seam.get() }],
   }));
 
-  // A Send that is open takes the code through its receiver. Either way the
-  // reducer closes the overlay, and from home it opens Send with the code.
+  // A Send that is open, or the Settings field that asked, takes the code
+  // through its receiver. Either way the reducer closes the overlay, and
+  // from home it opens Send with the code.
   const scanning = overlay?.name === 'scan' ? overlay : null;
   const onScanned = useCallback(
     (value: string) => {
       const [receiver] = newestFirst(responders.scan);
-      if (scanning?.target === 'send' && receiver) receiver(value);
+      if (scanning && scanning.target !== 'home') receiver?.receive(value);
       dispatch({ type: 'scanned', value });
     },
     [scanning, responders, dispatch],
+  );
+  // A Settings field checks a code its own way, for a node or a Bitcoin
+  // address. Its check is a function, kept by its receiver rather than by
+  // the stage, and the receiver registers only once the overlay has drawn,
+  // so the scanner asks for it as each code is read. With none armed, a
+  // code is taken as it is and goes nowhere.
+  const validateForField = useCallback(
+    (value: string) => {
+      const [receiver] = newestFirst(responders.scan);
+      return receiver?.validate ? receiver.validate(value) : value;
+    },
+    [responders],
   );
   const onScanCancelled = useCallback(
     () => dispatch({ type: 'back' }),
@@ -575,15 +604,28 @@ export function Canvas({
                   exiting={slideOut()}
                   style={styles.fill}
                 >
-                  {/* A swipe in from the left edge takes Settings back, the
-                  canvas coming back under the finger (REDESIGN.md 7, T6). */}
-                  <EdgeBack style={styles.settings}>
-                    <Pane active={!overlay} style={styles.flex}>
+                  {/* Out of use under an overlay, and the swipe in it with
+                  it: a swipe back while the scan is open would close the
+                  scan and leave Settings drawn where the finger let go. */}
+                  <Pane
+                    active={!overlay}
+                    style={[styles.flex, settingsScanned]}
+                  >
+                    {/* A swipe in from the left edge takes Settings back, the
+                    canvas coming back under the finger (REDESIGN.md 7, T6). */}
+                    <EdgeBack style={styles.settings}>
                       <PrimaryFor primaries={primaries} scene="settings">
                         <SettingsLayer {...region} />
                       </PrimaryFor>
-                    </Pane>
-                  </EdgeBack>
+                    </EdgeBack>
+                    <Reanimated.View
+                      testID="settings-scan-veil"
+                      pointerEvents="none"
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                      style={[styles.veil, settingsVeil]}
+                    />
+                  </Pane>
                 </Reanimated.View>
               ) : null}
             </View>
@@ -592,6 +634,11 @@ export function Canvas({
                 key={scanning.key}
                 origin={scanning.origin}
                 target={scanning.target}
+                purpose={scanning.purpose}
+                into={scanning.into}
+                validate={
+                  scanning.target === 'settings' ? validateForField : undefined
+                }
                 onDetected={onScanned}
                 onCancel={onScanCancelled}
                 test={isTestNetwork(snapshot.wallet.network)}
@@ -666,4 +713,5 @@ const styles = StyleSheet.create({
   },
   detailSlot: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   settings: { flex: 1, backgroundColor: colors.background },
+  veil: { ...StyleSheet.absoluteFill, backgroundColor: colors.background },
 });

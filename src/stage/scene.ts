@@ -3,6 +3,22 @@ import type { Tab } from '../services/useWalletSession';
 
 export type Rect = { x: number; y: number; width: number; height: number };
 
+/** A point in the window, in points. */
+export type Point = { x: number; y: number };
+
+/**
+ * What a scan is for, which the scanner's words and its check of a code
+ * follow: a payment request, a primary node's address, or the Bitcoin
+ * address Settings empties the wallet to.
+ */
+export type ScanPurpose = 'payment' | 'primary' | 'address';
+
+/**
+ * Where a scanned code goes: a new Send from home, the Send already open,
+ * or the Settings field that asked for it.
+ */
+export type ScanTarget = 'home' | 'send' | 'settings';
+
 /**
  * What the canvas is showing. Every open hands out a new key, so a scene
  * opened again is a fresh instance that remembers nothing of the last one. A
@@ -22,9 +38,25 @@ export type Scene =
 export type Overlay =
   | {
       name: 'scan';
-      /** Where a scanned code goes: a new Send, or the Send already open. */
-      target: 'home' | 'send';
-      origin: { x: number; y: number } | null;
+      /**
+       * Where a scanned code goes: a new Send, the Send already open, or the
+       * Settings field that asked for it.
+       */
+      target: ScanTarget;
+      /** The scan button the disc grows out of, in the window. */
+      origin: Point | null;
+      /**
+       * What the scan is for, set only by a scan that names one. The
+       * receiver a Settings field arms registers in the commit that opens
+       * the overlay, after the overlay has drawn its scanner, so what the
+       * scanner says has to come with the overlay itself.
+       */
+      purpose?: ScanPurpose;
+      /**
+       * The field a code read fills, in the window, which the disc collapses
+       * into (REDESIGN.md 7, T3). Set only when one is given.
+       */
+      into?: Point | null;
       key: number;
     }
   | { name: 'create'; restoring: boolean; key: number }
@@ -98,6 +130,14 @@ export function canOpen(state: StageState, name: SceneName): boolean {
   return !state.busy && OPENS[state.scene.name].includes(name);
 }
 
+/**
+ * Where a scan opened over `scene` sends its code: into the Send already
+ * open, into the Settings field that asked for it, and from anywhere else to
+ * a new Send.
+ */
+export const scanTarget = (scene: Scene['name']): ScanTarget =>
+  scene === 'send' ? 'send' : scene === 'settings' ? 'settings' : 'home';
+
 /** The session still speaks in tabs, so a network switch can put the user back. */
 export function tabOf(state: StageState): Tab {
   if (state.scene.name === 'settings') return 'Settings';
@@ -167,7 +207,9 @@ function openScene(state: StageState, request: Unkeyed<Scene>): StageState {
 function switchTab(state: StageState, next: Tab): StageState {
   const name = TAB_SCENES[next];
   // The session moves tabs while a wallet is being created, and that sheet
-  // must survive it. A scan has nowhere to deliver once its scene is gone.
+  // must survive it. A scan has nowhere to deliver once its scene is gone,
+  // and closes even over a Settings the tab keeps: the session moved the
+  // wallet under it, and the field that asked lands focus as it closes.
   const overlay = state.overlay?.name === 'create' ? state.overlay : null;
   if (name === 'home') {
     return settle(state, { scene: base(state), stack: [], overlay });
@@ -232,8 +274,9 @@ export function stageReducer(
       });
     case 'scanned':
       if (state.overlay?.name !== 'scan') return state;
-      // A Send that is already open takes the code through its own receiver.
-      if (state.overlay.target === 'send') {
+      // A Send that is already open, or the Settings field that asked, takes
+      // the code through its own receiver, and the overlay closes over it.
+      if (state.overlay.target !== 'home') {
         return settle(state, { overlay: null });
       }
       return sendOver(state, action.value);

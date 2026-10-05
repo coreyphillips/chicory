@@ -51,6 +51,7 @@ import { curves, durations, overlap, shake, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { normalizePaymentLink } from '../services/links';
 import { STATUS_ROW } from '../stage/layout';
+import type { ScanPurpose } from '../stage/scene';
 import { duringSystemPrompt } from '../stage/systemPrompt';
 import { HIT_SLOP, space } from '../theme';
 
@@ -73,6 +74,11 @@ import { HIT_SLOP, space } from '../theme';
  * A scanned code is handed to Send exactly as a pasted one is, and only once
  * the payment parser can read it as something to pay. Nothing is paid from
  * here, and no frame or image leaves the device.
+ *
+ * Settings asks it for other codes: a primary node's address, or the Bitcoin
+ * address the wallet empties to. Each brings its check (`validate`), which
+ * stands in for the payment parser, and its words (`purpose`, `scanWords`),
+ * so the scan is named for what it reads and says what it found.
  */
 type CameraModule = {
   Camera?: React.ComponentType<Record<string, unknown>>;
@@ -174,6 +180,53 @@ export function refusal(value: string): string | null {
     return [copy.scan.invalid, parsed.message].filter(Boolean).join(' ');
   }
   return null;
+}
+
+/**
+ * What the scanner says for a scan of `purpose`, none of it drawn: its
+ * name, what the reticle tells a screen reader the camera is for, what to do
+ * with the camera off, what is said as a code is found, and what a check
+ * that refuses a code without a reason of its own says.
+ */
+export interface ScanWords {
+  title: string;
+  privacy: string;
+  noCamera: string;
+  detected: string;
+  invalid: string;
+}
+
+const WORDS: Record<ScanPurpose, ScanWords> = {
+  payment: {
+    title: copy.scan.title,
+    privacy: copy.scan.privacy,
+    noCamera: copy.scan.noCamera,
+    detected: copy.scan.detected,
+    invalid: copy.scan.invalid,
+  },
+  primary: {
+    title: copy.scan.primaryTitle,
+    privacy: copy.scan.primaryPrivacy,
+    noCamera: copy.scan.primaryNoCamera,
+    detected: copy.scan.primaryDetected,
+    invalid: copy.scan.primaryInvalid,
+  },
+  address: {
+    title: copy.scan.addressTitle,
+    privacy: copy.scan.addressPrivacy,
+    noCamera: copy.scan.addressNoCamera,
+    detected: copy.scan.addressDetected,
+    invalid: copy.scan.addressInvalid,
+  },
+};
+
+/**
+ * The words for a scan of `purpose`, a payment request unless given. The
+ * same object each time, so the reticle, which takes them, draws again only
+ * when what it says changes.
+ */
+export function scanWords(purpose: ScanPurpose = 'payment'): ScanWords {
+  return WORDS[purpose];
 }
 
 /** The last unpayable code the camera read, and when it last buzzed. */
@@ -516,9 +569,9 @@ const Reticle = memo(function ReticleMarks({
   reduced,
   running,
   cues,
-  primary = false,
+  words,
 }: {
-  primary?: boolean;
+  words: ScanWords;
   mode: ReticleMode;
   side: number;
   from: number;
@@ -599,7 +652,7 @@ const Reticle = memo(function ReticleMarks({
       accessible
       accessibilityRole="image"
       accessibilityLabel={copy.scan.aim}
-      accessibilityHint={primary ? copy.scan.primaryPrivacy : copy.scan.privacy}
+      accessibilityHint={words.privacy}
       accessibilityValue={
         mode === 'checking' ? { text: copy.scan.starting } : undefined
       }
@@ -724,10 +777,10 @@ function GlyphButton({
  */
 function CameraOff({
   access,
-  primary = false,
+  words,
 }: {
   access: 'denied' | 'missing';
-  primary?: boolean;
+  words: ScanWords;
 }) {
   const denied = access === 'denied';
   const label = denied ? copy.scan.denied : copy.scan.missing;
@@ -739,13 +792,7 @@ function CameraOff({
         accessible
         accessibilityRole="image"
         accessibilityLabel={label}
-        accessibilityHint={
-          denied
-            ? primary
-              ? copy.scan.primaryNoCamera
-              : copy.scan.noCamera
-            : copy.scan.missingHint
-        }
+        accessibilityHint={denied ? words.noCamera : copy.scan.missingHint}
         style={styles.status}
       >
         <Glyph
@@ -794,7 +841,12 @@ export function Scanner({
 }: {
   onDetected: (value: string) => void;
   validate?: (value: string) => string;
-  purpose?: 'payment' | 'primary';
+  /**
+   * What the scan is for: a payment request, a primary node's address, or
+   * a Bitcoin address to empty the wallet to. Only the words follow it; what
+   * a code must be is `validate`'s, and a payment request without one.
+   */
+  purpose?: ScanPurpose;
   onCancel: () => void;
   /**
    * Whether the camera may mount. The scan overlay holds it back until its
@@ -812,6 +864,7 @@ export function Scanner({
 }) {
   const lib = loadCamera();
   const Camera = lib?.Camera;
+  const words = scanWords(purpose);
   const [access, setAccess] = useState<CameraAccess>(firstAccess);
   const { reduced } = useMotionPrefs();
   const foreground = useForeground();
@@ -948,9 +1001,7 @@ export function Scanner({
     sage.set(withTiming(1, { ...FADE, duration: durations.tick }));
     if (!reduced) pinch.set(withSpring(CAUGHT_SCALE, springs.snap));
     haptics.thud();
-    announce(
-      purpose === 'primary' ? copy.scan.primaryDetected : copy.scan.detected,
-    );
+    announce(words.detected);
     onDetected(
       validate ? validate(value) : normalizePaymentLink(value) || value,
     );
@@ -983,7 +1034,7 @@ export function Scanner({
       validate(value);
       return null;
     } catch (error) {
-      return error instanceof Error ? error.message : 'Invalid node address.';
+      return error instanceof Error ? error.message : words.invalid;
     }
   }
 
@@ -1110,23 +1161,19 @@ export function Scanner({
           accessible
           accessibilityRole="header"
           accessibilityLabel={
-            access === 'denied'
-              ? copy.scan.camera
-              : purpose === 'primary'
-              ? copy.scan.primaryTitle
-              : copy.scan.title
+            access === 'denied' ? copy.scan.camera : words.title
           }
           style={styles.title}
         />
         <View pointerEvents="box-none" style={styles.stage}>
           {fallback ? (
             <>
-              <CameraOff access={access} primary={purpose === 'primary'} />
+              <CameraOff access={access} words={words} />
               {controls}
             </>
           ) : (
             <Reticle
-              primary={purpose === 'primary'}
+              words={words}
               mode={mode}
               side={side}
               from={flight(width, height, side)}

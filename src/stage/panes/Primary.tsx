@@ -9,7 +9,7 @@ import React, {
 import type { PropsWithChildren, RefObject } from 'react';
 import type { HostInstance } from 'react-native';
 import { focusAfterTransition } from '../../motion/focus';
-import type { Scene } from '../scene';
+import type { Overlay, Scene } from '../scene';
 
 /**
  * Where a screen reader lands as the canvas arrives at a scene (REDESIGN.md
@@ -64,15 +64,34 @@ export function usePrimary<
  * nothing is moving. While an overlay is open it moves nothing: the overlay
  * holds the screen. A safety message the scene raised as it arrived waits
  * for this move (`motion/speech`), so the move never cuts it short.
+ *
+ * A scan a Settings field asked for is the one overlay whose close lands
+ * elsewhere: on the field a code filled, or back on the scan button that
+ * opened it, which the field does itself (`useScanRequest`). So when such a
+ * scan closes over the same scene, this moves nothing, rather than taking a
+ * screen reader to Settings' header, away from what it was doing. It is
+ * kept to the scene's key: a link that closes the scan and opens Send still
+ * lands on Send.
  */
 export function usePrimaryFocus(
   primaries: Primaries,
   scene: Scene,
-  overlaid: boolean,
+  overlay: Overlay,
 ) {
   const { key, name } = scene;
+  const overlaid = !!overlay;
+  // The scene a Settings field's scan opened over, while it is open.
+  const fieldScan = useRef<number | null>(null);
+  useEffect(() => {
+    if (overlay?.name === 'scan' && overlay.target === 'settings') {
+      fieldScan.current = key;
+    }
+  }, [overlay, key]);
   useEffect(() => {
     if (overlaid) return;
+    const over = fieldScan.current;
+    fieldScan.current = null;
+    if (over === key) return;
     return focusAfterTransition(() => primaries.get(name)?.current);
   }, [primaries, key, name, overlaid]);
 }

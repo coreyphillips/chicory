@@ -13,8 +13,14 @@ import type { Dispatch, PropsWithChildren, RefObject } from 'react';
 import type { Activity } from '@beignet/wallet-core';
 import type { SafetyKind } from '../motion/speech';
 import { noteRefusedTap } from '../services/perf';
-import { initialStage, stageReducer } from './scene';
-import type { Rect, StageAction, StageState } from './scene';
+import { initialStage, scanTarget, stageReducer } from './scene';
+import type {
+  Point,
+  Rect,
+  ScanPurpose,
+  StageAction,
+  StageState,
+} from './scene';
 
 /**
  * How a gesture that let go hands its speed to the move it asks for:
@@ -34,7 +40,15 @@ export interface Fling {
 export interface StageActions {
   openSend: (prefill?: string) => void;
   openReceive: () => void;
-  openScan: (origin?: { x: number; y: number }) => void;
+  /**
+   * Opens the scan overlay, its disc growing out of `origin`, the scan
+   * button's centre in the window. A Settings field passes `scan`: what it
+   * scans for, and where it is, for a code read to collapse into it.
+   */
+  openScan: (
+    origin?: Point | null,
+    scan?: { purpose?: ScanPurpose; into?: Point | null },
+  ) => void;
   openDetail: (item: Activity, rect?: Rect) => void;
   openActivity: (fling?: Fling) => void;
   openSettings: () => void;
@@ -61,6 +75,18 @@ export interface PaneMotion {
 export type Responder<T> = { current: T };
 
 /**
+ * Where a scanned code goes once the overlay reads it (`useScanReceiver`):
+ * `receive` takes it, and `validate`, when given, is the check the scanner
+ * holds a code to before it takes one, returning the value to receive or
+ * throwing the reason it is refused. A Settings field gives one; a Send
+ * leaves the scanner its own check of a payment request.
+ */
+export interface ScanReceiver {
+  receive: (value: string) => void;
+  validate?: (value: string) => string;
+}
+
+/**
  * What surfaces inside the stage answer before the stage itself does. Each
  * set is in the order its entries became active, so the newest, the
  * innermost surface on screen, is asked first.
@@ -70,8 +96,11 @@ export interface Responders {
   sceneBack: Set<Responder<() => boolean>>;
   /** Android back inside a shell phase: a panel or an editor it opened. */
   phaseBack: Set<Responder<() => boolean>>;
-  /** Where a code scanned for the Send already open goes. */
-  scan: Set<Responder<(value: string) => void>>;
+  /**
+   * Where a code scanned for the Send already open, or for the Settings
+   * field that asked, goes.
+   */
+  scan: Set<Responder<ScanReceiver>>;
 }
 
 /** A registry's answers, newest first. */
@@ -218,7 +247,8 @@ export function useStageStore(): StageStore {
   const [felt] = useState(feltStates);
   // The state as of the last tap, ahead of React while a render is pending,
   // so two taps in one tick each start from where the one before led. A scan
-  // started inside Send also reads it, to hand its code to that Send.
+  // started inside Send or Settings also reads it, to hand its code back to
+  // the scene that asked.
   const latest = useRef(state);
   useLayoutEffect(() => {
     latest.current = state;
@@ -248,13 +278,17 @@ export function useStageStore(): StageStore {
       openSend: (prefill = '') =>
         tap({ type: 'open', scene: { name: 'send', prefill } }),
       openReceive: () => tap({ type: 'open', scene: { name: 'receive' } }),
-      openScan: origin =>
+      // What the scan is for and where its field is are set only when
+      // given, so a scan from home or Send carries neither.
+      openScan: (origin, scan) =>
         tap({
           type: 'overlay',
           overlay: {
             name: 'scan',
-            target: latest.current.scene.name === 'send' ? 'send' : 'home',
+            target: scanTarget(latest.current.scene.name),
             origin: origin ?? null,
+            ...(scan?.purpose ? { purpose: scan.purpose } : {}),
+            ...(scan?.into ? { into: scan.into } : {}),
           },
         }),
       openDetail: (item, rect) =>

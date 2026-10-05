@@ -1,6 +1,12 @@
 import type { Activity } from '@beignet/wallet-core';
-import { canOpen, initialStage, stageReducer, tabOf } from '../src/stage/scene';
-import type { StageAction, StageState } from '../src/stage/scene';
+import {
+  canOpen,
+  initialStage,
+  scanTarget,
+  stageReducer,
+  tabOf,
+} from '../src/stage/scene';
+import type { Scene, StageAction, StageState } from '../src/stage/scene';
 
 const ITEM: Activity = {
   id: 'payment:1',
@@ -33,10 +39,21 @@ const openDetail: StageAction = {
   type: 'open',
   scene: { name: 'detail', item: ITEM, from: null },
 };
-const scanFrom = (target: 'home' | 'send'): StageAction => ({
+const scanFrom = (target: 'home' | 'send' | 'settings'): StageAction => ({
   type: 'overlay',
   overlay: { name: 'scan', target, origin: { x: 180, y: 640 } },
 });
+/** A scan a Settings field asks for: what it reads, and where it lands. */
+const fieldScan: StageAction = {
+  type: 'overlay',
+  overlay: {
+    name: 'scan',
+    target: 'settings',
+    origin: { x: 180, y: 520 },
+    purpose: 'address',
+    into: { x: 195, y: 300 },
+  },
+};
 const create: StageAction = {
   type: 'overlay',
   overlay: { name: 'create', restoring: false },
@@ -336,6 +353,13 @@ describe('tab', () => {
       stageReducer(scanning, { type: 'tab', tab: 'Wallet' }).overlay,
     ).toBeNull();
   });
+
+  test('to Settings closes a Settings field’s scan over the same Settings', () => {
+    const scanning = run(openSettings, fieldScan);
+    const next = stageReducer(scanning, { type: 'tab', tab: 'Settings' });
+    expect(next.overlay).toBeNull();
+    expect(next.scene).toBe(scanning.scene);
+  });
 });
 
 describe('back', () => {
@@ -423,6 +447,17 @@ describe('overlay', () => {
     ).toEqual({ name: 'create', restoring: true, key: 1 });
   });
 
+  test('a Settings field’s scan keeps what it reads and where it lands, with its key', () => {
+    expect(run(openSettings, fieldScan).overlay).toEqual({
+      name: 'scan',
+      target: 'settings',
+      origin: { x: 180, y: 520 },
+      purpose: 'address',
+      into: { x: 195, y: 300 },
+      key: 2,
+    });
+  });
+
   test('is ignored while another is open', () => {
     const scanning = run(scanFrom('home'));
     expect(stageReducer(scanning, create)).toBe(scanning);
@@ -453,6 +488,23 @@ describe('scanned', () => {
     expect(next.scene).toBe(scanning.scene);
     expect(next.scene).toMatchObject({ prefill: '' });
     expect(next.stack).toBe(scanning.stack);
+  });
+
+  test('a scan from Settings only closes the overlay, over the same Settings', () => {
+    const scanning = run(openSettings, fieldScan);
+    const next = stageReducer(scanning, { type: 'scanned', value: REQUEST });
+    expect(next.overlay).toBeNull();
+    expect(next.scene).toBe(scanning.scene);
+    expect(next.stack).toBe(scanning.stack);
+    expect(next.key).toBe(scanning.key);
+  });
+
+  test('a link read while a Settings field scans opens Send over home', () => {
+    const scanning = run(openSettings, fieldScan);
+    const next = stageReducer(scanning, { type: 'link', request: REQUEST });
+    expect(next.overlay).toBeNull();
+    expect(next.scene).toMatchObject({ name: 'send', prefill: REQUEST });
+    expect(names(next)).toEqual(['home']);
   });
 
   test('without a scan open it changes nothing', () => {
@@ -489,11 +541,29 @@ describe('step', () => {
   });
 });
 
+test('a scan goes where the scene it opens over sends it', () => {
+  const scenes: [Scene['name'], ReturnType<typeof scanTarget>][] = [
+    ['home', 'home'],
+    ['activity', 'home'],
+    ['detail', 'home'],
+    ['receive', 'home'],
+    ['send', 'send'],
+    ['settings', 'settings'],
+  ];
+  for (const [scene, target] of scenes) expect(scanTarget(scene)).toBe(target);
+});
+
 test('every stack rests on home', () => {
   const actions: StageAction[] = [
     openActivity,
     openDetail,
     { type: 'back' },
+    { type: 'tab', tab: 'Settings' },
+    fieldScan,
+    { type: 'scanned', value: REQUEST },
+    fieldScan,
+    { type: 'back' },
+    fieldScan,
     { type: 'tab', tab: 'Settings' },
     { type: 'back' },
     openSend(REQUEST),

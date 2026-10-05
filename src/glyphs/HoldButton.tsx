@@ -70,6 +70,11 @@ export interface HoldButtonProps {
   accessibilityLabel: string;
   /** What a screen reader hears after the label, such as the time left. */
   accessibilityValue?: AccessibilityValue;
+  /**
+   * How the hold is committed, in the caller's words when what it commits
+   * is not a payment, as Settings' emptying is. Send's own otherwise.
+   */
+  accessibilityHint?: string;
   onCommit: () => void;
   warning?: boolean;
   disabled?: boolean;
@@ -259,6 +264,7 @@ const SPARK_INDEXES = Array.from({ length: SPARKS }, (_, index) => index);
 export function HoldButton({
   accessibilityLabel,
   accessibilityValue,
+  accessibilityHint = copy.send.holdHint,
   onCommit,
   warning = false,
   disabled = false,
@@ -409,7 +415,7 @@ export function HoldButton({
           accessibilityRole="button"
           accessibilityLabel={accessibilityLabel}
           accessibilityValue={accessibilityValue}
-          accessibilityHint={copy.send.holdHint}
+          accessibilityHint={accessibilityHint}
           accessibilityState={{ disabled, busy }}
           accessibilityActions={ACTIONS}
           onAccessibilityAction={

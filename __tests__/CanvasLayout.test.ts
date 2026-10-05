@@ -101,6 +101,31 @@ describe('under Settings', () => {
     });
   });
 
+  test('a Settings field’s scan keeps it covered, and is a move of its own', () => {
+    const stack = [HOME];
+    const covered = canvasLayout({ scene: SETTINGS, stack });
+    const scanning = canvasLayout({
+      scene: SETTINGS,
+      stack,
+      overlay: {
+        name: 'scan',
+        target: 'settings',
+        origin: { x: 195, y: 520 },
+        purpose: 'primary',
+        into: { x: 195, y: 300 },
+        key: 6,
+      },
+    });
+    expect(scanning).toEqual({
+      ...SCENE_LAYOUT.home,
+      covered: true,
+      scanning: true,
+      card: false,
+    });
+    // Opening and closing it takes the lock, as every scan does.
+    expect(sameLayout(covered, scanning)).toBe(false);
+  });
+
   test('the nearest scene the canvas draws wins, and home when there is none', () => {
     const activity = SCENES[1];
     expect(canvasScene({ scene: SETTINGS, stack: [HOME, activity] })).toBe(

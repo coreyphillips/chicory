@@ -643,6 +643,41 @@ describe('a screen reader follows each change', () => {
     expect(landed()).toEqual(['Node address', 'Change primary node']);
     await act(async () => tree.unmount());
   });
+
+  test('back to the node field once a scan fills it, and to the scan button after a close', async () => {
+    const uri = `02${'a'.repeat(64)}@host:9735`;
+    // The last element a screen reader was moved to: the scanner's own
+    // title as it opens, which shares the scan button's words, then the
+    // field or the button as it closes.
+    const last = () =>
+      (
+        sent.mock.calls
+          .filter(([, kind]) => kind === 'focus')
+          .at(-1)![0] as unknown as {
+          props: { accessibilityLabel?: string; accessibilityRole?: string };
+        }
+      ).props;
+    const tree = await mount(client());
+    await act(async () => press(tree, 'Change primary node').props.onPress());
+    await settle();
+    await act(async () => press(tree, 'Scan primary node QR').props.onPress());
+    // The section stays drawn under the scanner, its field and all.
+    expect(field(tree, 'Node address')).toBeDefined();
+    expect(last()).toMatchObject({ accessibilityRole: 'header' });
+    await act(async () => tree.root.findByType(Scanner).props.onDetected(uri));
+    await settle();
+    expect(field(tree, 'Node address').props.value).toBe(uri);
+    expect(last().accessibilityLabel).toBe('Node address');
+    await act(async () => press(tree, 'Scan primary node QR').props.onPress());
+    await act(async () => tree.root.findByType(Scanner).props.onCancel());
+    await settle();
+    expect(last()).toMatchObject({
+      accessibilityLabel: 'Scan primary node QR',
+      accessibilityRole: 'button',
+    });
+    expect(field(tree, 'Node address').props.value).toBe(uri);
+    await act(async () => tree.unmount());
+  });
 });
 
 test('an error is read out as it arrives', async () => {

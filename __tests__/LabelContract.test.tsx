@@ -128,6 +128,10 @@ const DROPPED: Record<string, string> = {
   Status:
     "A payment detail's field names are gone from the screen. The ring says the status sentence in its label and the status in its value.",
   Note: "A payment detail's field names are gone from the screen. Each line leads with a glyph and says its name in its accessibility props.",
+  'Review wallet drain':
+    "Empty wallet's review control says what it does in plain words, 'Review before sending', rather than the engine's name for a drain.",
+  'Preparing the wallet drain':
+    "Empty wallet's bare orbit is gone: the control that asked turns to an orbit itself and is busy to a screen reader, and Keep my channel says it is keeping the channel.",
 };
 
 /**
