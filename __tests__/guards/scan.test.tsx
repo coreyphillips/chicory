@@ -27,6 +27,7 @@ import {
   reticleOut,
   reticleSide,
   refusal,
+  scanWords,
   settleTurn,
   shouldRefuse,
 } from '../../src/components/Scanner';
@@ -51,6 +52,7 @@ import {
   irisPose,
   WELL_DROP,
   landing,
+  layerPoint,
   opening,
 } from '../../src/stage/layers/ScanReveal';
 import type {
@@ -146,6 +148,21 @@ const UNPAYABLE = requestOf().uri;
 /** An LNURL: read by the parser, then refused as nothing this wallet pays. */
 const LNURL =
   'lnurl1dp68gurn8ghj7um9wfmxjcm99e3k7mf0v9cxj0m385ekvcenxc6r2c35xvukxefcv5mkvv34x5ekzd3ev56nyd3hxqurzepexejxxepnxscrvwfnv9nxzcn9xq6xyefhvgcxxcmyxymnserxfq5fns';
+
+/** The Bitcoin address Settings > Empty wallet sends everything to. */
+const ADDRESS = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
+
+/**
+ * A Settings field's own check, as Empty wallet's is: a Bitcoin address,
+ * and one that names no amount, or the reason it is not.
+ */
+const anAddress = (value: string) => {
+  const match = /^(?:bitcoin:)?(bc1[a-z0-9]{39})(\?.*)?$/i.exec(value);
+  if (!match) throw new Error(copy.settings.empty.addressOnly);
+  if (/amount=/.test(match[2] ?? ''))
+    throw new Error(copy.settings.empty.noAmount);
+  return match[1];
+};
 
 const data = guardData(snapshotOf());
 
@@ -425,6 +442,36 @@ const GUARDED: GuardedState[] = [
     data,
   },
   {
+    name: 'the overlay opening for a Settings field',
+    render: () =>
+      mount(
+        reveal({
+          origin: { x: 195, y: 520 },
+          target: 'settings',
+          purpose: 'address',
+          validate: anAddress,
+          into: { x: 195, y: 300 },
+        }),
+      ),
+    data,
+  },
+  {
+    name: 'the scanner reading an address',
+    render: () =>
+      after(scanner({ purpose: 'address', validate: anAddress }), tree =>
+        readCode(tree, `bitcoin:${ADDRESS}`),
+      ),
+    data,
+  },
+  {
+    name: 'the scanner refusing a code that is not an address',
+    render: () =>
+      after(scanner({ purpose: 'address', validate: anAddress }), tree =>
+        readCode(tree, INVOICE),
+      ),
+    data,
+  },
+  {
     name: 'the overlay on a test network with the camera switched off',
     render: () => {
       denied();
@@ -492,6 +539,63 @@ describe('the disc', () => {
     expect(WELL_DROP).toBe(96);
     expect(landing(disc, 'home', true, 390, 47)).toEqual(well);
     expect(landing(disc, 'send', false, 390, 47)).toEqual(well);
+  });
+
+  test('for a Settings field lands in the field a code fills, or back in its button', () => {
+    const disc = discFor({ x: 195, y: 520 }, 390, 844);
+    expect(
+      landing(disc, 'settings', true, 390, 47, { x: 195, y: 300 }),
+    ).toEqual({ x: 195, y: 300 });
+    // A field that could not say where it is: back where it grew from.
+    expect(landing(disc, 'settings', true, 390, 47)).toEqual({
+      x: 195,
+      y: 520,
+    });
+    expect(landing(disc, 'settings', true, 390, 47, null)).toEqual({
+      x: 195,
+      y: 520,
+    });
+  });
+
+  test("takes the field's place from the window into the layer, kept inside it", () => {
+    // After a 44pt side cutout, the layer starts 44pt in.
+    expect(layerPoint({ x: 239, y: 300 }, 44, 390, 844)).toEqual({
+      x: 195,
+      y: 300,
+    });
+    // A field scrolled partly out of view takes the disc to the edge it
+    // went past, never off the screen.
+    expect(layerPoint({ x: 20, y: -60 }, 44, 390, 844)).toEqual({ x: 0, y: 0 });
+    expect(layerPoint({ x: 600, y: 900 }, 0, 390, 844)).toEqual({
+      x: 390,
+      y: 844,
+    });
+  });
+
+  test('for a Settings field, a code read collapses into the field and a close into its button', async () => {
+    // An earlier test's Reduce Motion can outlast it on the shared mock.
+    jest
+      .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
+      .mockResolvedValue(false);
+    const tree = await mount(
+      reveal({
+        origin: { x: 195, y: 520 },
+        target: 'settings',
+        into: { x: 195, y: 300 },
+      }),
+    );
+    const [disc] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'scan-disc',
+    );
+    // Its exit reads whether a code was caught as it starts.
+    const shift = () => disc.props.exiting({}).animations.transform.slice(0, 2);
+    expect(shift()).toEqual([{ translateX: 0 }, { translateY: 0 }]);
+    await act(async () => {
+      tree.root.findByType(Scanner).props.onDetected(ADDRESS);
+    });
+    expect(shift()).toEqual([{ translateX: 0 }, { translateY: 300 - 520 }]);
+    await act(async () => tree.unmount());
   });
 
   const [width, height] = [390, 844];
@@ -898,6 +1002,97 @@ describe('reading a code', () => {
     );
     await act(async () => tree.unmount());
   });
+});
+
+describe('what each scan is for', () => {
+  test('each purpose has words of its own, and a payment request is the default', () => {
+    expect(scanWords()).toBe(scanWords('payment'));
+    expect(scanWords('payment')).toEqual({
+      title: copy.scan.title,
+      privacy: copy.scan.privacy,
+      noCamera: copy.scan.noCamera,
+      detected: copy.scan.detected,
+      invalid: copy.scan.invalid,
+    });
+    expect(scanWords('primary')).toEqual({
+      title: copy.scan.primaryTitle,
+      privacy: copy.scan.primaryPrivacy,
+      noCamera: copy.scan.primaryNoCamera,
+      detected: copy.scan.primaryDetected,
+      invalid: copy.scan.primaryInvalid,
+    });
+    expect(scanWords('address')).toEqual({
+      title: copy.scan.addressTitle,
+      privacy: copy.scan.addressPrivacy,
+      noCamera: copy.scan.addressNoCamera,
+      detected: copy.scan.addressDetected,
+      invalid: copy.scan.addressInvalid,
+    });
+  });
+
+  test('an address scan is named for it, says what the camera is for, and what it found', async () => {
+    const said = jest.spyOn(Announce, 'announce');
+    const onDetected = jest.fn();
+    const tree = await mount(
+      scanner({ purpose: 'address', validate: anAddress, onDetected }),
+    );
+    expect(labelled(tree, copy.scan.addressTitle)).toHaveLength(1);
+    expect(reticle(tree)!.props.accessibilityHint).toBe(
+      copy.scan.addressPrivacy,
+    );
+    await readCode(tree, `bitcoin:${ADDRESS}`);
+    // The field's own check gives what is filled in: the bare address.
+    expect(onDetected).toHaveBeenCalledWith(ADDRESS);
+    expect(said).toHaveBeenCalledWith(copy.scan.addressDetected);
+    await act(async () => tree.unmount());
+  });
+
+  test('with the camera off, an address scan says how to go on without it', async () => {
+    denied();
+    const tree = await mount(scanner({ purpose: 'address' }));
+    const [off] = labelled(tree, copy.scan.denied);
+    expect(off.props.accessibilityHint).toBe(copy.scan.addressNoCamera);
+    await act(async () => tree.unmount());
+  });
+
+  test("a code the field's check refuses is said in its words, and the camera keeps reading", async () => {
+    const said = jest.spyOn(Announce, 'announce');
+    const error = jest.spyOn(haptics, 'error');
+    const onDetected = jest.fn();
+    const tree = await mount(
+      scanner({ purpose: 'address', validate: anAddress, onDetected }),
+    );
+    await readCode(tree, INVOICE);
+    expect(said).toHaveBeenCalledWith(copy.settings.empty.addressOnly);
+    await readCode(tree, `bitcoin:${ADDRESS}?amount=0.1`);
+    expect(said).toHaveBeenCalledWith(copy.settings.empty.noAmount);
+    expect(error).toHaveBeenCalledTimes(2);
+    expect(onDetected).not.toHaveBeenCalled();
+    expect(cameras(tree)).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test.each([
+    ['payment', copy.scan.invalid],
+    ['primary', copy.scan.primaryInvalid],
+    ['address', copy.scan.addressInvalid],
+  ] as const)(
+    'a %s check that refuses with no reason of its own is said in the scan’s words',
+    async (purpose, why) => {
+      const said = jest.spyOn(Announce, 'announce');
+      const tree = await mount(
+        scanner({
+          purpose,
+          validate: () => {
+            throw 'not an Error';
+          },
+        }),
+      );
+      await readCode(tree, 'anything');
+      expect(said).toHaveBeenCalledWith(why);
+      await act(async () => tree.unmount());
+    },
+  );
 });
 
 describe('the camera', () => {

@@ -89,31 +89,44 @@ export const settings = {
   empty: {
     link: 'Empty wallet to an address',
     warning:
-      'This closes your home channel and sends its balance and loose coins to one Bitcoin address. Your primary must stay connected. Your next receive can open a new channel.',
+      'This closes your home channel and sends its balance and loose coins to one Bitcoin address. Your primary node must stay connected. Your next receive can open a new channel.',
     address: 'Bitcoin address',
     addressOnly: 'Enter a Bitcoin address for this wallet network.',
     noAmount: 'Use an address without a requested amount to empty this wallet.',
     scan: 'Scan address QR',
     paste: 'Paste address',
-    review: 'Review wallet drain',
+    pasted: 'Address pasted.',
+    clipboardEmpty: 'The clipboard is empty.',
+    clipboardUnreadable: 'Could not read the clipboard.',
+    copy: 'Copy Bitcoin address',
+    copied: 'Bitcoin address copied',
+    review: 'Review before sending',
     arrives: 'Arrives',
     fees: 'Estimated network fees',
-    sats: (amount: string) => `${amount} sats`,
     estimate:
       'The final closing fee may change. Coins received after this review stay in your wallet.',
     send: 'Send everything',
     hold: 'Hold to close your channel and send the reviewed balance.',
+    /** What the hold says it commits, its amounts heard in sats. */
+    said: (arrives: string, fees: string) =>
+      `Arrives ${arrives}. Estimated network fees ${fees}.`,
     keep: 'Keep my channel',
-    working: 'Preparing the wallet drain',
+    keeping: 'Keeping your channel',
     pending:
       'Your wallet is emptying to this address. Follow the single send in Activity while it confirms. Your next receive can open a new channel.',
+    cancelling:
+      'Cancelling. The wallet is confirming that your channel stays open.',
     uncertain:
-      'The wallet has not confirmed whether this drain started. Follow Activity before trying another send.',
+      'The wallet has not confirmed whether emptying started. Follow Activity before trying another send.',
+    /** Said assertively as an unknown start shows (REDESIGN.md rule 4). */
+    uncertainAnnouncement:
+      'Emptying status unknown. Do not send again until this is resolved.',
     completed: 'Wallet emptied. Your next receive can open a new channel.',
-    cancelled: 'Wallet drain cancelled. Your channel stays open.',
+    cancelled: 'Emptying cancelled. Your channel stays open.',
+    /** The amount carries its unit: `₿100`, `100 sats` or `0.000001 BTC`. */
     residual: (amount: string) =>
-      `${amount} sats received later remain in your wallet.`,
-    failed: 'Could not prepare the wallet drain.',
+      `${amount} received later remain in your wallet.`,
+    failed: 'Could not prepare the review.',
   },
 
   phone: {

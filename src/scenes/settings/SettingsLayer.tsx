@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   RefreshControl,
   StyleSheet,
@@ -19,7 +19,11 @@ import {
   CornerControl,
 } from '../../stage/panes/CornerControl';
 import { SceneSlot } from '../../stage/panes/SceneSlot';
+import { useSceneBack } from '../../stage/StageContext';
+import { useScanRequest } from '../../stage/useScanReceiver';
 import { space, type } from '../../theme';
+import { SettingsHostContext } from './host';
+import type { SettingsHost } from './host';
 import {
   Note,
   SettingsSurface,
@@ -90,11 +94,21 @@ function TitleFade() {
  * The page scrolls under the bar into a short roast fade (`TitleFade`), and
  * under the home indicator to the screen's edge: the inset is room at the
  * end of what scrolls, not a margin that cuts the page off above it.
+ *
+ * It hosts the page (`SettingsHost`): Android back reaches the page's own
+ * steps through the stage, and a field that scans a code, the primary
+ * node's address or the address the wallet empties to, opens the stage's
+ * scan overlay over Settings rather than a camera of its own
+ * (`useScanRequest`). What the page reads of the wallet after its own
+ * changes is the quiet read (`session.refresh`); only saving or retrying the
+ * primary node, and a pull, restart and resync the wallet behind the
+ * spinner.
  */
 export function SettingsLayer({
   snapshot,
   client,
   session,
+  view,
   backup,
 }: RegionProps) {
   // Settings covers the whole canvas, under the system bars too, so it
@@ -106,63 +120,75 @@ export function SettingsLayer({
   const { fontScale } = useWindowDimensions();
   const grow = glyphScale(fontScale);
   const { accent } = accentFor(testNetwork(snapshot.wallet.network));
+  const scan = useScanRequest();
+  const host = useMemo<SettingsHost>(
+    () => ({ useBack: useSceneBack, scan }),
+    [scan],
+  );
   return (
-    <SettingsSurface style={[styles.layer, { marginTop: top }]}>
-      <View style={styles.bar}>
-        {/* The slot below names the scene for a screen reader already. */}
-        <Text
-          accessibilityElementsHidden
-          importantForAccessibility="no"
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.5}
-          style={styles.title}
-        >
-          {copy.settings.title}
-        </Text>
-        {/* Drawn at the text's scale, its glyph and its target together,
+    <SettingsHostContext.Provider value={host}>
+      <SettingsSurface style={[styles.layer, { marginTop: top }]}>
+        <View style={styles.bar}>
+          {/* The slot below names the scene for a screen reader already. */}
+          <Text
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.5}
+            style={styles.title}
+          >
+            {copy.settings.title}
+          </Text>
+          {/* Drawn at the text's scale, its glyph and its target together,
         rather than scaled up from 48pt; the box around it gives the bar the
         room it takes. */}
-        <View
-          style={[
-            styles.close,
-            { width: CORNER_TARGET * grow, height: CORNER_TARGET * grow },
-          ]}
+          <View
+            style={[
+              styles.close,
+              { width: CORNER_TARGET * grow, height: CORNER_TARGET * grow },
+            ]}
+          >
+            <CornerControl home={false} scale={grow} />
+          </View>
+          <TitleFade />
+        </View>
+        <SceneSlot
+          label={copy.settings.title}
+          refreshControl={
+            <RefreshControl
+              refreshing={session.refreshing}
+              onRefresh={session.manualRefresh}
+              tintColor={accent}
+              colors={[accent]}
+            />
+          }
         >
-          <CornerControl home={false} scale={grow} />
-        </View>
-        <TitleFade />
-      </View>
-      <SceneSlot
-        label={copy.settings.title}
-        refreshControl={
-          <RefreshControl
-            refreshing={session.refreshing}
-            onRefresh={session.manualRefresh}
-            tintColor={accent}
-            colors={[accent]}
-          />
-        }
-      >
-        <View style={[styles.stack, { paddingBottom: bottom }]}>
-          {session.error ? (
-            <Note tone="error">{copy.notice.refreshFailed(session.error)}</Note>
-          ) : null}
-          <SettingsScreen
-            snapshot={snapshot}
-            client={client}
-            switchError={session.switchError}
-            onDisconnect={session.disconnect}
-            onChooseWallet={session.chooseWallet}
-            onRefresh={session.manualRefresh}
-            onNetwork={session.switchNetwork}
-            onErase={session.eraseDevice}
-            backupPending={backup?.pending}
-            onBackupSaved={backup?.onSaved}
-          />
-        </View>
-      </SceneSlot>
-    </SettingsSurface>
+          <View style={[styles.stack, { paddingBottom: bottom }]}>
+            {session.error ? (
+              <Note tone="error">
+                {copy.notice.refreshFailed(session.error)}
+              </Note>
+            ) : null}
+            <SettingsScreen
+              snapshot={snapshot}
+              client={client}
+              switchError={session.switchError}
+              onDisconnect={session.disconnect}
+              onChooseWallet={session.chooseWallet}
+              onRefresh={session.manualRefresh}
+              onRead={session.refresh}
+              onNetwork={session.switchNetwork}
+              onErase={session.eraseDevice}
+              backupPending={backup?.pending}
+              onBackupSaved={backup?.onSaved}
+              unit={view.unit}
+              symbol={view.symbol}
+            />
+          </View>
+        </SceneSlot>
+      </SettingsSurface>
+    </SettingsHostContext.Provider>
   );
 }
 

@@ -5,6 +5,7 @@
  * from the shared fixtures and drawn over the gallery's session.
  */
 import type { WalletSnapshot } from '@beignet/wallet-core';
+import type { WalletAdapter } from '../../src/services/wallet';
 import { copy } from '../../src/design/copy';
 import type { Phase } from '../../src/stage/phase';
 import type { StageAction } from '../../src/stage/scene';
@@ -15,7 +16,16 @@ import {
   requestOf,
   walletOf,
 } from '../../test-support/fixtures';
-import { ADDRESS, decided, fresh, onMainnet, sessionOf, stale } from './fakes';
+import {
+  ADDRESS,
+  decided,
+  drainActivityOf,
+  fresh,
+  never,
+  onMainnet,
+  sessionOf,
+  stale,
+} from './fakes';
 import type { Session } from './fakes';
 import { setBiometry } from './sealed';
 import { press } from './shots';
@@ -210,7 +220,11 @@ const settings = (
   name: string,
   make: () => {
     snapshot?: WalletSnapshot;
+    /** Later reads of the wallet, one a step, as polls bring them. */
+    later?: WalletSnapshot[];
     session?: Partial<Session>;
+    /** Calls the wallet answers its own way in this state. */
+    client?: Partial<WalletAdapter>;
     steps?: Step[];
   } = () => ({}),
 ) =>
@@ -258,6 +272,44 @@ const settingsShots: Shot[] = [
       drive => drive.type(words.empty.address, ADDRESS),
       press(words.empty.review),
       drive => drive.activate(words.empty.send),
+    ],
+  })),
+  // The hold has committed and the send has not answered: the hold turns
+  // to its orbit and the review's figures have faded back.
+  settings('wallet drain sending', () => ({
+    snapshot: onMainnet(),
+    client: { send: () => never() },
+    steps: [
+      press(words.empty.link),
+      drive => drive.type(words.empty.address, ADDRESS),
+      press(words.empty.review),
+      drive => drive.activate(words.empty.send),
+    ],
+  })),
+  settings('reviewing a wallet drain in ₿', () => ({
+    snapshot: onMainnet(),
+    steps: [
+      ...inSymbol,
+      press(words.empty.link),
+      drive => drive.type(words.empty.address, ADDRESS),
+      press(words.empty.review),
+    ],
+  })),
+  settings('wallet drain, status unknown', () => ({
+    snapshot: onMainnet({ activity: [drainActivityOf('review')] }),
+  })),
+  settings('wallet drain cancelling', () => ({
+    snapshot: onMainnet({ activity: [drainActivityOf('cancelling')] }),
+  })),
+  // Seen to complete while it is shown, with a little that came in since.
+  settings('wallet drain completed', () => ({
+    snapshot: onMainnet({ activity: [drainActivityOf('pending')] }),
+    later: [
+      onMainnet({
+        activity: [
+          drainActivityOf('completed', { revision: 4, residualSats: 1_200 }),
+        ],
+      }),
     ],
   })),
   settings('changing the primary node', () => ({

@@ -7,10 +7,12 @@ import { DemoWalletClient, EmbeddedWalletClient } from '@beignet/wallet-core';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import App from '../App';
 import { Scanner } from '../src/components/Scanner';
+import { copy } from '../src/design/copy';
 import * as DeviceWallet from '../src/embedded/client';
 import * as SendRegion from '../src/scenes/send/SendScene';
 import { HomeScreen } from '../src/screens/Wallet';
 import { SendScreen } from '../src/screens/Payments';
+import { SettingsScreen } from '../src/screens/Settings';
 import { defaultPreferences } from '../src/services/networks';
 import { Canvas, useCanvasView } from '../src/stage/Canvas';
 import { ScanReveal } from '../src/stage/layers/ScanReveal';
@@ -21,7 +23,8 @@ import {
   useStageStore,
 } from '../src/stage/StageContext';
 import type { StageStore } from '../src/stage/StageContext';
-import { useScanReceiver } from '../src/stage/useScanReceiver';
+import { useScanReceiver, useScanRequest } from '../src/stage/useScanReceiver';
+import type { ScanRequest } from '../src/stage/useScanReceiver';
 import { field, pressableLabels, press } from '../test-support/query';
 import { activeScene } from '../test-support/scene';
 
@@ -32,6 +35,10 @@ import { activeScene } from '../test-support/scene';
  * Send. Either way a code only fills in a request, and nothing is paid.
  */
 const SCANNED = 'lnbcrt1scanned';
+/** A primary node's address, as its QR carries it. */
+const NODE = `02${'a'.repeat(64)}@127.0.0.1:9735`;
+/** A regtest address, the wallet the app opens being on regtest. */
+const ADDRESS = 'bcrt1qpg0xyjz3p06mkjy8mju437lezq57ad90yq0hq3';
 
 const scanner = (tree: ReactTestRenderer) => tree.root.findAllByType(Scanner);
 const detect = (tree: ReactTestRenderer, value: string) =>
@@ -130,6 +137,77 @@ describe('from the app', () => {
     expect(activeScene(tree)).toBe('home');
     expect(pressableLabels(tree)).toContain('Send');
   });
+
+  /** Lets the panes report they have settled, which lifts the tap lock. */
+  const settle = () => act(async () => {});
+  /** The scene the canvas shows, key and all. */
+  const shown = () => tree.root.findByType(Canvas).props.scene;
+
+  /** Settings, opened from the cog, with its moves over. */
+  async function inSettings() {
+    await press(tree, copy.home.settings);
+    await settle();
+    expect(activeScene(tree)).toBe('settings');
+  }
+
+  test("from Settings, the primary node's scan opens over a Settings that stays drawn, and fills its field", async () => {
+    device.updatePrimary = jest.fn();
+    await inSettings();
+    const settings = shown();
+    await press(tree, copy.settings.primary.change);
+    await press(tree, copy.settings.primary.scan);
+    expect(tree.root.findByType(ScanReveal).props).toMatchObject({
+      target: 'settings',
+      purpose: 'primary',
+    });
+    // Settings is drawn beneath, as it was, and out of reach.
+    expect(tree.root.findAllByType(SettingsScreen)).toHaveLength(1);
+    const reachable = pressableLabels(tree);
+    for (const label of [
+      copy.settings.primary.scan,
+      copy.settings.primary.save,
+      copy.settings.primary.cancel,
+    ]) {
+      expect(reachable).not.toContain(label);
+    }
+    // The scanner holds a code to the field's own check.
+    const scan = tree.root.findByType(Scanner);
+    expect(scan.props.purpose).toBe('primary');
+    expect(() => scan.props.validate('not a node')).toThrow();
+    expect(scan.props.validate(NODE)).toBe(NODE);
+    await detect(tree, NODE);
+    expect(tree.root.findAllByType(ScanReveal)).toHaveLength(0);
+    expect(field(tree, copy.settings.primary.address).props.value).toBe(NODE);
+    // Nothing is saved, and Settings is the same Settings.
+    expect(device.updatePrimary).not.toHaveBeenCalled();
+    expect(shown()).toBe(settings);
+    expect(pressableLabels(tree)).toContain(copy.settings.primary.save);
+  });
+
+  test('from Settings, the address to empty the wallet to is scanned into its field', async () => {
+    device.getConfig = jest
+      .fn()
+      .mockResolvedValue({ engineVersion: 'test', drainAvailable: true });
+    device.prepareDrain = jest.fn();
+    await inSettings();
+    const settings = shown();
+    const words = copy.settings.empty;
+    await press(tree, words.link);
+    await press(tree, words.scan);
+    expect(tree.root.findByType(ScanReveal).props).toMatchObject({
+      target: 'settings',
+      purpose: 'address',
+    });
+    const scan = tree.root.findByType(Scanner);
+    expect(scan.props.purpose).toBe('address');
+    expect(() => scan.props.validate(SCANNED)).toThrow(words.addressOnly);
+    expect(scan.props.validate(`bitcoin:${ADDRESS}`)).toBe(ADDRESS);
+    await detect(tree, ADDRESS);
+    expect(tree.root.findAllByType(ScanReveal)).toHaveLength(0);
+    expect(field(tree, words.address).props.value).toBe(ADDRESS);
+    expect(device.prepareDrain).not.toHaveBeenCalled();
+    expect(shown()).toBe(settings);
+  });
 });
 
 describe('inside Send', () => {
@@ -154,8 +232,10 @@ describe('inside Send', () => {
 
   function OnCanvas({
     receivers = [],
+    children,
   }: {
     receivers?: { onCode: (value: string) => void; active: boolean }[];
+    children?: React.ReactNode;
   }) {
     stage = useStageStore();
     const view = useCanvasView();
@@ -186,6 +266,7 @@ describe('inside Send', () => {
           {receivers.map((receiver, index) => (
             <Receiver key={index} {...receiver} />
           ))}
+          {children}
         </StageProvider>
       </GestureHandlerRootView>
     );
@@ -309,6 +390,101 @@ describe('inside Send', () => {
     } finally {
       snapshot = saved;
     }
+  });
+
+  describe('a Settings field asking for a scan', () => {
+    let ask!: (request: ScanRequest) => void;
+    function Asker() {
+      ask = useScanRequest();
+      return null;
+    }
+    /** The canvas in Settings, with a field of its own that asks. */
+    async function onSettings() {
+      const tree = await render(
+        <OnCanvas>
+          <Asker />
+        </OnCanvas>,
+      );
+      await act(async () => stage.actions.openSettings());
+      await act(async () => {});
+      return tree;
+    }
+    const request = (over: Partial<ScanRequest> = {}): ScanRequest => ({
+      purpose: 'address',
+      validate: value => value.replace(/^bitcoin:/, ''),
+      onCode: jest.fn(),
+      onClose: jest.fn(),
+      ...over,
+    });
+
+    test('hears the code it asked for, then the close, with the code read', async () => {
+      const tree = await onSettings();
+      const asked = request();
+      await act(async () => ask(asked));
+      expect(stage.state.overlay).toMatchObject({
+        target: 'settings',
+        purpose: 'address',
+      });
+      // The scanner holds a code to the field's check as it reads it.
+      expect(
+        tree.root.findByType(Scanner).props.validate(`bitcoin:${ADDRESS}`),
+      ).toBe(ADDRESS);
+      expect(asked.onClose).not.toHaveBeenCalled();
+      await detect(tree, ADDRESS);
+      expect(asked.onCode).toHaveBeenCalledWith(ADDRESS);
+      expect(asked.onClose).toHaveBeenCalledWith(true);
+      expect(stage.state.overlay).toBeNull();
+      expect(stage.state.scene.name).toBe('settings');
+      await act(async () => tree.unmount());
+    });
+
+    test('hears a close, with no code read, and fills nothing', async () => {
+      const tree = await onSettings();
+      const asked = request();
+      await act(async () => ask(asked));
+      await act(async () => {
+        tree.root.findByType(ScanReveal).props.onCancel();
+      });
+      expect(asked.onCode).not.toHaveBeenCalled();
+      expect(asked.onClose).toHaveBeenCalledWith(false);
+      expect(asked.onClose).toHaveBeenCalledTimes(1);
+      await act(async () => tree.unmount());
+    });
+
+    test('hears a close when the tap was refused while a pane moved', async () => {
+      const tree = await render(
+        <OnCanvas>
+          <Asker />
+        </OnCanvas>,
+      );
+      const asked = request();
+      // Settings is still on its way in: the scan's tap is refused.
+      await act(async () => {
+        stage.actions.openSettings();
+        ask(asked);
+      });
+      expect(stage.state.overlay).toBeNull();
+      expect(asked.onClose).toHaveBeenCalledWith(false);
+      await act(async () => tree.unmount());
+    });
+
+    test('a scan it did not ask for brings it nothing', async () => {
+      const tree = await onSettings();
+      const asked = request();
+      await act(async () => ask(asked));
+      await act(async () => {
+        tree.root.findByType(ScanReveal).props.onCancel();
+      });
+      // Opened another way, over the same Settings: no receiver is armed.
+      await act(async () => stage.actions.openScan());
+      expect(stage.state.overlay).toMatchObject({ target: 'settings' });
+      await detect(tree, ADDRESS);
+      expect(asked.onCode).not.toHaveBeenCalled();
+      expect(asked.onClose).toHaveBeenCalledTimes(1);
+      expect(stage.state.overlay).toBeNull();
+      expect(stage.state.scene.name).toBe('settings');
+      await act(async () => tree.unmount());
+    });
   });
 
   test('a code read from home never reaches a receiver', async () => {

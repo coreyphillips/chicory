@@ -26,8 +26,7 @@ import { steady } from '../../motion/steady';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { STATUS_ROW, WELL_DROP } from '../layout';
-
-type Point = { x: number; y: number };
+import type { Point, ScanPurpose, ScanTarget } from '../scene';
 
 /** The scan button's diameter on Home, which the disc grows out of. */
 export const BUTTON = 76;
@@ -114,18 +113,42 @@ export function opening(access: CameraAccess): number {
 
 /**
  * Where the disc collapses once a code is read (REDESIGN.md 7, T3): into
- * Send's request well. From inside Send that is where it grew from, the
- * well's own scan button; from home, the well of the Send it opens.
+ * Send's request well, or into the Settings field the code fills. From
+ * inside Send the well is where it grew from, the well's own scan button;
+ * from home, the well of the Send it opens. For Settings it is the field,
+ * `into` in the layer's own coordinates (`layerPoint`), or back into its
+ * button when the field could not say where it is. A close, as opposed to a
+ * code read, always closes back into the button.
  */
 export function landing(
   disc: Disc,
-  target: 'home' | 'send',
+  target: ScanTarget,
   grewFromButton: boolean,
   width: number,
   top: number,
+  into: Point | null = null,
 ): Point {
+  if (target === 'settings') return into ?? { x: disc.x, y: disc.y };
   if (target === 'send' && grewFromButton) return { x: disc.x, y: disc.y };
   return { x: width / 2, y: top + STATUS_ROW + WELL_DROP };
+}
+
+/**
+ * `point`, in the window, in the coordinates of a layer `width` by `height`
+ * that starts `left` points in, after a side cutout, and kept inside it: a
+ * field scrolled partly out of view still takes the disc to the edge it
+ * went past, rather than off the screen.
+ */
+export function layerPoint(
+  point: Point,
+  left: number,
+  width: number,
+  height: number,
+): Point {
+  return {
+    x: Math.min(Math.max(point.x - left, 0), width),
+    y: Math.min(Math.max(point.y, 0), height),
+  };
 }
 
 /** One transform, in the order the disc and its ground apply theirs. */
@@ -193,19 +216,19 @@ type Reading = Pick<SharedValue<number>, 'get'>;
 export interface Closing {
   scale: Reading;
   fade: Reading;
-  /** 1 once a code was read, which sends the disc into the well. */
+  /** 1 once a code was read, which sends the disc into the well or field. */
   caught: Reading;
   disc: Disc;
   width: number;
   height: number;
-  /** The shift from the origin to the well. */
+  /** The shift from the origin to the well, or to the field a code fills. */
   toWell: Point;
 }
 
 /**
- * Where a closing disc is headed. A code read closes it into the well once
- * the corners have held a beat, sage; anything else closes it at once back
- * into its button.
+ * Where a closing disc is headed. A code read closes it into the well, or
+ * the field it fills, once the corners have held a beat, sage; anything else
+ * closes it at once back into its button.
  */
 function closing({ scale, caught, disc, toWell }: Closing) {
   'worklet';
@@ -219,8 +242,8 @@ function closing({ scale, caught, disc, toWell }: Closing) {
 
 /**
  * The disc leaving (REDESIGN.md 7, T3): it closes back into its button, or
- * with a code read into Send's well, fading as it gets there. Under Reduce
- * Motion it only fades.
+ * with a code read into Send's well or the Settings field it fills, fading
+ * as it gets there. Under Reduce Motion it only fades.
  */
 export function collapse(
   closes: Closing,
@@ -304,8 +327,11 @@ export function groundCollapse(closes: Closing): EntryExitAnimationFunction {
 /**
  * The scan overlay (REDESIGN.md 2.3, 5 and 7, T3): a disc that grows out of
  * the scan button at `origin`, in window coordinates, onto the scanner.
- * `target` is where a code goes: a new Send from home, or the Send already
- * open. `onDetected` gets the code in the same call the scanner reads it;
+ * `target` is where a code goes: a new Send from home, the Send already
+ * open, or the Settings field that asked, which gives `purpose`, what the
+ * scanner says it reads, `validate`, its own check of a code, and `into`,
+ * where the field is in the window, for a code read to collapse into it.
+ * `onDetected` gets the code in the same call the scanner reads it;
  * `onCancel` asks for the overlay to close, as Android's back does through
  * the stage.
  *
@@ -323,7 +349,16 @@ export function groundCollapse(closes: Closing): EntryExitAnimationFunction {
  */
 export interface ScanRevealProps {
   origin: Point | null;
-  target: 'home' | 'send';
+  target: ScanTarget;
+  /** What the scan is for; a payment request unless given. */
+  purpose?: ScanPurpose;
+  /**
+   * The check a code is held to before it is taken, which returns what is
+   * taken or throws why not. Without one, a payment request is looked for.
+   */
+  validate?: (value: string) => string;
+  /** The Settings field a code read fills, in the window. */
+  into?: Point | null;
   onDetected: (value: string) => void;
   onCancel: () => void;
   /**
@@ -336,6 +371,9 @@ export interface ScanRevealProps {
 export function ScanReveal({
   origin,
   target,
+  purpose,
+  validate,
+  into = null,
   onDetected,
   onCancel,
   test = false,
@@ -442,8 +480,13 @@ export function ScanReveal({
     };
   }, [disc, width, height]);
 
+  // `into` is in the window too, and kept inside this layer.
+  const field = useMemo(
+    () => (into ? layerPoint(into, insets.left, width, height) : null),
+    [into, insets.left, width, height],
+  );
   const exits = useMemo(() => {
-    const well = landing(disc, target, !!origin, width, insets.top);
+    const well = landing(disc, target, !!origin, width, insets.top, field);
     const closes: Closing = {
       scale,
       fade,
@@ -463,6 +506,7 @@ export function ScanReveal({
     disc,
     target,
     origin,
+    field,
     width,
     height,
     insets.top,
@@ -509,6 +553,8 @@ export function ScanReveal({
       <View style={styles.layer} pointerEvents="box-none">
         <Scanner
           live={opened === 1}
+          purpose={purpose}
+          validate={validate}
           onDetected={detected}
           onCancel={onCancel}
           onAccess={setAccess}

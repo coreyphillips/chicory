@@ -826,6 +826,81 @@ describe('the canvas', () => {
     await act(async () => tree.unmount());
   });
 
+  /** The pane Settings is drawn in, and the veil the scan dims it with. */
+  const settingsParts = (tree: ReactTestRenderer) => {
+    const pane = tree.root
+      .findAllByType(Pane)
+      .find(layer => layer.findAllByType(SettingsLayer).length > 0)!;
+    const [veil] = byTestID(tree, 'settings-scan-veil');
+    return { pane, veil };
+  };
+
+  test('the scan overlay dims and shrinks Settings under it, and lets it go as it closes', async () => {
+    // The test before left Reduce Motion on in the shared mock.
+    jest
+      .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
+      .mockResolvedValue(false);
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openSettings());
+    await settle();
+    expect(transformOf(settingsParts(tree).pane, 'scale')).toBe(1);
+    expect(flat(settingsParts(tree).veil).opacity).toBe(0);
+    await act(async () => stage.actions.openScan());
+    await settle();
+    expect(stage.state.overlay).toMatchObject({ target: 'settings' });
+    const { pane, veil } = settingsParts(tree);
+    expect(transformOf(pane, 'scale')).toBe(SCANNING.scale);
+    // It dims toward the roast under it, through a veil rather than its
+    // own opacity, which would let the canvas it covers show through.
+    expect(flat(veil).opacity).toBe(1 - SCANNING.opacity);
+    expect(flat(pane).opacity).toBeUndefined();
+    expect(veil.props.pointerEvents).toBe('none');
+    // The canvas under Settings stays covered, and dims with the scan too.
+    expect(flat(panes(tree).canvas).opacity).toBe(
+      COVERED.opacity * SCANNING.opacity,
+    );
+    await act(async () => stage.dispatch({ type: 'back' }));
+    await settle();
+    expect(stage.state.scene.name).toBe('settings');
+    expect(transformOf(settingsParts(tree).pane, 'scale')).toBe(1);
+    expect(flat(settingsParts(tree).veil).opacity).toBe(0);
+    await act(async () => tree.unmount());
+  });
+
+  test('under Reduce Motion the scan overlay only dims Settings', async () => {
+    jest
+      .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
+      .mockResolvedValue(true);
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openSettings());
+    await act(async () => stage.actions.openScan());
+    const { pane, veil } = settingsParts(tree);
+    expect(flat(pane).transform).toBeUndefined();
+    expect(flat(veil).opacity).toBe(1 - SCANNING.opacity);
+    await act(async () => tree.unmount());
+  });
+
+  test("Settings' edge swipe is off while the scan is open over it", async () => {
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openSettings());
+    await settle();
+    // The swipe sits inside the pane the overlay takes out of use, so a
+    // swipe back can never close the scan and leave Settings where the
+    // finger let go.
+    const swipe = () =>
+      tree.root.findByType(EdgeBack).findByType(GestureDetector).props.gesture
+        .config;
+    expect(swipe().enabled).toBe(true);
+    await act(async () => stage.actions.openScan());
+    await settle();
+    expect(swipe().enabled).toBe(false);
+    await act(async () => stage.dispatch({ type: 'back' }));
+    await settle();
+    expect(stage.state.scene.name).toBe('settings');
+    expect(swipe().enabled).toBe(true);
+    await act(async () => tree.unmount());
+  });
+
   test('the session moves the panes too, without a tap', async () => {
     const tree = await render(<OnCanvas />);
     await act(async () => stage.dispatch({ type: 'tab', tab: 'Activity' }));

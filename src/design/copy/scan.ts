@@ -11,6 +11,16 @@ export const scan = {
   primaryNoCamera:
     'Enable the camera in settings, or paste your primary node address.',
   primaryDetected: 'Primary node address found.',
+  /** What a node check that gives no reason of its own refuses with. */
+  primaryInvalid: 'Invalid node address.',
+  /** The Bitcoin address Settings > Empty wallet sends everything to. */
+  addressTitle: 'Scan address QR',
+  addressPrivacy:
+    'Chicory reads the Bitcoin address QR. Nothing is recorded or sent.',
+  addressNoCamera:
+    'Enable the camera in settings, or paste the Bitcoin address.',
+  addressDetected: 'Bitcoin address found.',
+  addressInvalid: 'That code is not a Bitcoin address.',
   /** Its name once the camera turns out to be off. */
   camera: 'Camera',
   aim: 'Point at the code.',

@@ -1,8 +1,10 @@
 import React from 'react';
 import type { PropsWithChildren } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act } from 'react-test-renderer';
 import * as Keychain from 'react-native-keychain';
-import type { WalletSnapshot } from '@beignet/wallet-core';
+import type { DrainProgress, WalletSnapshot } from '@beignet/wallet-core';
+import { copy } from '../../src/design/copy';
 import { SetupPanel } from '../../src/scenes/phases/parts';
 import { SettingsLayer } from '../../src/scenes/settings/SettingsLayer';
 import { DeviceSetup } from '../../src/screens/DeviceSetup';
@@ -16,6 +18,7 @@ import type { WalletAdapter } from '../../src/services/wallet';
 import type { Backup, CanvasSession, CanvasView } from '../../src/stage/Canvas';
 import { CreateSheet } from '../../src/stage/layers/CreateSheet';
 import { StageProvider, useStageStore } from '../../src/stage/StageContext';
+import { ADDRESS, drainReviewOf } from '../../native-tests/gallery/fakes';
 import { guardData, snapshotOf, walletOf } from '../../test-support/fixtures';
 import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
@@ -83,10 +86,18 @@ const view = {
   setQuery: jest.fn(),
 } as unknown as CanvasView;
 
-/** A stage for the parts that reach for one: the close control, the sheet. */
+/**
+ * A stage for the parts that reach for one: the close control, the sheet.
+ * Under the app's gesture root, which the hold that empties the wallet
+ * needs.
+ */
 function OnStage({ children }: PropsWithChildren) {
   const stage = useStageStore();
-  return <StageProvider value={stage}>{children}</StageProvider>;
+  return (
+    <GestureHandlerRootView>
+      <StageProvider value={stage}>{children}</StageProvider>
+    </GestureHandlerRootView>
+  );
 }
 
 function settings(
@@ -95,10 +106,12 @@ function settings(
     backup = null,
     over = {},
     adapter = client(),
+    look = view,
   }: {
     backup?: Backup | null;
     over?: Partial<CanvasSession>;
     adapter?: WalletAdapter;
+    look?: CanvasView;
   } = {},
 ) {
   return mount(
@@ -107,13 +120,63 @@ function settings(
         snapshot={snapshot}
         client={adapter}
         session={session(over)}
-        view={view}
+        view={look}
         stale={false}
         backup={backup}
         arrived={0}
       />
     </OnStage>,
   );
+}
+
+/** A wallet whose engine can empty it to an address. */
+const draining = (over: Partial<WalletAdapter> = {}) =>
+  client({
+    getConfig: jest
+      .fn()
+      .mockResolvedValue({ engineVersion: '0.15.0', drainAvailable: true }),
+    prepareDrain: jest.fn().mockResolvedValue(drainReviewOf()),
+    getDrain: jest.fn().mockResolvedValue(drainReviewOf().drain),
+    ...over,
+  });
+
+/** The wallet on mainnet with a drain in its history, in `phase`. */
+function drainedTo(phase: DrainProgress['phase']): WalletSnapshot {
+  const drain: DrainProgress = {
+    ...drainReviewOf().drain!,
+    revision: 3,
+    phase,
+    residualSats: 1_200,
+  };
+  return snapshotOf({
+    wallet: { network: 'mainnet' },
+    activity: [
+      {
+        id: `drain:${drain.requestId}`,
+        kind: 'sent',
+        title: 'Emptying wallet',
+        description: '',
+        amountSats: drain.amountSats,
+        feeSats: drain.feeSats,
+        status: phase === 'review' ? 'uncertain' : 'pending',
+        timestamp: Date.now(),
+        reference: drain.requestId,
+        drain,
+      },
+    ],
+  });
+}
+
+/** Settings on mainnet with a review of emptying the wallet to ADDRESS. */
+async function reviewingDrain(look = view) {
+  const tree = await settings(mainnet, { adapter: draining(), look });
+  const words = copy.settings.empty;
+  await press(tree, words.link);
+  await act(async () => {
+    field(tree, words.address).props.onChangeText(ADDRESS);
+  });
+  await press(tree, words.review);
+  return tree;
 }
 
 const pending: Backup = {
@@ -289,6 +352,44 @@ const GUARDED: GuardedState[] = [
       return tree;
     },
     data: guardData(snapshot),
+  },
+  {
+    name: 'settings emptying the wallet to an address',
+    render: async () => {
+      const tree = await settings(mainnet, { adapter: draining() });
+      await press(tree, copy.settings.empty.link);
+      return tree;
+    },
+    data: guardData(mainnet),
+  },
+  {
+    name: 'settings reviewing an emptying, with its hold and the address',
+    render: () => reviewingDrain(),
+    data: guardData(mainnet, [ADDRESS]),
+  },
+  {
+    name: 'settings reviewing an emptying in ₿',
+    render: () => reviewingDrain({ ...view, symbol: true } as CanvasView),
+    data: guardData(mainnet, [ADDRESS]),
+  },
+  {
+    name: 'settings with the wallet emptying',
+    render: () => settings(drainedTo('pending'), { adapter: draining() }),
+    data: guardData(drainedTo('pending'), [ADDRESS]),
+  },
+  {
+    name: 'settings with an emptying whose start is unknown',
+    render: () => settings(drainedTo('review'), { adapter: draining() }),
+    data: guardData(drainedTo('review'), [ADDRESS]),
+  },
+  {
+    name: 'settings with an emptying being cancelled, in BTC',
+    render: () =>
+      settings(drainedTo('cancelling'), {
+        adapter: draining(),
+        look: { ...view, unit: 'btc' } as CanvasView,
+      }),
+    data: guardData(drainedTo('cancelling'), [ADDRESS]),
   },
   {
     name: 'settings after a failed refresh and switch',

@@ -4,6 +4,7 @@
  * and never open a vault, start an engine or reach the network.
  */
 import type {
+  Activity,
   HostConfig,
   DrainProgress,
   ReceiveInput,
@@ -222,6 +223,53 @@ export function drainReviewOf(address = ADDRESS): SendReview {
     drain: progress,
     expiresAt: progress.expiresAt,
     warnings: [],
+  };
+}
+
+/**
+ * The one send an emptied wallet shows in Activity, its drain in `phase`
+ * and `over` in place, as the wallet reads it back. Its moments are the
+ * fixtures', which `fresh` and `onMainnet` move to the present.
+ */
+export function drainActivityOf(
+  phase: DrainProgress['phase'],
+  over: Partial<DrainProgress> = {},
+): Activity {
+  const drain: DrainProgress = {
+    ...drainReviewOf().drain!,
+    revision: 3,
+    phase,
+    feeEstimated: phase === 'review',
+    txids: ['review', 'preparing'].includes(phase) ? [] : [hex(91), hex(92)],
+    createdAt: NOW - 10 * MINUTE,
+    expiresAt: NOW - 8 * MINUTE,
+    ...over,
+  };
+  return {
+    id: `drain:${drain.requestId}`,
+    kind: 'sent',
+    title:
+      phase === 'completed'
+        ? 'Wallet emptied'
+        : phase === 'cancelled'
+        ? 'Wallet drain cancelled'
+        : 'Emptying wallet',
+    description: 'Empty wallet to an address',
+    amountSats: drain.amountSats,
+    feeSats: drain.feeSats,
+    feeEstimated: drain.feeEstimated,
+    status:
+      phase === 'completed'
+        ? 'completed'
+        : phase === 'cancelled'
+        ? 'failed'
+        : phase === 'review'
+        ? 'uncertain'
+        : 'pending',
+    timestamp: NOW - 9 * MINUTE,
+    reference: drain.requestId,
+    ...(drain.txids[0] ? { txid: drain.txids[0] } : {}),
+    drain,
   };
 }
 

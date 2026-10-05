@@ -18,6 +18,7 @@ import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
 import { Circle, G, Path, Rect } from 'react-native-svg';
 import type { Activity } from '@beignet/wallet-core';
 import { Scanner } from '../src/components/Scanner';
+import { copy } from '../src/design/copy';
 import { Bloom } from '../src/glyphs/Bloom';
 import type { BloomTone } from '../src/glyphs/Bloom';
 import { CopyChip, chipText } from '../src/glyphs/CopyChip';
@@ -414,6 +415,24 @@ describe('HoldButton', () => {
     expect(holdMs(warned, LABEL)).toBe(1000);
   });
 
+  test("says how it is held in Send's words, unless given its own", async () => {
+    const plain = await held(
+      <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} />,
+    );
+    expect(circle(plain).props.accessibilityHint).toBe(copy.send.holdHint);
+    const own = await held(
+      <HoldButton
+        accessibilityLabel={LABEL}
+        accessibilityHint="Hold to close your channel."
+        onCommit={jest.fn()}
+        warning
+      />,
+    );
+    expect(circle(own).props.accessibilityHint).toBe(
+      'Hold to close your channel.',
+    );
+  });
+
   test('disabled, busy or in a pane not in use, nothing can commit', async () => {
     for (const element of [
       <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} disabled />,
@@ -612,6 +631,27 @@ describe('the scene layers', () => {
     expect(onDetected).toHaveBeenCalledTimes(1);
     expect(onDetected).toHaveBeenCalledWith('lnbcrt1scanned');
     expect(scanner.props.onCancel).toBe(onCancel);
+    // A scan from home names no purpose and brings no check of its own.
+    expect(scanner.props.purpose).toBeUndefined();
+    expect(scanner.props.validate).toBeUndefined();
+  });
+
+  test('ScanReveal hands the Scanner what a Settings field scans for, and its check', async () => {
+    const validate = jest.fn((value: string) => value.trim());
+    const tree = await render(
+      <ScanReveal
+        origin={{ x: 180, y: 520 }}
+        target="settings"
+        purpose="address"
+        validate={validate}
+        into={{ x: 180, y: 300 }}
+        onDetected={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+    const scanner = tree.root.findByType(Scanner);
+    expect(scanner.props.purpose).toBe('address');
+    expect(scanner.props.validate).toBe(validate);
   });
 
   test('DetailCard draws its content', async () => {
