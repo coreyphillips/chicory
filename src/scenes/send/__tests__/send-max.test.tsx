@@ -4,6 +4,10 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import type { MaxQuote, SendReview } from '@beignet/wallet-core';
+import {
+  DEFAULT_PRIMARY_URI,
+  EmbeddedWalletClient,
+} from '@beignet/wallet-core';
 import { Chip } from '../../../components/ui';
 import { copy } from '../../../design/copy';
 import { Whisper } from '../../../glyphs/Whisper';
@@ -115,6 +119,60 @@ test('the number-only max chip fills the readout, stays plain, and prepares max'
     request: INVOICE,
     max: true,
   });
+});
+
+test('the installed wallet core offers address max before home funding confirms', async () => {
+  const primary = DEFAULT_PRIMARY_URI.split('@')[0];
+  const core = new EmbeddedWalletClient({
+    walletId: 'unconfirmed',
+    runtime: {
+      request: async ({ path }) => {
+        if (path === '/api/wallets/unconfirmed') {
+          return {
+            id: 'unconfirmed',
+            network: 'mainnet',
+            lfbw: { enabled: true, primaryPubkey: primary, setup: 'ready' },
+          };
+        }
+        if (path === '/api/config') return { engineVersion: '0.27.0-portable' };
+        if (path.endsWith('/channels')) {
+          return [
+            {
+              channelId: 'home',
+              peerPubkey: primary,
+              state: 'NORMAL',
+              htlcUsable: true,
+              fundingConfirmed: false,
+              localBalanceSats: 100000,
+              localReserveWaived: true,
+            },
+          ];
+        }
+        if (path.endsWith('/fees/estimates')) return { normal: 2 };
+        if (path.endsWith('/channel/splice-quote')) {
+          return { feeSats: 579, maxAmountSats: 99421 };
+        }
+        if (path.endsWith('/peers'))
+          return [{ pubkey: primary, state: 'connected' }];
+        throw new Error(`Unexpected wallet request: ${path}`);
+      },
+    },
+  });
+  const prepareSend = jest.fn(core.prepareSend.bind(core));
+  const { tree } = await draw(
+    {
+      quoteMax: core.quoteMax.bind(core),
+      prepareSend,
+    },
+    { initialRequest: ADDRESS },
+  );
+  expect(tree.root.findByType(Chip).props.label).toBe('99,421 sats');
+  await press(tree, '99,421 sats');
+  await press(tree, copy.send.review);
+  expect(prepareSend).toHaveBeenCalledWith({ request: ADDRESS, max: true });
+  const prepared = await prepareSend.mock.results[0].value;
+  expect(prepared.amountSats).toBe(99421);
+  expect(prepared.warnings.join(' ')).toContain('funding is unconfirmed');
 });
 
 test('typing deselects max and continues with the typed amount', async () => {
