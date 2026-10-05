@@ -220,36 +220,92 @@ afterEach(async () => {
   jest.useRealTimers();
 });
 
-test('Settings exposes draining only when the engine supports it, below Change primary', async () => {
-  for (const supported of [false, true]) {
-    const client = clientOf({
-      getConfig: jest.fn().mockResolvedValue({ drainAvailable: supported }),
-    });
-    let tree!: ReactTestRenderer;
-    await act(async () => {
-      tree = create(
+/** Settings as the hub draws it, on mainnet, with `client`. */
+async function hub(client: WalletAdapter, snapshot = onMainnet()) {
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <GestureHandlerRootView>
         <SettingsScreen
-          snapshot={onMainnet()}
+          snapshot={snapshot}
           client={client}
           switchError=""
           onDisconnect={jest.fn()}
           onRefresh={jest.fn()}
           onNetwork={jest.fn()}
-        />,
-      );
-    });
-    trees.push(tree);
+        />
+      </GestureHandlerRootView>,
+    );
+  });
+  trees.push(tree);
+  return tree;
+}
+
+test('Settings offers draining only when the engine supports it, in Funds and exits before Lock', async () => {
+  for (const supported of [false, true]) {
+    const tree = await hub(
+      clientOf({
+        getConfig: jest.fn().mockResolvedValue({ drainAvailable: supported }),
+      }),
+    );
     const labels = tree.root
       .findAll(
         node => typeof node.type === 'string' && node.props.accessibilityLabel,
       )
       .map(node => node.props.accessibilityLabel);
     expect(labels.includes(w.link)).toBe(supported);
-    if (supported)
-      expect(labels.indexOf(w.link)).toBeGreaterThan(
-        labels.indexOf(copy.settings.primary.change),
-      );
+    if (supported) {
+      const at = (label: string) => labels.indexOf(label);
+      expect(at(copy.settings.primary.heading)).toBeGreaterThanOrEqual(0);
+      expect(at(w.link)).toBeGreaterThan(at(copy.settings.primary.heading));
+      expect(at(copy.settings.wallet.lock)).toBeGreaterThan(at(w.link));
+    }
   }
+});
+
+test('its row opens it at its warning, and Keep my channel closes the row and lands back on it', async () => {
+  const warning = jest.spyOn(haptics, 'warning');
+  const client = clientOf({
+    getConfig: jest.fn().mockResolvedValue({ drainAvailable: true }),
+  });
+  const tree = await hub(client);
+  // Closed, nothing of it is drawn.
+  expect(visibleText(tree)).not.toContain(w.warning);
+  await press(tree, w.link);
+  await settle();
+  expect(visibleText(tree)).toContain(w.warning);
+  expect(warning).toHaveBeenCalledTimes(1);
+  // It opened as a row opens it: no link of its own.
+  expect(
+    tree.root.findAll(
+      node =>
+        node.props.accessibilityLabel === w.link &&
+        typeof node.props.onPress === 'function',
+    ),
+  ).toHaveLength(1);
+  expect(focused()).toEqual([w.warning]);
+  await press(tree, w.keep);
+  await settle();
+  expect(visibleText(tree)).not.toContain(w.warning);
+  expect(focused().at(-1)).toBe(w.link);
+  expect(control(tree, w.link).props.accessibilityState).toMatchObject({
+    expanded: false,
+  });
+});
+
+test('a drain under way opens its row as Settings opens, and says so on the row once closed', async () => {
+  const client = clientOf({
+    getConfig: jest.fn().mockResolvedValue({ drainAvailable: true }),
+    getDrain: jest.fn().mockResolvedValue(underWay()),
+  });
+  const tree = await hub(client, snapshotWith(underWay()));
+  expect(visibleText(tree)).toContain(w.pending);
+  await press(tree, w.link);
+  expect(visibleText(tree)).not.toContain(w.pending);
+  expect(control(tree, w.link).props.accessibilityValue).toEqual({
+    text: w.underway,
+  });
+  expect(visibleText(tree)).toContain(w.underway);
 });
 
 test('drain review shows the total arrival, both network fees and the address in full', async () => {

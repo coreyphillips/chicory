@@ -103,12 +103,17 @@ function TitleFade() {
  * changes is the quiet read (`session.refresh`); only saving or retrying the
  * primary node, and a pull, restart and resync the wallet behind the
  * spinner.
+ *
+ * The page's card reads the wallet as the status row's mark does, so it
+ * hears whether the engine is still starting or a refresh runs, and
+ * whether the balance is too old to trust (`stale`), as the canvas does.
  */
 export function SettingsLayer({
   snapshot,
   client,
   session,
   view,
+  stale,
   backup,
 }: RegionProps) {
   // Settings covers the whole canvas, under the system bars too, so it
@@ -183,6 +188,9 @@ export function SettingsLayer({
               onBackupSaved={backup?.onSaved}
               unit={view.unit}
               symbol={view.symbol}
+              connecting={session.connecting}
+              refreshing={session.refreshing}
+              stale={stale}
             />
           </View>
         </SceneSlot>

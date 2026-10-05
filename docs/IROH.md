@@ -1,6 +1,6 @@
 # Iroh primary phone link
 
-Chicory accepts the private Iroh URI or QR from an Iroh-enabled Beignet Umbrel wallet. In Settings, change the primary node, paste its URI or choose **Scan primary node QR**, and save. The URI contains both the Lightning public key and Iroh endpoint identity. BOLT 8 remains responsible for Lightning authentication and encryption.
+Chicory accepts the private Iroh URI or QR from an Iroh-enabled Beignet Umbrel wallet. In Settings, open **Primary node**, choose **Change primary node**, paste its URI or choose **Scan primary node QR**, and save. The URI contains both the Lightning public key and Iroh endpoint identity. BOLT 8 remains responsible for Lightning authentication and encryption.
 
 The optional Tor fallback must be a v3 onion address for the same Lightning key. With an onion fallback configured, Tor warms alongside the engine at launch. Iroh is attempted first; the engine starts the fallback after 1.5 seconds when needed. With no onion primary or fallback configured, the Lightning connection does not start Tor. Electrum retains its own transport configuration. This option is experimental. Direct paths expose the phone's IP to the primary; Iroh relay services also see connecting IPs. Prefer pairing with a node you control.
 

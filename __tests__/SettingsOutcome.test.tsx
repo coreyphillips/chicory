@@ -45,6 +45,14 @@ const field = (tree: ReactTestRenderer, label: string) =>
   tree.root
     .findAllByProps({ accessibilityLabel: label })
     .find(node => typeof node.props.onChangeText === 'function')!;
+/**
+ * Opens the row labelled `label` (REDESIGN.md 6, Settings): a row's content
+ * is drawn only while it is open.
+ */
+const openRow = (tree: ReactTestRenderer, label: string) =>
+  act(async () => press(tree, label).props.onPress());
+/** Opens the Primary node row, where the node can be changed. */
+const openPrimary = (tree: ReactTestRenderer) => openRow(tree, 'Primary node');
 
 const base: WalletSnapshot = {
   wallet: { id: 'w', name: 'Everyday', network: 'regtest', status: 'running' },
@@ -101,6 +109,7 @@ async function render(
 test('a committed primary change that reconnected reports success', async () => {
   const adapter = client();
   const tree = await render(base, adapter);
+  await openPrimary(tree);
   await act(async () => press(tree, 'Change primary node').props.onPress());
   await act(async () => {
     field(tree, 'Node address').props.onChangeText('other@host:9735');
@@ -123,6 +132,7 @@ test('a committed change that has not reconnected says saved, not failed', async
     }),
   });
   const tree = await render(base, adapter);
+  await openPrimary(tree);
   await act(async () => press(tree, 'Change primary node').props.onPress());
   await act(async () => press(tree, 'Save primary node').props.onPress());
   expect(adapter.updatePrimary).toHaveBeenCalled();
@@ -139,6 +149,7 @@ test('a refused change keeps the draft and reports the reason', async () => {
       .mockRejectedValue(new Error('That node URI is not valid.')),
   });
   const tree = await render(base, adapter);
+  await openPrimary(tree);
   await act(async () => press(tree, 'Change primary node').props.onPress());
   await act(async () => {
     field(tree, 'Node address').props.onChangeText('broken');
@@ -164,6 +175,7 @@ test('a change whose fresh read fails is saved, not failed, and a failed setup i
     snapshot: jest.fn().mockRejectedValue(new Error('offline')),
   });
   let tree = await render(base, unreadable);
+  await openPrimary(tree);
   await act(async () => press(tree, 'Change primary node').props.onPress());
   await act(async () => press(tree, 'Save primary node').props.onPress());
   expect(unreadable.updatePrimary).toHaveBeenCalled();
@@ -177,6 +189,7 @@ test('a change whose fresh read fails is saved, not failed, and a failed setup i
     }),
   });
   tree = await render(base, failed);
+  await openPrimary(tree);
   await act(async () => press(tree, 'Change primary node').props.onPress());
   await act(async () => press(tree, 'Save primary node').props.onPress());
   expect(text(tree)).not.toContain('Primary node updated');
@@ -190,6 +203,7 @@ test('the node field follows the wallet it describes', async () => {
     { ...base, primary: { ...base.primary, uri: '' } },
     adapter,
   );
+  await openPrimary(tree);
   await act(async () => press(tree, 'Change primary node').props.onPress());
   expect(field(tree, 'Node address').props.value).not.toBe('');
   await act(async () => {
@@ -331,8 +345,30 @@ describe('the recovery phrase still to be saved', () => {
     });
     const after = headings(tree);
     expect(after[0]).toBe('Wallet');
-    expect(after).toContain('Recovery phrase');
     expect(after).not.toContain('Save your recovery phrase.');
+    // It is the Wallet group's first row now: a button that opens in place,
+    // closed, with its reveal folded away inside it.
+    const row = press(tree, 'Recovery phrase');
+    expect(row.props.accessibilityRole).toBe('button');
+    expect(row.props.accessibilityState).toMatchObject({ expanded: false });
+    expect(press(tree, 'Reveal recovery phrase')).toBeUndefined();
+    await act(async () => row.props.onPress());
+    expect(press(tree, 'Reveal recovery phrase')).toBeDefined();
+    await act(async () => tree.unmount());
+  });
+
+  test('while it leads, it is pinned open and is not a row to toggle', async () => {
+    const tree = await render(base, client(), {
+      backupPending: true,
+      onBackupSaved: jest.fn(),
+    });
+    // Nothing presses it closed, and its reveal is there from the start.
+    expect(press(tree, 'Recovery phrase')).toBeUndefined();
+    expect(press(tree, 'Reveal recovery phrase')).toBeDefined();
+    // Another row opening leaves it open: it is outside the one-at-a-time.
+    await openPrimary(tree);
+    expect(press(tree, 'Change primary node')).toBeDefined();
+    expect(press(tree, 'Reveal recovery phrase')).toBeDefined();
     await act(async () => tree.unmount());
   });
 
@@ -610,7 +646,40 @@ describe('a screen reader follows each change', () => {
     await act(async () => tree.unmount());
   });
 
-  test('into the erase warning, and back to the link when the wallet is kept', async () => {
+  test('on to the row the phrase becomes, once saving clears the pending flag', async () => {
+    const adapter = client({
+      getRecoveryPhrase: jest.fn().mockResolvedValue(PHRASE),
+    });
+    const onBackupSaved = jest.fn();
+    const tree = await mount(adapter, { backupPending: true, onBackupSaved });
+    await act(async () =>
+      press(tree, 'Reveal recovery phrase').props.onPress(),
+    );
+    await settle();
+    await activate(tree, 'I saved my recovery phrase');
+    await settle();
+    expect(landed().at(-1)).toBe('Save your recovery phrase.');
+    // The stage hears it saved, and Settings is drawn without the backup.
+    await act(async () => {
+      tree.update(
+        <SettingsScreen
+          snapshot={base}
+          client={adapter}
+          switchError=""
+          onDisconnect={jest.fn()}
+          onRefresh={jest.fn()}
+          onNetwork={jest.fn()}
+          onBackupSaved={onBackupSaved}
+        />,
+      );
+    });
+    await settle();
+    expect(landed().at(-1)).toBe('Recovery phrase');
+    expect(onBackupSaved).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('into the erase warning, and back to its row when the wallet is kept', async () => {
     const tree = await mount(client(), {
       onErase: jest.fn().mockResolvedValue(undefined),
     });
@@ -630,6 +699,7 @@ describe('a screen reader follows each change', () => {
 
   test('into the node field, and back to the change when it closes', async () => {
     const tree = await mount(client());
+    await openPrimary(tree);
     await act(async () => press(tree, 'Change primary node').props.onPress());
     await settle();
     expect(landed()).toEqual(['Node address']);
@@ -653,6 +723,7 @@ describe('a screen reader follows each change', () => {
         }
       ).props;
     const tree = await mount(client());
+    await openPrimary(tree);
     await act(async () => press(tree, 'Change primary node').props.onPress());
     await settle();
     await act(async () => press(tree, 'Scan primary node QR').props.onPress());
@@ -686,6 +757,7 @@ test('an error is read out as it arrives', async () => {
       .mockRejectedValue(new Error('The node refused the change.')),
   });
   const tree = await render(base, adapter);
+  await openPrimary(tree);
   await act(async () => press(tree, 'Change primary node').props.onPress());
   await act(async () => press(tree, 'Save primary node').props.onPress());
   expect(announced).toHaveBeenCalledWith(
@@ -759,6 +831,7 @@ test('the primary QR scanner accepts an Iroh address and saves its optional onio
   const fallback = `${key}@${'a'.repeat(56)}.onion:9735`;
   const adapter = client();
   const tree = await render(base, adapter);
+  await openPrimary(tree);
   await act(async () => press(tree, 'Change primary node').props.onPress());
   await act(async () => press(tree, 'Scan primary node QR').props.onPress());
   const scanner = tree.root.findByType(Scanner);

@@ -82,6 +82,7 @@ test('the set is the one REDESIGN.md section 4 names', () => {
     'boltRetry',
     'orbit',
     'unlock',
+    'haptics',
   ];
   expect([...NAMES].sort()).toEqual(
     [...kept, ...renamed, ...settingsOnly, ...added].sort(),
@@ -108,6 +109,8 @@ test('glyphs that animate in pieces keep those pieces apart', () => {
   expect(ids('unlock')).toEqual(['body', 'shackle']);
   expect(ids('linkPlus')).toEqual([...ids('chain'), 'plus']);
   expect(ids('boltRetry')).toEqual(['refresh', 'bolt']);
+  // Settings buzzes the phone and pops the bars as haptics turn on.
+  expect(ids('haptics')).toEqual(['body', 'left', 'right']);
 });
 
 describe('GLYPH_LENGTHS', () => {
@@ -128,6 +131,8 @@ describe('GLYPH_LENGTHS', () => {
     expect(GLYPH_LENGTHS.pause).toEqual([10, 10]);
     expect(GLYPH_LENGTHS.plus).toEqual([32]);
     expect(GLYPH_LENGTHS.bang).toEqual([8.5, 0.01]);
+    // The phone's sides and corners, and its two 6-unit bars.
+    expect(GLYPH_LENGTHS.haptics).toEqual([46.57, 6, 6]);
     // Rounded up, so a dash of this length always covers the stroke.
     expect(GLYPH_LENGTHS.cross[0]).toBeGreaterThanOrEqual(9 * Math.SQRT2);
     expect(GLYPH_LENGTHS.cross[0]).toBeLessThan(9 * Math.SQRT2 + 0.01);

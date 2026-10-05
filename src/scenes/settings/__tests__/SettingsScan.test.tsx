@@ -229,6 +229,7 @@ test("the primary node's scan returns focus to its field too", async () => {
   const tree = await mount(<OnCanvas />);
   await act(async () => stage.actions.openSettings());
   await settle();
+  await press(tree, copy.settings.primary.heading);
   await press(tree, copy.settings.primary.change);
   await press(tree, copy.settings.primary.scan);
   expect(stage.state.overlay).toMatchObject({

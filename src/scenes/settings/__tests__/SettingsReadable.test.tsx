@@ -16,7 +16,7 @@ import { APP_VERSION } from '../../../version';
 import { snapshotOf } from '../../../../test-support/fixtures';
 import { mount } from '../../../../test-support/guard';
 import { press } from '../../../../test-support/query';
-import { Diagnostics, codeText } from '../Diagnostics';
+import { DiagnosticsPanel, codeText } from '../Diagnostics';
 import { RecoveryWords } from '../RecoveryWords';
 import {
   copyFit,
@@ -81,6 +81,16 @@ async function render(
   return tree;
 }
 
+/** Settings with its Primary node row open, where the node's lines are. */
+async function primaryOpen(
+  snapshot: WalletSnapshot = snapshotOf(),
+  adapter: WalletAdapter = client(),
+) {
+  const tree = await render(snapshot, adapter);
+  await press(tree, words.primary.heading);
+  return tree;
+}
+
 afterEach(async () => {
   const tree = mounted;
   mounted = null;
@@ -107,7 +117,7 @@ describe('setup', () => {
   });
 
   test('a ready setup reads Ready, not ready', async () => {
-    const tree = await render();
+    const tree = await primaryOpen();
     // P10: "ready", lowercase, as the engine reports it.
     expect(texts(tree)).toContain(words.primary.setupReady);
     expect(texts(tree)).not.toContain('ready');
@@ -138,7 +148,7 @@ describe('a node address', () => {
   });
 
   test('is drawn with its breaks, and copied as it is', async () => {
-    const tree = await render(snapshotOf({ primary: { uri: URI } }));
+    const tree = await primaryOpen(snapshotOf({ primary: { uri: URI } }));
     const drawn = tree.root.find(
       node =>
         node.type === Text && node.props.children === nodeAddressText(URI),
@@ -162,7 +172,7 @@ describe('a node address', () => {
   });
 
   test('is typed in the mono face it is shown in', async () => {
-    const tree = await render(snapshotOf({ primary: { uri: URI } }));
+    const tree = await primaryOpen(snapshotOf({ primary: { uri: URI } }));
     await press(tree, words.primary.change);
     const input = tree.root.find(
       node =>
@@ -238,7 +248,7 @@ describe('the copy control beside a node address', () => {
   });
 
   async function drawn(uri: string) {
-    const tree = await render(snapshotOf({ primary: { uri } }));
+    const tree = await primaryOpen(snapshotOf({ primary: { uri } }));
     const value = () =>
       tree.root.find(
         node =>
@@ -411,8 +421,8 @@ describe("a diagnostic entry's code", () => {
       code: 'AMBIGUOUS_RECEIVE_ADDRESS',
     });
     const adapter = client();
-    const tree = await mount(<Diagnostics client={adapter} />);
-    await press(tree, words.diagnostics.heading);
+    // What Settings > Help > Diagnostics opens, which reads as it opens.
+    const tree = await mount(<DiagnosticsPanel client={adapter} />);
     const meta = tree.root.findAll(
       node =>
         node.type === Text &&

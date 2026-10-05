@@ -1071,9 +1071,18 @@ test('saving the device server waits for close and returns to Settings with the 
   await act(async () => {
     label(tree, 'Settings').props.onPress();
   });
+  // The setup's failure is the Primary node row's value; its reason is in
+  // the row.
+  await act(async () => {
+    label(tree, 'Primary node').props.onPress();
+  });
   expect(text(tree)).toContain('Liquidity provider is unavailable.');
+  // The servers are behind Network & servers, then Edit servers.
   await act(async () => {
     label(tree, 'Change network or Bitcoin server').props.onPress();
+  });
+  await act(async () => {
+    label(tree, 'Edit servers').props.onPress();
   });
   const preferences = defaultPreferences();
   const profile = {
@@ -1309,6 +1318,22 @@ function phaseOf(tree: ReactTestRenderer): Phase | undefined {
 }
 
 /** Waits, a few promise hops at a time, for `done`, for a second at most. */
+/**
+ * Chooses `network` in Settings > Network & servers, opening the row first
+ * when its networks are not drawn: a row draws what it holds only while it
+ * is open, and Settings drawn again after a switch opens with none open.
+ */
+async function choose(tree: ReactTestRenderer, network: string) {
+  if (!label(tree, network)) {
+    await act(async () => {
+      label(tree, 'Change network or Bitcoin server').props.onPress();
+    });
+  }
+  await act(async () => {
+    label(tree, network).props.onPress();
+  });
+}
+
 async function until(done: () => boolean) {
   for (let i = 0; i < 50 && !done(); i++) {
     await act(async () => {
@@ -1512,9 +1537,7 @@ test('switching networks while the engine is still starting closes it and opens 
   await act(async () => {
     label(tree, 'Settings').props.onPress();
   });
-  await act(async () => {
-    label(tree, 'mainnet').props.onPress();
-  });
+  await choose(tree, 'mainnet');
   await act(async () => {
     label(tree, 'Switch to mainnet').props.onPress();
   });
@@ -1609,9 +1632,7 @@ test('a second switch made while the first one’s wallet starts keeps its switc
   await act(async () => {
     label(tree, 'Settings').props.onPress();
   });
-  await act(async () => {
-    label(tree, 'mainnet').props.onPress();
-  });
+  await choose(tree, 'mainnet');
   await act(async () => {
     label(tree, 'Switch to mainnet').props.onPress();
   });
@@ -1619,9 +1640,7 @@ test('a second switch made while the first one’s wallet starts keeps its switc
   expect(mainnet.startWallet).toHaveBeenCalledTimes(1);
   expect(activeScene(tree)).toBe('settings');
   // While that wallet starts, the second switch.
-  await act(async () => {
-    label(tree, 'regtest').props.onPress();
-  });
+  await choose(tree, 'regtest');
   await act(async () => {
     label(tree, 'Switch to regtest').props.onPress();
   });

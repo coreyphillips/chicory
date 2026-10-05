@@ -154,6 +154,7 @@ describe('from the app', () => {
     device.updatePrimary = jest.fn();
     await inSettings();
     const settings = shown();
+    await press(tree, copy.settings.primary.heading);
     await press(tree, copy.settings.primary.change);
     await press(tree, copy.settings.primary.scan);
     expect(tree.root.findByType(ScanReveal).props).toMatchObject({
