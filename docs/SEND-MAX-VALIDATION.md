@@ -40,6 +40,14 @@ All 184 portable tests, types, build and four CI checks pass, with independent r
 
 The app pins that merged engine, with version 0.6.2 and native build number 8 on both platforms. The 83 affected engine, send-max and Settings tests pass, together with type checks and lint (zero errors, eight existing warnings). The earlier full app and physical-device qualification above applies to the prior 0.6.1 release; this follow-up uses the live engine regression and targeted app checks.
 
+## Receiving before drain confirmations in 0.6.3
+
+Portable engine `c2ffc5a66bc98d0f0b93b485b055a1067edc3402` separates the drain's wallet hold from payout tracking. Once the close's exact external output is verified and any sweep has durably entered submission with its original signed transaction and reserved inputs, new receives and funding can proceed. Activity still waits for actual confirmations before showing completion. Existing pending drains saved by previous versions unlock after their payouts are checked.
+
+A persisted commitment marker keeps the hold released across restart and reorg. The engine keeps the old sweep inputs reserved permanently. An interrupted pause release is repaired before network observations on restart. Older payouts keep being tracked without starving a newer submission, and a failed read-only observation is retained on its own drain while other payouts progress. Persistence, lifecycle and journal errors still stop unsafe work.
+
+All 192 portable tests, build, types and four CI checks pass, with independent review. Published beignet 0.27.0 regtest drained a channel and loose coins, restarted, and received 10,000 sats into a new JIT channel while both drain payouts still had zero confirmations. Both original payouts subsequently confirmed; one Activity retained both references, the new Lightning funds were separate and a later 1,000 sat coin remained outside the drain. The final error-isolation follow-up was covered by focused fault tests. This qualification used disposable portable wallets, with no phone app installation. The 83 affected engine, send-max and Settings app tests, type checks and lint pass (zero errors, eight existing warnings). Package, Android and iOS use version 0.6.3/build 9, and the installed engine bundles were independently checked against the merged pin.
+
 ## Isolated fixture entry
 
 Keep an ordinary release APK before installing the fixture. Its normal `index.js` entry never imports the fixture or its observer. The fixture prefixes every generic Keychain service and every SQLite filename, including the runtime lease, probes, migration reads and deletion opens, with `send-max-fixture-v1.`. Credential enumeration only exposes that prefix. Alternate SQLite open APIs, directory overrides and path separators are rejected. Public module bindings must match the wrappers before any wallet or App module loads.
