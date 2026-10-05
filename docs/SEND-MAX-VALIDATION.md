@@ -10,7 +10,7 @@ Physical device: Pixel 10 Pro XL, Android release builds, October 4, 2026. All i
 
 ## Live results
 
-The ordinary release opened the saved side-app wallet. Its previous home channel was already closed. Settings refused another cooperative drain, and no send was submitted against that wallet. The overly strict historical-channel check behind that refusal is corrected in 0.6.6 below.
+The ordinary release opened the saved side-app wallet. Its previous home channel was already closed. Settings refused another cooperative drain, and no send was submitted against that wallet. Version 0.6.6 below relaxes historical-channel admission for proven cooperative closes; that previously saved physical wallet was not retested.
 
 The `native-tests/SendMax.js` release entry then mounted the real `App` with separate secure-store services and SQLCipher database filenames. It retained the production wallet client, native TCP, real engine, real signatures and normal UI actions. Only fixture setup and public result observation were added. Every send used the normal review and hold controls. No recovery phrase or database key was exported.
 
