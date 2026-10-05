@@ -58,6 +58,14 @@ Funding: `74a9615338ca09a581b635900726789e83d8dafe1dee6b2a33de54eaae9eef91`. Pay
 
 All 117 affected app tests across 10 suites, type checks and lint pass (zero errors, eight existing warnings). Package, Android and iOS use version 0.6.4/build 10. Qualification uses disposable regtest wallets and local app tests. No phone app is installed by this follow-up.
 
+## Stable max chip refresh in 0.6.5
+
+The max chip previously disappeared at the start of each snapshot-driven quote refresh, then reappeared when the quote completed. It now retains the last usable quote while the same wallet and request refresh. The chip stays mounted, including when selected, and its amount updates when the next quote arrives. A changed request or client, a disconnected or disabled wallet, and an empty, invalid or refused quote remove it. Late answers cannot replace or clear another wallet's quote.
+
+Selecting a retained amount still calls prepareSend with max enabled and requires a fresh review before payment. The cached display cannot authorize a send. Regression tests cover the mounted chip during a delayed refresh, updated amounts, invalidation, wallet changes, late errors and review while refresh is pending.
+
+All 344 send, keypad, guard and installed-engine tests across 16 suites pass, together with type checks and lint (zero errors, eight existing warnings). Independent reviews are clear. Package, Android and iOS use version 0.6.5/build 11. Dependencies retain the verified 0.6.4 pins, so this release includes the unconfirmed-funding fix above. No phone app is installed by this follow-up.
+
 ## Isolated fixture entry
 
 Keep an ordinary release APK before installing the fixture. Its normal `index.js` entry never imports the fixture or its observer. The fixture prefixes every generic Keychain service and every SQLite filename, including the runtime lease, probes, migration reads and deletion opens, with `send-max-fixture-v1.`. Credential enumeration only exposes that prefix. Alternate SQLite open APIs, directory overrides and path separators are rejected. Public module bindings must match the wrappers before any wallet or App module loads.

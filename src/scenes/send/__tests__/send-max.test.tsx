@@ -236,8 +236,10 @@ test('a refreshed selected max updates its readout, and disconnect hides the chi
   await update({ quoteRevision: 2 });
   expect(amountValue(tree)).toBe('200000');
   expect(tree.root.findByType(Chip).props.selected).toBe(true);
+  const chip = tree.root.findByType(Chip);
   await update({ quoteRevision: 3 });
-  expect(tree.root.findAllByType(Chip)).toHaveLength(0);
+  expect(tree.root.findByType(Chip)).toBe(chip);
+  expect(chip.props.label).toBe('200,000 sats');
   expect(amountValue(tree)).toBe('200000');
   await act(async () => answer({ ...maximum, amountSats: 205000 }));
   expect(amountValue(tree)).toBe('205000');
@@ -245,6 +247,84 @@ test('a refreshed selected max updates its readout, and disconnect hides the chi
   expect(tree.root.findAllByType(Chip)).toHaveLength(0);
   expect(amountValue(tree)).toBe('205000');
   expect(tree.root.findByType(AmountReadout).props.tone).toBe('plain');
+});
+
+test.each(['empty', 'invalid', 'refused'])(
+  'a %s refresh clears the retained max, and a later quote restores it',
+  async outcome => {
+    let answer!: (quote: MaxQuote) => void;
+    let refuse!: (error: Error) => void;
+    const quoteMax = jest
+      .fn()
+      .mockResolvedValueOnce(maximum)
+      .mockImplementationOnce(
+        () =>
+          new Promise<MaxQuote>((resolve, reject) => {
+            answer = resolve;
+            refuse = reject;
+          }),
+      )
+      .mockResolvedValueOnce({ ...maximum, amountSats: 199000 });
+    const { tree, update } = await draw({ quoteMax });
+    const chip = tree.root.findByType(Chip);
+    await update({ quoteRevision: 2 });
+    expect(tree.root.findByType(Chip)).toBe(chip);
+    await act(async () => {
+      if (outcome === 'refused') refuse(new Error('Channel unavailable'));
+      else answer({ ...maximum, amountSats: outcome === 'empty' ? 0 : NaN });
+    });
+    expect(tree.root.findAllByType(Chip)).toHaveLength(0);
+    await update({ quoteRevision: 3 });
+    expect(tree.root.findByType(Chip).props.label).toBe('199,000 sats');
+  },
+);
+
+test('a retained max can start a fresh review while its background quote is pending', async () => {
+  const quoteMax = jest
+    .fn()
+    .mockResolvedValueOnce(maximum)
+    .mockImplementationOnce(() => new Promise<MaxQuote>(() => {}));
+  const { tree, client, update } = await draw({ quoteMax });
+  await update({ quoteRevision: 2 });
+  await press(tree, '198,000 sats');
+  await press(tree, copy.send.review);
+  expect(client.prepareSend).toHaveBeenCalledWith({
+    request: INVOICE,
+    max: true,
+  });
+  expect(client.send).not.toHaveBeenCalled();
+});
+
+test('a changed wallet drops its cached max and a late refusal cannot clear the new quote', async () => {
+  let refuse!: (error: Error) => void;
+  let answer!: (quote: MaxQuote) => void;
+  const quoteMax = jest
+    .fn()
+    .mockResolvedValueOnce(maximum)
+    .mockImplementationOnce(
+      () =>
+        new Promise<MaxQuote>((_resolve, reject) => {
+          refuse = reject;
+        }),
+    );
+  const { tree, client, update } = await draw({ quoteMax });
+  await update({ quoteRevision: 2 });
+  expect(tree.root.findByType(Chip).props.label).toBe('198,000 sats');
+  const nextClient = {
+    ...client,
+    quoteMax: jest.fn(
+      () =>
+        new Promise<MaxQuote>(resolve => {
+          answer = resolve;
+        }),
+    ),
+  };
+  await update({ client: nextClient });
+  expect(tree.root.findAllByType(Chip)).toHaveLength(0);
+  await act(async () => answer({ ...maximum, amountSats: 300000 }));
+  expect(tree.root.findByType(Chip).props.label).toBe('300,000 sats');
+  await act(async () => refuse(new Error('Old wallet unavailable')));
+  expect(tree.root.findByType(Chip).props.label).toBe('300,000 sats');
 });
 
 test('pay-all review shows and speaks three bounds and whispers the retained balance', async () => {

@@ -245,8 +245,10 @@ export function SendScreen({
   const [scanning, setScanning] = useState(initialScanning);
   const [amount, setAmount] = useState('');
   const [maximum, setMaximum] = useState<
-    (MaxQuote & { request: string }) | null
+    (MaxQuote & { request: string; client: WalletAdapter }) | null
   >(null);
+  const currentMaximum =
+    maximum?.request === request && maximum.client === client ? maximum : null;
   const [maxFor, setMaxFor] = useState<string | null>(null);
   const maxSelected = maxFor === request;
   const [review, setReview] = useState<SendReview | null>(null);
@@ -313,22 +315,29 @@ export function SendScreen({
     !leaving &&
     failure?.target !== 'request';
   useEffect(() => {
-    setMaximum(null);
+    // Keep the last usable amount visible while refreshing this same wallet
+    // and request. Preparing a payment still obtains a fresh review.
+    setMaximum(previous =>
+      canQuoteMax && previous?.request === request && previous.client === client
+        ? previous
+        : null,
+    );
     if (!canQuoteMax) return;
     let current = true;
     client
       .quoteMax({ request: request.trim() })
       .then(quote => {
-        if (
-          current &&
-          Number.isSafeInteger(quote.amountSats) &&
-          quote.amountSats > 0
-        )
-          setMaximum({ ...quote, request });
+        if (!current) return;
+        setMaximum(
+          Number.isSafeInteger(quote.amountSats) && quote.amountSats > 0
+            ? { ...quote, request, client }
+            : null,
+        );
       })
       .catch(() => {
-        // A chip is absent until a usable quote arrives. Continue still reports
-        // a refusal when the person asks to review a payment.
+        // A refused refresh invalidates the old amount. Late answers cannot
+        // clear a newer request's quote.
+        if (current) setMaximum(null);
       });
     return () => {
       current = false;
@@ -342,9 +351,9 @@ export function SendScreen({
     balance?.totalSats,
   ]);
   useEffect(() => {
-    if (maxFor === request && maximum?.request === request)
-      setAmount(String(maximum.amountSats));
-  }, [maximum, maxFor, request]);
+    if (maxFor === request && currentMaximum)
+      setAmount(String(currentMaximum.amountSats));
+  }, [currentMaximum, maxFor, request]);
   // The request whose held ring is on screen, if one is, for a payment's
   // late answer to follow.
   const watching = useRef('');
@@ -1198,8 +1207,8 @@ export function SendScreen({
     const shownAmount =
       fixedSats !== null
         ? String(fixedSats)
-        : maxSelected && maximum?.request === request
-        ? String(maximum.amountSats)
+        : maxSelected && currentMaximum
+        ? String(currentMaximum.amountSats)
         : amount;
     const tone: AmountTone = maxSelected
       ? 'plain'
@@ -1244,17 +1253,17 @@ export function SendScreen({
           shake={amountShakes}
           symbol={symbol}
         >
-          {canQuoteMax && maximum?.request === request ? (
+          {canQuoteMax && currentMaximum ? (
             <Reanimated.View entering={riseIn()} style={styles.maximum}>
               <Chip
-                label={copy.amount.spoken(maximum.amountSats)}
+                label={copy.amount.spoken(currentMaximum.amountSats)}
                 selected={maxSelected}
                 disabled={busy}
                 maxFontSizeMultiplier={LINE_SCALE}
                 onPress={
                   live && !busy
                     ? () => {
-                        setAmount(String(maximum.amountSats));
+                        setAmount(String(currentMaximum.amountSats));
                         setMaxFor(request);
                         setFailure(null);
                       }
