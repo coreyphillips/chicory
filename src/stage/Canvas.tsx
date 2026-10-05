@@ -37,6 +37,7 @@ import { isTestNetwork } from '../scenes/home/visual';
 import { ReceiveScene } from '../scenes/receive/ReceiveScene';
 import { SendScene } from '../scenes/send/SendScene';
 import { SettingsLayer } from '../scenes/settings/SettingsLayer';
+import { markBoot } from '../services/perf';
 import type { useWalletSession } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
 import { colors, radius, space } from '../theme';
@@ -215,7 +216,13 @@ export function Canvas({
   );
   useEffect(() => {
     if (!build) return;
-    const frame = requestAnimationFrame(() => beganAt(build, Date.now()));
+    const frame = requestAnimationFrame(() => {
+      beganAt(build, Date.now());
+      // The first wallet page anyone could see, for the boot report
+      // (services/perf): stalls in the seconds after it land on a page that
+      // looks ready to use, so the report counts them on their own.
+      markBoot('canvas-painted');
+    });
     return () => cancelAnimationFrame(frame);
   }, [build]);
   const [primaries] = useState<Primaries>(() => new Map());

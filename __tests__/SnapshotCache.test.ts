@@ -1,6 +1,7 @@
 import * as Keychain from 'react-native-keychain';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import {
+  cacheEntry,
   clearCachedSnapshot,
   loadCachedSnapshot,
   saveCachedSnapshot,
@@ -121,4 +122,58 @@ test('each wallet keeps its own entry, so switching networks does not evict the 
   await clearCachedSnapshot();
   expect(await loadCachedSnapshot('w1')).toBeNull();
   expect(await loadCachedSnapshot('w2')).toBeNull();
+});
+
+test('a save serializes the snapshot once, and stores the entry the cache always stored', async () => {
+  const stringify = jest.spyOn(JSON, 'stringify');
+  try {
+    await saveCachedSnapshot('w1', snapshot);
+    // The whole snapshot is the large part; it is turned into text once.
+    const whole = stringify.mock.calls.filter(
+      ([value]) => !!value && typeof value === 'object' && 'activity' in value,
+    );
+    expect(whole).toHaveLength(1);
+  } finally {
+    stringify.mockRestore();
+  }
+  const written = jest.mocked(Keychain.setGenericPassword).mock.calls[0][1];
+  // As the entry the cache wrote before: the same top-level shape, and the
+  // same snapshot read back.
+  expect(JSON.parse(written)).toEqual({ version: 1, walletId: 'w1', snapshot });
+  expect(Object.keys(JSON.parse(written))).toEqual([
+    'version',
+    'walletId',
+    'snapshot',
+  ]);
+});
+
+test('an entry reads back as the whole entry, whatever its wallet id or time', () => {
+  const entries: [string, WalletSnapshot][] = [
+    ['w1', snapshot],
+    ['a "quoted" \\ id', { ...snapshot, updatedAt: 0 }],
+    ['w2', { ...snapshot, activity: [], notes: ['One note.'] }],
+  ];
+  for (const [walletId, value] of entries) {
+    const entry = cacheEntry(walletId, value);
+    const { figures } = entry;
+    expect(JSON.parse(entry.stored)).toEqual({
+      version: 1,
+      walletId,
+      snapshot: value,
+    });
+    // The figures are the entry without its time: a new time alone leaves
+    // them as they were, and anything else changes them.
+    expect(cacheEntry(walletId, { ...value, updatedAt: 99 }).figures).toBe(
+      figures,
+    );
+    expect(
+      cacheEntry(walletId, { ...value, notes: ['Another.'] }).figures,
+    ).not.toBe(figures);
+  }
+  // A time JSON cannot write is left out, as the cache always left it.
+  const timeless = { ...snapshot } as Partial<WalletSnapshot>;
+  delete timeless.updatedAt;
+  expect(
+    JSON.parse(cacheEntry('w1', timeless as WalletSnapshot).stored),
+  ).toEqual({ version: 1, walletId: 'w1', snapshot: timeless });
 });

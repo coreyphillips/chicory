@@ -49,15 +49,42 @@ export function mergeActivity(
   );
   const merged = [...out, ...kept];
   const drainTxids = new Set(merged.flatMap(row => row.drain?.txids ?? []));
+  // Which rows were put back rather than read, and which rows carry each
+  // transaction, both by the row itself, so the same row listed twice is
+  // still one row. Looked up rather than searched for: this runs on every
+  // read, over a history that only grows.
+  const putBack = new Set(kept);
+  const carriers = carriersOf(kept.length ? merged : []);
   const shown = merged.filter(
     row =>
       (row.drain || !row.txid || !drainTxids.has(row.txid)) &&
       (row.drain ||
-        !kept.includes(row) ||
+        !putBack.has(row) ||
         !row.txid ||
-        !merged.some(other => other !== row && other.txid === row.txid)),
+        !carriedElsewhere(carriers, row)),
   );
   return kept.length ? shown.sort((a, b) => b.timestamp - a.timestamp) : shown;
+}
+
+/** Each transaction id among `rows`, with the rows that carry it. */
+function carriersOf(rows: readonly Activity[]): Map<string, Set<Activity>> {
+  const carriers = new Map<string, Set<Activity>>();
+  for (const row of rows) {
+    if (!row.txid) continue;
+    const holding = carriers.get(row.txid);
+    if (holding) holding.add(row);
+    else carriers.set(row.txid, new Set([row]));
+  }
+  return carriers;
+}
+
+/** Whether a row other than `row` carries `row`'s transaction. */
+function carriedElsewhere(
+  carriers: Map<string, Set<Activity>>,
+  row: Activity,
+): boolean {
+  const holding = row.txid ? carriers.get(row.txid) : undefined;
+  return !!holding && (holding.size > 1 || !holding.has(row));
 }
 
 /**

@@ -13,6 +13,7 @@ import {
 import type { NetworkProfile, NetworkPreferences } from '../services/networks';
 import { withDeviceSeedSource } from './seed';
 import { ensureTorReady, isOnionHost } from '../services/tor';
+import { markBoot } from '../services/perf';
 
 export type DeviceSettings = NetworkProfile;
 const LEGACY_SERVICE = 'com.beignet.wallet.embedded.settings';
@@ -178,12 +179,17 @@ export async function openDeviceWallet(
     import('./network'),
     import('./iroh'),
   ]);
+  // Steps of the boot report (services/perf): the engine's code evaluated,
+  // which on Hermes is a cost of its own, then the vault open, then the
+  // runtime made.
+  markBoot('engine-loaded');
   const preferences = await loadDevicePreferences();
   const storage = await openEncryptedDeviceStorage(
     storageNamespace(settings.network, preferences.legacyNetwork),
     options?.existingOnly ?? false,
     options?.allowEmpty ?? false,
   );
+  markBoot('vault-opened');
   let engine:
     | Awaited<
         ReturnType<
@@ -259,6 +265,7 @@ export async function openDeviceWallet(
       electrum: settings.electrum,
       onDiagnostic,
     });
+    markBoot('runtime-created');
     const runtime = withDeviceSeedSource(
       engine,
       storage,

@@ -36,8 +36,31 @@ interface CachedSnapshot {
  * is read is always written, so a launch's first live read replaces it.
  */
 const lastSaved = new Map<string, string>();
-const figuresOf = (value: CachedSnapshot) =>
-  JSON.stringify({ ...value, snapshot: { ...value.snapshot, updatedAt: 0 } });
+
+/**
+ * Wallet `walletId`'s entry for `snapshot`, as it is stored, and its
+ * figures: the same entry without the read's time, which is what a save
+ * compares. With a long history the snapshot is large, and a save runs on
+ * every read, so it is serialized once, without its time, and the time is
+ * written onto the end of that. JSON.parse reads the entry back as the same
+ * `{ version, walletId, snapshot }`; only the time's place among the
+ * snapshot's keys has moved.
+ */
+export function cacheEntry(
+  walletId: string,
+  snapshot: WalletSnapshot,
+): { figures: string; stored: string } {
+  const { updatedAt, ...rest } = snapshot;
+  const id = JSON.stringify(walletId);
+  const head = `{"version":1,"walletId":${id},"snapshot":`;
+  const body = JSON.stringify(rest);
+  const figures = head + body;
+  // A time JSON cannot write is left out, as it always was.
+  const time = JSON.stringify(updatedAt) as string | undefined;
+  if (time === undefined) return { figures, stored: `${figures}}` };
+  const open = body === '{}' ? '{' : `${body.slice(0, -1)},`;
+  return { figures, stored: `${head}${open}"updatedAt":${time}}}` };
+}
 
 export async function loadCachedSnapshot(
   walletId: string,
@@ -74,18 +97,13 @@ export async function saveCachedSnapshot(
   walletId: string,
   snapshot: WalletSnapshot,
 ): Promise<void> {
-  const value: CachedSnapshot = { version: 1, walletId, snapshot };
-  const figures = figuresOf(value);
+  const { figures, stored } = cacheEntry(walletId, snapshot);
   if (figures === lastSaved.get(walletId)) return;
   try {
-    await Keychain.setGenericPassword(
-      'beignet-snapshot',
-      JSON.stringify(value),
-      {
-        service: serviceFor(walletId),
-        accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-      },
-    );
+    await Keychain.setGenericPassword('beignet-snapshot', stored, {
+      service: serviceFor(walletId),
+      accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    });
     lastSaved.set(walletId, figures);
   } catch {
     // A cache that cannot be written costs the next launch a few seconds,

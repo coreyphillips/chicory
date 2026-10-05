@@ -1,5 +1,6 @@
 import { Buffer } from 'buffer';
 import type { Scalar, QueryResult } from '@op-engineering/op-sqlite';
+import { noteSqlite } from '../services/perf';
 
 export interface SynchronousDatabase {
   executeSync(sql: string, params?: Scalar[]): QueryResult;
@@ -32,6 +33,23 @@ function parameters(values: unknown[]): Scalar[] {
 
 /** Synchronous better-sqlite3 surface used by the unchanged channel storage. */
 export class NativeSqliteDatabase {
+  /**
+   * Lets the engine's storage coalesce the public network map's rows, the
+   * channels and nodes the primary's gossip announces, into one transaction
+   * of at most 500 rows or 100ms (the fork's `ReconstructableBatch`, which
+   * the engine turns on when its database sets this). Without it every
+   * gossip message the primary sends is a commit of its own, synced to disk
+   * on this phone's JavaScript thread, and one connection can bring
+   * thousands. The batch is flushed before the map is read back and as the
+   * engine's storage closes. Losing one costs nothing the next gossip does
+   * not bring again, so neither a crash nor an engine that missed its close
+   * deadline, and had this database closed under it, loses anything that
+   * matters: that batch's write fails on the closed database and is
+   * dropped. Nothing else is batched: channel state, keys, payments and
+   * recovery data still commit, and sync, before the call that wrote them
+   * returns.
+   */
+  readonly portableGossipBatch = true;
   private depth = 0;
   private sequence = 0;
   private closed = false;
@@ -57,6 +75,7 @@ export class NativeSqliteDatabase {
     if (this.closed || this.poisoned) {
       throw new Error('The durable wallet database is closed.');
     }
+    const began = Date.now();
     let result: QueryResult;
     try {
       result = this.native.executeSync(sql, parameters(values));
@@ -88,6 +107,10 @@ export class NativeSqliteDatabase {
         }
       }
     }
+    // For the boot report (services/perf), which counts the statements, the
+    // commits and the network map's rows. Outside a transaction a write
+    // commits on its own.
+    noteSqlite(sql, Date.now() - began, result.rows.length, this.depth === 0);
     return result;
   }
 

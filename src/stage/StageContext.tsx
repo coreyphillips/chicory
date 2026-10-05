@@ -12,6 +12,7 @@ import React, {
 import type { Dispatch, PropsWithChildren, RefObject } from 'react';
 import type { Activity } from '@beignet/wallet-core';
 import type { SafetyKind } from '../motion/speech';
+import { noteRefusedTap } from '../services/perf';
 import { initialStage, stageReducer } from './scene';
 import type { Rect, StageAction, StageState } from './scene';
 
@@ -228,7 +229,10 @@ export function useStageStore(): StageStore {
     // the canvas renders the new scene.
     const tap = (action: StageAction, fling?: Fling) => {
       const motion = panes.current;
-      if (motion?.moving()) return;
+      if (motion?.moving()) {
+        noteRefusedTap();
+        return;
+      }
       const before = latest.current;
       latest.current = stageReducer(before, action);
       dispatch(action);
