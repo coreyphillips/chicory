@@ -1,8 +1,7 @@
 import React from 'react';
 import { AppState, Text } from 'react-native';
 import { act } from 'react-test-renderer';
-import { copy } from '../src/design/copy';
-import { Diagnostics } from '../src/scenes/settings/Diagnostics';
+import { DiagnosticsPanel } from '../src/scenes/settings/Diagnostics';
 import {
   clearDiagnostics,
   recordDiagnostic,
@@ -20,7 +19,6 @@ import {
 import type { BootRecord, Mark, SqliteTally } from '../src/services/perf';
 import type { WalletAdapter } from '../src/services/wallet';
 import { mount } from '../test-support/guard';
-import { press } from '../test-support/query';
 
 /**
  * The boot report (src/services/perf): when each step of a cold start first
@@ -362,8 +360,9 @@ describe('Settings > Diagnostics', () => {
     const client = {
       diagnostics: jest.fn().mockResolvedValue({ setup: 'ready' }),
     } as unknown as WalletAdapter;
-    const tree = await mount(<Diagnostics client={client} />);
-    await press(tree, copy.settings.diagnostics.heading);
+    // What Settings > Help > Diagnostics opens, which reads the report as
+    // it opens.
+    const tree = await mount(<DiagnosticsPanel client={client} />);
     const drawn = (message: string) =>
       tree.root.findAll(
         node => node.type === Text && node.props.children === message,

@@ -259,6 +259,7 @@ const GUARDED: GuardedState[] = [
     name: 'settings showing the phrase',
     render: async () => {
       const tree = await settings(snapshot);
+      await press(tree, 'Recovery phrase');
       await press(tree, 'Reveal recovery phrase');
       return tree;
     },
@@ -268,6 +269,7 @@ const GUARDED: GuardedState[] = [
     name: 'settings proposing another network',
     render: async () => {
       const tree = await settings(snapshot);
+      await press(tree, 'Change network or Bitcoin server');
       await press(tree, 'mainnet');
       return tree;
     },
@@ -278,6 +280,16 @@ const GUARDED: GuardedState[] = [
     render: async () => {
       const tree = await settings(snapshot);
       await press(tree, 'Change network or Bitcoin server');
+      await press(tree, copy.settings.wallet.editServers);
+      return tree;
+    },
+    data: guardData(snapshot),
+  },
+  {
+    name: 'settings with the primary node open',
+    render: async () => {
+      const tree = await settings(snapshot);
+      await press(tree, copy.settings.primary.heading);
       return tree;
     },
     data: guardData(snapshot),
@@ -286,6 +298,7 @@ const GUARDED: GuardedState[] = [
     name: 'settings changing the primary node',
     render: async () => {
       const tree = await settings(snapshot);
+      await press(tree, copy.settings.primary.heading);
       await press(tree, 'Change primary node');
       return tree;
     },
@@ -295,6 +308,7 @@ const GUARDED: GuardedState[] = [
     name: 'settings having saved the primary node',
     render: async () => {
       const tree = await settings(snapshot);
+      await press(tree, copy.settings.primary.heading);
       await press(tree, 'Change primary node');
       await press(tree, 'Save primary node');
       return tree;
@@ -311,6 +325,7 @@ const GUARDED: GuardedState[] = [
             .mockRejectedValue(new Error('That node URI is not valid.')),
         }),
       });
+      await press(tree, copy.settings.primary.heading);
       await press(tree, 'Change primary node');
       await press(tree, 'Save primary node');
       return tree;
@@ -321,6 +336,20 @@ const GUARDED: GuardedState[] = [
     name: 'settings with a primary node that failed setup',
     render: () => settings(failing),
     data: guardData(failing),
+  },
+  {
+    name: 'settings with a failed setup open',
+    render: async () => {
+      const tree = await settings(failing);
+      await press(tree, copy.settings.primary.heading);
+      return tree;
+    },
+    data: guardData(failing),
+  },
+  {
+    name: 'settings while the engine starts',
+    render: () => settings(snapshot, { over: { connecting: true } }),
+    data: guardData(snapshot),
   },
   {
     name: 'settings offering an app lock',
@@ -374,6 +403,17 @@ const GUARDED: GuardedState[] = [
   {
     name: 'settings with the wallet emptying',
     render: () => settings(drainedTo('pending'), { adapter: draining() }),
+    data: guardData(drainedTo('pending'), [ADDRESS]),
+  },
+  {
+    name: 'settings with the wallet emptying, its row closed',
+    render: async () => {
+      const tree = await settings(drainedTo('pending'), {
+        adapter: draining(),
+      });
+      await press(tree, copy.settings.empty.link);
+      return tree;
+    },
     data: guardData(drainedTo('pending'), [ADDRESS]),
   },
   {

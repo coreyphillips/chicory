@@ -43,6 +43,7 @@ import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { useFocus } from '../../motion/focus';
+import { useLoop, wave } from '../../motion/loops';
 import { riseIn, smooth, stagger } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -238,42 +239,37 @@ export function Working({
   );
 }
 
+/** How far a breath dims what it breathes: from whole to .35 and back. */
+const BREATH_DEPTH = 0.65;
+
 /**
- * Breathes its children's opacity while `on`, one breath every `period`, for
- * a state that must keep being noticed. It rests while the app is in the
- * background and holds still under Reduce Motion, where the colour and the
- * shape still say it.
+ * Breathes its children's opacity while `on`, one breath every `period`, on
+ * the one loop clock (`useLoop`, REDESIGN.md 10.4): it rests while the app
+ * is in the background or its pane is out of use, and holds still under
+ * Reduce Motion, where the colour and the shape still say it.
+ *
+ * A breath that says something is under way, as a primary node being
+ * sought does, never rests. One that only decorates, as the honey halo
+ * around a backup still to save does, is `ambient`, and eases to rest with
+ * the rest of the decoration once nobody has touched the app for 20s
+ * (REDESIGN.md 3.5); the ring it breathes still says the state, whole.
  */
 export function Breathe({
   on,
   period = durations.pulse,
+  ambient = false,
   style,
   children,
 }: PropsWithChildren<{
   on: boolean;
   period?: number;
+  ambient?: boolean;
   style?: StyleProp<ViewStyle>;
 }>) {
-  const { reduced } = useMotionPrefs();
-  const front = useForeground();
-  const level = useSharedValue(1);
-  const running = on && front && !reduced;
-  useEffect(() => {
-    if (!running) {
-      cancelAnimation(level);
-      level.set(1);
-      return;
-    }
-    level.set(
-      withRepeat(
-        withTiming(0.35, { duration: period / 2, easing: curves.sine }),
-        -1,
-        true,
-      ),
-    );
-    return () => cancelAnimation(level);
-  }, [running, period, level]);
-  const breathing = useAnimatedStyle(() => ({ opacity: level.get() }));
+  const clock = useLoop(period, on, ambient);
+  const breathing = useAnimatedStyle(() => ({
+    opacity: 1 - BREATH_DEPTH * wave(clock.get()),
+  }));
   return (
     <Reanimated.View style={[style, breathing]}>{children}</Reanimated.View>
   );
@@ -332,9 +328,10 @@ function DrawnPart({
 /**
  * A glyph that draws itself in once, as an outcome's check or bang does,
  * part by part as `drawPlan` sets out (REDESIGN.md 4, Animated glyphs).
- * Under Reduce Motion it is simply there.
+ * Under Reduce Motion it is simply there. Drawn again under a new key, it
+ * draws itself in again, as the app lock's glyph does as the lock turns on.
  */
-function DrawnGlyph({
+export function DrawnGlyph({
   name,
   size = 20,
   color,
@@ -412,8 +409,8 @@ const ACCESSORY_GAP = space.sm;
 
 /**
  * The text size past which a heading starts with its accessory below it,
- * before anything is measured: the accessibility sizes, where the primary
- * node's heading and its connection no longer share a phone's line. The
+ * before anything is measured: the accessibility sizes, where the Primary
+ * node row's label and its connection no longer share a phone's line. The
  * measure then settles it either way (`accessoryBelow`); starting close to
  * where it settles keeps the card from visibly changing height as Settings
  * arrives.
@@ -462,7 +459,7 @@ export function accessoryBelow(below: boolean, fit: HeadingFit): boolean {
  * decide it: the room the two share, the accessory's width, and the lines
  * the heading takes.
  */
-function useAccessoryPlace(on: boolean) {
+export function useAccessoryPlace(on: boolean) {
   const { fontScale } = useWindowDimensions();
   const [below, setBelow] = useState(() => on && fontScale > BELOW_FROM_SCALE);
   const fit = useRef<HeadingFit>({ room: 0, accessory: 0, lines: [] });
@@ -482,19 +479,43 @@ function useAccessoryPlace(on: boolean) {
 }
 
 /**
- * One group of settings: an espresso card led by its glyph and heading. It
- * rises into place `index` steps after Settings arrives, and grows or shrinks
- * smoothly when what it holds changes. `tone` honey is for a section that
- * needs doing: a honey outline, and a halo that breathes around its glyph at
- * the halo's pace. `focus` lands a screen reader on its heading.
+ * The honey ring a section that needs doing breathes around its glyph's
+ * disc, at the halo's pace, `HALO_REACH` past the disc, in the disc's own
+ * box. It only decorates, so it rests with the ambient clock (REDESIGN.md
+ * 3.5) and holds still under Reduce Motion, whole: the honey and the ring
+ * still say what needs doing.
+ */
+export function HaloRing({ disc }: { disc: number }) {
+  return (
+    <Breathe
+      on
+      ambient
+      period={durations.halo}
+      style={[styles.halo, { margin: -HALO_REACH }]}
+    >
+      <View
+        style={[styles.haloRing, { borderRadius: disc / 2 + HALO_REACH }]}
+      />
+    </Breathe>
+  );
+}
+
+/**
+ * One group of settings on a setup surface, such as the new wallet sheet, a
+ * phase's setup panel or the recovery phrase over a shell phase: an espresso
+ * card led by its glyph and heading. Settings itself is a grouped hub of
+ * rows instead (`hub.tsx`). It rises into place `index` steps after its
+ * surface arrives, and grows or shrinks smoothly when what it holds changes.
+ * `tone` honey is for a section that needs doing: a honey outline, and a
+ * halo that breathes around its glyph at the halo's pace (`HaloRing`).
+ * `focus` lands a screen reader on its heading.
  *
  * The card clips what it holds. It grows on a linear transition while what
  * arrives in it is laid out at once where it will end up, so a line rising
  * into a card that has not grown to it yet, such as the first recovery word,
  * would otherwise be drawn over the card below for a frame.
  *
- * The heading's accessory, such as the primary node's connection, sits at
- * the heading's right while both fit, and drops to a line of its own below
+ * The heading's accessory sits at the heading's right while both fit, and drops to a line of its own below
  * the heading once they do not (`accessoryBelow`), so a large text size
  * never squeezes the heading into a column a few letters wide. The glyph and
  * its disc grow with the text size (`glyphScale`).
@@ -535,20 +556,7 @@ export function Section({
         <View style={styles.sectionHeader}>
           {glyph ? (
             <View style={[styles.sectionGlyph, { width: disc, height: disc }]}>
-              {honey ? (
-                <Breathe
-                  on
-                  period={durations.halo}
-                  style={[styles.halo, { margin: -HALO_REACH }]}
-                >
-                  <View
-                    style={[
-                      styles.haloRing,
-                      { borderRadius: disc / 2 + HALO_REACH },
-                    ]}
-                  />
-                </Breathe>
-              ) : null}
+              {honey ? <HaloRing disc={disc} /> : null}
               <View
                 style={[
                   styles.disc,
@@ -593,8 +601,11 @@ export function Section({
   );
 }
 
-/** A disclosure chevron that turns a quarter when what it opens is open. */
-function Chevron({ open }: { open?: boolean }) {
+/**
+ * A disclosure chevron that turns a quarter on the snap spring when what it
+ * opens is open, and is set there at once under Reduce Motion.
+ */
+export function Chevron({ open }: { open?: boolean }) {
   const { reduced } = useMotionPrefs();
   const size = useGlyphSize(16);
   const turn = useSharedValue(open ? 1 : 0);
@@ -776,7 +787,9 @@ function useShowing(): { epoch: number; onShown: () => void } {
 }
 
 /**
- * An on or off setting, its switch at the right, level with its label.
+ * An on or off setting, its switch at the right, level with its label, and
+ * a `glyph` before the label when it has one, as each of Settings' rows
+ * does.
  *
  * React Native gives an iOS switch `alignSelf: 'flex-start'` under any style
  * of its own, which set it against the top of its 52pt row, 12pt above its
@@ -794,12 +807,15 @@ export function Toggle({
   accessibilityLabel,
   value,
   disabled = false,
+  glyph,
   onValueChange,
 }: {
   label: string;
   accessibilityLabel: string;
   value: boolean;
   disabled?: boolean;
+  /** Drawn before the label, such as a row's glyph on its disc. */
+  glyph?: ReactNode;
   onValueChange: (next: boolean) => void | Promise<void>;
 }) {
   const live = usePaneActive();
@@ -808,6 +824,7 @@ export function Toggle({
   const ios = Platform.OS === 'ios';
   return (
     <View style={styles.toggle}>
+      {glyph}
       <Text {...wholeWords(label)} style={styles.toggleLabel}>
         {label}
       </Text>
@@ -1178,21 +1195,25 @@ export function noteLook(tone: NoteTone, { accent, soft }: Accent): NoteLook {
  * radish. It rises into place, and an outcome's check or bang draws itself
  * in, so a result is seen arriving rather than found. An error is an alert,
  * and is read out as it arrives, since it lands away from the press that
- * caused it. `focus` lands a screen reader on it. `said` is what a screen
- * reader hears where that is not what is drawn, as a note with an amount in
- * the wallet's unit is heard with it in sats.
+ * caused it, unless `announce` is false: an outcome whose screen says it
+ * once as it lands (`useOutcomeFeedback`) is not said again each time the
+ * row that shows it opens. `focus` lands a screen reader on it. `said` is
+ * what a screen reader hears where that is not what is drawn, as a note
+ * with an amount in the wallet's unit is heard with it in sats.
  */
 export function Note({
   tone = 'info',
   glyph,
   focus = false,
   said,
+  announce: speak = true,
   children,
 }: {
   tone?: NoteTone;
   glyph?: GlyphName;
   focus?: boolean;
   said?: string;
+  announce?: boolean;
   children: string;
 }) {
   const look = noteLook(tone, useAccent());
@@ -1202,8 +1223,8 @@ export function Note({
   const error = tone === 'error';
   const heard = said ?? children;
   useEffect(() => {
-    if (error) announce(heard);
-  }, [error, heard]);
+    if (error && speak) announce(heard);
+  }, [error, speak, heard]);
   return (
     <Reanimated.View
       entering={riseIn(8)}

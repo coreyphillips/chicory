@@ -253,6 +253,16 @@ export const GLYPHS = {
   ],
   orbit: [{ id: 'orbit', d: 'M12 4a8 8 0 1 1-8 8M12 4v.01' }],
   unlock: [LOCK_BODY, { id: 'shackle', d: 'M9 11V8a3 3 0 0 1 5.8-1.1' }],
+  // A phone with a bar either side, apart so Settings can buzz the phone
+  // and pop the bars as haptics turn on.
+  haptics: [
+    {
+      id: 'body',
+      d: 'M9.5 4h5a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',
+    },
+    { id: 'left', d: 'M4 9v6' },
+    { id: 'right', d: 'M20 9v6' },
+  ],
 } satisfies Record<string, GlyphPart[]>;
 
 export type GlyphName = keyof typeof GLYPHS;

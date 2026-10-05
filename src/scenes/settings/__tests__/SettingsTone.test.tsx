@@ -21,6 +21,7 @@ import { Picker } from '../../phases/Picker';
 import { StageProvider, useStageStore } from '../../../stage/StageContext';
 import { snapshotOf, walletOf } from '../../../../test-support/fixtures';
 import { mount } from '../../../../test-support/guard';
+import { press } from '../../../../test-support/query';
 import { SettingsLayer } from '../SettingsLayer';
 import {
   Action,
@@ -112,19 +113,19 @@ const host = (tree: ReactTestRenderer, label: string) =>
       typeof node.type === 'string' && node.props.accessibilityLabel === label,
   );
 
-/** A heading's glyph, grown with Jest's text size as Settings grows it. */
-const HEADING_GLYPH = Math.round(
+/** A row's glyph, grown with Jest's text size as Settings grows it. */
+const ROW_GLYPH = Math.round(
   18 * glyphScale(Dimensions.get('window').fontScale),
 );
 
-/** The colour each section heading's glyph is drawn in, by glyph. */
-const headingGlyphs = (tree: ReactTestRenderer) =>
+/** The colour each row's glyph is drawn in, by glyph. */
+const rowGlyphs = (tree: ReactTestRenderer) =>
   Object.fromEntries(
     tree.root
       .findAll(
         node =>
           typeof node.type !== 'string' &&
-          node.props.size === HEADING_GLYPH &&
+          node.props.size === ROW_GLYPH &&
           typeof node.props.name === 'string' &&
           typeof node.props.color === 'string',
       )
@@ -166,12 +167,18 @@ describe('a test network', () => {
       [test, palette.slate],
       [live, palette.bloom],
     ] as const) {
-      // The heading glyphs, the one control a section is for, the switches
-      // and the pull to refresh.
-      expect(headingGlyphs(tree)).toMatchObject({
-        wallet: accent,
+      // The rows' glyphs, the one control the phrase to save is for, the
+      // switches and the pull to refresh. Honey and radish keep their
+      // meaning: the phrase to save, and erasing.
+      expect(rowGlyphs(tree)).toMatchObject({
         bolt: accent,
+        chain: accent,
+        faceScan: accent,
+        haptics: accent,
         lock: accent,
+        gauge: accent,
+        shieldAlert: palette.honey,
+        alert: palette.radish,
       });
       expect(flat(host(tree, 'Reveal recovery phrase')).backgroundColor).toBe(
         accent,
@@ -185,6 +192,7 @@ describe('a test network', () => {
       );
       expect(refresh.props.tintColor).toBe(accent);
       expect(refresh.props.colors).toEqual([accent]);
+      await press(tree, copy.settings.primary.heading);
       const change = tree.root.find(
         node =>
           node.type === Text &&

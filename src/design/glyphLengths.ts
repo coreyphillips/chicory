@@ -63,4 +63,5 @@ export const GLYPH_LENGTHS: Record<GlyphName, number[]> = {
   boltRetry: [53.63, 21.67],
   orbit: [37.71],
   unlock: [42, 11.35],
+  haptics: [46.57, 6, 6],
 };

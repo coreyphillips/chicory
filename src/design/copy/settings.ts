@@ -15,15 +15,27 @@ export const settings = {
   testNetwork: (network: string) =>
     `${network} is a test network. Its coins have no value.`,
 
+  /**
+   * The card at the top of Settings: the wallet's name, its network and
+   * whether its primary node answers. A screen reader hears it as one line.
+   */
+  card: {
+    /** The card's first words to a screen reader. */
+    summary: (name: string, network: string) => `${name}, ${network}.`,
+    connected: 'Primary connected',
+    connecting: 'Primary connecting',
+  },
+
   wallet: {
     heading: 'Wallet',
-    name: 'Name',
     /** A network is chosen but not yet switched to. */
     switchNote: (target: string) =>
       `${target} keeps its own balance and history. Same recovery phrase.`,
     switchTo: (target: string) => `Switch to ${target}`,
     servers: 'Network & servers',
     serversLabel: 'Change network or Bitcoin server',
+    /** The row inside Network & servers that opens the server editor. */
+    editServers: 'Edit servers',
     lock: 'Lock device wallet',
   },
 
@@ -62,6 +74,8 @@ export const settings = {
     setupPending: 'Setting up',
     setupReady: 'Ready',
     setupFailed: 'Failed',
+    /** The Primary node row's value while setup has stopped short. */
+    setupFailedValue: 'Setup failed',
     address: 'Node address',
     none: 'No primary configured',
     copy: 'Copy node address',
@@ -85,8 +99,18 @@ export const settings = {
     retried: 'Connection setup requested. Your wallet will update shortly.',
   },
 
+  /** The group of what moves money out of this wallet, or this wallet away. */
+  funds: { heading: 'Funds and exits' },
+
+  /** The group of what helps read the wallet when something is wrong. */
+  help: { heading: 'Help' },
+
   empty: {
     link: 'Empty wallet to an address',
+    /** The row's value while a drain is under way. */
+    underway: 'Emptying',
+    /** The row's value while the wallet has not confirmed a drain started. */
+    unknown: 'Status unknown',
     warning:
       'This closes your home channel and sends its balance and loose coins to one Bitcoin address. Your primary node must stay connected. Your next receive can open a new channel.',
     address: 'Bitcoin address',

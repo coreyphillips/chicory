@@ -19,6 +19,9 @@ import { REST_CURVE, restEase, useLoop } from '../src/motion/loops';
 import { durations } from '../src/motion/tokens';
 import { Backdrop, swingAt } from '../src/scenes/home/Backdrop';
 import { Pulse, Rock, Spin } from '../src/scenes/receive/loops';
+import { StatusMark } from '../src/scenes/settings/hub';
+import { HaloRing } from '../src/scenes/settings/ui';
+import { WalletCard } from '../src/scenes/settings/WalletCard';
 import { shownBy } from '../src/stage/Stage';
 import { activityOf, snapshotOf } from '../test-support/fixtures';
 
@@ -251,6 +254,38 @@ describe('what rests', () => {
       expect(found.length).toBeGreaterThan(0);
       for (const [, ambient] of found) expect(ambient).toBe(false);
     }
+  });
+
+  test("Settings: the card's breath and halo and the phrase's halo rest; a primary being sought does not", async () => {
+    const card = {
+      name: 'Everyday',
+      network: 'regtest',
+      mode: 'breathe',
+      breath: 'whole',
+      open: 1,
+      tone: 'test',
+      droop: false,
+      live: true,
+      status: 'Primary connected',
+      look: 'live',
+      said: 'Everyday, regtest.',
+      step: 0,
+    } as const;
+    expect(await loopsOf(<WalletCard {...card} halo />)).toEqual([
+      [durations.breathe, true],
+      [durations.halo, true],
+    ]);
+    // Ratcheting says the wallet is under way, and never rests.
+    expect(
+      await loopsOf(<WalletCard {...card} mode="ratchet" halo={false} />),
+    ).toEqual([]);
+    expect(await loopsOf(<HaloRing disc={32} />)).toEqual([
+      [durations.halo, true],
+    ]);
+    expect(await loopsOf(<StatusMark look="seeking" />)).toEqual([
+      [durations.pulse, false],
+    ]);
+    expect(await loopsOf(<StatusMark look="live" />)).toEqual([]);
   });
 
   test("the backdrop's drift comes to rest, and drifts again at a touch", async () => {

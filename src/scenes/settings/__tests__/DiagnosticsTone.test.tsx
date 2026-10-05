@@ -9,8 +9,7 @@ import {
   recordDiagnostic,
 } from '../../../services/diagnosticLog';
 import { mount } from '../../../../test-support/guard';
-import { press } from '../../../../test-support/query';
-import { Diagnostics, entryTone } from '../Diagnostics';
+import { DiagnosticsPanel, entryTone } from '../Diagnostics';
 
 /**
  * Settings > Diagnostics lists every line the app showed only as a glyph.
@@ -71,8 +70,8 @@ test('each entry is drawn on the wash of its kind', async () => {
   const client = {
     diagnostics: jest.fn().mockResolvedValue({ setup: 'ready' }),
   } as unknown as WalletAdapter;
-  const tree = await mount(<Diagnostics client={client} />);
-  await press(tree, copy.settings.diagnostics.heading);
+  // What Settings > Help > Diagnostics opens, which reads as it opens.
+  const tree = await mount(<DiagnosticsPanel client={client} />);
   const wash = (message: string) => {
     const [line] = tree.root.findAll(
       node => node.type === Text && node.props.children === message,

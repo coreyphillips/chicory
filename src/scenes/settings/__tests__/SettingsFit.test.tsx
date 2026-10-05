@@ -153,9 +153,16 @@ const group = (tree: ReactTestRenderer) =>
 
 const unmount = (tree: ReactTestRenderer) => act(async () => tree.unmount());
 
+/** Settings with Network & servers open, where the networks are. */
+async function networks(snapshot: WalletSnapshot) {
+  const tree = await settings(snapshot);
+  await press(tree, copy.settings.wallet.serversLabel);
+  return tree;
+}
+
 describe('the network a wallet is on', () => {
   test('is a checked radio in a radio group, never a heading or a bare button', async () => {
-    const tree = await settings(regtest);
+    const tree = await networks(regtest);
     const chips = ['mainnet', 'testnet', 'regtest'].map(label =>
       host(tree, label),
     );
@@ -178,7 +185,7 @@ describe('the network a wallet is on', () => {
   });
 
   test('checks another once it is chosen', async () => {
-    const tree = await settings(regtest);
+    const tree = await networks(regtest);
     await press(tree, 'mainnet');
     expect(host(tree, 'mainnet').props.accessibilityState.checked).toBe(true);
     expect(host(tree, 'regtest').props.accessibilityState.checked).toBe(false);
@@ -226,25 +233,70 @@ describe('at the largest text size', () => {
     await unmount(tree);
   });
 
-  test('a heading starts with its accessory below it at an accessibility size', async () => {
-    // Jest's window has a font scale of 2, past BELOW_FROM_SCALE: the heading
-    // starts where it will settle, so the card does not change height as
+  test("a row's value starts below its label at an accessibility size", async () => {
+    // Jest's window has a font scale of 2, past BELOW_FROM_SCALE: the value
+    // starts where it will settle, so the row does not change height as
     // Settings arrives.
     const tree = await settings(regtest);
-    const heading = tree.root.find(
+    const label = tree.root.find(
       node =>
         node.type === Text &&
-        node.props.accessibilityRole === 'header' &&
         node.props.children === copy.settings.primary.heading,
     );
-    expect(flat(heading.parent!).flexDirection).toBe('column');
+    expect(flat(label.parent!).flexDirection).toBe('column');
     expect(
-      heading.parent!.findAll(
+      label.parent!.findAll(
         node =>
           node.type === Text &&
           node.props.children === copy.settings.primary.connected,
       ),
     ).toHaveLength(1);
+    // Above its value the label has the whole width, and keeps its words
+    // whole.
+    expect(flat(label).alignSelf).toBe('stretch');
+    expect(label.props).toMatchObject({
+      numberOfLines: 2,
+      adjustsFontSizeToFit: true,
+    });
+    await unmount(tree);
+  });
+
+  test("a row's value comes back up beside its label once both fit", async () => {
+    const tree = await settings(regtest);
+    const label = () =>
+      tree.root.find(
+        node =>
+          node.type === Text &&
+          node.props.children === copy.settings.primary.heading,
+      );
+    const words = () => label().parent!;
+    const value = () =>
+      words().find(
+        node =>
+          node.type === View &&
+          !!node.props.onLayout &&
+          node.findAll(
+            inner =>
+              inner.type === Text &&
+              inner.props.children === copy.settings.primary.connected,
+          ).length > 0,
+      );
+    await act(async () => {
+      words().props.onLayout({
+        nativeEvent: { layout: { x: 0, y: 0, width: 230, height: 40 } },
+      });
+      value().props.onLayout({
+        nativeEvent: { layout: { x: 0, y: 0, width: 90, height: 16 } },
+      });
+      label().props.onTextLayout({
+        nativeEvent: { lines: [{ width: 100, height: 22, x: 0, y: 0 }] },
+      });
+    });
+    expect(flat(words()).flexDirection).toBe('row');
+    // Beside its value the label takes what the value leaves, and wraps.
+    expect(flat(label()).flex).toBe(1);
+    expect(label().props.numberOfLines).toBeUndefined();
+    expect(flat(value()).flexShrink).toBe(0);
     await unmount(tree);
   });
 
@@ -410,6 +462,89 @@ describe('a section', () => {
   });
 });
 
+describe("a row's frame and a group's header", () => {
+  /** The nearest view above `node` that moves on a layout transition. */
+  const frameOf = (node: ReactTestInstance) => {
+    let at: ReactTestInstance | null = node.parent;
+    while (at && !at.props.layout) at = at.parent;
+    return at!;
+  };
+
+  test('a row clips what it opens while its frame grows to it', async () => {
+    const tree = await settings(regtest);
+    await press(tree, copy.settings.diagnostics.heading);
+    const frame = frameOf(host(tree, copy.settings.diagnostics.heading));
+    expect(flat(frame).overflow).toBe('hidden');
+    // What it opened is inside the frame that clips it.
+    expect(
+      frame.findAll(
+        node =>
+          node.props.accessibilityLabel === copy.settings.diagnostics.refresh,
+      ).length,
+    ).toBeGreaterThan(0);
+    await unmount(tree);
+  });
+
+  test('a row is at least 56pt, a target and then some', async () => {
+    const tree = await settings(regtest);
+    for (const label of [
+      copy.settings.primary.heading,
+      copy.settings.wallet.lock,
+      copy.settings.diagnostics.heading,
+    ]) {
+      expect(flat(host(tree, label)).minHeight).toBeGreaterThanOrEqual(56);
+    }
+    await unmount(tree);
+  });
+
+  test("a group's header keeps its words whole, and moves with the page", async () => {
+    const tree = await settings(regtest);
+    const header = tree.root.find(
+      node =>
+        node.type === Text &&
+        node.props.accessibilityRole === 'header' &&
+        node.props.children === copy.settings.phone.heading,
+    );
+    expect(header.props).toMatchObject({
+      numberOfLines: 2,
+      adjustsFontSizeToFit: true,
+    });
+    expect(flat(header).textTransform).toBe('uppercase');
+    expect(frameOf(header).props.entering).toBeDefined();
+    await unmount(tree);
+  });
+
+  test("the card's name keeps its words whole and its facts wrap, centred", async () => {
+    const tree = await settings(regtest);
+    const name = tree.root.find(
+      node => node.type === Text && node.props.children === 'Everyday',
+    );
+    expect(name.props).toMatchObject({
+      numberOfLines: 1,
+      adjustsFontSizeToFit: true,
+    });
+    const tag = tree.root.findAll(
+      node => node.type === Text && node.props.children === 'regtest',
+    )[0];
+    // The nearest line above the tag that wraps.
+    let line: ReactTestInstance | null = tag.parent;
+    while (line && flat(line).flexWrap !== 'wrap') line = line.parent;
+    expect(flat(line!)).toMatchObject({
+      flexDirection: 'row',
+      justifyContent: 'center',
+    });
+    // The status beside the tag shares the line.
+    expect(
+      line!.findAll(
+        node =>
+          node.type === Text &&
+          node.props.children === copy.settings.card.connected,
+      ),
+    ).toHaveLength(1);
+    await unmount(tree);
+  });
+});
+
 describe('where a heading puts its accessory', () => {
   const fit = (lines: number[], room = 266, accessory = 120) => ({
     room,
@@ -448,15 +583,27 @@ describe('the glyphs beside the words', () => {
     expect(glyphScale(3.571)).toBe(GLYPH_SCALE_MAX);
   });
 
-  test("a row's glyph and chevron, a heading's disc, the pills' and the close's grow at a large size", async () => {
+  test("a row's glyph and chevron, its disc, the card's tag and the close grow at a large size", async () => {
     const tree = await settings(regtest);
     const glyph = (name: string, size: number) => glyphs(tree.root, name, size);
-    // Diagnostics' info glyph and chevron (P10: 16 and 20 beside 50pt words).
-    expect(glyph('info', grown(20)).length).toBeGreaterThan(0);
+    // The rows' glyphs and chevrons (P10: 16 and 20 beside 50pt words).
+    for (const name of ['bolt', 'chain', 'gauge', 'lock', 'haptics']) {
+      expect(glyph(name, grown(18)).length).toBeGreaterThan(0);
+    }
     expect(glyph('chevron', grown(16)).length).toBeGreaterThan(0);
-    expect(glyph('lock', grown(18)).length).toBeGreaterThan(0);
-    expect(glyph('flask', grown(14)).length).toBeGreaterThan(0);
     expect(glyph('chevron', 16)).toHaveLength(0);
+    // The card's network tag, and the network row's value.
+    expect(glyph('flask', grown(14)).length).toBeGreaterThan(1);
+    expect(glyph('bolt', 18)).toHaveLength(0);
+    // Each disc grows with its glyph.
+    const discs = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'glyph-disc',
+    );
+    expect(discs.length).toBeGreaterThan(0);
+    for (const disc of discs) {
+      expect(flat(disc)).toMatchObject({ width: grown(32), height: grown(32) });
+    }
     // The close grows whole, its target with its glyph, drawn at that size
     // rather than scaled up from 48pt, in a box that gives the bar the room
     // it takes.

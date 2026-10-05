@@ -278,9 +278,15 @@ export interface MarkVisual {
  * Whether the wallet has answered lately. A snapshot's own `connected` is
  * only as new as the snapshot: figures from a cached launch, or ones old
  * enough to be gated, say nothing about the connection now, and the dot
- * waits for a live read before it turns sage again.
+ * waits for a live read before it turns sage again. Settings' card and its
+ * Primary node row read the connection by the same rule, so the page and
+ * the mark never disagree about it.
  */
-const answering = ({ snapshot, stale, connecting }: HealthInput) =>
+export const answering = ({
+  snapshot,
+  stale,
+  connecting,
+}: Pick<HealthInput, 'snapshot' | 'stale' | 'connecting'>) =>
   snapshot.primary.connected && !stale && !connecting;
 
 export function markVisual(input: HealthInput): MarkVisual {

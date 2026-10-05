@@ -15,7 +15,17 @@ import { space } from '../theme';
 const words = copy.settings.recovery;
 
 /**
- * The recovery phrase, shown only when deliberately asked for.
+ * Where a screen reader lands once the control it was on goes away: the
+ * words land it themselves, hiding them returns it to the reveal, and
+ * saving them to the heading of whatever holds the phrase.
+ */
+export type PhraseLanding = 'reveal' | 'heading' | null;
+
+/**
+ * The recovery phrase, shown only when deliberately asked for: the line
+ * about what it is, then the reveal, or the words with their safety lines.
+ * Whatever holds it draws its heading: a section of its own
+ * (`RecoveryPhrase`), or Settings' row.
  *
  * Three protections, in order of how much they actually buy:
  *  - When the app lock is on, revealing requires the device biometric or
@@ -29,33 +39,27 @@ const words = copy.settings.recovery;
  * Screenshot blocking is deliberately not claimed: neither platform offers it
  * through React Native core, and a partial version would be worse than none.
  *
- * With `onSaved` it is the backup still to be done (REDESIGN.md 6): the
- * section turns honey, and once the words are shown, a 900ms hold confirms
- * they are written down. `index` places it in a page of sections, and
- * `focus` lands a screen reader on its heading as it arrives.
+ * With `onSaved` it is the backup still to be done (REDESIGN.md 6): once the
+ * words are shown, a 900ms hold confirms they are written down. `landing` is
+ * where a screen reader lands, which the holder keeps so it can land one on
+ * its own heading, and `onLanding` moves it.
  */
-export function RecoveryPhrase({
+export function RecoveryPhraseBody({
   initialPhrase,
   loadPhrase,
   onSaved,
-  index,
-  focus = false,
+  landing,
+  onLanding,
 }: {
   initialPhrase?: string;
   loadPhrase?: () => Promise<string>;
   onSaved?: () => void;
-  index?: number;
-  focus?: boolean;
+  landing: PhraseLanding;
+  onLanding: (to: PhraseLanding) => void;
 }) {
   const [phrase, setPhrase] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  // Where a screen reader lands once the control it was on goes away: the
-  // words land it themselves, hiding them returns it to the reveal, and
-  // saving them to the heading.
-  const [landing, setLanding] = useState<'reveal' | 'heading' | null>(
-    focus ? 'heading' : null,
-  );
   // An exit animation keeps a view on screen until it ends, on a frame clock
   // that stops in the background, so words leaving that way could still be
   // there for the app switcher. The words are held with their exit skipped,
@@ -66,9 +70,9 @@ export function RecoveryPhrase({
   useLayoutEffect(() => {
     if (!letGo) return;
     setPhrase('');
-    setLanding(letGo);
+    onLanding(letGo);
     setLetGo(null);
-  }, [letGo]);
+  }, [letGo, onLanding]);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', state => {
       if (state !== 'active') {
@@ -82,7 +86,7 @@ export function RecoveryPhrase({
     setBusy(true);
     setError('');
     try {
-      // The biometric prompt is one the app raised, so the section stays in
+      // The biometric prompt is one the app raised, so the phrase stays in
       // view behind it rather than going under the privacy cover.
       const allowed = await duringSystemPrompt(() =>
         requireUnlock(words.prompt),
@@ -97,7 +101,7 @@ export function RecoveryPhrase({
         throw new Error(words.unavailable);
       }
       setPhrase(value);
-      setLanding(null);
+      onLanding(null);
     } catch (e) {
       haptics.error();
       setError(e instanceof Error ? e.message : words.unreadable);
@@ -108,13 +112,7 @@ export function RecoveryPhrase({
   const pending = !!onSaved;
   const shown = phrase ? phrase.trim().split(/\s+/) : [];
   return (
-    <Section
-      glyph={pending ? 'shieldAlert' : 'key'}
-      title={pending ? words.pending : words.heading}
-      tone={pending ? 'honey' : 'plain'}
-      index={index}
-      focus={landing === 'heading'}
-    >
+    <>
       <Body>{words.intro}</Body>
       {error ? <Note tone="error">{error}</Note> : null}
       {phrase ? (
@@ -159,6 +157,52 @@ export function RecoveryPhrase({
           onPress={reveal}
         />
       )}
+    </>
+  );
+}
+
+/**
+ * The recovery phrase as a section of its own (`RecoveryPhraseBody` under
+ * its heading), for the surfaces that are not Settings: the new wallet
+ * sheet, a phase's setup panel and the phrase over a shell phase.
+ *
+ * With `onSaved` it is the backup still to be done (REDESIGN.md 6): the
+ * section turns honey, and once the words are shown, a 900ms hold confirms
+ * they are written down. `index` places it in a page of sections, and
+ * `focus` lands a screen reader on its heading as it arrives.
+ */
+export function RecoveryPhrase({
+  initialPhrase,
+  loadPhrase,
+  onSaved,
+  index,
+  focus = false,
+}: {
+  initialPhrase?: string;
+  loadPhrase?: () => Promise<string>;
+  onSaved?: () => void;
+  index?: number;
+  focus?: boolean;
+}) {
+  const [landing, setLanding] = useState<PhraseLanding>(
+    focus ? 'heading' : null,
+  );
+  const pending = !!onSaved;
+  return (
+    <Section
+      glyph={pending ? 'shieldAlert' : 'key'}
+      title={pending ? words.pending : words.heading}
+      tone={pending ? 'honey' : 'plain'}
+      index={index}
+      focus={landing === 'heading'}
+    >
+      <RecoveryPhraseBody
+        initialPhrase={initialPhrase}
+        loadPhrase={loadPhrase}
+        onSaved={onSaved}
+        landing={landing}
+        onLanding={setLanding}
+      />
     </Section>
   );
 }

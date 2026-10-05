@@ -244,14 +244,21 @@ const settingsShots: Shot[] = [
       rememberedSession: remembered('regtest', { backupPending: true }),
     },
   })),
+  // While the engine starts: the card's bloom ratchets and the primary
+  // node is sought.
+  settings('while the engine starts', () => ({
+    session: { connecting: true },
+  })),
+  // A row's content is drawn only while it is open, so each state below
+  // opens its row first, as a person does.
   settings('showing the phrase', () => ({
-    steps: [press(words.recovery.reveal)],
+    steps: [press(words.recovery.heading), press(words.recovery.reveal)],
   })),
   settings('proposing another network', () => ({
-    steps: [press('mainnet')],
+    steps: [press(words.wallet.serversLabel), press('mainnet')],
   })),
   settings('with the network editor open', () => ({
-    steps: [press(words.wallet.serversLabel)],
+    steps: [press(words.wallet.serversLabel), press(words.wallet.editServers)],
   })),
   settings('emptying to an address', () => ({
     snapshot: onMainnet(),
@@ -312,14 +319,22 @@ const settingsShots: Shot[] = [
       }),
     ],
   })),
+  settings('the primary node open', () => ({
+    steps: [press(words.primary.heading)],
+  })),
   settings('changing the primary node', () => ({
-    steps: [press(words.primary.change)],
+    steps: [press(words.primary.heading), press(words.primary.change)],
   })),
   settings('having saved the primary node', () => ({
-    steps: [press(words.primary.change), press(words.primary.save)],
+    steps: [
+      press(words.primary.heading),
+      press(words.primary.change),
+      press(words.primary.save),
+    ],
   })),
   settings('with a primary node still setting up', () => ({
     snapshot: fresh({ primary: { connected: false, setup: 'pending' } }),
+    steps: [press(words.primary.heading)],
   })),
   settings('with a primary node that failed setup', () => ({
     snapshot: fresh({
@@ -329,6 +344,7 @@ const settingsShots: Shot[] = [
         setupError: 'Liquidity provider is unavailable.',
       },
     }),
+    steps: [press(words.primary.heading)],
   })),
   // A host as long as a v3 onion's is wider than the card at any text size:
   // the copy control drops below the address, which shrinks to keep the host
@@ -337,6 +353,7 @@ const settingsShots: Shot[] = [
     snapshot: fresh({
       primary: { uri: `02${hex(7, 64)}@${hex(8, 56)}.onion:9735` },
     }),
+    steps: [press(words.primary.heading)],
   })),
   settings('offering an app lock', () => {
     setBiometry('FaceID');
