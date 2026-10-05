@@ -24,6 +24,7 @@ import { useScanRequest } from '../../stage/useScanReceiver';
 import { space, type } from '../../theme';
 import { SettingsHostContext } from './host';
 import type { SettingsHost } from './host';
+import { useReveal } from './reveal';
 import {
   Note,
   SettingsSurface,
@@ -96,10 +97,11 @@ function TitleFade() {
  * end of what scrolls, not a margin that cuts the page off above it.
  *
  * It hosts the page (`SettingsHost`): Android back reaches the page's own
- * steps through the stage, and a field that scans a code, the primary
- * node's address or the address the wallet empties to, opens the stage's
- * scan overlay over Settings rather than a camera of its own
- * (`useScanRequest`). What the page reads of the wallet after its own
+ * steps through the stage, a field that scans a code, the primary node's
+ * address or the address the wallet empties to, opens the stage's scan
+ * overlay over Settings rather than a camera of its own
+ * (`useScanRequest`), and a row that opens below the fold is scrolled into
+ * view (`useReveal`). What the page reads of the wallet after its own
  * changes is the quiet read (`session.refresh`); only saving or retrying the
  * primary node, and a pull, restart and resync the wallet behind the
  * spinner.
@@ -126,9 +128,12 @@ export function SettingsLayer({
   const grow = glyphScale(fontScale);
   const { accent } = accentFor(testNetwork(snapshot.wallet.network));
   const scan = useScanRequest();
+  // The band the title's fade covers and the home indicator's are not in
+  // view, for a row brought into view as it opens.
+  const { scroll, reveal } = useReveal({ top: TITLE_FADE, bottom });
   const host = useMemo<SettingsHost>(
-    () => ({ useBack: useSceneBack, scan }),
-    [scan],
+    () => ({ useBack: useSceneBack, scan, reveal }),
+    [scan, reveal],
   );
   return (
     <SettingsHostContext.Provider value={host}>
@@ -160,6 +165,7 @@ export function SettingsLayer({
         </View>
         <SceneSlot
           label={copy.settings.title}
+          scroll={scroll}
           refreshControl={
             <RefreshControl
               refreshing={session.refreshing}

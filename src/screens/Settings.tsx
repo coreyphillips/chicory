@@ -55,6 +55,7 @@ import {
   haloOut,
   hubStyles,
   useDip,
+  useRevealOnOpen,
 } from '../scenes/settings/hub';
 import {
   answering,
@@ -715,6 +716,9 @@ const RecoveryItem = memo(function RecoveryLine({
   }, [lead, open]);
   const heading = useFocus(lead && landing === 'heading');
   const row = useFocus(!lead && (back || led));
+  // As a row it is brought into view as it opens; leading, it is already
+  // at the top of the page.
+  const shown = useRevealOnOpen(!lead && open);
   const usable = live && !lead;
   const r = words.recovery;
   return (
@@ -723,6 +727,8 @@ const RecoveryItem = memo(function RecoveryLine({
       step={step}
       tone={lead ? 'honey' : 'plain'}
       style={lead ? styles.lead : undefined}
+      frame={shown.frame}
+      onLayout={shown.onLayout}
     >
       <Pressable
         ref={row}

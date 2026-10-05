@@ -1,7 +1,24 @@
-import React, { memo, useEffect } from 'react';
-import type { PropsWithChildren, ReactNode, RefObject } from 'react';
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from 'react';
+import type {
+  ComponentRef,
+  PropsWithChildren,
+  ReactNode,
+  Ref,
+  RefObject,
+} from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { HostInstance, StyleProp, ViewStyle } from 'react-native';
+import type {
+  HostInstance,
+  LayoutChangeEvent,
+  StyleProp,
+  ViewStyle,
+} from 'react-native';
 import Reanimated, {
   FadeOut,
   LayoutAnimationConfig,
@@ -24,8 +41,10 @@ import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { radius, space, type } from '../../theme';
+import { useSettingsHost } from './host';
 import { joinedAbove, joinedBelow } from './hubModel';
 import type { HubEdge, HubRow, StatusLook } from './hubModel';
+import { REVEAL_GROWTH } from './reveal';
 import {
   Breathe,
   Chevron,
@@ -150,19 +169,25 @@ export function HubItem({
   step,
   tone,
   style,
+  frame,
+  onLayout,
   children,
 }: PropsWithChildren<{
   edge: HubEdge;
   step: number;
   tone?: 'plain' | 'honey';
   style?: StyleProp<ViewStyle>;
+  /** The frame itself, for what measures it (`useRevealOnOpen`). */
+  frame?: Ref<ComponentRef<typeof Reanimated.View>>;
+  /** The frame's layout, the one it ends at, as it changes. */
+  onLayout?: (event: LayoutChangeEvent) => void;
 }>) {
   const { reduced } = useMotionPrefs();
   const inset = space.lg + useGlyphSize(DISC) + ROW_GAP;
   const above = useEased(joinedAbove(edge) ? 1 : 0, durations.move, reduced);
   const below = useEased(joinedBelow(edge) ? 1 : 0, durations.move, reduced);
   const honey = useEased(tone === 'honey' ? 1 : 0, durations.move, reduced);
-  const frame = useAnimatedStyle(() => {
+  const corners = useAnimatedStyle(() => {
     const top = radius.lg * (1 - above.get());
     const bottom = radius.lg * (1 - below.get());
     return {
@@ -177,9 +202,16 @@ export function HubItem({
   const seam = useAnimatedStyle(() => ({ opacity: above.get() }));
   return (
     <Reanimated.View
+      ref={frame}
       entering={stagger(step)}
       layout={smooth()}
-      style={[styles.item, tone !== undefined && styles.outlined, frame, style]}
+      onLayout={onLayout}
+      style={[
+        styles.item,
+        tone !== undefined && styles.outlined,
+        corners,
+        style,
+      ]}
     >
       <Reanimated.View
         pointerEvents="none"
@@ -190,6 +222,44 @@ export function HubItem({
       <LayoutAnimationConfig skipEntering>{children}</LayoutAnimationConfig>
     </Reanimated.View>
   );
+}
+
+/**
+ * Brings a row into view as it opens, and again whenever what it holds
+ * grows by more than `REVEAL_GROWTH` while it is open, as Empty wallet's
+ * form becoming its review does (`useReveal`). It asks once the frame's
+ * layout has been reported: the layout the row ends at, while its
+ * transition still draws it on the way there. A row that closes, or one
+ * that only moves as another opens or closes above it, asks for nothing.
+ *
+ * Its `frame` and `onLayout` go on the row's frame (`HubItem`).
+ */
+export function useRevealOnOpen(open: boolean) {
+  const { reveal } = useSettingsHost();
+  const frame = useRef<ComponentRef<typeof Reanimated.View>>(null);
+  const height = useRef<number | null>(null);
+  const showing = useRef(open);
+  // Whether the row has opened since its frame last asked: set as the
+  // opening commits, before the layout it brings is reported.
+  const pending = useRef(false);
+  useLayoutEffect(() => {
+    showing.current = open;
+    pending.current = open;
+  }, [open]);
+  const onLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const next = event.nativeEvent.layout.height;
+      const before = height.current;
+      height.current = next;
+      if (!showing.current || !reveal) return;
+      const grew = before !== null && next - before > REVEAL_GROWTH;
+      if (!pending.current && !grew) return;
+      pending.current = false;
+      reveal(frame.current);
+    },
+    [reveal],
+  );
+  return { frame, onLayout };
 }
 
 /**
@@ -449,12 +519,18 @@ export const DisclosureRow = memo(function DisclosureRowView({
   const { ink, soft } = useRowTone(tone);
   const press = useDip();
   const place = useAccessoryPlace(!!value);
+  const shown = useRevealOnOpen(open);
   // Beside its value the label wraps freely, so a squeezed label shows as a
   // second line and the value drops; on its own it keeps its words whole.
   const beside = !!value && !place.below;
   const usable = live && !disabled;
   return (
-    <HubItem edge={edge} step={step}>
+    <HubItem
+      edge={edge}
+      step={step}
+      frame={shown.frame}
+      onLayout={shown.onLayout}
+    >
       <Pressable
         ref={target}
         accessibilityRole="button"
