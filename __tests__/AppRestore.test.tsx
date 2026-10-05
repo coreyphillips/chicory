@@ -11,6 +11,7 @@ import { Transit } from '../src/scenes/phases/Transit';
 import { NetworkSettings } from '../src/screens/NetworkSettings';
 import { SettingsScreen } from '../src/screens/Settings';
 import { eraseDeviceStorage } from '../src/embedded/storage';
+import type { Phase } from '../src/stage/phase';
 import {
   clearDiagnostics,
   recentDiagnostics,
@@ -321,7 +322,6 @@ test('locking serializes secure-store writes and closure against captured wallet
     label(tree, 'Settings').props.onPress();
   });
   const lock = label(tree, 'Lock device wallet').props.onPress;
-  const choose = label(tree, 'Choose another wallet').props.onPress;
   let finishSave!: () => void;
   let finishClose!: () => void;
   jest.mocked(Keychain.setGenericPassword).mockImplementationOnce(
@@ -343,7 +343,6 @@ test('locking serializes secure-store writes and closure against captured wallet
     .length;
   await act(async () => {
     lock();
-    choose();
     lock();
   });
   expect(jest.mocked(Keychain.setGenericPassword).mock.calls.length).toBe(
@@ -354,13 +353,12 @@ test('locking serializes secure-store writes and closure against captured wallet
   expect(meaning(tree)).toContain('Closing your wallet');
   // The bloom starts in the tone of the network being left.
   expect(tree.root.findByType(Transit).props.network).toBe('regtest');
-  expect(label(tree, 'Choose another wallet')).toBeUndefined();
+  expect(label(tree, 'Lock device wallet')).toBeUndefined();
   await act(async () => {
     finishSave();
   });
   expect(close).toHaveBeenCalledTimes(1);
   await act(async () => {
-    choose();
     lock();
   });
   expect(close).toHaveBeenCalledTimes(1);
@@ -1295,6 +1293,516 @@ test('a close that fails still releases the vault, so the next switch works', as
   await act(async () => tree.unmount());
 });
 
+/*
+ * The ways out of a wallet while its engine is still starting. The page is
+ * up from the first moment and Settings with it, but a cold start over Tor
+ * takes tens of seconds and has no limit, so a lock, an erase or a switch
+ * made during it must be done at once, not refused until the start ends.
+ */
+
+/** The phase the stage is in, whole, where `activePhase` gives its kind. */
+function phaseOf(tree: ReactTestRenderer): Phase | undefined {
+  return tree.root.findAll(
+    node =>
+      typeof node.type !== 'string' && componentName(node.type) === 'Stage',
+  )[0]?.props.phase;
+}
+
+/** Waits, a few promise hops at a time, for `done`, for a second at most. */
+async function until(done: () => boolean) {
+  for (let i = 0; i < 50 && !done(); i++) {
+    await act(async () => {
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 20));
+    });
+  }
+}
+
+/** Lets whatever a settled promise set going land, all of it. */
+const drain = () =>
+  act(async () => {
+    await new Promise<void>(resolve => setTimeout(() => resolve(), 50));
+  });
+
+/** How many times anything was written to the secure store. */
+const secureWrites = () =>
+  jest.mocked(Keychain.setGenericPassword).mock.calls.length;
+
+const mainnetWallet = {
+  id: 'saved-mainnet',
+  name: 'Mainnet wallet',
+  network: 'mainnet' as const,
+  status: 'running',
+};
+
+/** A mainnet wallet that opens and starts at once. */
+function mainnetDevice() {
+  const client = device();
+  client.listWallets = jest
+    .fn()
+    .mockResolvedValue([{ ...mainnetWallet, status: 'stopped' }]);
+  client.startWallet = jest.fn().mockResolvedValue(undefined);
+  client.snapshot = jest.fn().mockResolvedValue({
+    ...savedSnapshot,
+    wallet: mainnetWallet,
+    updatedAt: Date.now(),
+  });
+  return client;
+}
+
+/**
+ * A returning wallet whose engine start does not answer until the test lets
+ * it, with its last figures cached so the wallet page and Settings are up
+ * while it runs. Its close waits for the test too, as the engine's stop
+ * waits for the start it interrupts. What the late start reads is a figure
+ * the page must never show.
+ */
+function startingWallet() {
+  records.set(
+    SESSION,
+    JSON.stringify({
+      mode: 'device',
+      network: 'regtest',
+      walletId: 'saved-regtest',
+      locked: false,
+    }),
+  );
+  records.set(
+    `${SNAPSHOT}.saved-regtest`,
+    JSON.stringify({
+      version: 1,
+      walletId: 'saved-regtest',
+      snapshot: savedSnapshot,
+    }),
+  );
+  const client = device();
+  const engine = { finishStart: () => {}, finishClose: () => {} };
+  client.startWallet = jest.fn(
+    () =>
+      new Promise<void>(resolve => {
+        engine.finishStart = resolve;
+      }),
+  );
+  client.snapshot = jest.fn().mockResolvedValue({
+    ...savedSnapshot,
+    balance: { ...savedSnapshot.balance, totalSats: 999_999 },
+    updatedAt: Date.now(),
+  });
+  const close = jest.spyOn(client, 'close').mockImplementation(
+    () =>
+      new Promise<void>(resolve => {
+        engine.finishClose = resolve;
+      }),
+  );
+  return { client, close, engine };
+}
+
+test('the wallet locks while its engine is still starting, and the start that ends later changes nothing', async () => {
+  const { client, close, engine } = startingWallet();
+  jest.spyOn(DeviceWallet, 'openDeviceWallet').mockResolvedValue(client);
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(<App />);
+  });
+  // The page is up on the cached figures while the engine starts.
+  expect(activePhase(tree)).toBe('wallet');
+  expect(client.startWallet).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    label(tree, 'Settings').props.onPress();
+  });
+  await act(async () => {
+    label(tree, 'Lock device wallet').props.onPress();
+  });
+  expect(activePhase(tree)).toBe('transit');
+  expect(meaning(tree)).toContain('Closing your wallet');
+  expect(close).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    engine.finishClose();
+  });
+  expect(activePhase(tree)).toBe('saved');
+  expect(JSON.parse(records.get(SESSION)!)).toEqual({
+    mode: 'device',
+    network: 'regtest',
+    walletId: 'saved-regtest',
+    locked: true,
+  });
+  // The open the lock replaced can no longer stand its own wait down; the
+  // lock did, so the way back in is not left turning.
+  expect(label(tree, 'Open device wallet').props.accessibilityState).toEqual({
+    disabled: false,
+    busy: false,
+  });
+  const writes = secureWrites();
+  await act(async () => {
+    engine.finishStart();
+  });
+  await drain();
+  // It read the wallet, and the reading went nowhere: not to the page, the
+  // cache or the session, and no error or wait came back with it.
+  expect(client.snapshot).toHaveBeenCalledTimes(1);
+  expect(secureWrites()).toBe(writes);
+  expect(phaseOf(tree)).toEqual({ kind: 'saved', error: '' });
+  expect(label(tree, 'Open device wallet').props.accessibilityState).toEqual({
+    disabled: false,
+    busy: false,
+  });
+  await act(async () => tree.unmount());
+});
+
+test('the wallet can be erased while its engine is still starting, and the start that ends later writes nothing', async () => {
+  const { client, close, engine } = startingWallet();
+  jest.spyOn(DeviceWallet, 'openDeviceWallet').mockResolvedValue(client);
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(<App />);
+  });
+  expect(activePhase(tree)).toBe('wallet');
+  await act(async () => {
+    label(tree, 'Settings').props.onPress();
+  });
+  await act(async () => {
+    label(tree, 'Erase wallet from this phone').props.onPress();
+  });
+  let erasing!: Promise<void>;
+  await act(async () => {
+    erasing = label(tree, 'Erase wallet').props.onPress();
+  });
+  expect(activePhase(tree)).toBe('transit');
+  expect(meaning(tree)).toContain('Erasing your wallet from this phone');
+  expect(close).toHaveBeenCalledTimes(1);
+  expect(eraseDeviceStorage).not.toHaveBeenCalled();
+  await act(async () => {
+    engine.finishClose();
+    await erasing;
+  });
+  expect(eraseDeviceStorage).toHaveBeenCalledTimes(1);
+  // A fresh start, and not one still opening: the open the erase replaced
+  // can no longer stand its own wait down.
+  expect(phaseOf(tree)).toMatchObject({
+    kind: 'welcome',
+    opening: false,
+    error: '',
+  });
+  const writes = secureWrites();
+  await act(async () => {
+    engine.finishStart();
+  });
+  await drain();
+  expect(client.snapshot).toHaveBeenCalledTimes(1);
+  expect(secureWrites()).toBe(writes);
+  expect(phaseOf(tree)).toMatchObject({
+    kind: 'welcome',
+    opening: false,
+    error: '',
+  });
+  await act(async () => tree.unmount());
+});
+
+test('switching networks while the engine is still starting closes it and opens the other network', async () => {
+  const { client, close, engine } = startingWallet();
+  const next = mainnetDevice();
+  const opened = jest
+    .spyOn(DeviceWallet, 'openDeviceWallet')
+    .mockResolvedValueOnce(client)
+    .mockResolvedValueOnce(next);
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(<App />);
+  });
+  expect(activePhase(tree)).toBe('wallet');
+  await act(async () => {
+    label(tree, 'Settings').props.onPress();
+  });
+  await act(async () => {
+    label(tree, 'mainnet').props.onPress();
+  });
+  await act(async () => {
+    label(tree, 'Switch to mainnet').props.onPress();
+  });
+  // The switching page, toward the network chosen, while the engine stops.
+  expect(activePhase(tree)).toBe('transit');
+  expect(tree.root.findByType(Transit).props.switchTarget).toBe('mainnet');
+  expect(meaning(tree)).toContain('Closing this wallet and opening mainnet');
+  expect(close).toHaveBeenCalledTimes(1);
+  expect(opened).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    engine.finishClose();
+  });
+  await until(() => onPage(tree)?.wallet.id === 'saved-mainnet');
+  expect(opened).toHaveBeenCalledTimes(2);
+  expect(opened).toHaveBeenLastCalledWith(
+    expect.objectContaining({ network: 'mainnet' }),
+    expect.any(Function),
+    { existingOnly: false, allowEmpty: true },
+  );
+  expect(phaseOf(tree)).toEqual({ kind: 'wallet', error: '' });
+  expect(JSON.parse(records.get(SESSION)!)).toMatchObject({
+    network: 'mainnet',
+    walletId: 'saved-mainnet',
+    locked: false,
+  });
+  // The start the switch replaced ends at last, with nothing to say.
+  await act(async () => {
+    engine.finishStart();
+  });
+  await drain();
+  expect(client.snapshot).toHaveBeenCalledTimes(1);
+  expect(phaseOf(tree)).toEqual({ kind: 'wallet', error: '' });
+  expect(onPage(tree)!.wallet.id).toBe('saved-mainnet');
+  await act(async () => tree.unmount());
+});
+
+test('a second switch made while the first one’s wallet starts keeps its switching page', async () => {
+  records.set(
+    SESSION,
+    JSON.stringify({
+      mode: 'device',
+      network: 'regtest',
+      walletId: 'saved-regtest',
+      locked: false,
+    }),
+  );
+  const regtest = device();
+  regtest.startWallet = jest.fn().mockResolvedValue(undefined);
+  regtest.snapshot = jest
+    .fn()
+    .mockResolvedValue({ ...savedSnapshot, updatedAt: Date.now() });
+  // The first switch's wallet: its last figures are cached, so its page and
+  // Settings are up while it starts, and the start waits for the test.
+  records.set(
+    `${SNAPSHOT}.saved-mainnet`,
+    JSON.stringify({
+      version: 1,
+      walletId: 'saved-mainnet',
+      snapshot: { ...savedSnapshot, wallet: mainnetWallet },
+    }),
+  );
+  const mainnet = mainnetDevice();
+  let finishStart!: () => void;
+  mainnet.startWallet = jest.fn(
+    () =>
+      new Promise<void>(resolve => {
+        finishStart = resolve;
+      }),
+  );
+  let finishClose!: () => void;
+  const mainnetClose = jest.spyOn(mainnet, 'close').mockImplementation(
+    () =>
+      new Promise<void>(resolve => {
+        finishClose = resolve;
+      }),
+  );
+  const back = device();
+  back.startWallet = jest.fn().mockResolvedValue(undefined);
+  back.snapshot = jest
+    .fn()
+    .mockResolvedValue({ ...savedSnapshot, updatedAt: Date.now() });
+  const opened = jest
+    .spyOn(DeviceWallet, 'openDeviceWallet')
+    .mockResolvedValueOnce(regtest)
+    .mockResolvedValueOnce(mainnet)
+    .mockResolvedValueOnce(back);
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(<App />);
+  });
+  await until(() => onPage(tree)?.wallet.id === 'saved-regtest');
+  await act(async () => {
+    label(tree, 'Settings').props.onPress();
+  });
+  await act(async () => {
+    label(tree, 'mainnet').props.onPress();
+  });
+  await act(async () => {
+    label(tree, 'Switch to mainnet').props.onPress();
+  });
+  await until(() => onPage(tree)?.wallet.id === 'saved-mainnet');
+  expect(mainnet.startWallet).toHaveBeenCalledTimes(1);
+  expect(activeScene(tree)).toBe('settings');
+  // While that wallet starts, the second switch.
+  await act(async () => {
+    label(tree, 'regtest').props.onPress();
+  });
+  await act(async () => {
+    label(tree, 'Switch to regtest').props.onPress();
+  });
+  expect(activePhase(tree)).toBe('transit');
+  expect(tree.root.findByType(Transit).props.switchTarget).toBe('regtest');
+  expect(mainnetClose).toHaveBeenCalledTimes(1);
+  // The first switch's start ends, and the first switch with it. Its clean-up
+  // must not take down the page the second one is waiting on.
+  await act(async () => {
+    finishStart();
+  });
+  await drain();
+  expect(activePhase(tree)).toBe('transit');
+  expect(tree.root.findByType(Transit).props.switchTarget).toBe('regtest');
+  expect(meaning(tree)).toContain('Closing this wallet and opening regtest');
+  expect(opened).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    finishClose();
+  });
+  await until(() => onPage(tree)?.wallet.network === 'regtest');
+  expect(opened).toHaveBeenCalledTimes(3);
+  expect(opened).toHaveBeenLastCalledWith(
+    expect.objectContaining({ network: 'regtest' }),
+    expect.any(Function),
+    { existingOnly: false, allowEmpty: true },
+  );
+  expect(phaseOf(tree)).toEqual({ kind: 'wallet', error: '' });
+  await act(async () => tree.unmount());
+});
+
+test('locking during a retry on the offline page leaves nothing turning', async () => {
+  records.set(
+    SESSION,
+    JSON.stringify({
+      mode: 'device',
+      network: 'regtest',
+      walletId: 'saved-regtest',
+      locked: false,
+    }),
+  );
+  const client = device();
+  const again = device();
+  const opened = jest
+    .spyOn(DeviceWallet, 'openDeviceWallet')
+    .mockResolvedValueOnce(client)
+    .mockResolvedValueOnce(again);
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(<App />);
+  });
+  expect(activePhase(tree)).toBe('offline');
+  // The retry asks the engine to start again, and it does not answer.
+  let finishRetry!: () => void;
+  client.startWallet = jest.fn(
+    () =>
+      new Promise<void>(resolve => {
+        finishRetry = resolve;
+      }),
+  );
+  await act(async () => {
+    label(tree, 'Retry connection').props.onPress();
+  });
+  expect(label(tree, 'Retry connection').props.accessibilityState).toEqual({
+    disabled: true,
+    busy: true,
+  });
+  await act(async () => {
+    label(tree, 'Settings').props.onPress();
+  });
+  const lock = label(tree, 'Lock device wallet');
+  expect(lock.props.accessibilityState).toEqual({
+    disabled: false,
+    busy: false,
+  });
+  await act(async () => {
+    await lock.props.onPress();
+  });
+  expect(activePhase(tree)).toBe('saved');
+  expect(JSON.parse(records.get(SESSION)!).locked).toBe(true);
+  expect(label(tree, 'Open device wallet').props.accessibilityState).toEqual({
+    disabled: false,
+    busy: false,
+  });
+  // The retry the lock replaced answers late, and leaves nothing behind.
+  await act(async () => {
+    finishRetry();
+  });
+  await drain();
+  expect(phaseOf(tree)).toEqual({ kind: 'saved', error: '' });
+  // Opened again, the wallet is offline as before, and its retry is not
+  // still turning from the one the lock replaced.
+  await act(async () => {
+    label(tree, 'Open device wallet').props.onPress();
+  });
+  await until(() => activePhase(tree) === 'offline');
+  expect(opened).toHaveBeenCalledTimes(2);
+  expect(label(tree, 'Retry connection').props.accessibilityState).toEqual({
+    disabled: false,
+    busy: false,
+  });
+  await act(async () => tree.unmount());
+});
+
+test('a wallet whose close failed is closed again, and waited for, before the next open claims the vault', async () => {
+  records.set(
+    SESSION,
+    JSON.stringify({
+      mode: 'device',
+      network: 'regtest',
+      walletId: 'saved-regtest',
+      locked: false,
+    }),
+  );
+  const previous = device();
+  previous.startWallet = jest.fn().mockResolvedValue(undefined);
+  previous.snapshot = jest
+    .fn()
+    .mockResolvedValue({ ...savedSnapshot, updatedAt: Date.now() });
+  // The engine ran past the close deadline, as it does when a cold start is
+  // still holding it: the storage is released, the engine's claim is not.
+  let settle!: () => void;
+  const close = jest
+    .spyOn(previous, 'close')
+    .mockRejectedValueOnce(
+      new Error(
+        'The wallet engine did not finish closing. Its storage was released.',
+      ),
+    )
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          settle = resolve;
+        }),
+    );
+  const next = device();
+  next.startWallet = jest.fn().mockResolvedValue(undefined);
+  next.snapshot = jest
+    .fn()
+    .mockResolvedValue({ ...savedSnapshot, updatedAt: Date.now() });
+  const opened = jest
+    .spyOn(DeviceWallet, 'openDeviceWallet')
+    .mockResolvedValueOnce(previous)
+    .mockResolvedValueOnce(next);
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(<App />);
+  });
+  await until(() => onPage(tree)?.wallet.id === 'saved-regtest');
+  await act(async () => {
+    label(tree, 'Settings').props.onPress();
+  });
+  await act(async () => {
+    await tree.root
+      .findByType(SettingsScreen)
+      .props.onNetwork({ ...defaultPreferences().profiles.mainnet })
+      .catch(() => {});
+  });
+  expect(activePhase(tree)).toBe('saved');
+  expect(meaning(tree)).toContain('did not finish closing');
+  expect(close).toHaveBeenCalledTimes(1);
+  // The next open asks the old wallet to close again, which waits on the
+  // engine's own close, and claims the vault only once that has settled.
+  await act(async () => {
+    label(tree, 'Open device wallet').props.onPress();
+  });
+  expect(close).toHaveBeenCalledTimes(2);
+  expect(opened).toHaveBeenCalledTimes(1);
+  expect(label(tree, 'Open device wallet').props.accessibilityState).toEqual({
+    disabled: true,
+    busy: true,
+  });
+  await act(async () => {
+    settle();
+  });
+  await until(() => onPage(tree)?.wallet.id === 'saved-regtest');
+  expect(opened).toHaveBeenCalledTimes(2);
+  expect(close).toHaveBeenCalledTimes(2);
+  expect(phaseOf(tree)).toEqual({ kind: 'wallet', error: '' });
+  await act(async () => tree.unmount());
+});
+
 test('figures that have aged out are recovered by the app, not by asking the user', async () => {
   jest.useFakeTimers();
   // Under jest this is undefined, and the poll only runs for a foregrounded
@@ -1706,3 +2214,87 @@ test('a read that answers with fewer rows shrinks neither the page nor the cache
   jest.useRealTimers();
   // Two launches and a run of polls, so it has twice the usual budget.
 }, 40000);
+
+test('a start that ends after a switch replaced it never lets the new wallet be read before its own start ends', async () => {
+  jest.useFakeTimers();
+  Object.defineProperty(AppState, 'currentState', {
+    value: 'active',
+    configurable: true,
+  });
+  records.set(
+    SESSION,
+    JSON.stringify({
+      mode: 'device',
+      network: 'regtest',
+      walletId: 'saved-regtest',
+      locked: false,
+    }),
+  );
+  records.set(
+    `${SNAPSHOT}.saved-regtest`,
+    JSON.stringify({
+      version: 1,
+      walletId: 'saved-regtest',
+      snapshot: savedSnapshot,
+    }),
+  );
+  const first = device();
+  let finishFirst!: () => void;
+  first.startWallet = jest.fn(
+    () =>
+      new Promise<void>(resolve => {
+        finishFirst = resolve;
+      }),
+  );
+  first.snapshot = jest
+    .fn()
+    .mockResolvedValue({ ...savedSnapshot, updatedAt: Date.now() });
+  // Nothing of it is cached, so a tick asks for a plain read rather than a
+  // recovery, which is the read a start must hold back.
+  const second = mainnetDevice();
+  let finishSecond!: () => void;
+  second.startWallet = jest.fn(
+    () =>
+      new Promise<void>(resolve => {
+        finishSecond = resolve;
+      }),
+  );
+  jest
+    .spyOn(DeviceWallet, 'openDeviceWallet')
+    .mockResolvedValueOnce(first)
+    .mockResolvedValueOnce(second);
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(<App />);
+  });
+  expect(activePhase(tree)).toBe('wallet');
+  await act(async () => {
+    label(tree, 'Settings').props.onPress();
+  });
+  let switching!: Promise<void>;
+  await act(async () => {
+    switching = tree.root
+      .findByType(SettingsScreen)
+      .props.onNetwork({ ...defaultPreferences().profiles.mainnet });
+  });
+  expect(second.startWallet).toHaveBeenCalledTimes(1);
+  expect(activePhase(tree)).toBe('loading');
+  // The first start ends long after the switch replaced it, and a poll
+  // follows. The new wallet's start is still running, so it is not read.
+  await act(async () => {
+    finishFirst();
+  });
+  await poll();
+  await poll();
+  expect(second.snapshot).not.toHaveBeenCalled();
+  expect(activePhase(tree)).toBe('loading');
+  // Its own start ends, and its first read is the one that follows it.
+  await act(async () => {
+    finishSecond();
+    await switching;
+  });
+  expect(second.snapshot).toHaveBeenCalledTimes(1);
+  expect(onPage(tree)!.wallet.id).toBe('saved-mainnet');
+  await act(async () => tree.unmount());
+  jest.useRealTimers();
+});

@@ -68,7 +68,6 @@ function session(over: Partial<CanvasSession> = {}): CanvasSession {
     refresh: jest.fn(),
     manualRefresh: jest.fn(),
     disconnect: jest.fn(),
-    chooseWallet: jest.fn(),
     switchNetwork: jest.fn().mockResolvedValue(undefined),
     eraseDevice: jest.fn().mockResolvedValue(undefined),
     ...over,

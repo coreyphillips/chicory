@@ -63,7 +63,6 @@ const session = {
   refresh: jest.fn(),
   manualRefresh: jest.fn(),
   disconnect: jest.fn(),
-  chooseWallet: jest.fn(),
   switchNetwork: jest.fn().mockResolvedValue(undefined),
   eraseDevice: jest.fn().mockResolvedValue(undefined),
 } as unknown as CanvasSession;
@@ -346,7 +345,7 @@ describe('at the largest text size', () => {
       numberOfLines: 1,
       adjustsFontSizeToFit: true,
     });
-    expect(label(copy.settings.wallet.chooseAnother).props).toMatchObject({
+    expect(label(copy.settings.wallet.lock).props).toMatchObject({
       numberOfLines: 3,
       adjustsFontSizeToFit: true,
     });

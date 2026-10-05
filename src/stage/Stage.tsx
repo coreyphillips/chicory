@@ -248,7 +248,6 @@ export function Stage({
         <OpeningWallet
           name={savedWallet?.name}
           network={savedWallet?.network || activeProfile.network}
-          busy={connecting || selecting || refreshing}
           onDisconnect={session.disconnect}
           tile={
             pending ? (
@@ -277,7 +276,6 @@ export function Stage({
           onRetrySetup={session.retrySetup}
           onToggleNetwork={() => session.setNetworkEditor(!networkEditor)}
           onApplyNetwork={session.switchNetwork}
-          onChooseWallet={session.chooseWallet}
           onDisconnect={session.disconnect}
           loadPhrase={() => client.getRecoveryPhrase()}
         />

@@ -26,7 +26,6 @@ export const phase = {
   retryConnection: 'Retry connection',
   retrySetup: 'Retry wallet setup',
   retrySetupHint: 'Asks the wallet to run its Lightning setup again.',
-  chooseWallet: 'Choose another wallet',
   lockDevice: 'Lock device wallet',
   createWallet: 'Create a wallet',
   restore: 'Restore from recovery phrase',

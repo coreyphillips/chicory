@@ -24,7 +24,6 @@ export const settings = {
     switchTo: (target: string) => `Switch to ${target}`,
     servers: 'Network & servers',
     serversLabel: 'Change network or Bitcoin server',
-    chooseAnother: 'Choose another wallet',
     lock: 'Lock device wallet',
   },
 

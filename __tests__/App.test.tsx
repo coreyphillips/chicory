@@ -40,7 +40,11 @@ test('a first launch offers no choice at all: no host, no preview, no chooser', 
   });
 });
 
-test('a pending wallet start serializes wallet selection and locking', async () => {
+/**
+ * A regtest vault holding two wallets, which the launch opens on the picker.
+ * The engine start a selection runs does not answer until the test lets it.
+ */
+async function twoWallets() {
   const wallets = [
     {
       id: 'a',
@@ -77,7 +81,7 @@ test('a pending wallet start serializes wallet selection and locking', async () 
         } as never)
       : false,
   );
-  let finish!: () => void;
+  const engine = { finish: () => {} };
   const device = new EmbeddedWalletClient({
     runtime: { request: jest.fn(), close: jest.fn() },
   });
@@ -86,7 +90,7 @@ test('a pending wallet start serializes wallet selection and locking', async () 
   const started = jest.fn(
     () =>
       new Promise<void>(resolve => {
-        finish = resolve;
+        engine.finish = resolve;
       }),
   );
   device.startWallet = started as never;
@@ -102,6 +106,21 @@ test('a pending wallet start serializes wallet selection and locking', async () 
   const opened = jest
     .spyOn(DeviceWallet, 'openDeviceWallet')
     .mockResolvedValue(device);
+  return {
+    engine,
+    selected,
+    started,
+    snapshot,
+    restore: () => {
+      loaded.mockRestore();
+      opened.mockRestore();
+      selected.mockRestore();
+    },
+  };
+}
+
+test('a pending wallet start refuses a second selection, and keeps its lock live', async () => {
+  const { engine, selected, started, snapshot, restore } = await twoWallets();
   let tree!: ReactTestRenderer;
   try {
     await act(async () => {
@@ -109,7 +128,6 @@ test('a pending wallet start serializes wallet selection and locking', async () 
     });
     const openA = label(tree, 'Open First wallet').props.onPress;
     const openB = label(tree, 'Open Second wallet').props.onPress;
-    const lock = label(tree, 'Lock device wallet').props.onPress;
     expect(activePhase(tree)).toBe('picker');
     await act(async () => {
       openA();
@@ -120,16 +138,20 @@ test('a pending wallet start serializes wallet selection and locking', async () 
     expect(
       tree.root.findAllByProps({ accessibilityLabel: 'Open Second wallet' }),
     ).toHaveLength(0);
-    expect(label(tree, 'Lock device wallet').props.disabled).toBe(true);
-    // Also exercise already-captured handlers, before disabled UI rerenders.
+    // A wallet that never answers must still be closable.
+    expect(label(tree, 'Lock device wallet').props.accessibilityState).toEqual({
+      disabled: false,
+      busy: false,
+    });
+    // Also exercise an already-captured handler: a second selection is
+    // refused while the first one's wallet starts.
     await act(async () => {
       openB();
-      lock();
     });
     expect(selected).toHaveBeenCalledTimes(1);
     expect(selected).toHaveBeenCalledWith('a');
     await act(async () => {
-      finish();
+      engine.finish();
     });
     expect(activePhase(tree)).toBe('wallet');
     expect(snapshot).toHaveBeenCalled();
@@ -137,9 +159,53 @@ test('a pending wallet start serializes wallet selection and locking', async () 
     await act(async () => {
       tree?.unmount();
     });
-    loaded.mockRestore();
-    opened.mockRestore();
-    selected.mockRestore();
+    restore();
+  }
+});
+
+test('a wallet chosen in the picker locks while its engine starts', async () => {
+  const { engine, snapshot, restore } = await twoWallets();
+  let tree!: ReactTestRenderer;
+  try {
+    await act(async () => {
+      tree = create(<App />);
+    });
+    await act(async () => {
+      label(tree, 'Open First wallet').props.onPress();
+    });
+    expect(activePhase(tree)).toBe('loading');
+    await act(async () => {
+      await label(tree, 'Lock device wallet').props.onPress();
+    });
+    expect(activePhase(tree)).toBe('saved');
+    const sessions = jest
+      .mocked(Keychain.setGenericPassword)
+      .mock.calls.filter(
+        ([, , options]) =>
+          options?.service === 'com.beignet.wallet.last-session',
+      )
+      .map(([, value]) => JSON.parse(value));
+    expect(sessions[sessions.length - 1]).toEqual({
+      mode: 'device',
+      network: 'regtest',
+      walletId: 'a',
+      locked: true,
+    });
+    expect(label(tree, 'Open device wallet').props.accessibilityState).toEqual({
+      disabled: false,
+      busy: false,
+    });
+    // The start the lock replaced ends, and its reading goes nowhere.
+    await act(async () => {
+      engine.finish();
+    });
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(activePhase(tree)).toBe('saved');
+  } finally {
+    await act(async () => {
+      tree?.unmount();
+    });
+    restore();
   }
 });
 

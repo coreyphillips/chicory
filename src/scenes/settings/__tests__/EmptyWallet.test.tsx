@@ -233,7 +233,6 @@ test('Settings exposes draining only when the engine supports it, below Change p
           client={client}
           switchError=""
           onDisconnect={jest.fn()}
-          onChooseWallet={jest.fn()}
           onRefresh={jest.fn()}
           onNetwork={jest.fn()}
         />,

@@ -175,7 +175,6 @@ export function SettingsLayer({
               client={client}
               switchError={session.switchError}
               onDisconnect={session.disconnect}
-              onChooseWallet={session.chooseWallet}
               onRefresh={session.manualRefresh}
               onRead={session.refresh}
               onNetwork={session.switchNetwork}
