@@ -466,7 +466,6 @@ describe('money arriving with Receive open on the canvas', () => {
           })),
         manualRefresh: jest.fn(),
         disconnect: jest.fn(),
-        chooseWallet: jest.fn(),
         switchNetwork: jest.fn(),
         eraseDevice: jest.fn(),
       }),

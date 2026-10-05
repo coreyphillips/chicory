@@ -440,7 +440,6 @@ export function sessionOf(
     switchNetwork: done,
     disconnect: done,
     eraseDevice: done,
-    chooseWallet: idle,
     acknowledgeBackup: idle,
     ...over,
   };

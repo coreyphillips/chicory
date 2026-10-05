@@ -98,7 +98,6 @@ const session: React.ComponentProps<typeof Canvas>['session'] = {
   refresh: jest.fn(),
   manualRefresh: jest.fn(),
   disconnect: jest.fn(),
-  chooseWallet: jest.fn(),
   switchNetwork: jest.fn(),
   eraseDevice: jest.fn(),
 };

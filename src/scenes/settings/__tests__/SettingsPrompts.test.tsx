@@ -55,7 +55,6 @@ async function render() {
         client={client()}
         switchError=""
         onDisconnect={jest.fn()}
-        onChooseWallet={jest.fn()}
         onRefresh={jest.fn()}
         onNetwork={jest.fn()}
         onErase={jest.fn().mockResolvedValue(undefined)}

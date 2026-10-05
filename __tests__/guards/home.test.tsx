@@ -122,7 +122,6 @@ const session = (over: Partial<CanvasSession> = {}): CanvasSession => ({
   refresh: jest.fn(),
   manualRefresh: jest.fn(),
   disconnect: jest.fn(),
-  chooseWallet: jest.fn(),
   switchNetwork: jest.fn(),
   eraseDevice: jest.fn(),
   ...over,

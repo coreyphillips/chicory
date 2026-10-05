@@ -86,7 +86,6 @@ export type CanvasSession = Pick<
   | 'refresh'
   | 'manualRefresh'
   | 'disconnect'
-  | 'chooseWallet'
   | 'switchNetwork'
   | 'eraseDevice'
 >;

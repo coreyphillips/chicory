@@ -61,8 +61,9 @@ import { bloomTone, flightFrom, SIZES, WAVE } from './visual';
  * (`HOME`, `stops`, `STATUS_ROW`), so the live canvas that replaces it
  * builds in over it without anything jumping (R-3). The lock stands where
  * the canvas's corner control will, since a wallet that never answers must
- * still be closable, and a recovery phrase still to save puts its `tile`
- * beside the mark, where the canvas puts it.
+ * still be closable, so nothing the wallet is still doing disables it. A
+ * recovery phrase still to save puts its `tile` beside the mark, where the
+ * canvas puts it.
  *
  * Like the canvas it runs edge to edge, under the system bars, and keeps its
  * content clear of them itself.
@@ -74,13 +75,11 @@ import { bloomTone, flightFrom, SIZES, WAVE } from './visual';
 export function OpeningWallet({
   name,
   network,
-  busy,
   onDisconnect,
   tile,
 }: {
   name?: string;
   network: Network;
-  busy: boolean;
   onDisconnect: () => void;
   /** The shield tile of a recovery phrase still to save, if one is. */
   tile?: ReactNode;
@@ -145,7 +144,6 @@ export function OpeningWallet({
           glyph="lock"
           size={SIZES.cog}
           label={copy.phase.lockDevice}
-          disabled={busy}
           onPress={onDisconnect}
         />
       </View>

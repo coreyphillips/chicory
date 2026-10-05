@@ -51,9 +51,9 @@ import { bloomTone, DORMANT_OPEN, SIZES, UNPLUG_DRIFT } from './visual';
  * honey pip when that setup has failed before.
  *
  * The cog opens a setup panel in the Settings language, holding the network
- * editor and the recovery phrase, and under it the glyphs that leave this
- * wallet, for another one or for the lock. All stay reachable, because this
- * is exactly the screen where someone needs them.
+ * editor and the recovery phrase, and under it the lock, the glyph that
+ * leaves this wallet. All stay reachable, because this is exactly the screen
+ * where someone needs them.
  */
 export function OfflineWallet({
   name,
@@ -66,7 +66,6 @@ export function OfflineWallet({
   onRetrySetup,
   onToggleNetwork,
   onApplyNetwork,
-  onChooseWallet,
   onDisconnect,
   loadPhrase,
 }: {
@@ -80,7 +79,6 @@ export function OfflineWallet({
   onRetrySetup: () => void;
   onToggleNetwork: () => void;
   onApplyNetwork: (profile: NetworkProfile) => Promise<void>;
-  onChooseWallet: () => void;
   onDisconnect: () => void;
   loadPhrase: () => Promise<string>;
 }) {
@@ -190,8 +188,10 @@ export function OfflineWallet({
           <RecoveryPhrase loadPhrase={loadPhrase} />
         </SetupPanel>
       ) : null}
-      {/* Leaving the wallet is not setup, so it keeps to glyphs, outside the
-          panel's settings-class marker (REDESIGN.md 10.1). */}
+      {/* Leaving the wallet is not setup, so it keeps to a glyph, outside
+          the panel's settings-class marker (REDESIGN.md 10.1). A retry is
+          never a reason to keep the wallet open: one the network never
+          answers would hold it for good, so the lock stays live through it. */}
       {panel ? (
         <Reanimated.View
           entering={riseIn()}
@@ -199,17 +199,9 @@ export function OfflineWallet({
           style={styles.leave}
         >
           <GlyphButton
-            glyph="swap"
-            size={SIZES.cog}
-            label={copy.phase.chooseWallet}
-            disabled={busy}
-            onPress={onChooseWallet}
-          />
-          <GlyphButton
             glyph="lock"
             size={SIZES.cog}
             label={copy.phase.lockDevice}
-            disabled={busy}
             onPress={onDisconnect}
           />
         </Reanimated.View>

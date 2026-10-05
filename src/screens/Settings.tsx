@@ -615,7 +615,6 @@ export function SettingsScreen({
   client,
   switchError,
   onDisconnect,
-  onChooseWallet,
   onRefresh,
   onRead,
   onNetwork,
@@ -630,7 +629,6 @@ export function SettingsScreen({
   /** Why the last network switch failed. It outlives the screen that ran it. */
   switchError: string;
   onDisconnect: () => void;
-  onChooseWallet: () => void;
   /**
    * Restarts and resyncs the wallet behind the pull to refresh's spinner,
    * for a change that moved it, such as a new primary node.
@@ -781,11 +779,6 @@ export function SettingsScreen({
     ),
     leave: (
       <Section key="leave" index={at('leave')}>
-        <Row
-          glyph="wallet"
-          label={words.wallet.chooseAnother}
-          onPress={onChooseWallet}
-        />
         <Row glyph="lock" label={words.wallet.lock} onPress={onDisconnect} />
         {onErase ? <EraseWallet onErase={onErase} /> : null}
       </Section>

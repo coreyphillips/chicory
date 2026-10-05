@@ -200,7 +200,6 @@ const loading = (
     <OpeningWallet
       name={everyday.name}
       network="regtest"
-      busy={false}
       onDisconnect={jest.fn()}
       {...props}
     />,
@@ -220,7 +219,6 @@ const offlineWallet = (
       onRetrySetup={jest.fn()}
       onToggleNetwork={jest.fn()}
       onApplyNetwork={jest.fn(async () => {})}
-      onChooseWallet={jest.fn()}
       onDisconnect={jest.fn()}
       loadPhrase={jest.fn(async () => 'never shown')}
       {...props}
@@ -429,15 +427,15 @@ const GUARDED: GuardedState[] = [
   },
   { name: 'loading', render: () => loading(), data: DATA },
   {
-    name: 'loading, unnamed and busy',
-    render: () => loading({ name: undefined, busy: true }),
+    name: 'loading, unnamed',
+    render: () => loading({ name: undefined }),
     data: DATA,
   },
   {
     name: 'loading, arriving from the picker',
     render: () => {
       handOff(ROW_MARK);
-      return loading({ busy: true });
+      return loading();
     },
     data: DATA,
   },
@@ -886,7 +884,6 @@ describe('phase behaviour', () => {
     expect(find(tree, copy.phase.lockDevice)).toBeUndefined();
     await press(tree, copy.phase.settings);
     expect(find(tree, copy.phase.lockDevice)).toBeDefined();
-    expect(find(tree, copy.phase.chooseWallet)).toBeDefined();
     expect(find(tree, 'Reveal recovery phrase')).toBeDefined();
     await press(tree, copy.phase.close);
     expect(find(tree, copy.phase.lockDevice)).toBeUndefined();
@@ -918,28 +915,52 @@ describe('phase behaviour', () => {
     await act(async () => tree.unmount());
   });
 
-  test('offline leaves its wallet by glyphs, outside the setup panel', async () => {
-    const onChooseWallet = jest.fn();
+  test('offline locks its wallet by a glyph, outside the setup panel', async () => {
     const onDisconnect = jest.fn();
-    const tree = await offline({ onChooseWallet, onDisconnect });
+    const tree = await offline({ onDisconnect });
     await press(tree, copy.phase.settings);
     const [panel] = tree.root.findAll(
       node =>
         typeof node.type === 'string' && node.props.testID === SETTINGS_MARKER,
     );
-    for (const label of [copy.phase.chooseWallet, copy.phase.lockDevice]) {
-      const control = find(tree, label)!;
-      expect(control).toBeDefined();
-      // Not setup, so not under the marker that lets setup keep its words,
-      // and drawn as a glyph alone.
-      expect({
-        label,
-        inPanel: panel.findAll(node => node === control).length,
-        words: control.findAllByType(Text).length,
-      }).toEqual({ label, inPanel: 0, words: 0 });
-    }
-    await press(tree, copy.phase.chooseWallet);
-    expect(onChooseWallet).toHaveBeenCalledTimes(1);
+    const control = find(tree, copy.phase.lockDevice)!;
+    expect(control).toBeDefined();
+    // Not setup, so not under the marker that lets setup keep its words,
+    // and drawn as a glyph alone.
+    expect({
+      inPanel: panel.findAll(node => node === control).length,
+      words: control.findAllByType(Text).length,
+    }).toEqual({ inPanel: 0, words: 0 });
+    // Leaving is the lock alone: Chicory keeps one wallet per network, so
+    // there is no other wallet here to go to.
+    const outside = tree.root
+      .findAll(
+        node =>
+          typeof node.props.onPress === 'function' &&
+          typeof node.props.accessibilityLabel === 'string' &&
+          panel.findAll(inner => inner === node).length === 0,
+      )
+      .map(node => node.props.accessibilityLabel);
+    expect(new Set(outside)).toEqual(
+      new Set([
+        copy.phase.retrySetup,
+        copy.phase.retryConnection,
+        copy.phase.close,
+        copy.phase.lockDevice,
+      ]),
+    );
+    await press(tree, copy.phase.lockDevice);
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('a retry running on offline leaves its lock live', async () => {
+    const onDisconnect = jest.fn();
+    const tree = await offline({ busy: true, onDisconnect });
+    await press(tree, copy.phase.settings);
+    expect(find(tree, copy.phase.lockDevice)?.props.accessibilityState).toEqual(
+      { disabled: false, busy: false },
+    );
     await press(tree, copy.phase.lockDevice);
     expect(onDisconnect).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
@@ -1099,7 +1120,7 @@ describe('phase behaviour', () => {
     }
     jest.useFakeTimers();
     try {
-      const page = await loading({ busy: true });
+      const page = await loading();
       const mark = () =>
         page.root
           .findAllByType(Bloom)

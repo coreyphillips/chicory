@@ -91,6 +91,8 @@ const PRESETS = ['10,000', '50,000'];
 const RETIRED: Record<string, string> = {
   Wallet:
     'The tab bar is gone. Close returns home from every scene, so no control is called Wallet.',
+  'Choose another wallet':
+    'Chicory keeps one wallet per network, so the picker it opened only listed the open wallet. Settings and the offline panel no longer offer it; the picker stays for a network with no wallet.',
 };
 
 /**

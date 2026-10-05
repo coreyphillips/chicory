@@ -61,7 +61,6 @@ const session = {
   refresh: jest.fn(),
   manualRefresh: jest.fn(),
   disconnect: jest.fn(),
-  chooseWallet: jest.fn(),
   switchNetwork: jest.fn().mockResolvedValue(undefined),
   eraseDevice: jest.fn().mockResolvedValue(undefined),
 } as unknown as CanvasSession;
@@ -271,7 +270,6 @@ describe('a test network', () => {
           onRetrySetup={jest.fn()}
           onToggleNetwork={jest.fn()}
           onApplyNetwork={jest.fn(async () => {})}
-          onChooseWallet={jest.fn()}
           onDisconnect={jest.fn()}
           loadPhrase={jest.fn(async () => PHRASE)}
         />
