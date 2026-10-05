@@ -9,7 +9,7 @@ A Lightning-first wallet for iOS and Android, running the Beignet engine on the 
 
 The app's design, from its product rules to its motion, is specified in [REDESIGN.md](REDESIGN.md).
 
-App version 0.6.2 (Android `versionCode` 8). The version shown in Settings comes from `package.json`; `android/app/build.gradle` and the Xcode `MARKETING_VERSION` are kept in step with it.
+App version 0.6.3 (Android `versionCode` 9). The version shown in Settings comes from `package.json`; `android/app/build.gradle` and the Xcode `MARKETING_VERSION` are kept in step with it.
 
 ## What the phone adds
 
