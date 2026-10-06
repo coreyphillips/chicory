@@ -6,6 +6,7 @@ import {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import type { SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import { steady } from '../../motion/steady';
@@ -27,6 +28,28 @@ const FADE = {
   easing: curves.standard,
   reduceMotion: ReduceMotion.Never,
 };
+
+/**
+ * Moves Settings' cover of the canvas toward `covered` (1 covered, 0 not),
+ * as a move of the panes does: a spring, or under Reduce Motion a fade. A
+ * worklet, so a tap can start it on the UI thread as it lands (the corner
+ * cog's), and the move that follows on the JavaScript thread carries on
+ * from wherever it has got to.
+ */
+export function moveCover(
+  cover: SharedValue<number>,
+  covered: number,
+  reduced: boolean,
+): void {
+  'worklet';
+  cover.set(
+    steady(
+      reduced
+        ? withTiming(covered, FADE)
+        : withSpring(covered, springs.pane),
+    ),
+  );
+}
 
 /**
  * How long a move holds the transition lock. The pane spring looks settled
@@ -194,7 +217,7 @@ export function usePaneMotion(
             hero.set(to.hero);
             bar.set(steady(withTiming(next.bar, FADE)));
           }
-          cover.set(steady(withTiming(covered, FADE)));
+          moveCover(cover, covered, true);
           scan.set(steady(withTiming(scanning, FADE)));
         };
       } else {
@@ -217,7 +240,7 @@ export function usePaneMotion(
           );
           hero.set(steady(withSpring(next.hero, springs.pane)));
           bar.set(steady(withDelay(wait, withSpring(next.bar, springs.pane))));
-          cover.set(steady(withSpring(covered, springs.pane)));
+          moveCover(cover, covered, false);
           scan.set(steady(withSpring(scanning, springs.pane)));
           // Restarting the clock cuts the last one short, which ends its
           // lock. A row that waits holds it that much longer.
@@ -267,11 +290,18 @@ export function usePaneMotion(
     registry.current = {
       moving: () => active.current && Date.now() < settleBy.current,
       follow: (next, fling) => aim(canvasLayout(next), fling),
+      // A cover a tap started on the UI thread goes back to the pose the
+      // panes aim for when the stage did not move; a move asked for and not
+      // yet started will set it on its own.
+      realign: () => {
+        if (pending.current) return;
+        moveCover(cover, aimed.current.covered ? 1 : 0, reduced);
+      },
     };
     return () => {
       registry.current = null;
     };
-  }, [registry, active, aim]);
+  }, [registry, active, aim, cover, reduced]);
 
   const panes = useMemo(
     () => ({ seam, hero, bar, cover, scan, pull, veil, stops: at }),

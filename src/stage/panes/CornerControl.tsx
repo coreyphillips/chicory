@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 import Reanimated, {
   useAnimatedStyle,
@@ -10,12 +10,14 @@ import { copy } from '../../design/copy';
 import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
+import { TapTarget } from '../../glyphs/TapTarget';
 import { spinIn, spinOut } from '../../motion/presets';
 import { springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { space } from '../../theme';
 import { useStage } from '../StageContext';
 import { useCanvasPanes, usePaneActive } from './Pane';
+import { moveCover } from './usePaneMotion';
 
 /**
  * The corner control's touch target, the least any control gets
@@ -55,6 +57,13 @@ export const COG_TURN = 120;
  *
  * `scale` grows its target and glyph with the text, as Settings' close does
  * (`glyphScale`), drawn at that size rather than scaled up from 48pt.
+ *
+ * The cog answers on the UI thread (`CogButton`): as the tap lands, Settings'
+ * cover starts there (`moveCover`), so the canvas recedes and the cog turns
+ * even while the wallet engine holds the JavaScript thread as it opens.
+ * Settings itself follows when the thread is free, and if the stage refuses
+ * the tap, as it does while a pane is still moving, the cover goes back
+ * (`realign`).
  */
 export function CornerControl({
   home,
@@ -63,10 +72,33 @@ export function CornerControl({
   home: boolean;
   scale?: number;
 }) {
-  const { state, actions } = useStage();
+  const { state, actions, panes: motion } = useStage();
   const live = usePaneActive();
   const panes = useCanvasPanes();
   const { reduced } = useMotionPrefs();
+  const paneCover = panes?.cover;
+  const coverNow = useMemo(
+    () =>
+      paneCover
+        ? () => {
+            'worklet';
+            moveCover(paneCover, 1, reduced);
+          }
+        : undefined,
+    [paneCover, reduced],
+  );
+  // The tap was taken on the UI thread when the cog was live; by the time
+  // the JavaScript thread hears of it, an overlay may have covered it, as a
+  // Pressable would have known. Then it only puts the cover back.
+  const liveNow = useRef(live);
+  liveNow.current = live;
+  const openSettings = useCallback(() => {
+    if (liveNow.current) {
+      haptics.tick();
+      actions.openSettings();
+    }
+    motion.current?.realign();
+  }, [actions, motion]);
   // Only the cog turns: Settings' own close comes in over it, upright.
   const turns = home && !reduced ? panes : null;
   const turn = useAnimatedStyle(() => {
@@ -81,11 +113,10 @@ export function CornerControl({
         exiting={spinOut()}
       >
         {home ? (
-          <CornerButton
-            glyph="cog"
-            label={copy.home.settings}
+          <CogButton
             scale={scale}
-            onPress={live ? actions.openSettings : undefined}
+            onPress={live ? openSettings : undefined}
+            onPressUi={coverNow}
           />
         ) : (
           <CornerButton
@@ -98,6 +129,39 @@ export function CornerControl({
         )}
       </Reanimated.View>
     </Reanimated.View>
+  );
+}
+
+/**
+ * The cog, which answers on the UI thread (`TapTarget`): `onPressUi`, a
+ * worklet, runs as the tap lands, and `onPress` when the JavaScript thread
+ * is free, which ticks only for a tap it takes. Drawn as CornerButton draws
+ * it.
+ */
+function CogButton({
+  scale,
+  onPress,
+  onPressUi,
+}: {
+  scale: number;
+  onPress?: () => void;
+  onPressUi?: () => void;
+}) {
+  return (
+    <TapTarget
+      accessibilityLabel={copy.home.settings}
+      onPress={onPress}
+      onPressUi={onPressUi}
+      style={[
+        styles.target,
+        scale !== 1 && {
+          width: CORNER_TARGET * scale,
+          height: CORNER_TARGET * scale,
+        },
+      ]}
+    >
+      <Icon name="cog" size={GLYPH * scale} color={palette.cream} />
+    </TapTarget>
   );
 }
 

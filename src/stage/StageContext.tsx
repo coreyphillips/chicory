@@ -69,6 +69,12 @@ export interface PaneMotion {
    * speed of the gesture that asked, if one did.
    */
   follow: (next: StageState, fling?: Fling) => void;
+  /**
+   * Puts Settings' cover back to the pose the panes aim for, after a tap
+   * started it on the UI thread (`moveCover`) and the stage then refused
+   * the tap, or had already moved.
+   */
+  realign: () => void;
 }
 
 /** One registered answer, read at the moment it is asked for. */

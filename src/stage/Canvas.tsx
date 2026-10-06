@@ -597,12 +597,7 @@ export function Canvas({
               pointerEvents={blocking ? 'none' : 'box-none'}
             >
               {scene.name === 'settings' ? (
-                <Reanimated.View
-                  key={scene.key}
-                  entering={slideIn()}
-                  exiting={slideOut()}
-                  style={styles.fill}
-                >
+                <SettingsSlide key={scene.key}>
                   {/* Out of use under an overlay, and the swipe in it with
                   it: a swipe back while the scan is open would close the
                   scan and leave Settings drawn where the finger let go. */}
@@ -625,7 +620,7 @@ export function Canvas({
                       style={[styles.veil, settingsVeil]}
                     />
                   </Pane>
-                </Reanimated.View>
+                </SettingsSlide>
               ) : null}
             </View>
             {scanning ? (
@@ -674,6 +669,34 @@ export const HANDOVER_LATEST = 2 * PANE_SETTLE_MS;
  * holds the steady clock back by at most about as long again.
  */
 export const RISEN_BY = 2 * (PANE_SETTLE_MS + durations.exit);
+
+/**
+ * Settings sliding in over the canvas, sure to end shown (`useSureEntry`).
+ * Reanimated can stall an entrance as the app starts, and a stalled slide
+ * would leave the canvas covered, as the cog's tap starts it, with nothing
+ * on it: one that has not ended within its grace is drawn again at rest,
+ * its content too. What Settings held is lost then, but a stalled slide was
+ * never on screen to be used.
+ */
+function SettingsSlide({ children }: { children: ReactNode }) {
+  const [entering] = useState(slideIn);
+  const [exiting] = useState(slideOut);
+  const entry = useSureEntry(entering, ENTRY_GRACE_MS);
+  return (
+    <Reanimated.View
+      key={entry.key}
+      entering={entry.entering}
+      exiting={exiting}
+      style={styles.fill}
+    >
+      {/* Drawn again at rest, its rows rest too: their own entrances could
+          stall the same way, as the sheet's rows are guarded above. */}
+      <LayoutAnimationConfig skipEntering={entry.state === 'stalled'}>
+        {children}
+      </LayoutAnimationConfig>
+    </Reanimated.View>
+  );
+}
 
 const styles = StyleSheet.create({
   canvas: { flex: 1, overflow: 'hidden' },
