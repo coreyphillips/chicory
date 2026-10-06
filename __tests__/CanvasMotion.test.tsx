@@ -343,12 +343,21 @@ describe('the cog', () => {
     await act(async () => stage.panes.current!.realign());
     expect(held.cover.get()).toBe(0);
     // A move asked for and not yet started sets the cover itself.
+    // Read as realign returns: the render that follows aims the panes at
+    // the stage again, which never moved here.
     held.cover.set(0.5);
-    stage.panes.current!.follow(
-      stageReducer(stage.state, { type: 'open', scene: { name: 'settings' } }),
-    );
-    stage.panes.current!.realign();
-    expect(held.cover.get()).toBe(0.5);
+    let declined: number | undefined;
+    await act(async () => {
+      stage.panes.current!.follow(
+        stageReducer(stage.state, {
+          type: 'open',
+          scene: { name: 'settings' },
+        }),
+      );
+      stage.panes.current!.realign();
+      declined = held.cover.get();
+    });
+    expect(declined).toBe(0.5);
     await act(async () => tree.unmount());
   });
 

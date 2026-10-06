@@ -93,7 +93,10 @@ export function CornerControl({
   const liveNow = useRef(live);
   liveNow.current = live;
   const openSettings = useCallback(() => {
-    if (liveNow.current) actions.openSettings();
+    if (liveNow.current) {
+      haptics.tick();
+      actions.openSettings();
+    }
     motion.current?.realign();
   }, [actions, motion]);
   // Only the cog turns: Settings' own close comes in over it, upright.
@@ -132,7 +135,8 @@ export function CornerControl({
 /**
  * The cog, which answers on the UI thread (`TapTarget`): `onPressUi`, a
  * worklet, runs as the tap lands, and `onPress` when the JavaScript thread
- * is free. Drawn as CornerButton draws it.
+ * is free, which ticks only for a tap it takes. Drawn as CornerButton draws
+ * it.
  */
 function CogButton({
   scale,
@@ -143,14 +147,10 @@ function CogButton({
   onPress?: () => void;
   onPressUi?: () => void;
 }) {
-  const press = useCallback(() => {
-    haptics.tick();
-    onPress?.();
-  }, [onPress]);
   return (
     <TapTarget
       accessibilityLabel={copy.home.settings}
-      onPress={onPress && press}
+      onPress={onPress}
       onPressUi={onPressUi}
       style={[
         styles.target,
