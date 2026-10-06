@@ -41,6 +41,7 @@ import {
 import type { Arrival, CanvasSceneName } from '../src/stage/layout';
 import { COG_TURN, CornerControl } from '../src/stage/panes/CornerControl';
 import { TapTarget } from '../src/glyphs/TapTarget';
+import { ENTRY_GRACE_MS } from '../src/motion/sureEntry';
 import { STALL_ALLOWANCE, moveCover } from '../src/stage/panes/usePaneMotion';
 import {
   EDGE,
@@ -313,6 +314,28 @@ describe('the cog', () => {
       moveCover(cover, 0, reduced);
       expect(values).toEqual([1, 0]);
     }
+  });
+
+  test('Settings is drawn at rest if its slide-in has not ended within its grace', async () => {
+    jest.useFakeTimers();
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openSettings());
+    // The view Settings slides in on: the first the slot draws.
+    const slide = () =>
+      host(
+        tree.root.find(
+          node =>
+            typeof node.type === 'string' &&
+            node.props.testID === 'slot-settings',
+        ).children[0] as ReactTestInstance,
+      );
+    expect(slide().props.entering).toBeDefined();
+    // Under Jest a layout animation never reports its end, as one stalled
+    // on a phone would not.
+    await act(async () => jest.advanceTimersByTime(ENTRY_GRACE_MS));
+    expect(slide().props.entering).toBeUndefined();
+    expect(stage.state.scene.name).toBe('settings');
+    await act(async () => tree.unmount());
   });
 
   test('realigns the cover after a tap the stage refuses, and after one it takes', async () => {
