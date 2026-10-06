@@ -181,7 +181,7 @@ test('a pane still on its way swallows the press and moves nothing', async () =>
   const tree = await render('wallet');
   await act(async () => stage.actions.openActivity());
   let moving = true;
-  stage.panes.current = { moving: () => moving, follow: jest.fn() };
+  stage.panes.current = { moving: () => moving, follow: jest.fn(), realign: jest.fn() };
   expect(await backPress()).toBe(true);
   expect(stage.state.scene.name).toBe('activity');
   // Nothing was refused that matters, so nothing is felt either.
@@ -280,7 +280,7 @@ describe('responders', () => {
     await act(async () =>
       tree.update(<Harness phase="wallet">{both}</Harness>),
     );
-    stage.panes.current = { moving: () => true, follow: jest.fn() };
+    stage.panes.current = { moving: () => true, follow: jest.fn(), realign: jest.fn() };
     expect(await backPress()).toBe(true);
     expect(scene).not.toHaveBeenCalled();
     expect(phase).not.toHaveBeenCalled();

@@ -40,7 +40,8 @@ import {
 } from '../src/stage/layout';
 import type { Arrival, CanvasSceneName } from '../src/stage/layout';
 import { COG_TURN, CornerControl } from '../src/stage/panes/CornerControl';
-import { STALL_ALLOWANCE } from '../src/stage/panes/usePaneMotion';
+import { TapTarget } from '../src/glyphs/TapTarget';
+import { STALL_ALLOWANCE, moveCover } from '../src/stage/panes/usePaneMotion';
 import {
   EDGE,
   EdgeBack,
@@ -245,11 +246,100 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
+describe('the cog', () => {
+  /** The cog's target, which answers a tap on the UI thread. */
+  const cog = (tree: ReactTestRenderer) =>
+    tree.root.findAll(
+      node =>
+        node.props.accessibilityLabel === copy.home.settings &&
+        typeof node.props.onPressUi === 'function',
+    )[0];
+  test('a tap starts the cover where the gesture runs, before Settings opens', async () => {
+    const covers: number[] = [];
+    const cover = {
+      get: () => covers[covers.length - 1] ?? 0,
+      set: (value: number) => covers.push(value),
+    } as unknown as Panes['cover'];
+    let openedWith: number | undefined;
+    function Cogged() {
+      stage = useStageStore();
+      if (stage.state.scene.name === 'settings' && openedWith === undefined)
+        openedWith = covers[covers.length - 1];
+      const still = Reanimated.useSharedValue(0);
+      return (
+        <GestureHandlerRootView>
+          <StageProvider value={stage}>
+            <PanesProvider
+              value={{
+                seam: still,
+                hero: still,
+                bar: still,
+                cover,
+                scan: still,
+                pull: still,
+                stops: at(),
+              }}
+            >
+              <CornerControl home />
+            </PanesProvider>
+          </StageProvider>
+        </GestureHandlerRootView>
+      );
+    }
+    const tree = await render(<Cogged />);
+    const tap = () =>
+      tree.root.findByType(TapTarget).findByType(GestureDetector).props.gesture;
+    await act(async () =>
+      fireGestureHandler(tap(), [
+        { state: State.BEGAN },
+        { state: State.ACTIVE },
+        { state: State.END },
+      ]),
+    );
+    // Covered as the tap landed, before the stage drew Settings.
+    expect(covers[0]).toBe(1);
+    expect(openedWith).toBe(1);
+    expect(stage.state.scene.name).toBe('settings');
+    await act(async () => tree.unmount());
+  });
+
+  test('moveCover sends the cover where it is told, sprung or faded', () => {
+    for (const reduced of [false, true]) {
+      const values: number[] = [];
+      const cover = {
+        set: (value: number) => values.push(value),
+      } as unknown as Panes['cover'];
+      moveCover(cover, 1, reduced);
+      moveCover(cover, 0, reduced);
+      expect(values).toEqual([1, 0]);
+    }
+  });
+
+  test('realigns the cover after a tap the stage refuses, and after one it takes', async () => {
+    const tree = await render(<OnCanvas />);
+    await settle();
+    const realign = jest.fn();
+    const follow = jest.fn();
+    let moving = true;
+    stage.panes.current = { moving: () => moving, follow, realign };
+    await act(async () => cog(tree).props.onPress());
+    expect(stage.state.scene.name).toBe('home');
+    expect(follow).not.toHaveBeenCalled();
+    expect(realign).toHaveBeenCalledTimes(1);
+    moving = false;
+    await act(async () => cog(tree).props.onPress());
+    expect(stage.state.scene.name).toBe('settings');
+    expect(follow).toHaveBeenCalledTimes(1);
+    expect(realign).toHaveBeenCalledTimes(2);
+    await act(async () => tree.unmount());
+  });
+});
+
 describe('the stage store', () => {
   test('a tap starts the panes toward where it leads, before the render', async () => {
     const tree = await render(<Bare />);
     const follow = jest.fn();
-    stage.panes.current = { moving: () => false, follow };
+    stage.panes.current = { moving: () => false, follow, realign: jest.fn() };
     await act(async () => stage.actions.openActivity());
     expect(follow).toHaveBeenCalledTimes(1);
     expect(follow.mock.calls[0][0].scene.name).toBe('activity');
@@ -263,7 +353,7 @@ describe('the stage store', () => {
   test('a sheet let go hands its speed to the move, and a press hands none', async () => {
     const tree = await render(<Bare />);
     const follow = jest.fn();
-    stage.panes.current = { moving: () => false, follow };
+    stage.panes.current = { moving: () => false, follow, realign: jest.fn() };
     await act(async () => stage.actions.openActivity({ velocity: -1200 }));
     expect(follow.mock.calls[0][1]).toEqual({ velocity: -1200 });
     // A control that passes the handler straight to onPress calls it with its
@@ -277,7 +367,7 @@ describe('the stage store', () => {
   test('two taps in one tick each start from where the one before led', async () => {
     const tree = await render(<Bare />);
     const follow = jest.fn();
-    stage.panes.current = { moving: () => false, follow };
+    stage.panes.current = { moving: () => false, follow, realign: jest.fn() };
     await act(async () => {
       stage.actions.openActivity();
       stage.actions.openDetail(payment);
@@ -293,7 +383,7 @@ describe('the stage store', () => {
   test('a payment going out holds a tap in the same tick where it is', async () => {
     const tree = await render(<Bare />);
     const follow = jest.fn();
-    stage.panes.current = { moving: () => false, follow };
+    stage.panes.current = { moving: () => false, follow, realign: jest.fn() };
     await act(async () => stage.actions.openSend());
     follow.mockClear();
     await act(async () => {
@@ -318,7 +408,7 @@ describe('the stage store', () => {
   test('while a pane moves, taps are refused and the session and screens are not', async () => {
     const tree = await render(<Bare />);
     const follow = jest.fn();
-    stage.panes.current = { moving: () => true, follow };
+    stage.panes.current = { moving: () => true, follow, realign: jest.fn() };
     await act(async () => stage.actions.openSettings());
     expect(stage.state.scene.name).toBe('home');
     await act(async () => stage.dispatch({ type: 'tab', tab: 'Activity' }));
