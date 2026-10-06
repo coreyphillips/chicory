@@ -73,7 +73,7 @@ const stall = (ms: number) => {
 };
 
 describe('a launch', () => {
-  test('is written down once the window closes, three lines printed and logged', () => {
+  test('is written down once the window closes, five lines printed and logged', () => {
     const { perf, log } = load();
     perf.startBootPerf();
     expect(listen).toHaveBeenCalledWith('change', expect.any(Function));
@@ -108,8 +108,10 @@ describe('a launch', () => {
     jest.advanceTimersByTime(PERF_WINDOW_MS);
     expect(lines()).toEqual([
       'boot engine-loaded 100, canvas-painted 450',
-      'engine gossip-synced 1700 (download 300ms apply 4200ms busy 1900ms slices 230); sqlite 7 statements 55ms, commits 2 (1 alone), longest 40ms "SELECT channel_json FROM gossip_", gossip 3 writes 250 rows',
+      'engine gossip-synced 1700 (download 300ms apply 4200ms busy 1900ms slices 230)',
+      'sqlite 7 statements 55ms, commits 2 (1 alone), longest 40ms "SELECT channel_json FROM gossip_", gossip 3 writes 250 rows',
       'stalls 2 over 100ms, 2 over 250ms, 1 over 1s, longest 1200ms at 500, total 1500ms, 62s watched; 15s after paint 1 over 100ms, 1 over 250ms, 1 over 1s, longest 1200ms at 500, total 1200ms; reads 2 (1 overlapped) 200ms, longest 120ms; refused taps 2',
+      'hitches 300ms at 150, 1200ms at 500',
     ]);
     // The same lines go to Settings > Diagnostics' copied report.
     const logged = log.recentDiagnostics().filter(e => e.phase === 'perf');
@@ -120,7 +122,7 @@ describe('a launch', () => {
     perf.markBoot('late');
     perf.startBootPerf();
     jest.advanceTimersByTime(PERF_WINDOW_MS);
-    expect(lines()).toHaveLength(3);
+    expect(lines()).toHaveLength(5);
   });
 
   test('records nothing and runs nothing until it is started', () => {
@@ -139,8 +141,10 @@ describe('a launch', () => {
     jest.advanceTimersByTime(PERF_WINDOW_MS);
     expect(lines()).toEqual([
       'boot none',
-      'engine none; sqlite none',
+      'engine none',
+      'sqlite none',
       'stalls none, 60s watched; no paint; reads 0 (0 overlapped) 0ms, longest 0ms; refused taps 0',
+      'hitches none',
     ]);
   });
 
@@ -159,8 +163,9 @@ describe('a launch', () => {
     jest.advanceTimersByTime(1000);
     stall(150);
     jest.advanceTimersByTime(PERF_WINDOW_MS);
-    const [, , stalls] = lines();
+    const [, , , stalls, hitches] = lines();
     expect(stalls).toMatch(/^stalls 1 over 100ms, 0 over 250ms, 0 over 1s/);
+    expect(hitches).toBe('hitches none');
     // The background stretch is not counted as watched either.
     expect(stalls).toContain(
       `${Math.round((PERF_WINDOW_MS + 150) / 1000)}s watched`,
@@ -337,14 +342,43 @@ describe('its arithmetic', () => {
       refusedTaps: 14,
     };
     const report = bootReport(record);
-    expect(report).toHaveLength(3);
+    expect(report).toHaveLength(5);
     for (const line of report) {
       expect(fit(line).length).toBeLessThanOrEqual(ENTRY_LIMIT);
       expect(line.startsWith(fit(line).replace(/ …$/, ''))).toBe(true);
     }
     // The most telling figures lead, so a cut keeps them.
     expect(fit(report[1])).toContain('gossip-synced 59999');
-    expect(fit(report[2])).toContain('after paint');
+    expect(fit(report[2])).toContain('gossip 99999 writes 55000 rows');
+    expect(fit(report[3])).toContain('after paint');
+    // The hitches come in the order they were seen, from the first that
+    // held the thread HITCH_MS or more.
+    expect(fit(report[4])).toMatch(/^hitches 250ms at 28500, 251ms at 28690, /);
+  });
+
+  test('a launch the thread never held long enough to feel says so', () => {
+    const report = bootReport({
+      ran: 60000,
+      watched: 60000,
+      marks: new Map(),
+      stalls: [
+        { at: 1000, ms: 120 },
+        { at: 2000, ms: 249 },
+      ],
+      sqlite: {
+        statements: 0,
+        commits: 0,
+        alone: 0,
+        ms: 0,
+        longestMs: 0,
+        longest: '',
+        gossipWrites: 0,
+        gossipRows: 0,
+      },
+      reads: { count: 0, overlapped: 0, ms: 0, longestMs: 0 },
+      refusedTaps: 0,
+    });
+    expect(report[4]).toBe('hitches none');
   });
 });
 
