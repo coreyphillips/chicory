@@ -13,9 +13,9 @@ import { recordDiagnostic } from './diagnosticLog';
  * for the engine's own timings), every time the thread was too busy to run
  * a 50ms timer on time (a stall), what the wallet's SQLite did, how the
  * session's reads went, and the taps a moving pane refused. When the window
- * closes it prints four `CHICORY_PERF` lines, which
+ * closes it prints five `CHICORY_PERF` lines, which
  * `adb logcat -s ReactNativeJS:V | grep CHICORY_PERF` reads off a phone, and
- * writes the same four to the diagnostic log under phase `perf`, so they
+ * writes the same five to the diagnostic log under phase `perf`, so they
  * travel in the report Settings > Diagnostics copies. That page lists only
  * the app's own errors, so they never show as one.
  *
@@ -397,9 +397,9 @@ const marksText = (marks: [string, Mark][]) =>
     : 'none';
 
 /**
- * Every stall of HITCH_MS or more, in the order they happened, as `ms at
- * time`: where a tap was held long enough to feel ignored, to place beside
- * the boot's steps. The stall line only counts them.
+ * Every stall of HITCH_MS or more, in the order they were seen, as `ms at
+ * time`: where the thread was held long enough to be felt as a hitch, to
+ * place beside the boot's steps. The stall line only counts them.
  */
 const hitchText = (stalls: readonly Stall[]) => {
   const hitches = stalls.filter(stall => stall.ms >= HITCH_MS);
@@ -409,20 +409,22 @@ const hitchText = (stalls: readonly Stall[]) => {
 };
 
 /**
- * The report's four lines, most telling figures first in each:
+ * The report's five lines, most telling figures first in each:
  *
  * - `boot`: when each of the app's steps first happened, as `name time`,
  *   with a detail in brackets: how long an encrypted open took, or that the
  *   page had nothing cached to open on.
- * - `engine`: the engine's own timings, then the wallet's SQLite: its
- *   statements and their time, its durable commits and how many of those
- *   were writes that committed alone, the slowest statement, and the network
- *   map's writes and the rows read back.
+ * - `engine`: the engine's own timings.
+ * - `sqlite`: the wallet's SQLite: its statements and their time, its
+ *   durable commits and how many of those were writes that committed alone,
+ *   the slowest statement, and the network map's writes and the rows read
+ *   back. It has a line of its own so a long engine line, cut to fit the
+ *   diagnostic log, does not take it along.
  * - `stalls`: the stalls over the whole window, then those in the
  *   AFTER_PAINT_MS after the canvas first painted, then the session's reads
  *   and the taps a moving pane refused.
- * - `hitches`: each stall of HITCH_MS or more, when it began and how long
- *   it held the thread.
+ * - `hitches`: each stall of HITCH_MS or more, how long it held the thread
+ *   and when it was seen.
  */
 export function bootReport(source: BootRecord): string[] {
   const marks = [...source.marks];
@@ -440,8 +442,8 @@ export function bootReport(source: BootRecord): string[] {
     : 'no paint';
   return [
     `boot ${marksText(marks.filter(([, step]) => !step.engine))}`,
-    `engine ${marksText(marks.filter(([, step]) => step.engine))}; ` +
-      `sqlite ${sqliteText(source.sqlite)}`,
+    `engine ${marksText(marks.filter(([, step]) => step.engine))}`,
+    `sqlite ${sqliteText(source.sqlite)}`,
     [
       `stalls ${stallText(stallSummary(source.stalls))}, ` +
         `${seconds(source.watched)} watched`,
