@@ -13,9 +13,9 @@ import { recordDiagnostic } from './diagnosticLog';
  * for the engine's own timings), every time the thread was too busy to run
  * a 50ms timer on time (a stall), what the wallet's SQLite did, how the
  * session's reads went, and the taps a moving pane refused. When the window
- * closes it prints three `CHICORY_PERF` lines, which
+ * closes it prints four `CHICORY_PERF` lines, which
  * `adb logcat -s ReactNativeJS:V | grep CHICORY_PERF` reads off a phone, and
- * writes the same three to the diagnostic log under phase `perf`, so they
+ * writes the same four to the diagnostic log under phase `perf`, so they
  * travel in the report Settings > Diagnostics copies. That page lists only
  * the app's own errors, so they never show as one.
  *
@@ -397,7 +397,19 @@ const marksText = (marks: [string, Mark][]) =>
     : 'none';
 
 /**
- * The report's three lines, most telling figures first in each:
+ * Every stall of HITCH_MS or more, in the order they happened, as `ms at
+ * time`: where a tap was held long enough to feel ignored, to place beside
+ * the boot's steps. The stall line only counts them.
+ */
+const hitchText = (stalls: readonly Stall[]) => {
+  const hitches = stalls.filter(stall => stall.ms >= HITCH_MS);
+  return hitches.length
+    ? hitches.map(stall => `${stall.ms}ms at ${stall.at}`).join(', ')
+    : 'none';
+};
+
+/**
+ * The report's four lines, most telling figures first in each:
  *
  * - `boot`: when each of the app's steps first happened, as `name time`,
  *   with a detail in brackets: how long an encrypted open took, or that the
@@ -409,6 +421,8 @@ const marksText = (marks: [string, Mark][]) =>
  * - `stalls`: the stalls over the whole window, then those in the
  *   AFTER_PAINT_MS after the canvas first painted, then the session's reads
  *   and the taps a moving pane refused.
+ * - `hitches`: each stall of HITCH_MS or more, when it began and how long
+ *   it held the thread.
  */
 export function bootReport(source: BootRecord): string[] {
   const marks = [...source.marks];
@@ -436,6 +450,7 @@ export function bootReport(source: BootRecord): string[] {
         `longest ${reads.longestMs}ms`,
       `refused taps ${source.refusedTaps}`,
     ].join('; '),
+    `hitches ${hitchText(source.stalls)}`,
   ];
 }
 
