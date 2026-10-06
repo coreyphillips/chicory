@@ -674,7 +674,9 @@ export const RISEN_BY = 2 * (PANE_SETTLE_MS + durations.exit);
  * Settings sliding in over the canvas, sure to end shown (`useSureEntry`).
  * Reanimated can stall an entrance as the app starts, and a stalled slide
  * would leave the canvas covered, as the cog's tap starts it, with nothing
- * on it: one that has not ended within its grace is drawn again at rest.
+ * on it: one that has not ended within its grace is drawn again at rest,
+ * its content too. What Settings held is lost then, but a stalled slide was
+ * never on screen to be used.
  */
 function SettingsSlide({ children }: { children: ReactNode }) {
   const [entering] = useState(slideIn);
@@ -687,7 +689,11 @@ function SettingsSlide({ children }: { children: ReactNode }) {
       exiting={exiting}
       style={styles.fill}
     >
-      {children}
+      {/* Drawn again at rest, its rows rest too: their own entrances could
+          stall the same way, as the sheet's rows are guarded above. */}
+      <LayoutAnimationConfig skipEntering={entry.state === 'stalled'}>
+        {children}
+      </LayoutAnimationConfig>
     </Reanimated.View>
   );
 }

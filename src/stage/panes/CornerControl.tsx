@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 import Reanimated, {
   useAnimatedStyle,
@@ -87,8 +87,13 @@ export function CornerControl({
         : undefined,
     [paneCover, reduced],
   );
+  // The tap was taken on the UI thread when the cog was live; by the time
+  // the JavaScript thread hears of it, an overlay may have covered it, as a
+  // Pressable would have known. Then it only puts the cover back.
+  const liveNow = useRef(live);
+  liveNow.current = live;
   const openSettings = useCallback(() => {
-    actions.openSettings();
+    if (liveNow.current) actions.openSettings();
     motion.current?.realign();
   }, [actions, motion]);
   // Only the cog turns: Settings' own close comes in over it, upright.

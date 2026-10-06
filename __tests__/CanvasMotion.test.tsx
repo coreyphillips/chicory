@@ -42,7 +42,13 @@ import type { Arrival, CanvasSceneName } from '../src/stage/layout';
 import { COG_TURN, CornerControl } from '../src/stage/panes/CornerControl';
 import { TapTarget } from '../src/glyphs/TapTarget';
 import { ENTRY_GRACE_MS } from '../src/motion/sureEntry';
-import { STALL_ALLOWANCE, moveCover } from '../src/stage/panes/usePaneMotion';
+import {
+  STALL_ALLOWANCE,
+  moveCover,
+  usePaneMotion,
+} from '../src/stage/panes/usePaneMotion';
+import { canvasLayout } from '../src/stage/layout';
+import { stageReducer } from '../src/stage/scene';
 import {
   EDGE,
   EdgeBack,
@@ -54,6 +60,7 @@ import type { Panes } from '../src/stage/panes/Pane';
 import {
   StageProvider,
   useHoldTint,
+  useStage,
   useStageStore,
 } from '../src/stage/StageContext';
 import type { HeldTint, StageStore } from '../src/stage/StageContext';
@@ -288,6 +295,15 @@ describe('the cog', () => {
       );
     }
     const tree = await render(<Cogged />);
+    // What the cover held when the stage first heard of the tap.
+    let coveredWhenHeard: number | undefined;
+    stage.panes.current = {
+      moving: () => false,
+      follow: () => {
+        coveredWhenHeard = covers.length;
+      },
+      realign: jest.fn(),
+    };
     const tap = () =>
       tree.root.findByType(TapTarget).findByType(GestureDetector).props.gesture;
     await act(async () =>
@@ -297,10 +313,42 @@ describe('the cog', () => {
         { state: State.END },
       ]),
     );
-    // Covered as the tap landed, before the stage drew Settings.
+    // Covered as the tap landed, before the stage heard of it.
     expect(covers[0]).toBe(1);
+    expect(coveredWhenHeard).toBe(1);
     expect(openedWith).toBe(1);
     expect(stage.state.scene.name).toBe('settings');
+    await act(async () => tree.unmount());
+  });
+
+  test('realign puts a cover a tap started back where the panes aim, unless a move is on its way', async () => {
+    let held!: Panes;
+    function Moving() {
+      const { state } = useStage();
+      held = usePaneMotion(800, canvasLayout(state)).panes;
+      return null;
+    }
+    function Staged() {
+      stage = useStageStore();
+      return (
+        <StageProvider value={stage}>
+          <Moving />
+        </StageProvider>
+      );
+    }
+    const tree = await render(<Staged />);
+    expect(held.cover.get()).toBe(0);
+    // What the cog's tap did on the UI thread, for a tap the stage refused.
+    held.cover.set(1);
+    await act(async () => stage.panes.current!.realign());
+    expect(held.cover.get()).toBe(0);
+    // A move asked for and not yet started sets the cover itself.
+    held.cover.set(0.5);
+    stage.panes.current!.follow(
+      stageReducer(stage.state, { type: 'open', scene: { name: 'settings' } }),
+    );
+    stage.panes.current!.realign();
+    expect(held.cover.get()).toBe(0.5);
     await act(async () => tree.unmount());
   });
 
@@ -335,6 +383,22 @@ describe('the cog', () => {
     await act(async () => jest.advanceTimersByTime(ENTRY_GRACE_MS));
     expect(slide().props.entering).toBeUndefined();
     expect(stage.state.scene.name).toBe('settings');
+    await act(async () => tree.unmount());
+  });
+
+  test('a tap heard after an overlay covered the cog only puts the cover back', async () => {
+    const tree = await render(<OnCanvas />);
+    await settle();
+    // The tap was taken on the UI thread while the cog was live.
+    const heard = cog(tree).props.onPress as () => void;
+    await act(async () => stage.actions.openScan());
+    await settle();
+    const realign = jest.fn();
+    stage.panes.current = { moving: () => false, follow: jest.fn(), realign };
+    await act(async () => heard());
+    expect(stage.state.overlay?.name).toBe('scan');
+    expect(stage.state.scene.name).toBe('home');
+    expect(realign).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
   });
 

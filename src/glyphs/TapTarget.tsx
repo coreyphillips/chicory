@@ -67,14 +67,19 @@ export function TapTarget({
         enabled: live,
         maxDuration: HOLD_MS,
         maxDistance: STRAY,
+        // A finger that drifts just past the target's edge still presses,
+        // as on a Pressable; STRAY alone lets it go.
+        shouldCancelWhenOutside: false,
         onBegin: () => {
           'worklet';
           if (!reduced) press.set(withSpring(DIP, springs.snap));
         },
         onActivate: () => {
           'worklet';
+          // Nothing starts that the JavaScript thread will not hear of.
+          if (!onPress) return;
           onPressUi?.();
-          if (onPress) scheduleOnRN(onPress);
+          scheduleOnRN(onPress);
         },
         onFinalize: () => {
           'worklet';
