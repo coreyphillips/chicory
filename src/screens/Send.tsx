@@ -271,6 +271,10 @@ export function SendScreen({
   // A review asked for while the wallet was still opening, prepared as its
   // first live read lands (`opening`).
   const [queued, setQueued] = useState(false);
+  // A replacement request can arrive in the same render as the live read.
+  // Invalidate the queued review immediately, before its effect runs.
+  const queuedFor = useRef<string | null>(null);
+  const composeBusy = busy || queued;
   const [failure, setFailure] = useState<Failure | null>(() =>
     requestRefusal(initialRequest),
   );
@@ -320,7 +324,7 @@ export function SendScreen({
     !review &&
     !result &&
     !held &&
-    !busy &&
+    !composeBusy &&
     live &&
     !leaving &&
     failure?.target !== 'request';
@@ -485,6 +489,8 @@ export function SendScreen({
   useEffect(() => {
     if (!queued || opening) return;
     setQueued(false);
+    if (queuedFor.current !== request) return;
+    queuedFor.current = null;
     if (disabled) onRefresh();
     else prepare();
     // Runs as the wallet opens, with that render's prepare and gate.
@@ -640,6 +646,8 @@ export function SendScreen({
    * errors). Returns whether it was taken.
    */
   function accept(code: string): boolean {
+    queuedFor.current = null;
+    setQueued(false);
     if (code !== request) setMaxFor(null);
     setRequest(code);
     setScanning(false);
@@ -754,6 +762,7 @@ export function SendScreen({
   async function prepare() {
     if (waitingFor.current) return;
     if (opening) {
+      queuedFor.current = request;
       setQueued(true);
       return;
     }
@@ -1007,6 +1016,8 @@ export function SendScreen({
   }
 
   function typed(text: string) {
+    queuedFor.current = null;
+    setQueued(false);
     setMaxFor(null);
     setRequest(text);
     setCollapsed(false);
@@ -1274,7 +1285,7 @@ export function SendScreen({
           }
           hint={hint || undefined}
           editable={fixedSats === null}
-          busy={busy}
+          busy={composeBusy}
           tone={tone}
           shake={amountShakes}
           symbol={symbol}
@@ -1284,10 +1295,10 @@ export function SendScreen({
               <Chip
                 label={copy.amount.spoken(currentMaximum.amountSats)}
                 selected={maxSelected}
-                disabled={busy}
+                disabled={composeBusy}
                 maxFontSizeMultiplier={LINE_SCALE}
                 onPress={
-                  live && !busy
+                  live && !composeBusy
                     ? () => {
                         setAmount(String(currentMaximum.amountSats));
                         setMaxFor(request);
@@ -1358,14 +1369,18 @@ export function SendScreen({
             onChangeText={composing && live ? typed : undefined}
             collapsed={!composing || collapsed}
             onExpand={
-              busy ? undefined : review ? edit : () => setCollapsed(false)
+              composeBusy
+                ? undefined
+                : review
+                ? edit
+                : () => setCollapsed(false)
             }
             onCollapse={collapse}
             fixed={fixedSats !== null}
             refused={
               composing && failure?.target === 'request' ? failure : null
             }
-            busy={busy}
+            busy={composeBusy}
             onPaste={composing ? paste : undefined}
             onScan={composing ? scan : undefined}
           />
