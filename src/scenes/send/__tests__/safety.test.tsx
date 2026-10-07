@@ -1382,6 +1382,32 @@ test('a failed payment touched and paid again still goes home once it completes'
 });
 
 describe('while the wallet opens on its last figures', () => {
+  test('closing with the live read cancels a queued review without holding the stage', async () => {
+    const prepareSend = jest.fn().mockResolvedValue(quote());
+    const onBusy = jest.fn();
+    const client = { prepareSend };
+    const request = priced('queued-close');
+    const tree = await draw(client, {
+      initialRequest: request,
+      opening: true,
+      onBusy,
+    });
+    await press(tree, copy.send.review);
+    onBusy.mockClear();
+    await act(async () =>
+      tree.update(
+        screen(client, {
+          initialRequest: request,
+          leaving: true,
+          onBusy,
+        }),
+      ),
+    );
+    expect(prepareSend).not.toHaveBeenCalled();
+    expect(onBusy).not.toHaveBeenCalledWith(true);
+    await act(async () => tree.unmount());
+  });
+
   test('a queued review keeps its request and amount unchanged while it waits', async () => {
     const prepareSend = jest.fn().mockResolvedValue(quote());
     const client = { prepareSend };
