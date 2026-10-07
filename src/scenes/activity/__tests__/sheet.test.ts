@@ -18,6 +18,7 @@ import {
   rowReturn,
   sheetProgress,
 } from '../sheet';
+import { settleOnRelease } from '../useSheetDrag';
 import { BUILD, buildBeats } from '../../../stage/layout';
 
 /**
@@ -149,5 +150,30 @@ describe('the rows as the canvas builds in (R-1, R-3)', () => {
     expect(rowBeat(beats, 2, 100)).toBe(beats.rows + 60 - 100);
     expect(rowBeat(beats, 0, beats.done)).toBe(0);
     expect(rowBeat(beats, 40, 0)).toBe(rowBeat(beats, STAGGERED_ROWS - 1, 0));
+  });
+});
+
+describe('a release settles on the UI thread', () => {
+  // Under Jest an animation is its final value, so each pane lands at once.
+  const pane = (value: number) => {
+    let current = value;
+    return { get: () => current, set: (next: number) => (current = next) };
+  };
+  const stops = { compact: 120, home: 480 };
+
+  test('toward the whole list when the release opens it', () => {
+    const panes = { seam: pane(300), hero: pane(0.4), bar: pane(0.4) };
+    settleOnRelease(panes as never, stops, true, -900);
+    expect(panes.seam.get()).toBe(stops.compact);
+    expect(panes.hero.get()).toBe(0);
+    expect(panes.bar.get()).toBe(0);
+  });
+
+  test('back home when it does not', () => {
+    const panes = { seam: pane(300), hero: pane(0.4), bar: pane(0.4) };
+    settleOnRelease(panes as never, stops, false, 0);
+    expect(panes.seam.get()).toBe(stops.home);
+    expect(panes.hero.get()).toBe(1);
+    expect(panes.bar.get()).toBe(1);
   });
 });

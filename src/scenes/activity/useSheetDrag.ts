@@ -14,6 +14,7 @@ import {
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { haptics } from '../../design/haptics';
+import { steady } from '../../motion/steady';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { SCENE_LAYOUT } from '../../stage/layout';
@@ -41,6 +42,34 @@ const SETTLE_FADE = {
 
 const OPEN: StageAction = { type: 'open', scene: { name: 'activity' } };
 const HOME: StageAction = { type: 'home' };
+
+/** The poses a release can settle into: the whole list, or home. */
+const LIST_POSE = SCENE_LAYOUT.activity;
+const HOME_POSE = SCENE_LAYOUT.home;
+
+/**
+ * Starts the sheet toward where a release leads, on the UI thread as the
+ * finger lifts: the list's stop and pose when the release opens it, home's
+ * when it does not, on the springs the canvas's own move uses. Waiting for
+ * the JavaScript thread left the sheet held where the finger let go for as
+ * long as the thread was busy, which as the wallet opens can be most of a
+ * second. The move that follows from the JavaScript thread, the canvas's
+ * own or the spring back a refused move gets, carries on from wherever this
+ * has got to.
+ */
+export function settleOnRelease(
+  panes: Pick<ReturnType<typeof usePanes>, 'seam' | 'hero' | 'bar'>,
+  stops: { compact: number; home: number },
+  opens: boolean,
+  velocity: number,
+): void {
+  'worklet';
+  const pose = opens ? LIST_POSE : HOME_POSE;
+  const rest = opens ? stops.compact : stops.home;
+  panes.seam.set(steady(withSpring(rest, { ...springs.pane, velocity })));
+  panes.hero.set(steady(withSpring(pose.hero, springs.pane)));
+  panes.bar.set(steady(withSpring(pose.bar, springs.pane)));
+}
 
 /**
  * The sheet's drag between home and the whole list (REDESIGN.md 7, T5).
@@ -184,11 +213,12 @@ export function useSheetDrag(shown: CanvasSceneName, enabled: boolean) {
         if (!engaged.get()) return;
         engaged.set(false);
         const progress = sheetProgress(panes.seam.get(), stops.get());
-        scheduleOnRN(
-          settle,
-          releaseOpens(open.get(), progress, event.velocityY),
-          event.velocityY,
-        );
+        const opens = releaseOpens(open.get(), progress, event.velocityY);
+        // Under Reduce Motion a move is a crossfade the canvas runs, so the
+        // sheet waits for it as before.
+        if (!reduced)
+          settleOnRelease(panes, stops.get(), opens, event.velocityY);
+        scheduleOnRN(settle, opens, event.velocityY);
       },
     }),
     [
@@ -204,6 +234,7 @@ export function useSheetDrag(shown: CanvasSceneName, enabled: boolean) {
       base,
       fromHeader,
       past,
+      reduced,
     ],
   );
   const gesture: PanGesture = usePanGesture(config);

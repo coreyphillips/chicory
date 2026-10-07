@@ -1,6 +1,7 @@
 import React from 'react';
 import type { PropsWithChildren } from 'react';
 import { Dimensions, StyleSheet, Switch, Text } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import * as Keychain from 'react-native-keychain';
@@ -73,9 +74,14 @@ const view = {
   setUnit: jest.fn(),
 } as unknown as CanvasView;
 
+/** On a stage, under the gesture root the app's own root view provides. */
 function OnStage({ children }: PropsWithChildren) {
   const stage = useStageStore();
-  return <StageProvider value={stage}>{children}</StageProvider>;
+  return (
+    <GestureHandlerRootView>
+      <StageProvider value={stage}>{children}</StageProvider>
+    </GestureHandlerRootView>
+  );
 }
 
 const pending: Backup = {
