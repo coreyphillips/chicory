@@ -1,6 +1,7 @@
 import { AppState, NativeModules, Platform } from 'react-native';
 import { Buffer } from 'buffer';
 import { IrohTransport } from '@beignet/portable-engine';
+import { fromBase64 } from './base64';
 import type {
   IrohEndpointFactory,
   IrohDiagnostics,
@@ -162,8 +163,7 @@ export const createNativeIrohEndpoint: IrohEndpointFactory = async options => {
           update();
         }, 5000);
         const socket = new IrohTransport({
-          read: async limit =>
-            Buffer.from(await native.read(id, limit), 'base64'),
+          read: async limit => fromBase64(await native.read(id, limit)),
           writeAll: async data => {
             for (let offset = 0; offset < data.length; offset += 65536) {
               await native.write(
