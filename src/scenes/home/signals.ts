@@ -108,6 +108,23 @@ export function useSafetySignal(
 }
 
 /**
+ * How long a cached launch waits for its first live read before the old
+ * balance it shows is warned about: longer than a poll's interval, so a
+ * start that is going well is never warned about.
+ */
+export const LIVE_OVERDUE_MS = 15_000;
+
+/**
+ * Whether the wallet is still opening on the figures it last saw: the
+ * balance is old, the wallet is connecting, and its first live read is not
+ * yet overdue (LIVE_OVERDUE_MS). The canvas asks once, for all its regions.
+ */
+export function useOpening(stale: boolean, connecting: boolean): boolean {
+  const overdue = useOverdue(stale && connecting, LIVE_OVERDUE_MS);
+  return stale && connecting && !overdue;
+}
+
+/**
  * Whether `on` has held for `ms` without a break. It turns false the
  * moment `on` does.
  */

@@ -617,13 +617,17 @@ test('a returning wallet opens on the wallet page with its last figures while th
   expect(before).toContain('123,456');
   expect(allText(tree)).not.toContain('Balances are unavailable');
   expect(label(tree, 'Retry connection')).toBeUndefined();
-  // A cached figure is old by definition, so it cannot be spent against. The
-  // gate says so by being closed; the page does not also ask to be refreshed.
+  // A cached figure is old by definition, so it cannot be spent against,
+  // but the live one is on its way: Send and Receive stay open, and wait
+  // inside for it rather than refuse. The page does not ask to be
+  // refreshed either.
   expect(allText(tree)).not.toContain('Pull to refresh');
-  expect(
-    label(tree, 'Send').props.accessibilityState?.disabled ??
-      label(tree, 'Send').props.disabled,
-  ).toBe(true);
+  for (const action of ['Send', 'Receive'])
+    expect(
+      label(tree, action).props.accessibilityState?.disabled ??
+        label(tree, action).props.disabled ??
+        false,
+    ).toBe(false);
   await act(async () => {
     finish();
   });

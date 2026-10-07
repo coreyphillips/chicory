@@ -176,6 +176,7 @@ export function SendScreen({
   client,
   initialRequest = '',
   disabled = false,
+  opening = false,
   primaryConnected = false,
   quoteRevision,
   onActivity,
@@ -199,6 +200,12 @@ export function SendScreen({
   initialRequest?: string;
   /** Set when the wallet's balance is too old to spend against. */
   disabled?: boolean;
+  /**
+   * Set while the wallet is still opening on the figures it last saw. A
+   * review asked for then waits, busy, for the wallet's first live read and
+   * is prepared as it lands; nothing is paid before it.
+   */
+  opening?: boolean;
   /** A max is available only while the primary is connected. */
   primaryConnected?: boolean;
   /** A refreshed snapshot also refreshes the quote's fee and reserve figures. */
@@ -261,6 +268,9 @@ export function SendScreen({
   const [result, setResult] = useState<SendResult | null>(null);
   const [rail, setRail] = useState<GlyphName>('bolt');
   const [busy, setBusy] = useState(false);
+  // A review asked for while the wallet was still opening, prepared as its
+  // first live read lands (`opening`).
+  const [queued, setQueued] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(() =>
     requestRefusal(initialRequest),
   );
@@ -468,6 +478,18 @@ export function SendScreen({
     recordDiagnostic({ phase: 'ui', code: 'STALE', message: copy.send.stale });
     return announceSafety(copy.send.stale, 'stale');
   }, [disabled, land]);
+
+  // The wallet has opened: a review asked for meanwhile is prepared now,
+  // or, if the balance it opened on is still too old, a refresh is asked
+  // for, as the gated control asks.
+  useEffect(() => {
+    if (!queued || opening) return;
+    setQueued(false);
+    if (disabled) onRefresh();
+    else prepare();
+    // Runs as the wallet opens, with that render's prepare and gate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queued, opening]);
 
   // Landing on the held ring is felt, said and logged, once for each time.
   // It is said once a screen reader has landed on the ring's mark and
@@ -731,6 +753,10 @@ export function SendScreen({
 
   async function prepare() {
     if (waitingFor.current) return;
+    if (opening) {
+      setQueued(true);
+      return;
+    }
     // Rule 6 holds however the request came, typed, pasted or refreshed, and
     // for a request that is paid as well as one that may still be.
     if (heldRequest(request, activity)) {
@@ -794,7 +820,7 @@ export function SendScreen({
   }
 
   async function pay() {
-    if (!review || waitingFor.current || expired || disabled) return;
+    if (!review || waitingFor.current || expired || disabled || opening) return;
     // The quote's own clock has the last word, not the render the hold began
     // in, and a request held or paid since the review never pays twice.
     if (review.expiresAt <= Date.now()) {
@@ -1289,12 +1315,12 @@ export function SendScreen({
                 accessibilityHint={
                   disabled
                     ? copy.send.stale
-                    : busy
+                    : busy || queued
                     ? copy.send.preparing
                     : waiting ?? undefined
                 }
                 onPress={
-                  !live || busy
+                  !live || busy || queued
                     ? undefined
                     : disabled
                     ? onRefresh
@@ -1302,7 +1328,7 @@ export function SendScreen({
                     ? undefined
                     : prepare
                 }
-                busy={busy}
+                busy={busy || queued}
                 stale={disabled}
               />
             </Reanimated.View>
