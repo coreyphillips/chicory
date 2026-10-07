@@ -30,7 +30,7 @@
     "react-native-keychain": "^10.0.0",
     "react-native-nitro-tor": "^0.6.1",
     "react-native-qrcode-svg": "^6.3.22",
-    "react-native-reanimated": "4.7.0",
+    "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-svg": "^15.15.5",
     "react-native-tcp-socket": "^6.4.2",
