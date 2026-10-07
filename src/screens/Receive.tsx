@@ -60,6 +60,7 @@ export function ReceiveScreen({
   walletId,
   primaryOfflineAvailable,
   disabled = false,
+  opening = false,
   hidden = false,
   unit = 'sats',
   symbol = false,
@@ -80,6 +81,12 @@ export function ReceiveScreen({
   primaryOfflineAvailable?: boolean | null;
   /** Set when the wallet's balance is too old to quote against. */
   disabled?: boolean;
+  /**
+   * Set while the wallet is still opening on the figures it last saw. A
+   * request asked for then waits, busy, for the wallet's first live read
+   * and is made as it lands, rather than refused.
+   */
+  opening?: boolean;
   /** Amounts that arrive are masked, as the balance is. */
   hidden?: boolean;
   /** The unit amounts that arrive are shown in. */
@@ -156,6 +163,9 @@ export function ReceiveScreen({
   const [request, setRequest] = useState<ReceiveRequest | null>(null);
   const [createdAt, setCreatedAt] = useState(0);
   const [busy, setBusy] = useState(false);
+  // A request asked for while the wallet was still opening, made as its
+  // first live read lands (`opening`).
+  const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<Refused | null>(null);
   // Each refusal of a control shakes it once.
   const [refusals, setRefusals] = useState(0);
@@ -304,6 +314,10 @@ export function ReceiveScreen({
 
   async function price() {
     if (working.current || disabled || !ready || !draftReady) return;
+    if (opening) {
+      setWaiting(true);
+      return;
+    }
     working.current = true;
     setBusy(true);
     setError(null);
@@ -417,6 +431,22 @@ export function ReceiveScreen({
       setBusy(false);
     }
   }
+  // The wallet has opened: a request asked for meanwhile is made now, or,
+  // if the balance it opened on is still too old, held back as any is.
+  useEffect(() => {
+    if (!waiting) return;
+    if (!live) {
+      setWaiting(false);
+      return;
+    }
+    if (opening) return;
+    setWaiting(false);
+    if (disabled) blocked();
+    else price();
+    // Runs as the wallet opens, with that render's price and gate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting, opening, live]);
+
   /** A stale balance holds a control back: it shakes, and the wallet refreshes. */
   function blocked() {
     haptics.warning();
@@ -583,7 +613,7 @@ export function ReceiveScreen({
                 setOffline(next);
                 setError(null);
               }}
-              busy={busy}
+              busy={busy || waiting}
               stale={disabled}
               ready={ready}
               error={amountMessage ? null : error}

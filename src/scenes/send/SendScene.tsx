@@ -42,6 +42,7 @@ export function SendScene({
   client,
   snapshot,
   stale,
+  opening = false,
   session,
   view,
   sceneKey,
@@ -58,11 +59,13 @@ export function SendScene({
   // itself, while Home waits for it to go (REDESIGN.md rule 4). So the state
   // counts as felt for the wallet from then on, and Home, back in front
   // while it still holds, owes nothing more for it: it is felt once across
-  // both. The gate is `stale`, so the two never disagree.
+  // both. While the wallet is still opening the gate stays open and Send
+  // waits for the live read instead, so nothing is felt then.
+  const gated = stale && !opening;
   const wallet = snapshot.wallet.id;
   useEffect(() => {
-    felt.set(wallet, 'stale', stale);
-  }, [felt, wallet, stale]);
+    felt.set(wallet, 'stale', gated);
+  }, [felt, wallet, gated]);
 
   // Armed from the scan button until the overlay it opened closes, so only
   // a scan this Send asked for fills in its request.
@@ -107,7 +110,8 @@ export function SendScene({
               ref={screen}
               client={client}
               initialRequest={prefill}
-              disabled={stale}
+              disabled={gated}
+              opening={opening}
               primaryConnected={snapshot.primary.connected}
               quoteRevision={snapshot.updatedAt}
               balance={snapshot.balance}

@@ -38,6 +38,7 @@ import { Amount } from '../Amount';
 import { HOME_AFTER_MS, SEND_GRACE_MS } from '../model';
 import { ResultMark } from '../ResultMark';
 import { ReviewLines } from '../ReviewLines';
+import { AmountReadout } from '../../keypad/AmountReadout';
 import { stepInMs } from '../useLanding';
 import { FOCUS_SETTLE_MS, forgetSafety } from '../../../motion/speech';
 
@@ -1378,4 +1379,135 @@ test('a failed payment touched and paid again still goes home once it completes'
   await act(async () => jest.advanceTimersByTime(2_200));
   expect(onDone).toHaveBeenCalledTimes(1);
   await act(async () => tree.unmount());
+});
+
+describe('while the wallet opens on its last figures', () => {
+  test('closing with the live read cancels a queued review without holding the stage', async () => {
+    const prepareSend = jest.fn().mockResolvedValue(quote());
+    const onBusy = jest.fn();
+    const client = { prepareSend };
+    const request = priced('queued-close');
+    const tree = await draw(client, {
+      initialRequest: request,
+      opening: true,
+      onBusy,
+    });
+    await press(tree, copy.send.review);
+    onBusy.mockClear();
+    await act(async () =>
+      tree.update(
+        screen(client, {
+          initialRequest: request,
+          leaving: true,
+          onBusy,
+        }),
+      ),
+    );
+    expect(prepareSend).not.toHaveBeenCalled();
+    expect(onBusy).not.toHaveBeenCalledWith(true);
+    await act(async () => tree.unmount());
+  });
+
+  test('a queued review keeps its request and amount unchanged while it waits', async () => {
+    const prepareSend = jest.fn().mockResolvedValue(quote());
+    const client = { prepareSend };
+    const request = payable('queued-edit');
+    const tree = await draw(client, { initialRequest: request, opening: true });
+    await press(tree, copy.send.request);
+    await enterAmount(tree, '1000');
+    await press(tree, copy.send.review);
+    // Editing the request down to an incomplete value while queued used to
+    // make the live read submit that unfinished value without another tap.
+    const requestField = tree.root.findByType(TextInput);
+    expect(requestField.props.editable).toBe(false);
+    expect(requestField.props.onChangeText).toBeUndefined();
+    expect(tree.root.findByType(AmountReadout).props.busy).toBe(true);
+    await act(async () =>
+      tree.update(screen(client, { initialRequest: request })),
+    );
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    expect(prepareSend).toHaveBeenCalledWith({ request, amountSats: 1000 });
+    await act(async () => tree.unmount());
+  });
+
+  test.each([false, true])(
+    'a replacement request cancels a queued review, including with the live read (%s)',
+    async sameRead => {
+      const prepareSend = jest.fn().mockResolvedValue(quote());
+      const client = { prepareSend };
+      const tree = await draw(client, {
+        initialRequest: priced('queued-original'),
+        opening: true,
+      });
+      await press(tree, copy.send.review);
+      const replacement = pricedElsewhere('queued-replacement');
+      await act(async () =>
+        tree.update(
+          screen(client, {
+            initialRequest: replacement,
+            opening: !sameRead,
+          }),
+        ),
+      );
+      if (!sameRead)
+        await act(async () =>
+          tree.update(screen(client, { initialRequest: replacement })),
+        );
+      expect(prepareSend).not.toHaveBeenCalled();
+      await press(tree, copy.send.review);
+      expect(prepareSend).toHaveBeenCalledTimes(1);
+      expect(prepareSend).toHaveBeenCalledWith({
+        request: replacement,
+        amountSats: undefined,
+      });
+      await act(async () => tree.unmount());
+    },
+  );
+
+  test('a review asked for waits for the live read, then is prepared', async () => {
+    const prepareSend = jest.fn().mockResolvedValue(quote());
+    const send = jest.fn();
+    const client = { prepareSend, send };
+    const tree = await draw(client, {
+      initialRequest: priced('opening'),
+      opening: true,
+    });
+    await press(tree, copy.send.review);
+    // Nothing is asked of the engine yet, nothing is refused, and the old
+    // balance is not warned about: the review waits.
+    expect(prepareSend).not.toHaveBeenCalled();
+    expect(pressableLabels(tree)).not.toContain(copy.send.review);
+    expect(meaning(tree)).not.toContain(copy.send.stale);
+    // The live read lands.
+    await act(async () =>
+      tree.update(screen(client, { initialRequest: priced('opening') })),
+    );
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('one still too old once the wallet opens asks for a refresh, as the gate does', async () => {
+    const prepareSend = jest.fn().mockResolvedValue(quote());
+    const refresh = jest.fn();
+    const client = { prepareSend };
+    const tree = await draw(client, {
+      initialRequest: priced('opening-old'),
+      opening: true,
+      onRefresh: refresh,
+    });
+    await press(tree, copy.send.review);
+    await act(async () =>
+      tree.update(
+        screen(client, {
+          initialRequest: priced('opening-old'),
+          onRefresh: refresh,
+          disabled: true,
+        }),
+      ),
+    );
+    expect(prepareSend).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
 });

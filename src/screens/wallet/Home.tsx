@@ -116,6 +116,7 @@ export function HomeScreen({
   unit = 'sats',
   symbol = false,
   stale = false,
+  gated = stale,
   onSend,
   onReceive,
   onScan,
@@ -140,6 +141,13 @@ export function HomeScreen({
    */
   symbol?: boolean;
   stale?: boolean;
+  /**
+   * Whether the old balance holds the actions back: they shrink and turn
+   * dust, and a tap shakes them. As `stale` unless the wallet is still
+   * opening on its last figures, when the actions stay open and Send and
+   * Receive wait inside for the live read.
+   */
+  gated?: boolean;
   onSend: () => void;
   onReceive: () => void;
   /** Opens the scan, growing from `origin`, where the circle is. */
@@ -209,7 +217,7 @@ export function HomeScreen({
   const pull = progress?.pull;
   const armed = useSharedValue(false);
   const pop = useSharedValue(1);
-  const gate = useSharedValue(stale ? GATED : 1);
+  const gate = useSharedValue(gated ? GATED : 1);
   // Where the row's middle and the Send and Receive circles are across it,
   // so a launching circle knows how far it has to travel to the centre, and,
   // on the canvas, where each circle rests in the window, so it travels to
@@ -226,9 +234,9 @@ export function HomeScreen({
   // The stale gate shrinks the circles. It is kept here rather than in each
   // circle, which is drawn anew as the gate closes, so the change is seen.
   useEffect(() => {
-    const to = stale ? GATED : 1;
+    const to = gated ? GATED : 1;
     gate.set(reduced ? to : withSpring(to, springs.snap));
-  }, [stale, reduced, gate]);
+  }, [gated, reduced, gate]);
 
   useEffect(() => {
     const to = miniLanding(launching);
@@ -618,7 +626,7 @@ export function HomeScreen({
                     size={HOME.circle}
                     label={copy.home.send}
                     hint={copy.home.sendHint}
-                    stale={stale}
+                    stale={gated}
                     onAct={whileLive(onSend)}
                     onRefresh={refresh}
                     morph={morphOf(sendToward)}
@@ -640,7 +648,7 @@ export function HomeScreen({
                   hint={copy.home.scanHint}
                   primary
                   test={test}
-                  stale={stale}
+                  stale={gated}
                   onAct={whileLive(onScan)}
                   onRefresh={refresh}
                 />
@@ -667,7 +675,7 @@ export function HomeScreen({
                         ? `${copy.home.receiveHint} An offline request still holds inbound capacity. Ordinary payments use the remaining capacity.`
                         : copy.home.receiveHint
                     }
-                    stale={stale}
+                    stale={gated}
                     onAct={whileLive(onReceive)}
                     onRefresh={refresh}
                     morph={morphOf(receiveToward)}
