@@ -1,7 +1,6 @@
 import React from 'react';
 import type { PropsWithChildren } from 'react';
 import { AccessibilityInfo, ScrollView, View } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -149,14 +148,9 @@ const view = {
   setUnit: jest.fn(),
 } as unknown as CanvasView;
 
-/** On a stage, under the gesture root the app's own root view provides. */
 function OnStage({ children }: PropsWithChildren) {
   const stage = useStageStore();
-  return (
-    <GestureHandlerRootView>
-      <StageProvider value={stage}>{children}</StageProvider>
-    </GestureHandlerRootView>
-  );
+  return <StageProvider value={stage}>{children}</StageProvider>;
 }
 
 /** An iPhone's insets: the status bar above, the home indicator below. */

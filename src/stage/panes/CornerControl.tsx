@@ -1,6 +1,10 @@
 import React, { useCallback, useMemo, useRef } from 'react';
-import { StyleSheet } from 'react-native';
-import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
+import { Pressable, StyleSheet } from 'react-native';
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { Icon } from '../../components/ui';
 import { copy } from '../../design/copy';
 import type { GlyphName } from '../../design/glyphs';
@@ -8,6 +12,7 @@ import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { TapTarget } from '../../glyphs/TapTarget';
 import { spinIn, spinOut } from '../../motion/presets';
+import { springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { space } from '../../theme';
 import { useStage } from '../StageContext';
@@ -162,10 +167,8 @@ function CogButton({
 
 /**
  * A plain glyph in a 48pt target, both grown by `scale`, which dips as it is
- * pressed. It answers on the UI thread (`TapTarget`), as the cog does: the
- * dip lands with the finger even while the wallet engine holds the
- * JavaScript thread, and the press follows when the thread is free. Like
- * the canvas's other controls, it takes no touches without an `onPress`.
+ * pressed. Like the canvas's other controls, it takes no touches without an
+ * `onPress`.
  */
 function CornerButton({
   glyph,
@@ -180,34 +183,41 @@ function CornerButton({
   scale: number;
   onPress?: () => void;
 }) {
-  // Held across renders: the gesture is configured again whenever this
-  // changes.
-  const pressed = useMemo(
-    () =>
-      onPress
-        ? () => {
+  const { reduced } = useMotionPrefs();
+  const press = useSharedValue(1);
+  const style = useAnimatedStyle(() => ({
+    transform: [{ scale: press.get() }],
+  }));
+  const to = (value: number) =>
+    press.set(reduced ? 1 : withSpring(value, springs.snap));
+  return (
+    <Reanimated.View style={style}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled }}
+        disabled={disabled}
+        onPressIn={onPress && (() => to(0.94))}
+        onPressOut={onPress && (() => to(1))}
+        onPress={
+          onPress &&
+          (() => {
             haptics.tick();
             onPress();
-          }
-        : undefined,
-    [onPress],
-  );
-  return (
-    <TapTarget
-      accessibilityLabel={label}
-      disabled={disabled}
-      onPress={pressed}
-      style={[
-        styles.target,
-        scale !== 1 && {
-          width: CORNER_TARGET * scale,
-          height: CORNER_TARGET * scale,
-        },
-        disabled && styles.disabled,
-      ]}
-    >
-      <Icon name={glyph} size={GLYPH * scale} color={palette.cream} />
-    </TapTarget>
+          })
+        }
+        style={[
+          styles.target,
+          scale !== 1 && {
+            width: CORNER_TARGET * scale,
+            height: CORNER_TARGET * scale,
+          },
+          disabled && styles.disabled,
+        ]}
+      >
+        <Icon name={glyph} size={GLYPH * scale} color={palette.cream} />
+      </Pressable>
+    </Reanimated.View>
   );
 }
 
