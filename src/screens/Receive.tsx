@@ -434,13 +434,18 @@ export function ReceiveScreen({
   // The wallet has opened: a request asked for meanwhile is made now, or,
   // if the balance it opened on is still too old, held back as any is.
   useEffect(() => {
-    if (!waiting || opening) return;
+    if (!waiting) return;
+    if (!live) {
+      setWaiting(false);
+      return;
+    }
+    if (opening) return;
     setWaiting(false);
     if (disabled) blocked();
     else price();
     // Runs as the wallet opens, with that render's price and gate.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waiting, opening]);
+  }, [waiting, opening, live]);
 
   /** A stale balance holds a control back: it shakes, and the wallet refreshes. */
   function blocked() {

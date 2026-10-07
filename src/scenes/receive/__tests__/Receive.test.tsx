@@ -50,6 +50,7 @@ import { ReceiveScreen } from '../../../screens/Receive';
 import type { WalletAdapter } from '../../../services/wallet';
 import { Canvas, useCanvasView } from '../../../stage/Canvas';
 import { LaunchProvider } from '../../../stage/panes/Launch';
+import { Pane } from '../../../stage/panes/Pane';
 import type { Launch } from '../../../stage/panes/Launch';
 import { StageProvider, useStageStore } from '../../../stage/StageContext';
 import type { StageStore } from '../../../stage/StageContext';
@@ -1831,6 +1832,36 @@ test('an unreadable retry draft permits ordinary receive but requires dismissal 
 });
 
 describe('while the wallet opens on its last figures', () => {
+  test.each([true, false])(
+    'closing cancels a queued request even if its pane becomes active again (opening %s)',
+    async stillOpening => {
+      const client = clientOf();
+      const onBusy = jest.fn();
+      const draw = (active: boolean, opening: boolean) => (
+        <Pane active={active}>
+          <ReceiveScreen
+            client={client}
+            receivableSats={10_000}
+            onActivity={noop}
+            onBusy={onBusy}
+            opening={opening}
+          />
+        </Pane>
+      );
+      const tree = await mount(draw(true, true));
+      await enterAmount(tree, '1000');
+      await tap(tree, copy.receive.continue);
+      onBusy.mockClear();
+      await act(async () => tree.update(draw(false, stillOpening)));
+      expect(client.quoteReceive).not.toHaveBeenCalled();
+      expect(onBusy).not.toHaveBeenCalledWith(true);
+      await act(async () => tree.update(draw(true, false)));
+      expect(client.quoteReceive).not.toHaveBeenCalled();
+      expect(onBusy).not.toHaveBeenCalledWith(true);
+      await act(async () => tree.unmount());
+    },
+  );
+
   test('a request asked for waits for the live read, then is priced', async () => {
     const client = clientOf();
     const tree = await screen(client, { opening: true });

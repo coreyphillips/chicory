@@ -412,6 +412,7 @@ export function SendScreen({
   // still drawn while it fades, and back for them if the stage returns to it.
   useLayoutEffect(() => {
     mounted.current = !leaving;
+    if (leaving) queuedFor.current = null;
   }, [leaving]);
   useEffect(() => () => onBusy(false), [onBusy]);
   // Calls to the engine are numbered, so an answer only lets go of what its
