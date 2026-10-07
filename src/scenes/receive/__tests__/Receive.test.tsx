@@ -1829,3 +1829,60 @@ test('an unreadable retry draft permits ordinary receive but requires dismissal 
   );
   await act(async () => restored.unmount());
 });
+
+describe('while the wallet opens on its last figures', () => {
+  test('a request asked for waits for the live read, then is priced', async () => {
+    const client = clientOf();
+    const tree = await screen(client, { opening: true });
+    await enterAmount(tree, '1000');
+    await tap(tree, copy.receive.continue);
+    // Nothing is asked of the engine yet, and nothing is refused: the way on
+    // turns busy instead.
+    expect(client.quoteReceive).not.toHaveBeenCalled();
+    const way = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === copy.receive.continue,
+    )[0];
+    expect(way.props.accessibilityState).toMatchObject({ busy: true });
+    // The live read lands.
+    await act(async () =>
+      tree.update(
+        <ReceiveScreen
+          client={client}
+          receivableSats={10_000}
+          onActivity={noop}
+          onBusy={noop}
+        />,
+      ),
+    );
+    expect(client.quoteReceive).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(client.quoteReceive).mock.calls[0][0]).toMatchObject({
+      amountSats: 1000,
+    });
+    await act(async () => tree.unmount());
+  });
+
+  test('one still too old once the wallet opens is held back, as any is', async () => {
+    const client = clientOf();
+    const refresh = jest.fn();
+    const tree = await screen(client, { opening: true, onRefresh: refresh });
+    await enterAmount(tree, '1000');
+    await tap(tree, copy.receive.continue);
+    await act(async () =>
+      tree.update(
+        <ReceiveScreen
+          client={client}
+          receivableSats={10_000}
+          onActivity={noop}
+          onBusy={noop}
+          onRefresh={refresh}
+          disabled
+        />,
+      ),
+    );
+    expect(client.quoteReceive).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+});

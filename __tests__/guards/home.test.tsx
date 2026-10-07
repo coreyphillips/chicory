@@ -28,6 +28,7 @@ import { barFor } from '../../src/scenes/activity/sheet';
 import { ActionCircle } from '../../src/scenes/home/ActionCircle';
 import { Backdrop, glowBleed } from '../../src/scenes/home/Backdrop';
 import { HomePane, LIVE_OVERDUE_MS } from '../../src/scenes/home/HomePane';
+import { useOpening } from '../../src/scenes/home/signals';
 import { signalStep } from '../../src/scenes/home/signals';
 import {
   LAUNCH_DROP,
@@ -179,12 +180,14 @@ function HomeRegions({
     stops: stops(844, { top: 0 }),
   };
   const arrived = useIncoming(snapshot);
+  const opening = useOpening(stale, live.connecting);
   const region = {
     snapshot,
     client,
     session: live,
     view,
     stale,
+    opening,
     backup,
     arrived,
   };
@@ -809,6 +812,47 @@ describe('the actions', () => {
     expect(stage.state.scene.name).toBe('home');
     expect(stage.state.overlay).toBeNull();
     await act(async () => tree.unmount());
+  });
+
+  test('while the wallet opens on its last figures, Send and Receive open, and wait inside', async () => {
+    const opening = session({ connecting: true });
+    const cached = {
+      ...snapshotOf({ wallet: MAINNET }),
+      updatedAt: Date.now() - 600_000,
+    };
+    for (const [label, scene] of [
+      ['Send', 'send'],
+      ['Receive', 'receive'],
+    ]) {
+      const tree = await draw({
+        snapshot: cached,
+        stale: true,
+        session: opening,
+      });
+      for (const circle of circles(tree)) expect(scaleOf(circle)).toBe(1);
+      expect(find(tree, label)!.props.accessibilityState.disabled).toBe(false);
+      await press(tree, label);
+      expect(stage.state.scene.name).toBe(scene);
+      expect(opening.manualRefresh).not.toHaveBeenCalled();
+      await act(async () => tree.unmount());
+    }
+  });
+
+  test('once the live figures are overdue, the old balance gates the actions', async () => {
+    jest.useFakeTimers();
+    const tree = await draw({
+      snapshot: {
+        ...snapshotOf({ wallet: MAINNET }),
+        updatedAt: Date.now() - 600_000,
+      },
+      stale: true,
+      session: session({ connecting: true }),
+    });
+    expect(find(tree, 'Send')!.props.accessibilityState.disabled).toBe(false);
+    await act(async () => jest.advanceTimersByTime(LIVE_OVERDUE_MS));
+    expect(find(tree, 'Send')!.props.accessibilityState.disabled).toBe(true);
+    await act(async () => tree.unmount());
+    jest.useRealTimers();
   });
 });
 

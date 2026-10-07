@@ -33,6 +33,7 @@ export function ReceiveScene({
   snapshot,
   client,
   stale,
+  opening = false,
   session,
   view,
 }: RegionProps & { sceneKey: number }) {
@@ -72,7 +73,8 @@ export function ReceiveScene({
                 primaryOfflineAvailable={
                   snapshot.primary?.offlineReceiveAvailable
                 }
-                disabled={stale}
+                disabled={stale && !opening}
+                opening={opening}
                 hidden={view.hidden}
                 unit={view.unit}
                 symbol={view.symbol}

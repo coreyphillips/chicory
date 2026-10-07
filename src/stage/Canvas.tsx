@@ -31,6 +31,7 @@ import { SheetPane } from '../scenes/activity/SheetPane';
 import { DetailLayer } from '../scenes/detail/DetailLayer';
 import { Backdrop } from '../scenes/home/Backdrop';
 import { HomePane } from '../scenes/home/HomePane';
+import { useOpening } from '../scenes/home/signals';
 import { rowBack } from '../scenes/home/motion';
 import { StatusRow } from '../scenes/home/StatusRow';
 import { isTestNetwork } from '../scenes/home/visual';
@@ -143,6 +144,14 @@ export interface RegionProps {
   view: CanvasView;
   /** The balance is too old to spend against. */
   stale: boolean;
+  /**
+   * The wallet is opening on the figures it last saw (a cached launch) and
+   * its first live read is not yet overdue (LIVE_OVERDUE_MS). Send and
+   * Receive open and wait for that read rather than refuse, and nothing
+   * warns about the old balance yet. Only ever true while `stale` is.
+   * Absent, it is false.
+   */
+  opening?: boolean;
   backup: Backup | null;
   /**
    * A count that goes up with each read that brought money in
@@ -227,12 +236,16 @@ export function Canvas({
   const [primaries] = useState<Primaries>(() => new Map());
   usePrimaryFocus(primaries, scene, overlay);
   const arrived = useIncoming(snapshot);
+  // Counted once for the whole canvas, so every region agrees on when a
+  // cached launch's first read is overdue.
+  const opening = useOpening(stale, session.connecting);
   const region: RegionProps = {
     snapshot,
     client,
     session,
     view,
     stale,
+    opening,
     backup,
     arrived,
   };

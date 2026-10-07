@@ -29,7 +29,7 @@ import { reviewOpensLive } from '../send/model';
 import type { Point } from './ActionCircle';
 import { rowBack } from './motion';
 import type { Launch } from './motion';
-import { useOverdue, useSafetySignal } from './signals';
+import { useSafetySignal } from './signals';
 import { useAppActive } from './useAppActive';
 import { isTestNetwork } from './visual';
 
@@ -52,9 +52,10 @@ import { isTestNetwork } from './visual';
  * twice, and one Home has felt is not felt again as they close.
  *
  * A cached launch opens on old figures while the wallet starts. The dormant,
- * ratcheting mark says so, and the gate holds the actions. The live figures
- * are expected any moment, so the warning waits for them: once they are
- * overdue (LIVE_OVERDUE_MS) the old balance is warned about like any other.
+ * ratcheting mark says so. The live figures are expected any moment, so the
+ * actions stay open, and Send and Receive wait inside for them, and the
+ * warning waits too: once they are overdue (LIVE_OVERDUE_MS) the old
+ * balance gates the actions and is warned about like any other.
  *
  * Pulling the pane down refreshes. That is a pan of Home's own rather than a
  * scroll view's refresh control: it behaves the same on both platforms, and
@@ -66,6 +67,7 @@ export function HomePane({
   session,
   view,
   stale,
+  opening = false,
   backup,
   arrived,
 }: RegionProps & {
@@ -121,10 +123,13 @@ export function HomePane({
         ? landsOn.landless
         : scene.name === 'send' &&
           heldRequest(scene.prefill, snapshot.activity) !== null;
+    // Send's hold waits for a live balance whichever way the wallet is
+    // opening. Receive's Continue is held back only by a gated old balance:
+    // while the wallet opens it takes the tap and waits for the live read.
     const live =
       scene.name === 'send'
         ? !stale && reviewOpensLive(scene.prefill)
-        : !stale && snapshot.balance.receivableSats > 0;
+        : !(stale && !opening) && snapshot.balance.receivableSats > 0;
     if (
       landsOn?.live !== live ||
       landsOn.landless !== landless ||
@@ -169,8 +174,7 @@ export function HomePane({
   // warn about it themselves, is in front.
   const active = useAppActive();
   const wallet = snapshot.wallet.id;
-  const overdue = useOverdue(stale && session.connecting, LIVE_OVERDUE_MS);
-  const aged = stale && (!session.connecting || overdue);
+  const aged = stale && !opening;
   useSafetySignal(aged, copy.health.stale, haptics.warning, 'stale', {
     wallet,
     front: active && !spending,
@@ -223,6 +227,7 @@ export function HomePane({
         unit={unit}
         symbol={symbol}
         stale={stale}
+        gated={aged}
         countUp={countUp}
         spendable={spending}
         build={beats}
@@ -244,11 +249,6 @@ export function HomePane({
   );
 }
 
-/**
- * How long a cached launch waits for its first live read before the old
- * balance it shows is warned about: longer than a poll's interval, so a
- * start that is going well is never warned about.
- */
-export const LIVE_OVERDUE_MS = 15_000;
+export { LIVE_OVERDUE_MS } from './signals';
 
 const styles = StyleSheet.create({ region: { flex: 1 } });

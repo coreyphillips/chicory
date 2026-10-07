@@ -1379,3 +1379,52 @@ test('a failed payment touched and paid again still goes home once it completes'
   expect(onDone).toHaveBeenCalledTimes(1);
   await act(async () => tree.unmount());
 });
+
+describe('while the wallet opens on its last figures', () => {
+  test('a review asked for waits for the live read, then is prepared', async () => {
+    const prepareSend = jest.fn().mockResolvedValue(quote());
+    const send = jest.fn();
+    const client = { prepareSend, send };
+    const tree = await draw(client, {
+      initialRequest: priced('opening'),
+      opening: true,
+    });
+    await press(tree, copy.send.review);
+    // Nothing is asked of the engine yet, nothing is refused, and the old
+    // balance is not warned about: the review waits.
+    expect(prepareSend).not.toHaveBeenCalled();
+    expect(pressableLabels(tree)).not.toContain(copy.send.review);
+    expect(meaning(tree)).not.toContain(copy.send.stale);
+    // The live read lands.
+    await act(async () =>
+      tree.update(screen(client, { initialRequest: priced('opening') })),
+    );
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('one still too old once the wallet opens asks for a refresh, as the gate does', async () => {
+    const prepareSend = jest.fn().mockResolvedValue(quote());
+    const refresh = jest.fn();
+    const client = { prepareSend };
+    const tree = await draw(client, {
+      initialRequest: priced('opening-old'),
+      opening: true,
+      onRefresh: refresh,
+    });
+    await press(tree, copy.send.review);
+    await act(async () =>
+      tree.update(
+        screen(client, {
+          initialRequest: priced('opening-old'),
+          onRefresh: refresh,
+          disabled: true,
+        }),
+      ),
+    );
+    expect(prepareSend).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+});
