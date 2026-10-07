@@ -65,5 +65,10 @@
   "op-sqlite": {
     "sqlcipher": true,
     "sqliteFlags": "-DSQLITE_DEFAULT_SYNCHRONOUS=2"
+  },
+  "reanimated": {
+    "staticFeatureFlags": {
+      "ANDROID_SYNCHRONOUSLY_UPDATE_UI_PROPS": true
+    }
   }
 }
