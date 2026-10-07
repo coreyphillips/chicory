@@ -148,9 +148,10 @@ export function useSheetDrag(shown: CanvasSceneName, enabled: boolean) {
         bar.set(withTiming(pose.bar, SETTLE_FADE));
         return;
       }
-      seam.set(withSpring(rest, { ...springs.pane, velocity }));
-      hero.set(withSpring(pose.hero, springs.pane));
-      bar.set(withSpring(pose.bar, springs.pane));
+      // The UI spring has already taken the release velocity. Keep its
+      // steady clock and current speed, without adding that velocity again.
+      // A refused move aims back at the original stop on the same clock.
+      settleOnRelease(panes, panes.stops, opened, 0);
     },
     [panes, opened, motion, actions, reduced],
   );
