@@ -125,7 +125,9 @@ test.each([
       .mock.calls.at(-1)![0] as PanGestureConfig;
     config.onBegin!({ y: 0 } as never);
     config.onActivate!({ translationY: 0 } as never);
-    config.onUpdate!({ translationY: translation } as never);
+    const update = config.onUpdate;
+    if (typeof update !== 'function') throw new Error('Expected a drag callback');
+    update({ translationY: translation } as never);
     config.onDeactivate!({ velocityY: velocity } as never);
     for (now = 1016; now <= 1096; now += 16) {
       seam.frame();
