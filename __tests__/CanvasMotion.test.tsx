@@ -1,5 +1,5 @@
 import React from 'react';
-import { AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
+import { AccessibilityInfo, Dimensions, StyleSheet, View } from 'react-native';
 import {
   GestureDetector,
   GestureHandlerRootView,
@@ -26,7 +26,12 @@ import { copy } from '../src/design/copy';
 import { durations } from '../src/motion/tokens';
 import { FOCUS_SETTLE_MS } from '../src/motion/speech';
 import { FILTERS } from '../src/scenes/activity/model';
-import { Canvas, useCanvasView } from '../src/stage/Canvas';
+import {
+  Canvas,
+  SETTINGS_GONE_BY,
+  SettingsSlide,
+  useCanvasView,
+} from '../src/stage/Canvas';
 import type { Backup } from '../src/stage/Canvas';
 import {
   COVERED,
@@ -41,7 +46,6 @@ import {
 import type { Arrival, CanvasSceneName } from '../src/stage/layout';
 import { COG_TURN, CornerControl } from '../src/stage/panes/CornerControl';
 import { TapTarget } from '../src/glyphs/TapTarget';
-import { ENTRY_GRACE_MS } from '../src/motion/sureEntry';
 import {
   STALL_ALLOWANCE,
   moveCover,
@@ -373,25 +377,106 @@ describe('the cog', () => {
     }
   });
 
-  test('Settings is drawn at rest if its slide-in has not ended within its grace', async () => {
-    jest.useFakeTimers();
+  /** The view Settings is drawn on: the first the slot draws. */
+  const slide = (tree: ReactTestRenderer) =>
+    host(
+      tree.root.find(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.testID === 'slot-settings',
+      ).children[0] as ReactTestInstance,
+    );
+
+  /** The pane Settings is drawn in. */
+  const settingsPane = (tree: ReactTestRenderer) =>
+    tree.root
+      .findAllByType(Pane)
+      .find(layer => layer.findAllByType(SettingsLayer).length > 0)!;
+
+  test('Settings is drawn where the cover is, with no entrance to stall', async () => {
+    const width = Dimensions.get('window').width;
+    const covers = { current: 0.25 };
+    const cover = {
+      get: () => covers.current,
+    } as unknown as Panes['cover'];
+    const gone = jest.fn();
+    const tree = await render(
+      <SettingsSlide cover={cover} width={width} leaving={false} onGone={gone}>
+        <View testID="inside" />
+      </SettingsSlide>,
+    );
+    const drawn = () => host(tree.root);
+    // A quarter covered, it is three quarters of the way off the right
+    // edge, and no layout animation stands between it and the screen.
+    expect(drawn().props.entering).toBeUndefined();
+    expect(drawn().props.exiting).toBeUndefined();
+    expect(transformOf(drawn(), 'translateX')).toBe(width * 0.75);
+    expect(flat(drawn()).opacity).toBeUndefined();
+    covers.current = 1;
+    await act(async () =>
+      tree.update(
+        <SettingsSlide
+          cover={cover}
+          width={width}
+          leaving={false}
+          onGone={gone}
+        >
+          <View testID="inside" />
+        </SettingsSlide>,
+      ),
+    );
+    expect(transformOf(drawn(), 'translateX')).toBe(0);
+    expect(gone).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('Settings stays drawn as it leaves, out of use, and is let go once the cover is down', async () => {
     const tree = await render(<OnCanvas />);
     await act(async () => stage.actions.openSettings());
-    // The view Settings slides in on: the first the slot draws.
-    const slide = () =>
-      host(
-        tree.root.find(
-          node =>
-            typeof node.type === 'string' &&
-            node.props.testID === 'slot-settings',
-        ).children[0] as ReactTestInstance,
-      );
-    expect(slide().props.entering).toBeDefined();
-    // Under Jest a layout animation never reports its end, as one stalled
-    // on a phone would not.
-    await act(async () => jest.advanceTimersByTime(ENTRY_GRACE_MS));
-    expect(slide().props.entering).toBeUndefined();
-    expect(stage.state.scene.name).toBe('settings');
+    expect(slide(tree).props.entering).toBeUndefined();
+    expect(transformOf(slide(tree), 'translateX')).toBe(0);
+    expect(settingsPane(tree).props.active).toBe(true);
+    await settle();
+    // Fake timers from here, to drive the deadline: under them the lock
+    // would never lift, so the move that opened Settings settled above.
+    jest.useFakeTimers();
+    await act(async () => stage.actions.back());
+    expect(stage.state.scene.name).toBe('home');
+    // Still drawn on the cover as the cover comes down, but out of use:
+    // nothing on it can be pressed, and a screen reader skips it.
+    expect(tree.root.findAllByType(SettingsScreen)).toHaveLength(1);
+    expect(settingsPane(tree).props.active).toBe(false);
+    expect(host(settingsPane(tree)).props.pointerEvents).toBe('none');
+    // Under Jest the cover's reaction never fires, so the deadline lets
+    // it go, as it would after a long frame held the spring on a phone.
+    await act(async () => jest.advanceTimersByTime(SETTINGS_GONE_BY - 1));
+    expect(tree.root.findAllByType(SettingsScreen)).toHaveLength(1);
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(tree.root.findAllByType(SettingsScreen)).toHaveLength(0);
+    await act(async () => tree.unmount());
+  });
+
+  test('a Settings opened while the last leaves takes its place, and outlives its deadline', async () => {
+    const tree = await render(<OnCanvas />);
+    await act(async () => stage.actions.openSettings());
+    await settle();
+    jest.useFakeTimers();
+    await act(async () => stage.actions.back());
+    const left = stage.state.key;
+    // The panes have settled by the clock, though under fake timers the
+    // lock has not lifted; the one that left is still drawn.
+    await act(async () =>
+      jest.advanceTimersByTime(PANE_SETTLE_MS + STALL_ALLOWANCE + 1),
+    );
+    expect(tree.root.findAllByType(SettingsScreen)).toHaveLength(1);
+    await act(async () => stage.actions.openSettings());
+    expect(stage.state.scene.key).toBeGreaterThan(left);
+    expect(tree.root.findAllByType(SettingsScreen)).toHaveLength(1);
+    expect(settingsPane(tree).props.active).toBe(true);
+    // The deadline of the one that left does not take the new one away.
+    await act(async () => jest.advanceTimersByTime(2 * SETTINGS_GONE_BY));
+    expect(tree.root.findAllByType(SettingsScreen)).toHaveLength(1);
+    expect(settingsPane(tree).props.active).toBe(true);
     await act(async () => tree.unmount());
   });
 
@@ -859,9 +944,13 @@ describe('the canvas', () => {
     expect(labels).not.toContain('Settings');
     expect(labels).not.toContain('Send');
     expect(labels).toContain('Close');
+    await settle();
+    jest.useFakeTimers();
     await act(async () => stage.actions.back());
     expect(stage.state.scene.name).toBe('home');
     expect(flat(panes(tree).canvas).opacity).toBe(1);
+    // Settings leaves on the cover, and is let go once it is down.
+    await act(async () => jest.advanceTimersByTime(SETTINGS_GONE_BY));
     expect(tree.root.findAllByType(SettingsScreen)).toHaveLength(0);
     await act(async () => tree.unmount());
   });
@@ -1392,6 +1481,27 @@ describe('the canvas', () => {
       .filter(([delay]) => delay === durations.crossfade)
       .map(([, , reduce]) => reduce);
     expect(holds).toEqual([Reanimated.ReduceMotion.Never]);
+    await act(async () => tree.unmount());
+  });
+
+  test('under Reduce Motion Settings fades with the cover instead of sliding', async () => {
+    jest
+      .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
+      .mockResolvedValue(true);
+    const cover = { get: () => 0.25 } as unknown as Panes['cover'];
+    const tree = await render(
+      <SettingsSlide
+        cover={cover}
+        width={400}
+        leaving={false}
+        onGone={jest.fn()}
+      >
+        <View testID="inside" />
+      </SettingsSlide>,
+    );
+    const drawn = host(tree.root);
+    expect(flat(drawn).opacity).toBe(0.25);
+    expect(flat(drawn).transform).toBeUndefined();
     await act(async () => tree.unmount());
   });
 });
