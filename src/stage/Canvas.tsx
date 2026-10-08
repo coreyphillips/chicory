@@ -775,15 +775,24 @@ export function SettingsSlide({
     const deadline = setTimeout(letGo, SETTINGS_GONE_BY);
     return () => clearTimeout(deadline);
   }, [leaving, letGo]);
+  // Both keys always, so a Reduce Motion change mid-move cannot leave the
+  // one it stops writing where it was.
   const slide = useAnimatedStyle(() => {
     const up = cover.get();
-    return reduced
-      ? { opacity: up }
-      : { transform: [{ translateX: (1 - up) * width }] };
+    return {
+      opacity: reduced ? up : 1,
+      transform: [{ translateX: reduced ? 0 : (1 - up) * width }],
+    };
   }, [reduced, width]);
   return (
     <LayoutAnimationConfig skipExiting={leaving}>
-      <Reanimated.View style={[styles.fill, slide]}>{children}</Reanimated.View>
+      {/* The view itself takes no touches: it fills the canvas wherever the
+          cover has it, and a leaving Settings, out of use under Reduce
+          Motion where it only fades, must not catch what is meant for the
+          canvas behind it. */}
+      <Reanimated.View pointerEvents="box-none" style={[styles.fill, slide]}>
+        {children}
+      </Reanimated.View>
     </LayoutAnimationConfig>
   );
 }

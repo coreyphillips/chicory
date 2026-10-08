@@ -411,7 +411,10 @@ describe('the cog', () => {
     expect(drawn().props.entering).toBeUndefined();
     expect(drawn().props.exiting).toBeUndefined();
     expect(transformOf(drawn(), 'translateX')).toBe(width * 0.75);
-    expect(flat(drawn()).opacity).toBeUndefined();
+    expect(flat(drawn()).opacity).toBe(1);
+    // The view itself takes no touches, so one that leaves, out of use,
+    // never catches a tap meant for the canvas behind it.
+    expect(drawn().props.pointerEvents).toBe('box-none');
     covers.current = 1;
     await act(async () =>
       tree.update(
@@ -1501,7 +1504,7 @@ describe('the canvas', () => {
     );
     const drawn = host(tree.root);
     expect(flat(drawn).opacity).toBe(0.25);
-    expect(flat(drawn).transform).toBeUndefined();
+    expect(transformOf(drawn, 'translateX')).toBe(0);
     await act(async () => tree.unmount());
   });
 });
