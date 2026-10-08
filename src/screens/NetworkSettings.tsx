@@ -32,14 +32,21 @@ const words = copy.settings.network;
  * Each network's servers and primary node, in the Settings language. Nothing
  * here applies until the explicit save or switch at the bottom, and a switch
  * that fails leaves the phone on the network it is still on.
+ *
+ * The default primary node only seeds a wallet created on that network; a
+ * wallet that exists keeps its own node. An open wallet's Settings leaves it
+ * out (`defaultPrimary={false}`), so Primary node is the one place there that
+ * changes the node, and a save here carries the stored default through.
  */
 export function NetworkSettings({
   initialNetwork,
   busy = false,
+  defaultPrimary = true,
   onApply,
 }: {
   initialNetwork?: Network;
   busy?: boolean;
+  defaultPrimary?: boolean;
   onApply: (profile: NetworkProfile) => Promise<void>;
 }) {
   const [preferences, setPreferences] = useState<NetworkPreferences | null>(
@@ -167,16 +174,18 @@ export function NetworkSettings({
             />
           </View>
           <View style={styles.group}>
-            <Field
-              label={words.primary}
-              accessibilityHint={words.primaryHint}
-              value={profile.primaryUri}
-              autoCapitalize="none"
-              multiline
-              mono
-              editable={!disabled}
-              onChangeText={primaryUri => update({ primaryUri })}
-            />
+            {defaultPrimary ? (
+              <Field
+                label={words.primary}
+                accessibilityHint={words.primaryHint}
+                value={profile.primaryUri}
+                autoCapitalize="none"
+                multiline
+                mono
+                editable={!disabled}
+                onChangeText={primaryUri => update({ primaryUri })}
+              />
+            ) : null}
             <Toggle
               label={words.relay}
               accessibilityLabel={words.relayLabel}
