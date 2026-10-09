@@ -27,7 +27,10 @@ const PROFILES = 'com.beignet.wallet.network-profiles';
  * Services the redesign adds on purpose. Main never reads them, so a build of
  * main installed over the redesign ignores them.
  */
-const ADDED_BY_REDESIGN = ['com.beignet.wallet.haptics'];
+const ADDED_BY_REDESIGN = [
+  'com.beignet.wallet.haptics',
+  'com.beignet.wallet.balance-face',
+];
 
 type Write = string;
 let records: Map<string, string>;

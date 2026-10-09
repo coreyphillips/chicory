@@ -70,15 +70,15 @@ export const hideBalance: Step = drive => drive.call('onToggleHidden');
 
 /**
  * Rolls the balance on to its next face, through the hero's own handler:
- * sats, then the same integer after the bitcoin sign, then BTC (`nextFace`).
+ * the integer after the bitcoin sign, then BTC, then sats (`nextFace`).
  */
 export const swapUnit: Step = drive => drive.call('onToggleUnit');
 
-/** The balance after the bitcoin sign, one tap on from sats. */
-export const inSymbol: Step[] = [swapUnit];
+/** The balance in BTC, one tap on from `₿`, where it opens. */
+export const inBtc: Step[] = [swapUnit];
 
-/** The balance in BTC, two taps on from sats. */
-export const inBtc: Step[] = [swapUnit, swapUnit];
+/** The balance in sats, two taps on from `₿`. */
+export const inSats: Step[] = [swapUnit, swapUnit];
 
 /** What the app remembers of the wallet on `network`, as it was last open. */
 export const remembered = (

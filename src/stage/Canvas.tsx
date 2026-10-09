@@ -23,6 +23,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { scheduleOnRN } from 'react-native-worklets';
 import { haptics } from '../design/haptics';
+import {
+  DEFAULT_FACE,
+  loadFacePreference,
+  saveFacePreference,
+} from '../services/facePreference';
+import type { Face } from '../services/facePreference';
 import { beginTransition } from '../motion/idle';
 import { dropAway, riseFrom } from '../motion/presets';
 import { ENTRY_GRACE_MS, useSureEntry } from '../motion/sureEntry';
@@ -109,14 +115,34 @@ export interface Backup {
  * hidden balance must still be hidden when it comes back.
  *
  * `unit` and `symbol` are the face a tap on the balance rolls through
- * (`nextFace`): sats, sats drawn as `₿2,000`, and BTC.
+ * (`nextFace`): sats drawn as `₿2,000`, BTC, and sats. It opens on `₿`, or on
+ * the face last tapped to, which `setFace` saves for the next launch. A tap
+ * before the saved face is read wins over it.
  */
 export function useCanvasView() {
   const [hidden, setHidden] = useState(false);
-  const [unit, setUnit] = useState<Unit>('sats');
-  const [symbol, setSymbol] = useState(false);
+  const [unit, setUnit] = useState<Unit>(DEFAULT_FACE.unit);
+  const [symbol, setSymbol] = useState(DEFAULT_FACE.symbol);
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
+  const chosen = useRef(false);
+  useEffect(() => {
+    let active = true;
+    loadFacePreference().then(face => {
+      if (!active || chosen.current) return;
+      setUnit(face.unit);
+      setSymbol(face.symbol);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const setFace = useCallback((face: Face) => {
+    chosen.current = true;
+    setUnit(face.unit);
+    setSymbol(face.symbol);
+    saveFacePreference(face);
+  }, []);
   return {
     hidden,
     setHidden,
@@ -124,6 +150,7 @@ export function useCanvasView() {
     setUnit,
     symbol,
     setSymbol,
+    setFace,
     filter,
     setFilter,
     query,

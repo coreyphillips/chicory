@@ -76,7 +76,7 @@ export function HomePane({
 }) {
   const { state, actions } = useStage();
   const panes = usePanes();
-  const { hidden, setHidden, unit, setUnit, symbol, setSymbol } = view;
+  const { hidden, setHidden, unit, symbol, setFace } = view;
   const network = snapshot.wallet.network;
 
   // On its way to Send or Receive the hero shows what can be spent rather
@@ -210,11 +210,10 @@ export function HomePane({
     (origin?: Point) => actions.openScan(origin),
     [actions],
   );
-  const toggleUnit = useCallback(() => {
-    const next = nextFace(unit, symbol);
-    setUnit(next.unit);
-    setSymbol(next.symbol);
-  }, [unit, symbol, setUnit, setSymbol]);
+  const toggleUnit = useCallback(
+    () => setFace(nextFace(unit, symbol)),
+    [unit, symbol, setFace],
+  );
   const toggleHidden = useCallback(
     () => setHidden(value => !value),
     [setHidden],
