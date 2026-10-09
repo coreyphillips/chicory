@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Dimensions, StyleSheet, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSharedValue } from 'react-native-reanimated';
+import * as Keychain from 'react-native-keychain';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { DemoWalletClient } from '@beignet/wallet-core';
@@ -132,7 +133,7 @@ describe('the formatter', () => {
 });
 
 describe('the tap on the balance', () => {
-  test('rolls from sats to ₿ to BTC and back to sats', () => {
+  test('rolls from ₿ to BTC to sats and back to ₿', () => {
     const sats = { unit: 'sats', symbol: false } as const;
     const symbol = { unit: 'sats', symbol: true } as const;
     const btc = { unit: 'btc', symbol: false } as const;
@@ -209,11 +210,8 @@ describe('the tap on the balance', () => {
   const sats = copy.home.totalBalance(261_500, 'sats');
   const btc = copy.home.totalBalance(261_500, 'btc');
 
-  test('draws each face in turn, and says sats for both integer faces', async () => {
+  test('opens in ₿, draws each face in turn, and says sats for both integer faces', async () => {
     const tree = await mount(<Stage home />);
-    expect(total(tree)).toBe('261,500sats');
-    expect(balance(tree).props.accessibilityLabel).toBe(sats);
-    await tap(tree);
     expect(total(tree)).toBe('₿261,500');
     expect(balance(tree).props.accessibilityLabel).toBe(sats);
     expect(balance(tree).props.accessibilityLabel).toContain(
@@ -224,6 +222,9 @@ describe('the tap on the balance', () => {
     expect(balance(tree).props.accessibilityLabel).toBe(btc);
     await tap(tree);
     expect(total(tree)).toBe('261,500sats');
+    expect(balance(tree).props.accessibilityLabel).toBe(sats);
+    await tap(tree);
+    expect(total(tree)).toBe('₿261,500');
     await act(async () => tree.unmount());
   });
 
@@ -237,20 +238,112 @@ describe('the tap on the balance', () => {
       );
     expect(balance(tree).props.accessibilityHint).toBe(copy.home.unitHint);
     await roll();
-    expect(total(tree)).toBe('₿261,500');
-    await roll();
     expect(total(tree)).toBe('0.00261500BTC');
+    await roll();
+    expect(total(tree)).toBe('261,500sats');
     await act(async () => tree.unmount());
   });
 
   test('the face holds while Home is away, as across a lock', async () => {
     const tree = await mount(<Stage home />);
     await tap(tree);
-    expect(total(tree)).toBe('₿261,500');
+    expect(total(tree)).toBe('0.00261500BTC');
     await act(async () => tree.update(<Stage home={false} />));
     await act(async () => tree.update(<Stage home />));
-    expect(total(tree)).toBe('₿261,500');
+    expect(total(tree)).toBe('0.00261500BTC');
     await act(async () => tree.unmount());
+  });
+
+  describe('across launches', () => {
+    const FACE = 'com.beignet.wallet.balance-face';
+    let saved: Map<string, string>;
+    beforeEach(() => {
+      saved = new Map();
+      jest
+        .mocked(Keychain.getGenericPassword)
+        .mockImplementation(async options =>
+          saved.has(options?.service || '')
+            ? ({ password: saved.get(options?.service || '') } as never)
+            : false,
+        );
+      jest
+        .mocked(Keychain.setGenericPassword)
+        .mockImplementation(async (_name, value, options) => {
+          saved.set(options?.service || '', value);
+          return { service: options?.service || '' } as never;
+        });
+    });
+    afterEach(() => {
+      jest.mocked(Keychain.getGenericPassword).mockResolvedValue(false);
+      jest
+        .mocked(Keychain.setGenericPassword)
+        .mockResolvedValue({ service: 'test' } as never);
+    });
+
+    test('the face tapped to is the one the next launch opens on', async () => {
+      const first = await mount(<Stage home />);
+      await tap(first);
+      await tap(first);
+      expect(total(first)).toBe('261,500sats');
+      expect(saved.get(FACE)).toBe('sats');
+      await act(async () => first.unmount());
+
+      const second = await mount(<Stage home />);
+      expect(total(second)).toBe('261,500sats');
+      await tap(second);
+      expect(total(second)).toBe('₿261,500');
+      expect(saved.get(FACE)).toBe('symbol');
+      await act(async () => second.unmount());
+    });
+
+    test('BTC is kept too', async () => {
+      saved.set(FACE, 'btc');
+      const tree = await mount(<Stage home />);
+      expect(total(tree)).toBe('0.00261500BTC');
+      await act(async () => tree.unmount());
+    });
+
+    test('nothing saved, or something unreadable, opens in ₿', async () => {
+      saved.set(FACE, 'nonsense');
+      const tree = await mount(<Stage home />);
+      expect(total(tree)).toBe('₿261,500');
+      await act(async () => tree.unmount());
+      jest
+        .mocked(Keychain.getGenericPassword)
+        .mockRejectedValue(new Error('locked'));
+      const locked = await mount(<Stage home />);
+      expect(total(locked)).toBe('₿261,500');
+      await act(async () => locked.unmount());
+    });
+
+    test('a tap before the saved face is read wins over it', async () => {
+      saved.set(FACE, 'sats');
+      let answer!: () => void;
+      jest.mocked(Keychain.getGenericPassword).mockImplementation(
+        () =>
+          new Promise(resolve => {
+            answer = () => resolve({ password: 'sats' } as never);
+          }),
+      );
+      const tree = await mount(<Stage home />);
+      expect(total(tree)).toBe('₿261,500');
+      await tap(tree);
+      expect(total(tree)).toBe('0.00261500BTC');
+      await act(async () => answer());
+      expect(total(tree)).toBe('0.00261500BTC');
+      expect(saved.get(FACE)).toBe('btc');
+      await act(async () => tree.unmount());
+    });
+
+    test('a save that fails still draws the face tapped to', async () => {
+      jest
+        .mocked(Keychain.setGenericPassword)
+        .mockRejectedValue(new Error('full'));
+      const tree = await mount(<Stage home />);
+      await tap(tree);
+      expect(total(tree)).toBe('0.00261500BTC');
+      await act(async () => tree.unmount());
+    });
   });
 
   test('BTC is drawn the same whichever face came before it', async () => {

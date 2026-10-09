@@ -266,8 +266,9 @@ export const unitAffixes = (
     : { prefix: '', suffix: 'sats' };
 
 /**
- * The face a tap on the balance rolls to: sats, then the same integer after
- * the bitcoin sign, then BTC, then sats again.
+ * The face a tap on the balance rolls to: the integer after the bitcoin sign,
+ * then BTC, then sats, then the bitcoin sign again. The balance opens on the
+ * bitcoin sign (`DEFAULT_FACE`).
  */
 export const nextFace = (
   unit: Unit,

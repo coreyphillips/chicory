@@ -20,7 +20,7 @@
  */
 import 'react-native-url-polyfill/auto';
 // First, so nothing drawn after it can reach the real store.
-import { setBiometry } from './gallery/sealed';
+import { forgetFace, setBiometry } from './gallery/sealed';
 import React, { useEffect, useRef, useState } from 'react';
 import { AppRegistry, StyleSheet, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -53,11 +53,12 @@ export function Gallery() {
     const { index, lap } = cursor;
     const shot = SHOTS[index];
     report(`${index} ${shot.name}`);
-    // Each state starts from nothing held and a phone with no biometry,
-    // whatever the state before it set up. It also wakes decoration, as the
+    // Each state starts from nothing held, the balance on its first face and
+    // a phone with no biometry, whatever the state before it set up. It also wakes decoration, as the
     // stage does for a new scene (REDESIGN.md 3.5): nothing touches the
     // gallery, and its loops would otherwise rest a few states in.
     clearHeldRequests();
+    forgetFace();
     setBiometry(null);
     wakeAmbient();
     const take = shot.make();

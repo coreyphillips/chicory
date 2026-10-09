@@ -25,6 +25,11 @@ const serviceOf = (options: Options) => options?.service ?? 'default';
 
 let biometry: string | null = null;
 
+/** Forgets the balance face a state tapped to, so the next opens on `₿`. */
+export function forgetFace() {
+  entries.delete('com.beignet.wallet.balance-face');
+}
+
 /** The biometry the lock and Settings are told this phone has. */
 export function setBiometry(kind: string | null) {
   biometry = kind;

@@ -33,7 +33,7 @@ import type { Shot, Step } from './shots';
 import {
   hideBalance,
   inBtc,
-  inSymbol,
+  inSats,
   open,
   remembered,
   staged,
@@ -74,11 +74,11 @@ const homes: Shot[] = [
   })),
   wallet('home, a backup to save', () => ({ session: backupToSave })),
   wallet('home, hidden', () => ({ steps: [hideBalance] })),
-  wallet('home in ₿', () => ({ steps: inSymbol })),
-  wallet('home in ₿, hidden', () => ({ steps: [...inSymbol, hideBalance] })),
-  wallet('home in ₿, stale', () => ({
+  wallet('home in sats', () => ({ steps: inSats })),
+  wallet('home in sats, hidden', () => ({ steps: [...inSats, hideBalance] })),
+  wallet('home in sats, stale', () => ({
     snapshot: stale(onMainnet()),
-    steps: inSymbol,
+    steps: inSats,
   })),
   wallet('home in BTC', () => ({ steps: inBtc })),
   wallet('home, a payment held', () => ({
@@ -157,10 +157,10 @@ const activities: Shot[] = [
     open: [open.activity()],
     steps: [hideBalance],
   })),
-  wallet('activity in ₿', () => ({
+  wallet('activity in sats', () => ({
     snapshot: onMainnet({ activity: rows() }),
     open: [open.activity()],
-    steps: inSymbol,
+    steps: inSats,
   })),
   wallet('activity in BTC', () => ({
     snapshot: onMainnet({ activity: rows() }),
@@ -208,9 +208,9 @@ const details: Shot[] = [
   ...Object.keys(everyActivity()).map(name => detail(`detail, ${name}`, name)),
   detail('detail on a test network', 'received with a note', { test: true }),
   detail('detail, hidden', 'sent completed', { steps: [hideBalance] }),
-  detail('detail in ₿', 'sent with an estimated fee', { steps: inSymbol }),
-  detail('detail in ₿, received', 'received completed', { steps: inSymbol }),
-  detail('detail in ₿, a request paid', 'request paid', { steps: inSymbol }),
+  detail('detail in sats', 'sent with an estimated fee', { steps: inSats }),
+  detail('detail in sats, received', 'received completed', { steps: inSats }),
+  detail('detail in sats, a request paid', 'request paid', { steps: inSats }),
   detail('detail in BTC', 'sent with an estimated fee', { steps: inBtc }),
 ];
 
@@ -293,10 +293,10 @@ const settingsShots: Shot[] = [
       drive => drive.activate(words.empty.send),
     ],
   })),
-  settings('reviewing a wallet drain in ₿', () => ({
+  settings('reviewing a wallet drain in sats', () => ({
     snapshot: onMainnet(),
     steps: [
-      ...inSymbol,
+      ...inSats,
       press(words.empty.link),
       drive => drive.type(words.empty.address, ADDRESS),
       press(words.empty.review),

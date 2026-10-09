@@ -27,7 +27,7 @@ App version 0.7.1 (Android `versionCode` 14). The version shown in Settings come
 
 The app lock, when enabled, is asked for on launch and after a spell in the background. While locked no vault is opened and no engine is started, so nothing runs for someone who has not authenticated. A lock that cannot be read fails open rather than stranding you out of your own wallet.
 
-Amounts are entered in satoshis, with separators added for reading and stripped before the value is parsed. Tapping the balance rolls it from sats to the same integer after the bitcoin sign, `₿2,000`, as [BIP 177](https://github.com/bitcoin/bips/blob/master/bip-0177.mediawiki) writes it, then to BTC and back to sats. A screen reader hears sats on both integer faces, and entry stays in satoshis so no decimal parsing enters the money path.
+Amounts are entered in satoshis, with separators added for reading and stripped before the value is parsed. The balance opens in sats after the bitcoin sign, `₿2,000`, as [BIP 177](https://github.com/bitcoin/bips/blob/master/bip-0177.mediawiki) writes it. Tapping it rolls to BTC, then to `2,000 sats` and back to `₿`, and the face last tapped to is kept for the next launch. A screen reader hears sats on both integer faces, and entry stays in satoshis so no decimal parsing enters the money path.
 
 ## The wallet runs on this phone
 
