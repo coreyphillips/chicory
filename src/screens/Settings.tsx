@@ -179,7 +179,9 @@ function Outcome({ outcome }: { outcome: SettingsOutcome }) {
  * to another. Choosing a network only proposes it; the switch is its own
  * press, with the line about what the other network keeps. The servers
  * behind each network open below, in place, behind Edit servers, and the
- * networks give the editor their room while it is open.
+ * networks give the editor their room while it is open. The editor leaves
+ * out each network's default primary node, which only seeds a new wallet:
+ * this wallet's own node changes under Primary node, and nowhere else.
  */
 function NetworkPanel({
   snapshot,
@@ -257,6 +259,7 @@ function NetworkPanel({
           <NetworkSettings
             initialNetwork={current}
             busy={busy}
+            defaultPrimary={false}
             onApply={onNetwork}
           />
         </Reanimated.View>

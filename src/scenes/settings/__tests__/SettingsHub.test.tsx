@@ -401,6 +401,17 @@ describe('the rows the page offers', () => {
     });
   });
 
+  test('the node changes under Primary node only, never in Edit servers', async () => {
+    const tree = await render();
+    await press(tree, s.wallet.serversLabel);
+    await press(tree, s.wallet.editServers);
+    expect(host(tree, s.network.server)).toBeDefined();
+    expect(host(tree, s.network.primary)).toBeUndefined();
+    await press(tree, s.primary.heading);
+    await press(tree, s.primary.change);
+    expect(host(tree, s.primary.address)).toBeDefined();
+  });
+
   test('an outcome is felt and said once, not again as its row opens again', async () => {
     const said = jest.mocked(
       AccessibilityInfo.announceForAccessibilityWithOptions,
