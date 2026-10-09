@@ -1,14 +1,10 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import type { PropsWithChildren } from 'react';
-import { useWindowDimensions } from 'react-native';
+import { View, useWindowDimensions } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import type { PanGestureConfig } from 'react-native-gesture-handler';
-import Reanimated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
+import { withSpring } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { haptics } from '../../design/haptics';
 import { springs } from '../../motion/tokens';
@@ -45,12 +41,13 @@ export function swipeGoesBack(
 
 /**
  * A layer over the canvas that a swipe in from its left edge takes back,
- * as Settings is (REDESIGN.md 7, T6). The layer follows the finger across,
- * and the canvas it covers comes back with it: its `cover` follows, so the
- * canvas grows and brightens and the cog unwinds under the finger. Let go
- * far enough or fast enough, the stage goes back and the layer carries on
- * off the edge from where the finger left it; short of that, or when back
- * would be refused, both spring back.
+ * as Settings is (REDESIGN.md 7, T6). The swipe writes the canvas's
+ * `cover`, which the layer is drawn on (`SettingsSlide`) and the canvas
+ * under it recedes by: the layer follows the finger across, the canvas
+ * grows and brightens and the cog unwinds under it. Let go far enough or
+ * fast enough, the stage goes back and the layer carries on off the edge
+ * from where the finger left it; short of that, or when back would be
+ * refused, both spring back.
  */
 export function EdgeBack({
   style,
@@ -60,7 +57,6 @@ export function EdgeBack({
   const { state, actions, panes: motion } = useStage();
   const live = usePaneActive();
   const { width } = useWindowDimensions();
-  const across = useSharedValue(0);
 
   // The stage as of this render, to tell whether back would be refused.
   const latest = useRef(state);
@@ -78,17 +74,15 @@ export function EdgeBack({
         actions.back();
         return;
       }
-      across.set(withSpring(0, springs.pane));
       panes.cover.set(withSpring(1, springs.pane));
     },
-    [motion, actions, across, panes],
+    [motion, actions, panes],
   );
 
   const config = useMemo<PanGestureConfig>(() => {
     const follow = (translationX: number) => {
       'worklet';
       const x = Math.max(0, translationX);
-      across.set(x);
       panes.cover.set(1 - Math.min(1, x / width));
     };
     return {
@@ -112,15 +106,12 @@ export function EdgeBack({
         scheduleOnRN(release, goes);
       },
     };
-  }, [live, width, across, panes, release]);
+  }, [live, width, panes, release]);
   const swipe = usePanGesture(config);
 
-  const along = useAnimatedStyle(() => ({
-    transform: [{ translateX: across.get() }],
-  }));
   return (
     <GestureDetector gesture={swipe}>
-      <Reanimated.View style={[style, along]}>{children}</Reanimated.View>
+      <View style={style}>{children}</View>
     </GestureDetector>
   );
 }

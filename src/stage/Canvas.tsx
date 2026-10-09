@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,12 +18,13 @@ import Reanimated, {
   withDelay,
   withTiming,
 } from 'react-native-reanimated';
+import type { SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import { scheduleOnRN } from 'react-native-worklets';
 import { haptics } from '../design/haptics';
 import { beginTransition } from '../motion/idle';
-import { dropAway, riseFrom, slideIn, slideOut } from '../motion/presets';
+import { dropAway, riseFrom } from '../motion/presets';
 import { ENTRY_GRACE_MS, useSureEntry } from '../motion/sureEntry';
 import { steady } from '../motion/steady';
 import { curves, durations } from '../motion/tokens';
@@ -70,7 +72,7 @@ import { SceneLeave } from './panes/Leaving';
 import { Pane, PanesProvider } from './panes/Pane';
 import { PrimaryFor, usePrimaryFocus } from './panes/Primary';
 import type { Primaries } from './panes/Primary';
-import { usePaneMotion } from './panes/usePaneMotion';
+import { STALL_ALLOWANCE, usePaneMotion } from './panes/usePaneMotion';
 import type { Overlay, Scene } from './scene';
 import { newestFirst, useStage } from './StageContext';
 import { useIncoming } from './useIncoming';
@@ -509,6 +511,21 @@ export function Canvas({
   );
   if (topScene) top.push(drawTop(topScene, region, false));
 
+  // Settings is drawn on the cover (`SettingsSlide`), so it is kept drawn
+  // as it leaves, out of use, until the cover is back down, and let go
+  // then. One opened again while the last leaves takes its place.
+  const settingsScene = scene.name === 'settings' ? scene : null;
+  const [drawnSettings, setDrawnSettings] = useState(settingsScene);
+  if (settingsScene && settingsScene.key !== drawnSettings?.key) {
+    setDrawnSettings(settingsScene);
+  }
+  const settingsLeaving = !settingsScene && !!drawnSettings;
+  const settingsGone = useCallback(
+    (key: number) =>
+      setDrawnSettings(drawn => (drawn?.key === key ? null : drawn)),
+    [],
+  );
+
   return (
     <PanesProvider value={panes}>
       <LaunchProvider value={launch}>
@@ -609,19 +626,29 @@ export function Canvas({
               style={styles.fill}
               pointerEvents={blocking ? 'none' : 'box-none'}
             >
-              {scene.name === 'settings' ? (
-                <SettingsSlide key={scene.key}>
+              {drawnSettings ? (
+                <SettingsSlide
+                  key={drawnSettings.key}
+                  cover={panes.cover}
+                  width={windowWidth}
+                  leaving={settingsLeaving}
+                  onGone={() => settingsGone(drawnSettings.key)}
+                >
                   {/* Out of use under an overlay, and the swipe in it with
                   it: a swipe back while the scan is open would close the
-                  scan and leave Settings drawn where the finger let go. */}
+                  scan and leave Settings drawn where the finger let go.
+                  Out of use as it leaves, too. */}
                   <Pane
-                    active={!overlay}
+                    active={!overlay && !settingsLeaving}
                     style={[styles.flex, settingsScanned]}
                   >
                     {/* A swipe in from the left edge takes Settings back, the
                     canvas coming back under the finger (REDESIGN.md 7, T6). */}
                     <EdgeBack style={styles.settings}>
-                      <PrimaryFor primaries={primaries} scene="settings">
+                      <PrimaryFor
+                        primaries={settingsLeaving ? nowhere : primaries}
+                        scene="settings"
+                      >
                         <SettingsLayer {...region} />
                       </PrimaryFor>
                     </EdgeBack>
@@ -684,30 +711,89 @@ export const HANDOVER_LATEST = 2 * PANE_SETTLE_MS;
 export const RISEN_BY = 2 * (PANE_SETTLE_MS + durations.exit);
 
 /**
- * Settings sliding in over the canvas, sure to end shown (`useSureEntry`).
- * Reanimated can stall an entrance as the app starts, and a stalled slide
- * would leave the canvas covered, as the cog's tap starts it, with nothing
- * on it: one that has not ended within its grace is drawn again at rest,
- * its content too. What Settings held is lost then, but a stalled slide was
- * never on screen to be used.
+ * The latest a Settings that is leaving is let go, in ms: the cover's
+ * spring reports rest well after it looks settled, and a long frame at a
+ * cold start holds its steady clock back by about as much again.
  */
-function SettingsSlide({ children }: { children: ReactNode }) {
-  const [entering] = useState(slideIn);
-  const [exiting] = useState(slideOut);
-  const entry = useSureEntry(entering, ENTRY_GRACE_MS);
+export const SETTINGS_GONE_BY = 2 * PANE_SETTLE_MS + STALL_ALLOWANCE;
+
+/** A cover this far down, or less, has Settings off the canvas. */
+const GONE_AT = 0.001;
+
+/**
+ * Settings over the canvas, drawn where the cover has it: off the right
+ * edge with the cover down, over the whole canvas with it up, and under
+ * Reduce Motion fading in and out with it instead. The cover is the one
+ * spring the cog's tap starts on the UI thread as the tap lands, the one a
+ * swipe back follows with the finger, and the one the panes carry on, so
+ * Settings, the canvas receding under it and the cog's turn are one move,
+ * and Settings is on screen the moment it is drawn.
+ *
+ * It was a layout entrance before, and Reanimated could stall one as the
+ * app started: it keeps an entering view at nothing until the entrance
+ * starts, so a stall left the canvas covered, as the tap had it, with an
+ * unseen Settings over it that still took touches. A style on a shared
+ * value has no start to miss.
+ *
+ * Leaving, it stays drawn where the cover has it until the cover is down,
+ * and is let go then (`onGone`), or by SETTINGS_GONE_BY at the latest. It
+ * plays no exits of its own as it goes: it is off the canvas by then.
+ */
+export function SettingsSlide({
+  cover,
+  width,
+  leaving,
+  onGone,
+  children,
+}: {
+  cover: SharedValue<number>;
+  width: number;
+  leaving: boolean;
+  onGone: () => void;
+  children: ReactNode;
+}) {
+  const { reduced } = useMotionPrefs();
+  const latest = useRef(onGone);
+  useLayoutEffect(() => {
+    latest.current = onGone;
+  });
+  const gone = useRef(false);
+  const letGo = useCallback(() => {
+    if (gone.current) return;
+    gone.current = true;
+    latest.current();
+  }, []);
+  useAnimatedReaction(
+    () => cover.get(),
+    value => {
+      if (leaving && value <= GONE_AT) scheduleOnRN(letGo);
+    },
+    [leaving, cover, letGo],
+  );
+  useEffect(() => {
+    if (!leaving) return;
+    const deadline = setTimeout(letGo, SETTINGS_GONE_BY);
+    return () => clearTimeout(deadline);
+  }, [leaving, letGo]);
+  // Both keys always, so a Reduce Motion change mid-move cannot leave the
+  // one it stops writing where it was.
+  const slide = useAnimatedStyle(() => {
+    const up = cover.get();
+    return {
+      opacity: reduced ? up : 1,
+      transform: [{ translateX: reduced ? 0 : (1 - up) * width }],
+    };
+  }, [reduced, width]);
   return (
-    <Reanimated.View
-      key={entry.key}
-      entering={entry.entering}
-      exiting={exiting}
-      style={styles.fill}
-    >
-      {/* Drawn again at rest, its rows rest too: their own entrances could
-          stall the same way, as the sheet's rows are guarded above. */}
-      <LayoutAnimationConfig skipEntering={entry.state === 'stalled'}>
+    <LayoutAnimationConfig skipExiting={leaving}>
+      {/* The view itself takes no touches: it fills the canvas wherever the
+          cover has it, and a leaving Settings, out of use under Reduce
+          Motion where it only fades, must not catch what is meant for the
+          canvas behind it. */}
+      <Reanimated.View pointerEvents="box-none" style={[styles.fill, slide]}>
         {children}
-      </LayoutAnimationConfig>
-    </Reanimated.View>
+      </Reanimated.View>
+    </LayoutAnimationConfig>
   );
 }
 
