@@ -13,7 +13,9 @@
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		84009F05020C0151B34C33A2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 		B26588AA4600389B963BB55B /* IrohLib in Frameworks */ = {isa = PBXBuildFile; productRef = E4EB85BD07E5499E27E21DA3 /* IrohLib */; };
+		A7D3E1F2C4B5A6978D0E1F23 /* ProcessModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5A7C9B1D3F5E7A9C1B3D5F7 /* ProcessModule.swift */; };
 		B6E9072FA594939FD06EC0B2 /* IrohModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64C7E09E09F1162FF3D960F9 /* IrohModule.swift */; };
+		C2E4F6A8B0D1C3E5F7A9B1D3 /* ProcessModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F8B0D2C4E6A8F0B2D4C6E8A0 /* ProcessModule.m */; };
 		D52F95E42868AE9D6E1A6738 /* IrohModule.m in Sources */ = {isa = PBXBuildFile; fileRef = B7CF183814AC886BCAD50B13 /* IrohModule.m */; };
 /* End PBXBuildFile section */
 
@@ -29,7 +31,9 @@
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = chicory/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = chicory/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		B7CF183814AC886BCAD50B13 /* IrohModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = chicory/IrohModule.m; sourceTree = "<group>"; };
+		E5A7C9B1D3F5E7A9C1B3D5F7 /* ProcessModule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = chicory/ProcessModule.swift; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		F8B0D2C4E6A8F0B2D4C6E8A0 /* ProcessModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = chicory/ProcessModule.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -55,6 +59,8 @@
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
 				64C7E09E09F1162FF3D960F9 /* IrohModule.swift */,
 				B7CF183814AC886BCAD50B13 /* IrohModule.m */,
+				E5A7C9B1D3F5E7A9C1B3D5F7 /* ProcessModule.swift */,
+				F8B0D2C4E6A8F0B2D4C6E8A0 /* ProcessModule.m */,
 			);
 			name = chicory;
 			sourceTree = "<group>";
@@ -263,6 +269,8 @@
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 				B6E9072FA594939FD06EC0B2 /* IrohModule.swift in Sources */,
 				D52F95E42868AE9D6E1A6738 /* IrohModule.m in Sources */,
+				A7D3E1F2C4B5A6978D0E1F23 /* ProcessModule.swift in Sources */,
+				C2E4F6A8B0D1C3E5F7A9B1D3 /* ProcessModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

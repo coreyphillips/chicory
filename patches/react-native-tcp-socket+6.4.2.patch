@@ -1,0 +1,113 @@
+diff --git a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketClient.java b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketClient.java
+index 7511570..d197eb1 100644
+--- a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketClient.java
++++ b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketClient.java
+@@ -15,6 +15,7 @@ import java.security.GeneralSecurityException;
+ import java.util.Arrays;
+ import java.util.concurrent.ExecutorService;
+ import java.util.concurrent.Executors;
++import java.util.concurrent.RejectedExecutionException;
+ 
+ import javax.net.ssl.SSLSocket;
+ import javax.net.ssl.SSLSocketFactory;
+@@ -152,23 +153,28 @@ class TcpSocketClient extends TcpSocket {
+      * @param data data to be sent
+      */
+     public void write(final int msgId, final byte[] data) {
+-        writeExecutor.execute(new Runnable() {
+-            @Override
+-            public void run() {
+-                final Socket s = socket;
+-                if (s == null) {
+-                    receiverListener.onError(getId(), new IOException("Attempted to write to closed socket"));
+-                    return;
+-                }
+-                try {
+-                    s.getOutputStream().write(data);
+-                    receiverListener.onWritten(getId(), msgId, null);
+-                } catch (IOException e) {
+-                    receiverListener.onWritten(getId(), msgId, e);
+-                    receiverListener.onError(getId(), e);
++        try {
++            writeExecutor.execute(new Runnable() {
++                @Override
++                public void run() {
++                    final Socket s = socket;
++                    if (s == null) {
++                        receiverListener.onError(getId(), new IOException("Attempted to write to closed socket"));
++                        return;
++                    }
++                    try {
++                        s.getOutputStream().write(data);
++                        receiverListener.onWritten(getId(), msgId, null);
++                    } catch (IOException e) {
++                        receiverListener.onWritten(getId(), msgId, e);
++                        receiverListener.onError(getId(), e);
++                    }
+                 }
+-            }
+-        });
++            });
++        } catch (RejectedExecutionException e) {
++            // destroy() has already released the executor, so this is a write to a closed socket.
++            receiverListener.onError(getId(), new IOException("Attempted to write to closed socket"));
++        }
+     }
+ 
+     public ReadableMap getPeerCertificate() {
+@@ -180,9 +186,11 @@ class TcpSocketClient extends TcpSocket {
+     }
+ 
+     /**
+-     * Shuts down the receiver task, closing the socket.
++     * Shuts down the receiver task, closing the socket, and releases both executors.
++     * Each executor keeps its thread parked for the life of the process until it is
++     * shut down, so without this every closed client leaves two threads behind.
+      */
+-    public void destroy() {
++    public synchronized void destroy() {
+         try {
+             // close the socket
+             if (socket != null && !socket.isClosed()) {
+@@ -193,6 +201,12 @@ class TcpSocketClient extends TcpSocket {
+             }
+         } catch (IOException e) {
+             receiverListener.onClose(getId(), e);
++        } finally {
++            // Closing the socket already unblocks a receiver in read(); the interrupt
++            // is for one parked in waitIfPaused(). Writes already queued still run and
++            // fail against the closed socket, so their callbacks are not lost.
++            listenExecutor.shutdownNow();
++            writeExecutor.shutdown();
+         }
+     }
+ 
+diff --git a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketModule.java b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketModule.java
+index 121edb4..366e6b7 100644
+--- a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketModule.java
++++ b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketModule.java
+@@ -88,6 +88,7 @@ public class TcpSocketModule extends ReactContextBaseJavaModule {
+                     tcpEvtListener.onError(cId, new Exception("connect() called twice with the same id."));
+                     return;
+                 }
++                TcpSocketClient client = null;
+                 try {
+                     // Get the network interface
+                     final String localAddress = options.hasKey("localAddress") ? options.getString("localAddress") : null;
+@@ -95,13 +96,15 @@ public class TcpSocketModule extends ReactContextBaseJavaModule {
+                     // Get ioT device host to retreive correct network in android concurrent connections
+                     final String iotDeviceHost = options.hasKey("host") ? options.getString("host") : null;
+                     selectNetwork(iface, localAddress, iotDeviceHost);
+-                    TcpSocketClient client = new TcpSocketClient(tcpEvtListener, cId, null);
++                    client = new TcpSocketClient(tcpEvtListener, cId, null);
+                     socketMap.put(cId, client);
+                     ReadableMap tlsOptions = pendingTLS.get(cId);
+                     client.connect(mReactContext, host, port, options, currentNetwork.getNetwork(), tlsOptions);
+                     tcpEvtListener.onConnect(cId, client);
+                 } catch (Exception e) {
+                     tcpEvtListener.onError(cId, e);
++                    // After the error, so the close that follows still finds its listeners.
++                    if (client != null) client.destroy();
+                 }
+             }
+         });
