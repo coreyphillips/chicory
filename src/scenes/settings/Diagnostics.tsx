@@ -14,6 +14,7 @@ import { palette } from '../../design/palette';
 import { SAFETY_CODE } from '../../motion/speech';
 import { recentDiagnostics } from '../../services/diagnosticLog';
 import type { DiagnosticEntry } from '../../services/diagnosticLog';
+import { threadCount } from '../../services/processInfo';
 import type { WalletAdapter } from '../../services/wallet';
 import { fonts, radius, space, type } from '../../theme';
 import { Action, BREAK, Note, Working } from './ui';
@@ -115,7 +116,9 @@ function RecentErrors({ entries }: { entries: DiagnosticEntry[] }) {
  * the shared client reads them: setup, the last channelize decision and the
  * last direct-funding offer, the chain tip, peers, channels, coins. It exists
  * so a stuck move or a refused payer can be read off the phone instead of
- * guessed at. Above it sit the app's own recent errors, in full.
+ * guessed at. The process's thread count sits beside the engine's figures,
+ * so a copied report shows a process growing towards the system's limit.
+ * Above it sit the app's own recent errors, in full.
  *
  * It is what Settings > Help > Diagnostics opens, drawn only while its row
  * is open, so it reads the report as it opens and again on Refresh, and the
@@ -123,6 +126,7 @@ function RecentErrors({ entries }: { entries: DiagnosticEntry[] }) {
  */
 export function DiagnosticsPanel({ client }: { client: WalletAdapter }) {
   const [report, setReport] = useState<WalletDiagnostics | null>(null);
+  const [threads, setThreads] = useState<number | null>(null);
   const [events, setEvents] = useState<DiagnosticEntry[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -132,6 +136,9 @@ export function DiagnosticsPanel({ client }: { client: WalletAdapter }) {
     setBusy(true);
     setError('');
     setEvents(recentDiagnostics());
+    threadCount().then(count => {
+      if (alive.current) setThreads(count);
+    });
     try {
       const next = await client.diagnostics();
       if (alive.current) setReport(next);
@@ -155,8 +162,15 @@ export function DiagnosticsPanel({ client }: { client: WalletAdapter }) {
     [events],
   );
   const text = useMemo(
-    () => (report ? JSON.stringify({ ...report, events }, null, 1) : ''),
-    [report, events],
+    () =>
+      report
+        ? JSON.stringify(
+            { ...report, ...(threads === null ? {} : { threads }), events },
+            null,
+            1,
+          )
+        : '',
+    [report, threads, events],
   );
   return (
     <>
