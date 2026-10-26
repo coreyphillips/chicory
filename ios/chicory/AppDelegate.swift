@@ -90,7 +90,6 @@ class ChicorySceneDelegate: UIResponder, UIWindowSceneDelegate {
     // system background until the first React frame draws; nothing has been
     // painted yet, so roast holds from the launch screen through that gap.
     window?.rootViewController?.view.backgroundColor = roast
-
   }
 
   // The privacy cover (REDESIGN.md 6, app switcher). The picture the app
@@ -128,8 +127,8 @@ class ChicorySceneDelegate: UIResponder, UIWindowSceneDelegate {
   }
 
   // A payment link opened while the app runs reaches React Native's Linking,
-  // which only hears about it through these. A cold start reads the launch
-  // URL on its own.
+  // which only hears about it through these. A cold start's link comes in
+  // the scene's connection options instead, read into the launch options above.
   func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
     for context in contexts {
       var options: [UIApplication.OpenURLOptionsKey: Any] = [

@@ -5,7 +5,7 @@ import { fs, path, ROOT } from '../test-support/node';
  *
  * The picture the iOS app switcher keeps is taken once the app is in the
  * background, and React's cover reaches it only if JavaScript is free to
- * draw in time, so the app delegate puts a plain roast view over the window
+ * draw in time, so the scene delegate puts a plain roast view over the window
  * as the app enters the background. It never does as the app merely turns
  * inactive, which a prompt the app raised does too. Android takes no recents
  * picture of the app at all from Android 13 on, and leaves the person's own
@@ -32,21 +32,29 @@ function bodyOf(code: string, head: string): string {
   throw new Error(`No end to ${head}`);
 }
 
-describe('the iOS app delegate', () => {
+describe('the iOS scene delegate', () => {
   const CODE = codeOf(read('ios', 'chicory', 'AppDelegate.swift'));
 
   test('leaves the screen in view as the app merely turns inactive', () => {
     // A prompt the app raised makes it inactive too, and the screen stays
     // behind those; an app-to-app switch animates from a picture taken
     // before this call, which no cover reaches (P16).
-    expect(CODE).not.toMatch(/applicationWillResignActive/);
+    expect(CODE).not.toMatch(/applicationWillResignActive|sceneWillResignActive/);
     expect(CODE).not.toMatch(/\bPrivacyCover\./);
+  });
+
+  test('hears the background from the scene, not the application', () => {
+    // A scene based app's application delegate is never told of these, so a
+    // cover put up there would never show.
+    expect(CODE).not.toMatch(
+      /func application(DidEnterBackground|DidBecomeActive)\b/,
+    );
   });
 
   test('covers as the app enters the background', () => {
     const background = bodyOf(
       CODE,
-      'func applicationDidEnterBackground(_ application: UIApplication)',
+      'func sceneDidEnterBackground(_ scene: UIScene)',
     );
     expect(background.trim()).toBe('showPrivacyCover()');
   });
@@ -54,7 +62,7 @@ describe('the iOS app delegate', () => {
   test('takes the cover away once the app is active again', () => {
     const active = bodyOf(
       CODE,
-      'func applicationDidBecomeActive(_ application: UIApplication)',
+      'func sceneDidBecomeActive(_ scene: UIScene)',
     );
     expect(active).toMatch(/privacyCover\?\.removeFromSuperview\(\)/);
     expect(active).toMatch(/privacyCover = nil/);

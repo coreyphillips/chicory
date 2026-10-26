@@ -6,8 +6,8 @@ import { fs, path, ROOT } from '../test-support/node';
  * The launch screen is roast, and so must be everything shown before React
  * draws its first frame: a window or root view left at the system
  * background flashes near white between the launch screen and the opening
- * phase. And a payment link opened while the app runs has to reach
- * React Native's Linking, or nothing happens.
+ * phase. And a payment link, whether it starts the app or reaches it while
+ * it runs, has to reach React Native's Linking, or nothing happens.
  */
 const APP_DELEGATE = fs.readFileSync(
   path.join(ROOT, 'ios', 'chicory', 'AppDelegate.swift'),
@@ -30,7 +30,30 @@ function colourOf(name: string) {
   return match?.slice(1, 4).map(Number);
 }
 
-describe('the iOS app delegate', () => {
+describe('the iOS scene delegate', () => {
+  test('opens the window from its scene, as the iOS 27 SDK requires', () => {
+    // Built with that SDK, an app whose window has no scene exits during
+    // launch (#73).
+    expect(CODE).toMatch(
+      /class ChicorySceneDelegate: UIResponder, UIWindowSceneDelegate/,
+    );
+    expect(CODE).toMatch(/window = UIWindow\(windowScene: windowScene\)/);
+    expect(CODE).not.toMatch(/UIWindow\(frame:/);
+    expect(CODE).toMatch(
+      /UISceneConfiguration\(name: "Wallet", sessionRole: session\.role\)/,
+    );
+    const plist = fs.readFileSync(
+      path.join(ROOT, 'ios', 'chicory', 'Info.plist'),
+      'utf8',
+    );
+    expect(plist).toMatch(
+      /<key>UIApplicationSupportsMultipleScenes<\/key>\s*<false\/>/,
+    );
+    expect(plist).toMatch(
+      /<key>UISceneConfigurationName<\/key>\s*<string>Wallet<\/string>\s*<key>UISceneDelegateClassName<\/key>\s*<string>\$\(PRODUCT_MODULE_NAME\)\.ChicorySceneDelegate<\/string>/,
+    );
+  });
+
   test('paints the window and the root view roast before React draws', () => {
     expect(colourOf('roast')).toEqual([0x11, 0x0e, 0x0c]);
     expect(CODE).toMatch(/window\?\.backgroundColor = roast/);
@@ -47,11 +70,49 @@ describe('the iOS app delegate', () => {
 
   test('hands links opened while the app runs to React Native', () => {
     expect(CODE).toMatch(
-      /func application\(\s*_ app: UIApplication,\s*open url: URL,\s*options: \[UIApplication\.OpenURLOptionsKey: Any\] = \[:\]\s*\) -> Bool \{\s*return RCTLinkingManager\.application\(app, open: url, options: options\)/,
+      /func scene\(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>\) \{\s*for context in contexts \{[\s\S]*?RCTLinkingManager\.application\(\s*UIApplication\.shared, open: context\.url, options: options\s*\)/,
     );
     expect(CODE).toMatch(
-      /func application\(\s*_ application: UIApplication,\s*continue userActivity: NSUserActivity,[\s\S]*?return RCTLinkingManager\.application\(\s*application,\s*continue: userActivity,/,
+      /func scene\(_ scene: UIScene, continue userActivity: NSUserActivity\) \{\s*_ = RCTLinkingManager\.application\(\s*UIApplication\.shared,\s*continue: userActivity,/,
     );
+  });
+
+  test('hands the link that starts the app to React Native', () => {
+    // With scenes, the link comes in the scene's connection options rather
+    // than the application's launch options, and neither scene callback above
+    // is called for it. Linking.getInitialURL reads React's launch options.
+    expect(CODE).toMatch(
+      /if let url = connectionOptions\.urlContexts\.first\?\.url \{\s*launchOptions\[\.url\] = url/,
+    );
+    expect(CODE).toMatch(
+      /connectionOptions\.userActivities\.first\(where: \{\s*\$0\.activityType == NSUserActivityTypeBrowsingWeb\s*\}\)/,
+    );
+    expect(CODE).toMatch(
+      /launchOptions\[\.userActivityDictionary\] = \[\s*UIApplication\.LaunchOptionsKey\.userActivityType\.rawValue: activity\.activityType,\s*"UIApplicationLaunchOptionsUserActivityKey": activity,/,
+    );
+    expect(CODE).toMatch(
+      /factory\.startReactNative\(\s*withModuleName: "chicory",\s*in: window,\s*launchOptions: launchOptions\s*\)/,
+    );
+    // The keys are the ones React Native's getInitialURL reads.
+    const linking = fs.readFileSync(
+      path.join(
+        ROOT,
+        'node_modules',
+        'react-native',
+        'Libraries',
+        'LinkingIOS',
+        'RCTLinkingManager.mm',
+      ),
+      'utf8',
+    );
+    expect(linking).toMatch(/launchOptions\[UIApplicationLaunchOptionsURLKey\]/);
+    expect(linking).toMatch(
+      /launchOptions\[UIApplicationLaunchOptionsUserActivityDictionaryKey\]/,
+    );
+    expect(linking).toMatch(
+      /userActivityDictionary\[UIApplicationLaunchOptionsUserActivityTypeKey\]/,
+    );
+    expect(linking).toContain('@"UIApplicationLaunchOptionsUserActivityKey"');
   });
 });
 
