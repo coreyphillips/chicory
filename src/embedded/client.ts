@@ -154,6 +154,13 @@ function uriHost(uri: unknown): string {
   return (colon > 0 ? hostPort.slice(0, colon) : hostPort).trim();
 }
 
+/**
+ * Requests that start the engine, which dials the primary once it has synced:
+ * create, import, start and the setup retry.
+ */
+const STARTS_ENGINE =
+  /^\/api\/wallets(?:\/import|\/[^/]+\/(?:start|lfbw\/retry|lfbw\/setup))?$/;
+
 /** Open a real in-process Beignet node. No host API or wallet secrets cross the transport. */
 export async function openDeviceWallet(
   settings: DeviceSettings,
@@ -244,11 +251,10 @@ export async function openDeviceWallet(
     ) {
       await ensureTorReady();
     }
-    // The primary is usually an onion service. Tor used to start only when
-    // the engine first dialled it, which comes after the database opens and
-    // the chain syncs, so a cold bootstrap sat on the critical path to the
-    // first live balance. Warm it now, alongside the engine's own start; the
-    // dial awaits the same promise and a bootstrap failure is reported there.
+    // The primary is usually an onion service. Start Tor as early as the
+    // vault says it is needed, so the bootstrap overlaps the engine's load
+    // and whatever else the app does before the start. An Iroh primary with
+    // an onion fallback warms it too, but its start does not wait.
     if (
       settings.transport === 'native' &&
       (isOnionHost(storedPrimaryHost || uriHost(settings.primaryUri)) ||
@@ -256,6 +262,17 @@ export async function openDeviceWallet(
     ) {
       void ensureTorReady().catch(() => {});
     }
+    // The engine gives the primary dial 15 seconds in all, Tor included, and
+    // no node option raises it: the peer's own socket timer is fixed too. A
+    // cold bootstrap does not fit, so a start waits for Tor first. If Tor
+    // fails, the start still runs so the chain syncs and the dial names the
+    // Tor error.
+    const primaryIsOnion = (requested: unknown) =>
+      settings.transport === 'native' &&
+      isOnionHost(
+        uriHost(requested) || storedPrimaryHost || uriHost(settings.primaryUri),
+      );
+    let closing = false;
     engine = await createPortableRuntime({
       ...storage,
       socketFactory,
@@ -273,7 +290,7 @@ export async function openDeviceWallet(
     );
     const client = new EmbeddedWalletClient({
       runtime: {
-        request: request => {
+        request: async request => {
           if (
             (request.path === '/api/wallets' ||
               request.path === '/api/wallets/import') &&
@@ -281,11 +298,28 @@ export async function openDeviceWallet(
           ) {
             const body = request.body as { network?: string } | undefined;
             if (body?.network !== settings.network)
-              return Promise.reject(
-                new Error(
-                  'Create this wallet on the selected network. Switch networks in Settings first.',
-                ),
+              throw new Error(
+                'Create this wallet on the selected network. Switch networks in Settings first.',
               );
+          }
+          if (request.method === 'POST' && STARTS_ENGINE.test(request.path)) {
+            const body = request.body as
+              | {
+                  lfbw?: { primaryUri?: unknown };
+                  primaryNodeUri?: unknown;
+                  lfbwPrimaryNode?: unknown;
+                }
+              | undefined;
+            const requested =
+              body?.lfbw?.primaryUri ??
+              body?.primaryNodeUri ??
+              body?.lfbwPrimaryNode;
+            if (primaryIsOnion(requested)) {
+              await ensureTorReady().catch(() => {});
+              // A close during the wait has already stopped the engine.
+              if (closing)
+                throw new Error('The wallet closed before it started.');
+            }
           }
           return runtime.request(request);
         },
@@ -295,6 +329,7 @@ export async function openDeviceWallet(
         // included, then answered "The device wallet is already open" until
         // the app was killed. The first failure is still reported.
         close: async () => {
+          closing = true;
           const failures: unknown[] = [];
           try {
             await withDeadline(

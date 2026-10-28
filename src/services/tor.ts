@@ -7,6 +7,8 @@
  * inbound connection over Tor.
  */
 import { Platform } from 'react-native';
+import { recordDiagnostic } from './diagnosticLog';
+import { markBoot } from './perf';
 
 type NativeTor = typeof import('react-native-nitro-tor').RnTor;
 
@@ -156,13 +158,29 @@ export function ensureTorReady(): Promise<void> {
   if (!started) {
     phase = 'starting';
     failure = '';
+    // Logged so a copied report shows whether a slow or failed onion dial
+    // was really waiting on Tor.
+    const since = Date.now();
+    recordDiagnostic({
+      phase: 'tor',
+      message: launched ? 'waiting on the running daemon' : 'starting',
+    });
     started = (launched ? rejoinTor() : startTor()).then(
       () => {
         phase = 'ready';
+        recordDiagnostic({
+          phase: 'tor',
+          message: `ready after ${Date.now() - since}ms`,
+        });
+        markBoot('tor-ready');
       },
       error => {
         phase = 'failed';
         failure = error instanceof Error ? error.message : String(error);
+        recordDiagnostic({
+          phase: 'tor',
+          message: `failed after ${Date.now() - since}ms: ${failure}`,
+        });
         started = null;
         throw error;
       },
