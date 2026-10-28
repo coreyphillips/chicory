@@ -840,6 +840,7 @@ test('embedded offline receiving is an opt-in that requires an amount and confir
     tree = create(
       <OnStage>
         <ReceiveScreen
+          primaryOfflineAvailable={true}
           client={client}
           receivableSats={100000}
           onActivity={noop}
@@ -877,7 +878,12 @@ test('embedded offline receiving is an opt-in that requires an amount and confir
 });
 
 test('the ordinary embedded request never names a receive mode, and the box is absent without engine support', async () => {
-  for (const offlineReceiveAvailable of [true, false]) {
+  for (const [offlineReceiveAvailable, primaryOfflineAvailable] of [
+    [true, true],
+    [false, true],
+    [true, undefined],
+    [true, false],
+  ]) {
     const client = new EmbeddedWalletClient({
       runtime: { request: jest.fn() },
       walletId: 'test',
@@ -890,6 +896,7 @@ test('the ordinary embedded request never names a receive mode, and the box is a
     await act(async () => {
       tree = create(
         <ReceiveScreen
+          primaryOfflineAvailable={primaryOfflineAvailable}
           client={client}
           receivableSats={100000}
           onActivity={noop}
@@ -900,7 +907,9 @@ test('the ordinary embedded request never names a receive mode, and the box is a
     expect(
       tree.root.findAllByProps({ accessibilityLabel: 'Receive offline' })
         .length > 0,
-    ).toBe(offlineReceiveAvailable);
+    ).toBe(
+      offlineReceiveAvailable === true && primaryOfflineAvailable === true,
+    );
     await enterAmount(tree, '1000');
     await act(async () => {
       await press(tree, 'Continue').props.onPress();
@@ -937,6 +946,7 @@ test('the offline box is absent when no channel can hold an offline receive', as
   await act(async () => {
     tree = create(
       <ReceiveScreen
+        primaryOfflineAvailable={true}
         client={offlineClient()}
         receivableSats={24000}
         offlineReceivableSats={0}
@@ -955,6 +965,7 @@ test('an offline amount above what a channel can hold is stopped on the form', a
   await act(async () => {
     tree = create(
       <ReceiveScreen
+        primaryOfflineAvailable={true}
         client={client}
         receivableSats={100000}
         offlineReceivableSats={30000}
@@ -988,6 +999,7 @@ test('capacity changes preserve explicit offline mode until the user switches to
   const client = offlineClient();
   const screen = (offlineReceivableSats: number) => (
     <ReceiveScreen
+      primaryOfflineAvailable={true}
       client={client}
       receivableSats={100000}
       offlineReceivableSats={offlineReceivableSats}
@@ -1021,6 +1033,7 @@ test('capacity changes preserve explicit offline mode until the user switches to
   const reserved = offlineClient();
   const reservedScreen = (offlineReceivableSats: number) => (
     <ReceiveScreen
+      primaryOfflineAvailable={true}
       client={reserved}
       receivableSats={100000}
       offlineReceivableSats={offlineReceivableSats}
@@ -1478,6 +1491,7 @@ describe('the safety states on a request', () => {
     await act(async () => {
       tree = create(
         <ReceiveScreen
+          primaryOfflineAvailable={true}
           client={adapter({
             getConfig: jest
               .fn()
