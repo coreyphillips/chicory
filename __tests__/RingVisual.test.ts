@@ -308,6 +308,32 @@ describe('the rail a payment took', () => {
       },
       'bolt',
     ],
+    [
+      'a request paid by direct funding',
+      {
+        id: 'payment:12',
+        kind: 'received',
+        receiveStatus: receipt({
+          phase: 'completed',
+          method: 'direct-funding',
+        }),
+      },
+      'fund',
+    ],
+    [
+      'a request still locking by direct funding',
+      {
+        id: 'payment:34',
+        kind: 'request',
+        receiveStatus: receipt({ phase: 'pending', method: 'direct-funding' }),
+      },
+      'fund',
+    ],
+    [
+      'the direct funding of a request paid twice',
+      { id: 'funding:56', kind: 'received' },
+      'fund',
+    ],
   ])('%s', (_name, over, rail) => {
     expect(railOf(item(over))).toBe(rail);
   });

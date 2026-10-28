@@ -114,13 +114,16 @@ const DIRECT_FUNDING = 'Direct funding sent';
 
 /**
  * The rail a payment took (REDESIGN.md 6, rail glyph). What arrived for a
- * request decides first, since a request can be paid either way; then the
- * engine's id: `payment:` is Lightning, `transaction:` is on chain, and a
- * send the app submitted is Lightning when it has a payment hash.
+ * request decides first, since a request can be paid any of three ways; then
+ * the id: `funding:` is a second payment of a request by direct funding,
+ * `payment:` is Lightning, `transaction:` is on chain, and a send the app
+ * submitted is Lightning when it has a payment hash.
  */
 export function railOf(item: Activity): Rail {
   const method = item.receiveStatus?.method;
   if (method === 'bitcoin') return 'chain';
+  if (method === 'direct-funding' || item.id.startsWith('funding:'))
+    return 'fund';
   if (method === 'lightning' || item.id.startsWith('payment:')) return 'bolt';
   if (item.id.startsWith('submission:')) {
     if (item.paymentHash) return 'bolt';
