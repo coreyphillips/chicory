@@ -17,6 +17,7 @@ let TOR_SOCKS_PORT: TorService['TOR_SOCKS_PORT'];
 let NativeWalletSocket: typeof import('../src/embedded/network').NativeWalletSocket;
 let openDeviceWallet: DeviceClient['openDeviceWallet'];
 let validateDeviceSettings: DeviceClient['validateDeviceSettings'];
+let recentDiagnostics: typeof import('../src/services/diagnosticLog').recentDiagnostics;
 
 jest.mock('@op-engineering/op-sqlite', () => ({
   IOS_LIBRARY_PATH: '/device/Library',
@@ -115,6 +116,7 @@ beforeEach(() => {
   ({ NativeWalletSocket } = require('../src/embedded/network'));
   ({ openDeviceWallet, validateDeviceSettings } =
     require('../src/embedded/client') as DeviceClient);
+  ({ recentDiagnostics } = require('../src/services/diagnosticLog'));
   jest.clearAllMocks();
   jest.mocked(RnTor.startTorIfNotRunning).mockResolvedValue({
     is_success: true,
@@ -267,6 +269,37 @@ test('a daemon still bootstrapping when the start gives up is waited on, not sta
     await pending;
     expect(torPhase()).toBe('ready');
     expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('Tor start, ready and failure reach Diagnostics with how long each took', async () => {
+  jest.useFakeTimers();
+  try {
+    jest.mocked(RnTor.startTorIfNotRunning).mockImplementationOnce(
+      () =>
+        new Promise(resolve =>
+          setTimeout(() => resolve(failedStart), 30000),
+        ) as ReturnType<typeof RnTor.startTorIfNotRunning>,
+    );
+    jest.mocked(RnTor.getServiceStatus).mockResolvedValue(STATUS_GONE);
+    const failed = ensureTorReady().catch(() => {});
+    await jest.advanceTimersByTimeAsync(30000);
+    await failed;
+    jest.mocked(RnTor.getServiceStatus).mockResolvedValue(1);
+    await ensureTorReady();
+    expect(
+      recentDiagnostics().map(({ phase, message }) => ({ phase, message })),
+    ).toEqual([
+      { phase: 'tor', message: 'starting' },
+      {
+        phase: 'tor',
+        message: 'failed after 30000ms: Failed to initialize Tor service',
+      },
+      { phase: 'tor', message: 'waiting on the running daemon' },
+      { phase: 'tor', message: 'ready after 0ms' },
+    ]);
   } finally {
     jest.useRealTimers();
   }
@@ -552,6 +585,124 @@ describe('opening a device wallet', () => {
       profile({ host: '127.0.0.1', port: 60001, tls: false }),
     );
     expect(RnTor.startTorIfNotRunning).not.toHaveBeenCalled();
+  });
+
+  describe('the engine start and the primary dial', () => {
+    /** Longer than the engine's 15 second budget for the whole dial. */
+    const BOOTSTRAP_MS = 40000;
+    const engineRequests = () =>
+      mockRuntime.request.mock.calls.map(([request]) => request.path);
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.mocked(RnTor.startTorIfNotRunning).mockImplementation(
+        () =>
+          new Promise(resolve =>
+            setTimeout(
+              () =>
+                resolve({
+                  is_success: true,
+                  onion_address: 'testonionaddress.onion:9050',
+                  control: '127.0.0.1:9051',
+                  error_message: '',
+                }),
+              BOOTSTRAP_MS,
+            ),
+          ) as ReturnType<typeof RnTor.startTorIfNotRunning>,
+      );
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test('a new wallet with the default onion primary is created only once a slow Tor bootstrap is done', async () => {
+      // The engine starts inside the create request and dials the primary.
+      const { DEFAULT_PRIMARY_URI } = require('@beignet/wallet-core');
+      const client = await openDeviceWallet({
+        ...profile({ host: '127.0.0.1', port: 60001, tls: false }),
+        primaryUri: DEFAULT_PRIMARY_URI,
+      });
+      const created = client
+        .createWallet({
+          name: 'My wallet',
+          network: 'regtest',
+          primaryUri: DEFAULT_PRIMARY_URI,
+        })
+        .catch(() => {});
+      await jest.advanceTimersByTimeAsync(BOOTSTRAP_MS - 1);
+      expect(engineRequests()).toEqual([]);
+      await jest.advanceTimersByTimeAsync(1);
+      await created;
+      expect(engineRequests()).toEqual(['/api/wallets']);
+      expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
+    });
+
+    test('a stored onion primary holds the start and the setup retry until Tor is ready', async () => {
+      const read = mockStorage.volume.read;
+      mockStorage.volume.read = (() =>
+        registry(onionPrimary)) as unknown as typeof read;
+      try {
+        const client = await openDeviceWallet(
+          profile({ host: '127.0.0.1', port: 60001, tls: false }),
+        );
+        client.selectWallet('w1');
+        const started = client.startWallet();
+        const retried = client.retrySetup();
+        await jest.advanceTimersByTimeAsync(BOOTSTRAP_MS - 1);
+        expect(engineRequests()).toEqual([]);
+        await jest.advanceTimersByTimeAsync(1);
+        await Promise.all([started, retried]);
+        expect(engineRequests()).toEqual([
+          '/api/wallets/w1/start',
+          '/api/wallets/w1/lfbw/setup',
+        ]);
+      } finally {
+        mockStorage.volume.read = read;
+      }
+    });
+
+    test('a start goes ahead when Tor fails, so the dial reports why', async () => {
+      jest.mocked(RnTor.startTorIfNotRunning).mockResolvedValue(failedStart);
+      jest.mocked(RnTor.getServiceStatus).mockResolvedValue(STATUS_GONE);
+      const client = await openDeviceWallet({
+        ...profile({ host: '127.0.0.1', port: 60001, tls: false }),
+        primaryUri: onionPrimary,
+      });
+      client.selectWallet('w1');
+      await client.startWallet();
+      expect(engineRequests()).toEqual(['/api/wallets/w1/start']);
+      expect(torPhase()).toBe('failed');
+    });
+
+    test('closing while the start waits for Tor never starts the engine', async () => {
+      const client = await openDeviceWallet({
+        ...profile({ host: '127.0.0.1', port: 60001, tls: false }),
+        primaryUri: onionPrimary,
+      });
+      client.selectWallet('w1');
+      const started = client.startWallet().then(
+        () => 'started',
+        (error: Error) => error.message,
+      );
+      await client.close();
+      await jest.advanceTimersByTimeAsync(BOOTSTRAP_MS);
+      expect(await started).toBe('The wallet closed before it started.');
+      expect(engineRequests()).toEqual([]);
+    });
+
+    test.each([
+      ['a clearnet primary', `${'ab'.repeat(33)}@127.0.0.1:9735`],
+      ['an Iroh primary', `${'ab'.repeat(33)}@iroh:${'cd'.repeat(32)}`],
+    ])('%s starts the engine at once', async (_, primaryUri) => {
+      const client = await openDeviceWallet({
+        ...profile({ host: '127.0.0.1', port: 60001, tls: false }),
+        primaryUri,
+      });
+      client.selectWallet('w1');
+      await client.startWallet();
+      expect(engineRequests()).toEqual(['/api/wallets/w1/start']);
+      expect(RnTor.startTorIfNotRunning).not.toHaveBeenCalled();
+    });
   });
 
   test('an onion Electrum server with TLS is rejected before anything opens', () => {
