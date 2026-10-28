@@ -1155,7 +1155,10 @@ describe('type', () => {
     const client = clientOf({
       getConfig: jest.fn().mockResolvedValue({ offlineReceiveAvailable: true }),
     });
-    const tree = await screen(client, { offlineReceivableSats: 50_000 });
+    const tree = await screen(client, {
+      offlineReceivableSats: 50_000,
+      primaryOfflineAvailable: true,
+    });
     await act(async () => {
       tree.root
         .findByProps({ accessibilityLabel: copy.receive.offline })
@@ -1621,6 +1624,7 @@ describe('a test network', () => {
       test,
       receivableSats: 0,
       offlineReceivableSats: 50_000,
+      primaryOfflineAvailable: true,
     });
     // The sprout and the caret while an amount is needed.
     seen.push(...inBloom(tree));
@@ -1718,6 +1722,75 @@ describe('a test network', () => {
   });
 });
 
+describe('primary offline receive capability', () => {
+  test.each([undefined, null, false])(
+    'keeps ordinary receive available without confirmed support (%s)',
+    async primaryOfflineAvailable => {
+      const client = clientOf({
+        getConfig: jest
+          .fn()
+          .mockResolvedValue({ offlineReceiveAvailable: true }),
+      });
+      const tree = await screen(client, {
+        offlineReceivableSats: 50000,
+        primaryOfflineAvailable,
+      });
+      expect(find(tree, copy.receive.offline)).toBeUndefined();
+      await enterAmount(tree, '1000');
+      await tap(tree, copy.receive.continue);
+      expect(client.quoteReceive).toHaveBeenCalledWith(
+        expect.not.objectContaining({ mode: 'offline' }),
+      );
+      await act(async () => tree.unmount());
+    },
+  );
+
+  test('offers offline receive when the engine and primary both support it', async () => {
+    const client = clientOf({
+      getConfig: jest.fn().mockResolvedValue({ offlineReceiveAvailable: true }),
+    });
+    const tree = await screen(client, {
+      offlineReceivableSats: 50000,
+      primaryOfflineAvailable: true,
+    });
+    await tap(tree, copy.receive.offline);
+    await enterAmount(tree, '1000');
+    await tap(tree, copy.receive.continue);
+    expect(client.quoteReceive).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'offline', amountSats: 1000 }),
+    );
+    await act(async () => tree.unmount());
+  });
+
+  test('preserves a reviewed offline request when primary support changes', async () => {
+    const priced = quoteOf({ mode: 'offline' });
+    const client = clientOf({
+      getConfig: jest.fn().mockResolvedValue({ offlineReceiveAvailable: true }),
+      quoteReceive: jest.fn().mockResolvedValue(priced),
+      receive: jest.fn().mockResolvedValue(requestOf({ offlineReceive: true })),
+    });
+    const draw = (primaryOfflineAvailable: boolean) => (
+      <ReceiveScreen
+        client={client}
+        receivableSats={10_000}
+        offlineReceivableSats={50000}
+        primaryOfflineAvailable={primaryOfflineAvailable}
+        onActivity={noop}
+        onBusy={noop}
+      />
+    );
+    const tree = await mount(draw(true));
+    await tap(tree, copy.receive.offline);
+    await enterAmount(tree, '1000');
+    await tap(tree, copy.receive.continue);
+    await act(async () => tree.update(draw(false)));
+    await tap(tree, copy.receive.create);
+    expect(client.receive).toHaveBeenCalledWith(priced);
+    expect(client.quoteReceive).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+});
+
 describe('concurrent offline request retry', () => {
   test('keeps explicit offline mode and the same quote after interrupted creation', async () => {
     const priced = quoteOf({
@@ -1736,7 +1809,10 @@ describe('concurrent offline request retry', () => {
         )
         .mockResolvedValue(requestOf({ offlineReceive: true })),
     });
-    const tree = await screen(client, { offlineReceivableSats: 50000 });
+    const tree = await screen(client, {
+      offlineReceivableSats: 50000,
+      primaryOfflineAvailable: true,
+    });
     await tap(tree, copy.receive.offline);
     await enterAmount(tree, '1000');
     await tap(tree, copy.receive.continue);
@@ -1775,6 +1851,7 @@ test('a cold restored expired retry can be dismissed without releasing its reser
   const tree = await screen(client, {
     walletId: 'wallet-retry',
     offlineReceivableSats: 0,
+    primaryOfflineAvailable: false,
   });
   await tap(tree, copy.receive.continue);
   expect(client.quoteReceive).toHaveBeenLastCalledWith(
@@ -1803,6 +1880,7 @@ test('an unreadable retry draft permits ordinary receive but requires dismissal 
   const tree = await screen(client, {
     walletId: 'wallet-unreadable',
     offlineReceivableSats: 50000,
+    primaryOfflineAvailable: true,
   });
   await tap(tree, copy.receive.offline);
   await enterAmount(tree, '1000');
@@ -1817,6 +1895,7 @@ test('an unreadable retry draft permits ordinary receive but requires dismissal 
   const restored = await screen(client, {
     walletId: 'wallet-unreadable',
     offlineReceivableSats: 50000,
+    primaryOfflineAvailable: true,
   });
   await tap(restored, copy.receive.dismissRetry);
   expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({

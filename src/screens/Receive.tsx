@@ -113,9 +113,8 @@ export function ReceiveScreen({
   const [capacityChanged, setCapacityChanged] = useState(false);
   // Receiving offline is an opt-in, never the default: the ordinary request
   // is paid over the home channel or provisioned by the primary just in
-  // time. The switch is offered only when the engine advertises offline
-  // receiving; the primary still has to offer settlement, and the engine
-  // says so at quote time when it does not.
+  // time. The switch is offered only when the engine and primary advertise
+  // offline receiving. The engine verifies availability again at quote time.
   const [offlineAvailable, setOfflineAvailable] = useState(false);
   const [offline, setOffline] = useState(false);
   useEffect(() => {
@@ -136,10 +135,11 @@ export function ReceiveScreen({
       active = false;
     };
   }, [client]);
-  // The engine reports remaining capacity and the primary's negotiated support.
+  // Offer new offline requests only after this primary confirms support.
+  // A restored or active request keeps its existing mode while support changes.
   const offlineOffered =
     offlineAvailable &&
-    primaryOfflineAvailable !== false &&
+    primaryOfflineAvailable === true &&
     (offlineReceivableSats === undefined || offlineReceivableSats > 0);
   // An amount is needed when the primary has to provide the capacity (a
   // just-in-time receive is quoted on it), when it changed under a quote, and

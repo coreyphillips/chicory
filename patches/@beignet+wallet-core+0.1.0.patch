@@ -1,0 +1,161 @@
+diff --git a/node_modules/@beignet/wallet-core/src/index.js b/node_modules/@beignet/wallet-core/src/index.js
+--- a/node_modules/@beignet/wallet-core/src/index.js
++++ b/node_modules/@beignet/wallet-core/src/index.js
+@@ -411,6 +411,7 @@
+       status: entry.status,
+       amountSats: Number.isSafeInteger(amount) ? amount : null,
+       paidAt: Number.isSafeInteger(entry.paidAt) && entry.paidAt > 0 ? entry.paidAt : null,
++      lockedAt: Number.isSafeInteger(entry.lockedAt) && entry.lockedAt > 0 ? entry.lockedAt : null,
+     });
+   }
+   return receipts;
+@@ -425,6 +426,13 @@
+  * have sent splice_locked. A failed or closed channel may never have locked.
+  */
+ function currentFundingLocked(channel) {
++  // The engine records the exact fundings that completed the ready/locked
++  // exchange. That evidence survives a disconnect, close or later splice.
++  if (
++    HASH.test(text(channel?.fundingTxid)) &&
++    Array.isArray(channel?.lockedFundingTxids) &&
++    channel.lockedFundingTxids.includes(channel.fundingTxid)
++  ) return true;
+   let state = channel?.state;
+   if (state === "AWAITING_REESTABLISH") {
+     if (
+@@ -450,6 +458,10 @@
+ function fundingLocked(channels, txid) {
+   let locked = false;
+   for (const channel of Array.isArray(channels) ? channels : []) {
++    if (Array.isArray(channel?.lockedFundingTxids) && channel.lockedFundingTxids.includes(txid)) {
++      locked = true;
++      continue;
++    }
+     if (channel?.pendingSpliceTxid === txid) return false;
+     if (channel?.fundingTxid === txid) {
+       if (currentFundingLocked(channel) !== true) return false;
+@@ -485,7 +497,9 @@
+     }
+   }
+   if (!Number.isSafeInteger(amount) || amount <= 0) return null;
+-  const locked = fundingLocked(channels, receipt.fundingTxid);
++  // lockedAt proves the channel protocol lock, including zero-conf funding.
++  // REVERTED receipts were rejected above even when they retain this history.
++  const locked = receipt.lockedAt != null || fundingLocked(channels, receipt.fundingTxid);
+   return {
+     phase: locked ? "completed" : "pending",
+     receivedSats: amount,
+@@ -3450,7 +3464,8 @@
+         receipts = received;
+         if (!received && shown) return { ...shown, paymentHash };
+         if (received?.get(receiptHash)?.status === "PAID") {
+-          const channels = await this._get("/channels").catch(() => null);
++          const channels = received.get(receiptHash).lockedAt != null
++            ? [] : await this._get("/channels").catch(() => null);
+           this._assertEpoch(epoch);
+           if (!channels && shown) return { ...shown, paymentHash };
+           funded = directFundingStatus(request, received, channels ?? []);
+diff --git a/node_modules/@beignet/wallet-core/test/wallet.test.js b/node_modules/@beignet/wallet-core/test/wallet.test.js
+--- a/node_modules/@beignet/wallet-core/test/wallet.test.js
++++ b/node_modules/@beignet/wallet-core/test/wallet.test.js
+@@ -5557,3 +5557,100 @@
+   assert.equal(snapshot.activity.length, 1);
+   assert.deepEqual(snapshot.activity[0].drain.txids, txids);
+ });
++
++
++test("a durable direct-funding lock completes a cold receipt after its channel disappears", async () => {
++  const f = fixture({
++    "/direct-funding/request": dfOffer(),
++    "/direct-funding/received": [dfPaid({ lockedAt: NOW + 1 })],
++    "/channels": () => assert.fail("a receipt with a durable lock needs no channel lookup"),
++  });
++  const request = {
++    id: "durable-funding-receipt", address: ADDRESS, bolt11: INVOICE,
++    paymentHash: HASH, amountSats: 10000, description: "", feeSats: 0,
++    expiresAt: NOW + 600000, warnings: [], demo: false,
++    uri: `bitcoin:${ADDRESS}?lightning=${INVOICE}&bgnq=${dfOffer().request}`,
++  };
++  const status = await f.client.getReceiveStatus(request);
++  assert.equal(status.phase, "completed");
++  assert.equal(status.method, "direct-funding");
++  assert.equal(status.fundingTxid, DF_SPLICE);
++  assert.deepEqual([status.receivedSats, status.confirmedSats, status.pendingSats], [10000, 10000, 0]);
++});
++
++test("exact locked funding history survives closed and disconnected channel states", async () => {
++  for (const state of ["CLOSED", "FORCE_CLOSED", "AWAITING_REESTABLISH"]) {
++    let channels = [channel];
++    const f = fixture({
++      "/direct-funding/request": dfOffer(),
++      "/direct-funding/received": [dfPaid()],
++      "/channels": () => channels,
++    });
++    const request = await f.client.receive(await f.client.quoteReceive({ amountSats: 10000 }));
++    channels = [{ ...channel, state, fundingTxid: "bb".repeat(32), lockedFundingTxids: [DF_SPLICE] }];
++    assert.equal((await f.client.getReceiveStatus(request)).phase, "completed", state);
++  }
++});
++
++test("invalid lock timestamps and unrelated funding history never complete a receipt", async () => {
++  for (const lockedAt of [undefined, null, 0, -1, "123", 1.5, Number.MAX_SAFE_INTEGER + 1]) {
++    let channels = [channel];
++    const f = fixture({
++      "/direct-funding/request": dfOffer(),
++      "/direct-funding/received": [dfPaid({ lockedAt })],
++      "/channels": () => channels,
++    });
++    const request = await f.client.receive(await f.client.quoteReceive({ amountSats: 10000 }));
++    channels = [{ ...channel, state: "CLOSED", fundingTxid: DF_SPLICE, lockedFundingTxids: ["bb".repeat(32)] }];
++    assert.equal((await f.client.getReceiveStatus(request)).phase, "pending", String(lockedAt));
++  }
++});
++
++test("a reverted receipt does not complete from its prior durable lock", async () => {
++  let channels = [channel];
++  const f = fixture({
++    "/direct-funding/request": dfOffer(),
++    "/direct-funding/received": [dfPaid({ status: "REVERTED", lockedAt: NOW })],
++    "/channels": () => channels,
++  });
++  const request = await f.client.receive(await f.client.quoteReceive({ amountSats: 10000 }));
++  channels = [{ ...channel, state: "CLOSED", fundingTxid: DF_SPLICE, lockedFundingTxids: [DF_SPLICE] }];
++  assert.equal((await f.client.getReceiveStatus(request)).phase, "waiting");
++});
++
++test("a cold completed direct-funding receipt remains in Activity after restart and archive pruning", async () => {
++  const store = memoryStore();
++  let channels = [channel];
++  const first = fixture({
++    "/direct-funding/request": dfOffer(),
++    "/direct-funding/received": [dfPaid({ lockedAt: NOW + 1 })],
++    "/channels": () => channels,
++  }, { store });
++  const request = await first.client.receive(await first.client.quoteReceive({ amountSats: 10000 }));
++  channels = [];
++  const rows = (await first.client.snapshot()).activity.filter(row => row.paymentHash === HASH);
++  assert.equal(rows.length, 1);
++  assert.equal(rows[0].status, "completed");
++  assert.equal(rows[0].receiveStatus.method, "direct-funding");
++  const restarted = fixture({
++    "GET /receive/requests": { requests: first.storedRequests },
++    "/direct-funding/received": [],
++    "/channels": [],
++  }, { store });
++  const again = (await restarted.client.snapshot()).activity.filter(row => row.paymentHash === HASH);
++  assert.equal(again.length, 1);
++  assert.equal(again[0].status, "completed");
++  assert.equal((await restarted.client.getReceiveStatus(request)).method, "direct-funding");
++});
++
++test("a channel's durable current funding lock keeps its transfer complete after close", async () => {
++  const f = fixture({
++    "/channels": [{ ...channel, state: "CLOSED", fundingTxid: DF_SPLICE,
++      lockedFundingTxids: [DF_SPLICE] }],
++    "/transactions": [{ txid: DF_SPLICE, type: "sent", valueSats: -10000,
++      confirmed: true, timestamp: NOW }],
++  });
++  const transfer = (await f.client.snapshot()).activity.find(row => row.txid === DF_SPLICE);
++  assert.equal(transfer.kind, "transfer");
++  assert.equal(transfer.status, "completed");
++});

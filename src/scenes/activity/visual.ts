@@ -72,7 +72,11 @@ export function ringVisual(item: Activity): RingVisual {
     });
   }
   // An address used twice cannot tell whose coins arrived: a safety state.
-  if (open && request?.bitcoinTracking === 'ambiguous') {
+  if (
+    open &&
+    request?.bitcoinTracking === 'ambiguous' &&
+    status?.method !== 'direct-funding'
+  ) {
     return ring({ tone: 'honey', pattern: 'full', glyph: 'twin' });
   }
   if (open && item.receiveStatusUnavailable) {
@@ -120,6 +124,7 @@ const DIRECT_FUNDING = 'Direct funding sent';
  */
 export function railOf(item: Activity): Rail {
   const method = item.receiveStatus?.method;
+  if (method === 'direct-funding') return 'fund';
   if (method === 'bitcoin') return 'chain';
   if (method === 'lightning' || item.id.startsWith('payment:')) return 'bolt';
   if (item.id.startsWith('submission:')) {

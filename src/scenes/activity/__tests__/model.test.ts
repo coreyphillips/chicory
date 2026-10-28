@@ -6,7 +6,7 @@ import {
   requestOf,
 } from '../../../../test-support/fixtures';
 import { cellsFor } from '../../../glyphs/Odometer';
-import { figureOf } from '../visual';
+import { figureOf, railOf, ringVisual } from '../visual';
 import {
   ALL,
   DAY_HEIGHT,
@@ -218,5 +218,43 @@ describe('an amount as a row draws it', () => {
     for (const sats of [0, 5_000, 62_235, 100_000_000, 250_010_000]) {
       expect(figureOf(sats, 'btc', true)).toEqual(figureOf(sats, 'btc'));
     }
+  });
+});
+
+describe('direct-funding receipts', () => {
+  test.each(['pending', 'completed'] as const)(
+    'uses the funding rail for a %s saved receive request',
+    phase => {
+      const item = activityOf('received', phase, {
+        id: 'payment:direct-funded-request',
+        receiveRequest: requestOf(),
+        receiveStatus: {
+          ...receiptOf(phase),
+          method: 'direct-funding',
+          fundingTxid: 'ab'.repeat(32),
+          txids: [],
+        },
+      });
+      expect(railOf(item)).toBe('fund');
+    },
+  );
+
+  test('an exact pending direct-funding receipt is not ambiguous because its address was shared', () => {
+    const item = activityOf('received', 'pending', {
+      receiveRequest: requestOf({ bitcoinTracking: 'ambiguous' }),
+      receiveStatus: {
+        ...receiptOf('pending'),
+        method: 'direct-funding',
+        fundingTxid: 'cd'.repeat(32),
+        txids: [],
+      },
+    });
+    expect(ringVisual(item)).toMatchObject({ pattern: 'orbit' });
+    expect(
+      ringVisual({
+        ...item,
+        receiveStatus: { ...item.receiveStatus!, method: 'bitcoin' },
+      }),
+    ).toMatchObject({ glyph: 'twin' });
   });
 });

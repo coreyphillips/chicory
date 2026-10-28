@@ -113,6 +113,7 @@ test('the moon refused offline tints the switch, and the tint plays', async () =
       client={client}
       receivableSats={10_000}
       offlineReceivableSats={50_000}
+      primaryOfflineAvailable={true}
       onActivity={noop}
       onBusy={noop}
     />,
