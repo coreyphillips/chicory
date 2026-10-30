@@ -31,6 +31,7 @@ import { ReceiveScene } from '../src/scenes/receive/ReceiveScene';
 import { reviewOpensLive } from '../src/scenes/send/model';
 import { SendScene } from '../src/scenes/send/SendScene';
 import { springStep } from '../src/motion/springMath';
+import { ENTRY_GRACE_MS } from '../src/motion/sureEntry';
 import { curves, durations, springs } from '../src/motion/tokens';
 import { ReceiveScreen, SendScreen } from '../src/screens/Payments';
 import { HomeScreen } from '../src/screens/Wallet';
@@ -41,10 +42,12 @@ import {
   PANE_SETTLE_MS,
   PRIMARY_CONTROL,
   SLOT_PADDING,
+  buildBeats,
   heroBox,
   launchLanding,
   launchLook,
 } from '../src/stage/layout';
+import type { BuildBeats } from '../src/stage/layout';
 import { rowWait } from '../src/stage/panes/usePaneMotion';
 import { CORNER_TARGET, CornerControl } from '../src/stage/panes/CornerControl';
 import { Arriving } from '../src/stage/panes/Arriving';
@@ -179,6 +182,7 @@ function HomeAt({
   landing,
   landless,
   unit = 'sats',
+  build,
 }: {
   hero?: number;
   bar?: number;
@@ -187,6 +191,7 @@ function HomeAt({
   landing?: Launch;
   landless?: boolean;
   unit?: 'sats' | 'btc';
+  build?: BuildBeats;
 }) {
   const panes = {
     hero: Reanimated.useSharedValue(hero),
@@ -204,6 +209,7 @@ function HomeAt({
       progress={panes}
       launching={launching}
       landless={landless}
+      build={build}
     />
   );
   return (
@@ -1219,6 +1225,43 @@ describe('a request that is held or already paid', () => {
     expect(transformOf(circles(landing)[0], 'translateY')).not.toBe(0);
     await act(async () => tree.unmount());
     await act(async () => landing.unmount());
+  });
+});
+
+describe('the action row building in', () => {
+  test('Send, Scan and Receive stay distinct siblings while they enter and once each entrance stalls', async () => {
+    // Jest runs no layout animation, so no entrance ends: each slot is drawn
+    // entering, then drawn again at rest as its grace runs out, one by one.
+    jest.useFakeTimers();
+    const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const sameKey = () =>
+      errors.mock.calls
+        .map(args => args.join(' '))
+        .filter(said => said.includes('same key'));
+    const beats = buildBeats('load');
+    try {
+      const tree = await mount(<HomeAt build={beats} />);
+      const entering = byTestID(tree, 'home-slot');
+      expect(entering).toHaveLength(3);
+      expect(sameKey()).toEqual([]);
+      // Send has stalled and the other two are still entering.
+      await act(async () =>
+        jest.advanceTimersByTime(beats.actions + ENTRY_GRACE_MS),
+      );
+      const mixed = byTestID(tree, 'home-slot');
+      expect(mixed[0]).not.toBe(entering[0]);
+      expect(mixed[1]).toBe(entering[1]);
+      expect(mixed[2]).toBe(entering[2]);
+      expect(sameKey()).toEqual([]);
+      await act(async () => jest.advanceTimersByTime(2 * beats.actionStep));
+      const rested = byTestID(tree, 'home-slot');
+      expect(rested).toHaveLength(3);
+      rested.forEach((slot, at) => expect(slot).not.toBe(entering[at]));
+      expect(sameKey()).toEqual([]);
+      await act(async () => tree.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
