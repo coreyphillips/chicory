@@ -607,10 +607,12 @@ export function HomeScreen({
           {/* Each circle sits in a slot as tall as the row, so the three
               share one top edge and VoiceOver, which orders what shares a
               row by where it starts, reads them left to right: Send, Scan,
-              Receive (REDESIGN.md 9). Each circle fades on its own. */}
+              Receive (REDESIGN.md 9). Each circle fades on its own. An
+              entry's key says only where its entrance stands, the same for
+              all three, so each slot's key names its action too. */}
           <View testID="home-bar" onLayout={measureRow} style={styles.bar}>
             <Reanimated.View
-              key={sendEntry.key}
+              key={`send:${sendEntry.key}`}
               testID="home-slot"
               entering={sendEntry.entering}
               style={styles.slot}
@@ -635,7 +637,7 @@ export function HomeScreen({
               </View>
             </Reanimated.View>
             <Reanimated.View
-              key={scanEntry.key}
+              key={`scan:${scanEntry.key}`}
               testID="home-slot"
               entering={scanEntry.entering}
               style={styles.slot}
@@ -655,7 +657,7 @@ export function HomeScreen({
               </Reanimated.View>
             </Reanimated.View>
             <Reanimated.View
-              key={receiveEntry.key}
+              key={`receive:${receiveEntry.key}`}
               testID="home-slot"
               entering={receiveEntry.entering}
               style={styles.slot}
