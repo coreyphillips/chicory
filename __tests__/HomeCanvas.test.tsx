@@ -1248,6 +1248,10 @@ describe('the action row building in', () => {
       await act(async () =>
         jest.advanceTimersByTime(beats.actions + ENTRY_GRACE_MS),
       );
+      const mixed = byTestID(tree, 'home-slot');
+      expect(mixed[0]).not.toBe(entering[0]);
+      expect(mixed[1]).toBe(entering[1]);
+      expect(mixed[2]).toBe(entering[2]);
       expect(sameKey()).toEqual([]);
       await act(async () => jest.advanceTimersByTime(2 * beats.actionStep));
       const rested = byTestID(tree, 'home-slot');
