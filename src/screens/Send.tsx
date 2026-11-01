@@ -1275,8 +1275,8 @@ export function SendScreen({
             />
           </View>
           {/* A hold that has sent is taken over by the result's mark in the
-              same frame, which grows out of it (REDESIGN.md 7, T7): it is
-              drawn one frame more under the mark, then gone. */}
+              same frame, which grows out of it (REDESIGN.md 7, T7): drawn
+              whole in that frame, under the mark, and gone from the next. */}
           <Reanimated.View exiting={spent ? vanish() : undefined}>
             <Commit
               ref={control}

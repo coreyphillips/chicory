@@ -279,7 +279,7 @@ Settings' card draws G1 still behind its bloom (6, Settings): slate on a test ne
 - Entering content starts at +80ms and runs 220ms on the enter curve, rising 8 to 16pt.
 - Siblings stagger 25 to 40ms.
 - Total perceived time stays under 350ms.
-- An element another takes the place of in the same frame, such as the hold a result's mark grows out of (7, T7), is drawn one frame more under it and then gone (`vanish`), never faded under what replaces it.
+- An element another takes the place of in the same frame, such as the hold a result's mark grows out of (7, T7), is drawn whole in the frame the other appears over it and gone from the next (`vanish`), never faded under what replaces it.
 
 ### 3.6 Haptics
 
@@ -516,8 +516,8 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 
 ### Listening ping
 
-- **Look.** A request listening for its payment: a 1.5pt ring the frame's shape, in bloom (slate on a test network), drawn behind the frame's expiry ring and outside the code, so the code stays ink on cream and the ring that counts down is untouched. It is the pulse dot's ping grown to the request's frame.
-- **Cycle.** One ping every `sheen` (2400ms): quiet for the first third, then the ring sets out from the frame at .35, goes 12pt out fast and slows as it fades over `halo` (1600ms), gone at every whole number of the clock, so the ping at rest draws nothing (`listenPose` in `scenes/receive/ListeningPing`).
+- **Look.** A request listening for its payment: a 2pt ring the frame's shape, in bloom (slate on a test network), drawn behind the frame's expiry ring and outside the code, so the code stays ink on cream and the ring that counts down is untouched. It is the pulse dot's ping grown to the request's frame.
+- **Cycle.** One ping every `sheen` (2400ms): quiet for the first third, then the ring sets out from the frame at .45, goes 12pt out fast and slows as it fades over `halo` (1600ms), gone at every whole number of the clock, so the ping at rest draws nothing (`listenPose` in `scenes/receive/ListeningPing`).
 - **When.** Only while the code shown can be paid and is not lifted, and not before it has bloomed in (`QR_SETTLED`, 500ms after the step mounts): a paid, expired or scattered code listens for nothing.
 - **Ambient.** It only decorates, since the frame's ring says the request is live, so it rests with the ambient clock after 20s untouched, finishing the cycle it is in, and wakes with the next touch (3.5).
 - **Reduced motion.** It draws nothing.
@@ -835,7 +835,7 @@ Saving the phrase: the hold turns honey to sage and the words drop away; the ite
 
 | Time       | A payment that went through                                                                                                                                                                                                  | Any other face, and the overdue held ring                                                                                                             |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0          | the review's content fades out (140ms, .98); the hold is drawn one frame more under the mark, then gone (`vanish`); the mark sets out from the hold's centre at the hold's size, with the hold's look and its comet on the same clock, on the pane spring | the same                                                                                                                                              |
+| 0          | the review's content fades out (140ms, .98); the hold is drawn whole in the frame the mark appears over it, then gone (`vanish`); the mark sets out from the hold's centre at the hold's size, with the hold's look and its comet on the same clock, on the pane spring | the same                                                                                                                                              |
 | 0 to 320   | the comet's tail lengthens into the whole ring (`closing`, standard curve)                                                                                                                                                   | the comet keeps its lap                                                                                                                               |
 | 220        | the mark is 90% of the way                                                                                                                                                                                                   | the same                                                                                                                                              |
 | 320 to 540 | cream fills the closed ring (enter curve)                                                                                                                                                                                    |                                                                                                                                                       |

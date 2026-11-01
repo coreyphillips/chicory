@@ -134,14 +134,13 @@ export function fadeOut() {
   return tween(SHOWN, HIDDEN, EXIT);
 }
 
-/** One frame: the most a hand-over leaves two of one element drawn. */
-const FRAME_MS = 17;
-
 /**
  * Something another element takes the place of in the same frame, such as
  * the hold a result's mark grows out of (REDESIGN.md 6, Send): drawn whole
- * for one more frame, under what replaces it, then gone, so the two are
- * never seen apart and never seen twice. Under Reduce Motion it fades as
+ * in the frame its exit starts, which is the frame the other appears over
+ * it, and gone from the next, so the two are never seen apart and never
+ * seen twice. Any longer, as one frame's delay was, and the hold was still
+ * drawn under a mark already on its way. Under Reduce Motion it fades as
  * its scene does.
  */
 export function vanish(): EntryExitAnimationFunction {
@@ -150,9 +149,7 @@ export function vanish(): EntryExitAnimationFunction {
     'worklet';
     return {
       initialValues: { opacity: 1 },
-      animations: {
-        opacity: withDelay(FRAME_MS, withTiming(0, { duration: 1 })),
-      },
+      animations: { opacity: withTiming(0, { duration: 1 }) },
     };
   };
 }

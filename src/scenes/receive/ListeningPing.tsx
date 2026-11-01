@@ -11,7 +11,8 @@ import { useBloom } from './tone';
  * A request listening for its payment (REDESIGN.md 5, Listening ping): a
  * thin ring the frame's shape sets out from it once every 2400ms, 12pt
  * out and gone within 1600, the pulse dot's ping grown to the request's
- * frame. It is drawn behind the frame's expiry ring and outside the code,
+ * frame. On the phone a 1.5pt ring at .35 was all but lost against the
+ * frame's 2.5pt ring, so it is 2pt at .45, still well under the frame's. It is drawn behind the frame's expiry ring and outside the code,
  * so the code stays ink on cream and the ring that counts down is
  * untouched.
  */
@@ -22,9 +23,9 @@ export const PING = {
   travel: durations.halo,
   /** How far it goes out past the frame, in points. */
   reach: 12,
-  /** How much shows as it sets out. */
-  peak: 0.35,
-  stroke: 1.5,
+  /** How much shows as it sets out: well under the frame's own ring. */
+  peak: 0.45,
+  stroke: 2,
 };
 
 /**
