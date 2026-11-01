@@ -246,6 +246,25 @@ function driver(probe: RefObject<Probe | null>, name: string): Hands {
     return found ? propsOf(found) : null;
   }
 
+  /**
+   * Keeps the steps after this one waiting while `result`, when it is a
+   * promise, still runs: a handler's work, or a step's own wait.
+   */
+  function follow(result: unknown) {
+    const promised = result as PromiseLike<unknown> | undefined;
+    if (typeof promised?.then !== 'function') return;
+    settled = false;
+    promised.then(
+      () => {
+        settled = true;
+      },
+      error => {
+        settled = true;
+        report(`ERROR ${name}: ${reason(error)}`);
+      },
+    );
+  }
+
   function invoke(what: string, { handler, why }: Reach, args: unknown[]) {
     if (!handler) {
       missed = true;
@@ -253,19 +272,7 @@ function driver(probe: RefObject<Probe | null>, name: string): Hands {
       return;
     }
     try {
-      const result = handler(...args) as PromiseLike<unknown> | undefined;
-      if (typeof result?.then === 'function') {
-        settled = false;
-        result.then(
-          () => {
-            settled = true;
-          },
-          error => {
-            settled = true;
-            report(`ERROR ${name}: ${reason(error)}`);
-          },
-        );
-      }
+      follow(handler(...args));
     } catch (error) {
       report(`ERROR ${name}: ${reason(error)}`);
     }
@@ -388,7 +395,7 @@ function driver(probe: RefObject<Probe | null>, name: string): Hands {
         !instance || !settled || drawing(instance) || isTransitioning();
       if (!final && waiting) return false;
       missed = false;
-      step(drive);
+      follow(step(drive));
       return !missed || final;
     },
   };

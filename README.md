@@ -250,6 +250,8 @@ adb shell monkey -p com.chicory -c android.intent.category.LAUNCHER 1
 adb logcat -s ReactNativeJS:V | grep GALLERY
 ```
 
+The reel (`native-tests/Reel.tsx`) is the gallery's recording cut: only the Send and Receive moments that move, each played once in real time with the wallet answering late, as a phone's does, and a blank slate between them. Build it the same way with `ENTRY_FILE=native-tests/Reel.tsx`, start `scripts/reel-record.sh <udid> <dir>` before launching it, and each shot lands in that directory as its own `.mov`, keyed off the `REEL` lines the reel logs (`REEL <index> <name>` as a shot's slate starts, `REEL DONE <index>` as its hold ends, `REEL COMPLETE` after the last). `__tests__/Reel.test.tsx` runs its one pass under Jest.
+
 The gallery installs as Chicory itself, over whatever build is there, and its APK is written where the normal release APK goes. Prefer a simulator or emulator. On a phone that holds a wallet, the wallet's data is left as it was, since the gallery never reads it, but the phone runs the gallery until the normal build is installed again: rebuild without `ENTRY_FILE` and install that before opening the wallet or distributing any APK. Run it once more with Reduce Motion on, since several glyphs take other paths under it. `__tests__/Gallery.test.tsx` runs one full pass under Jest with fake timers, which proves every state draws and every step finds its control, but not what only the UI thread would show.
 
 ## License

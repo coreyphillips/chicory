@@ -63,7 +63,8 @@ export function Gallery() {
     wakeAmbient();
     const take = shot.make();
     setDrawn(last => ({ take, name: shot.name, key: (last?.key ?? 0) + 1 }));
-    return perform(probe, shot.name, take.steps ?? [], DWELL_MS, () => {
+    const hold = shot.hold ?? DWELL_MS;
+    return perform(probe, shot.name, take.steps ?? [], hold, () => {
       const last = index === SHOTS.length - 1;
       if (last) console.log('GALLERY COMPLETE');
       setCursor({ index: last ? 0 : index + 1, lap: last ? lap + 1 : lap });

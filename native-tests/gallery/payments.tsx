@@ -4,7 +4,11 @@
  * held to send, or the amount keyed in, quoted and made a request, with the
  * gallery's wallet answering each call at once in the way the state needs.
  */
-import type { SendReview, WalletSnapshot } from '@beignet/wallet-core';
+import type {
+  SendResult,
+  SendReview,
+  WalletSnapshot,
+} from '@beignet/wallet-core';
 import { copy } from '../../src/design/copy';
 import type { WalletAdapter } from '../../src/services/wallet';
 import { holdRequest } from '../../src/stage/heldRequests';
@@ -24,20 +28,26 @@ import {
   reviewOf,
   stale,
 } from './fakes';
-import { press } from './shots';
+import { press, wait } from './shots';
 import type { Shot, Step } from './shots';
 import { hideBalance, inSats, open, wallet } from './staged';
 
 /** Keys `digits` in on the keypad, one key a step. */
-const keyed = (digits: string): Step[] =>
+export const keyed = (digits: string): Step[] =>
   [...digits].map(digit => press(copy.keypad.digits[Number(digit)]));
+
+/**
+ * How long a state that plays out holds: a result growing out of the hold
+ * and going home, or a receipt's bloom folding back into its ring.
+ */
+const SEEN_THROUGH = 2400;
 
 // Send.
 
-const REVIEW = press(copy.send.review);
-const SEND = copy.send.sendSats(4_200);
+export const REVIEW = press(copy.send.review);
+export const SEND = copy.send.sendSats(4_200);
 /** The amount every payment here is for, keyed in: the address names none. */
-const AMOUNT_4200 = keyed('4200');
+export const AMOUNT_4200 = keyed('4200');
 /** A request the parser refuses as it is entered: an LNURL. */
 const LNURL =
   'LNURL1DP68GURN8GHJ7UM9WFMXJCM99E3K7MF0V9CXJ0M385EKVCENXC6R2C35XVUKXEFCV5MKVV34X5EKZD3EV56NYD3HXQURZEPEXEJXXEPNXSCRVWFNV9NXZCN9XQ6XYEFHVGCXXCMYXYMNSERXFQ5FNS';
@@ -50,11 +60,19 @@ interface Paying {
   steps?: Step[];
 }
 
-function send(name: string, make: () => Paying = () => ({})): Shot {
-  return wallet(`send, ${name}`, () => {
-    const { request = ADDRESS, snapshot, client, steps } = make();
-    return { snapshot, client, open: [open.send(request)], steps };
-  });
+export function send(
+  name: string,
+  make: () => Paying = () => ({}),
+  hold?: number,
+): Shot {
+  return wallet(
+    `send, ${name}`,
+    () => {
+      const { request = ADDRESS, snapshot, client, steps } = make();
+      return { snapshot, client, open: [open.send(request)], steps };
+    },
+    hold,
+  );
 }
 
 /** Reviewed, with the review as `over` sets it when the wallet is asked. */
@@ -64,16 +82,47 @@ const reviewed = (name: string, over: () => Partial<SendReview>) =>
     steps: [...AMOUNT_4200, REVIEW],
   }));
 
-/** Reviewed and held to send, with the wallet answering `send`. */
+/**
+ * Reviewed and held to send, with the wallet answering `send`, and `after`
+ * run once it has committed.
+ */
 const sent = (
   name: string,
   answer: WalletAdapter['send'],
   before: Step[] = [],
+  after: Step[] = [],
+  hold?: number,
 ) =>
-  send(name, () => ({
-    client: { send: answer },
-    steps: [...before, ...AMOUNT_4200, REVIEW, COMMIT],
-  }));
+  send(
+    name,
+    () => ({
+      client: { send: answer },
+      steps: [...before, ...AMOUNT_4200, REVIEW, COMMIT, ...after],
+    }),
+    hold,
+  );
+
+/**
+ * How long after the hold commits a wallet on a phone answers: after the
+ * burst, so the comet is seen running before the result grows out of the
+ * hold.
+ */
+export const AFTER_BURST_MS = 1200;
+
+/** `status`, answered `ms` after the hold commits. */
+export const answered =
+  (
+    status: SendResult['status'],
+    over: Partial<SendResult> = {},
+    ms = AFTER_BURST_MS,
+  ): WalletAdapter['send'] =>
+  () =>
+    new Promise(resolve =>
+      setTimeout(() => resolve(resultOf(status, over)), ms),
+    );
+
+/** The steps that see a late answer land: a wait a little past it. */
+const landed = [wait(AFTER_BURST_MS + 100)];
 
 /** Reviewed, and refused by the engine with `code`. */
 const refused = (name: string, code: string, before: Step[] = AMOUNT_4200) =>
@@ -165,6 +214,46 @@ const sends: Shot[] = [
   sent('sent, with amounts hidden', async () => resultOf('completed'), [
     hideBalance,
   ]),
+  sent(
+    'sent, after the burst',
+    answered('completed'),
+    [],
+    landed,
+    SEEN_THROUGH,
+  ),
+  send(
+    'sent after the burst, with warnings',
+    () => ({
+      client: {
+        prepareSend: async () =>
+          reviewOf({ warnings: ['This invoice expires soon.'] }),
+        send: answered('completed'),
+      },
+      steps: [...AMOUNT_4200, REVIEW, COMMIT, ...landed],
+    }),
+    SEEN_THROUGH,
+  ),
+  sent(
+    'failed, after the burst',
+    answered('failed', { message: 'No route to the recipient.' }),
+    [],
+    landed,
+    SEEN_THROUGH,
+  ),
+  sent(
+    'on its way, after the burst',
+    answered('pending'),
+    [],
+    landed,
+    SEEN_THROUGH,
+  ),
+  sent(
+    'unknown, after the burst',
+    answered('uncertain'),
+    [],
+    landed,
+    SEEN_THROUGH,
+  ),
   send('an amount keyed in, in sats', () => ({
     steps: [...inSats, ...AMOUNT_4200],
   })),
@@ -226,7 +315,16 @@ const CONTINUE = press(copy.receive.continue);
 const CREATE = press(copy.receive.create);
 const AMOUNT = keyed('10000');
 const TO_QUOTE = [...AMOUNT, CONTINUE];
-const TO_REQUEST = [...TO_QUOTE, CREATE];
+export const TO_REQUEST = [...TO_QUOTE, CREATE];
+
+/** Long enough to see a request's frame listen through two of its pings. */
+const LISTENING = 6000;
+
+/**
+ * Long enough to see a request waiting, then paid as the wallet's next poll
+ * brings the receipt, and its bloom fold back into the ring.
+ */
+const ARRIVING = 4500;
 const OFFLINE = press(copy.receive.offline);
 const offering: Partial<WalletAdapter> = {
   getConfig: async () => configOf({ offlineReceiveAvailable: true }),
@@ -238,11 +336,19 @@ interface Receiving {
   steps?: Step[];
 }
 
-function receive(name: string, make: () => Receiving = () => ({})): Shot {
-  return wallet(`receive, ${name}`, () => ({
-    ...make(),
-    open: [open.receive()],
-  }));
+export function receive(
+  name: string,
+  make: () => Receiving = () => ({}),
+  hold?: number,
+): Shot {
+  return wallet(
+    `receive, ${name}`,
+    () => ({
+      ...make(),
+      open: [open.receive()],
+    }),
+    hold,
+  );
 }
 
 /** A request made, and what the wallet says has arrived for it. */
@@ -251,10 +357,41 @@ const arrived = (
   status: ReturnType<typeof receiptOf>,
   before: Step[] = [],
 ) =>
-  receive(name, () => ({
-    client: { getReceiveStatus: async () => status },
-    steps: [...before, ...TO_REQUEST],
-  }));
+  receive(
+    name,
+    () => ({
+      client: { getReceiveStatus: async () => status },
+      steps: [...before, ...TO_REQUEST],
+    }),
+    SEEN_THROUGH,
+  );
+
+/**
+ * A request made and waiting, then paid: the wallet says nothing has
+ * arrived until a step says it has, and its next poll brings the receipt.
+ * `snapshot` is read as the state comes up, so its balance is fresh then.
+ */
+const arriving = (name: string, snapshot?: () => WalletSnapshot) =>
+  receive(
+    name,
+    () => {
+      let paid = false;
+      return {
+        snapshot: snapshot?.(),
+        client: {
+          getReceiveStatus: async () =>
+            receiptOf(paid ? 'completed' : 'waiting'),
+        },
+        steps: [
+          ...TO_REQUEST,
+          () => {
+            paid = true;
+          },
+        ],
+      };
+    },
+    ARRIVING,
+  );
 
 const TXID = hex(400);
 
@@ -419,6 +556,9 @@ const receives: Shot[] = [
     }),
   ),
   arrived('received, hidden', receiptOf('completed'), [hideBalance]),
+  receive('the request, listening', () => ({ steps: TO_REQUEST }), LISTENING),
+  arriving('received, as it arrives'),
+  arriving('received, as it arrives, on a test network', fresh),
 ];
 
 export const PAYMENTS: Shot[] = [...sends, ...receives];
