@@ -7,6 +7,7 @@ import {
   FINDERS,
   QR_CARD_GONE,
   QR_QUIET,
+  QR_SETTLED,
   QR_TIMING,
   QrBloom,
   bloomMotion,
@@ -285,6 +286,13 @@ describe('working a code out', () => {
     for (const state of ['paid', 'expired', 'scattered'] as const) {
       expect(bloomMotion(2, state, 400)).toEqual(layerMotion(2, state));
     }
+  });
+});
+
+describe('a settled code', () => {
+  test('has bloomed in once its finders, its last layer, have entered', () => {
+    const finders = layerMotion(FINDERS, 'shown');
+    expect(QR_SETTLED).toBe(finders.delay + finders.duration);
   });
 });
 

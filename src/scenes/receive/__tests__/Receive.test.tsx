@@ -42,6 +42,7 @@ import { Odometer } from '../../../glyphs/Odometer';
 import {
   BANDS,
   QR_CARD_GONE,
+  QR_SETTLED,
   QR_TIMING,
   QrBloom,
 } from '../../../glyphs/QrBloom';
@@ -69,6 +70,7 @@ import { Unplugged } from '../../send/LoopingGlyphs';
 import { CONTROL_ROW, quietRing } from '../controls';
 import { ReceiveHostContext, slotRoom } from '../host';
 import { DrawnGlyph as DrawnMark } from '../draw';
+import { ListeningPing } from '../ListeningPing';
 import { Spin } from '../loops';
 import { CELEBRATION, receiveRefusal, requestFace } from '../model';
 import { ReceiveScene } from '../ReceiveScene';
@@ -990,6 +992,63 @@ describe('the amount step', () => {
 });
 
 describe('the request', () => {
+  const listening = (tree: ReactTestRenderer) =>
+    tree.root.findByType(ListeningPing).props.running;
+
+  test('listens for its payment once its code has bloomed in, and not while the code is lifted', async () => {
+    const tree = await screen(clientOf());
+    await toRequest(tree);
+    expect(listening(tree)).toBe(false);
+    await act(async () => {
+      jest.advanceTimersByTime(QR_SETTLED);
+    });
+    expect(listening(tree)).toBe(true);
+    // Lifted, the frame seen is the lifted one, so this one rests.
+    await tap(tree, copy.receive.qr);
+    expect(listening(tree)).toBe(false);
+    await tap(tree, copy.receive.closeQr);
+    expect(listening(tree)).toBe(true);
+    await act(async () => tree.unmount());
+  });
+
+  test('stops listening once money has arrived, or the request has run out', async () => {
+    const completed: ReceiveStatus = {
+      phase: 'completed',
+      receivedSats: 1000,
+      confirmedSats: 1000,
+      pendingSats: 0,
+      txids: [],
+      method: 'lightning',
+    };
+    const paid = await screen(
+      clientOf({ getReceiveStatus: jest.fn().mockResolvedValue(completed) }),
+    );
+    await toRequest(paid);
+    await act(async () => {
+      jest.advanceTimersByTime(QR_SETTLED + 2000);
+    });
+    expect(listening(paid)).toBe(false);
+    await act(async () => paid.unmount());
+
+    const soon = await screen(
+      clientOf({
+        receive: jest
+          .fn()
+          .mockResolvedValue(requestOf({ expiresAt: Date.now() + 5_000 })),
+      }),
+    );
+    await toRequest(soon);
+    await act(async () => {
+      jest.advanceTimersByTime(QR_SETTLED);
+    });
+    expect(listening(soon)).toBe(true);
+    await act(async () => {
+      jest.advanceTimersByTime(6_000);
+    });
+    expect(listening(soon)).toBe(false);
+    await act(async () => soon.unmount());
+  });
+
   test('holds how it can be paid in a place a finger can hold, as text', async () => {
     // It was a 48 by 18 element, under the 48pt target (P10, 39-c3-request).
     const tree = await screen(clientOf());

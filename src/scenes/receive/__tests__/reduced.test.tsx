@@ -6,7 +6,7 @@ import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import { copy } from '../../../design/copy';
 import { COPIED, CopyChip } from '../../../glyphs/CopyChip';
-import { QrBloom } from '../../../glyphs/QrBloom';
+import { QR_SETTLED, QrBloom } from '../../../glyphs/QrBloom';
 import { durations } from '../../../motion/tokens';
 import * as tokens from '../../../motion/tokens';
 import { ReceiveScreen } from '../../../screens/Receive';
@@ -14,6 +14,7 @@ import type { WalletAdapter } from '../../../services/wallet';
 import { mount } from '../../../../test-support/guard';
 import { enterAmount } from '../../../../test-support/keypad';
 import { find } from '../../../../test-support/query';
+import { ListeningPing } from '../ListeningPing';
 
 /**
  * Receive under Reduce Motion (REDESIGN.md 8). Reanimated skips any animation
@@ -129,6 +130,59 @@ test('the moon refused offline tints the switch, and the tint plays', async () =
   for (const config of tint) {
     expect(config.reduceMotion).toBe(ReduceMotion.Never);
   }
+  await act(async () => tree.unmount());
+});
+
+test("a request's frame draws no ping while it waits", async () => {
+  const client = {
+    quoteReceive: jest.fn().mockResolvedValue({
+      id: 'q1',
+      amountSats: 1000,
+      description: '',
+      feeSats: 0,
+      netSats: 1000,
+      expiresAt: Date.now() + 60_000,
+      warnings: [],
+    }),
+    receive: jest.fn().mockResolvedValue({
+      id: 'r1',
+      uri: URI,
+      address: 'bcrt1address',
+      bolt11: 'lnbcrt1invoice',
+      paymentHash: 'ab'.repeat(32),
+      amountSats: 1000,
+      description: '',
+      feeSats: 0,
+      expiresAt: Date.now() + 600_000,
+      warnings: [],
+      demo: false,
+      bitcoinTracking: 'unique',
+    }),
+    getReceiveStatus: jest.fn().mockResolvedValue({
+      phase: 'waiting',
+      receivedSats: 0,
+      confirmedSats: 0,
+      pendingSats: 0,
+      txids: [],
+    }),
+  } as unknown as WalletAdapter;
+  const tree = await mount(
+    <ReceiveScreen
+      client={client}
+      receivableSats={10_000}
+      onActivity={noop}
+      onBusy={noop}
+    />,
+  );
+  await enterAmount(tree, '1000');
+  await press(tree, copy.receive.continue);
+  await press(tree, copy.receive.create);
+  await act(async () => {
+    jest.advanceTimersByTime(QR_SETTLED);
+  });
+  const ping = tree.root.findByType(ListeningPing);
+  expect(ping.props.running).toBe(true);
+  expect(ping.children).toEqual([]);
   await act(async () => tree.unmount());
 });
 

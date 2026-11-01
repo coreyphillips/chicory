@@ -266,7 +266,7 @@ Settings' card draws G1 still behind its bloom (6, Settings): slate on a test ne
 
 **Ambient rest.** A loop that only decorates rests once nobody has touched the app for 20s (`AMBIENT_REST_MS` in `src/motion/ambient.ts`), easing to its resting pose, and picks up where it stopped at the next touch or the next change worth seeing. It eases rather than stops: a loop carries on to the end of the cycle it is in, and each of the backdrop's swings to the end it is heading for, where a swing stands still anyway, slowing from its own speed to a stop (`restEase` in `src/motion/loops.ts`), and never turning back. A phone left alone then draws nothing, which spares its battery and lets a tool that waits for a still screen, such as Android's uiautomator, read it.
 
-- **Ambient, and rests:** the backdrop's drift and turn, a bloom's breath and halo (the mark and Settings' card included), the halo round the recovery phrase still to save in Settings, the vessel's sheen, seeds and the clock or gauge of a wait, the pulse dot's ping, the backup shield's blink, the rocking moon of a request payable offline, a caret or halo waiting for a press, and the breath of Send's empty well.
+- **Ambient, and rests:** the backdrop's drift and turn, a bloom's breath and halo (the mark and Settings' card included), the halo round the recovery phrase still to save in Settings, the vessel's sheen, seeds and the clock or gauge of a wait, the pulse dot's ping, a request's listening ping, the backup shield's blink, the rocking moon of a request payable offline, a caret or halo waiting for a press, and the breath of Send's empty well.
 - **Meaning, and never rests:** anything that says something is under way: a payment's orbit or comet, a waiting request's dashes, a held outcome's halo, a busy control's spin, a vessel retry, the stale shimmer, the reconnecting pulse, the honey dot of a primary node being sought in Settings, the unplug's drift while a connection is away, Send's waiting clock, the chase and the ratchet while a wallet opens or refreshes (Settings' card included), the scanner's reticle, and an expiry ring's last seconds.
 - **What wakes it:** any touch under the stage's root, which a capturing responder sees and never takes; the app coming to the front; a new phase, scene or overlay; the balance going stale or fresh; and a read that changes what the wallet shows (`shownBy`: the balance's figures, the vessel's look, the connection and the setup, and each payment's state, built from what is drawn and never from a record's own time, such as the last channelize decision's, which every pass writes again). A read that only lands does not, since one lands every 12s.
 
@@ -461,7 +461,7 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 
 - **Shape.** A 7pt dot at the mark's bottom right.
 - **States.**
-  - sage: pings on each successful poll (scale to 2.6, fade, 900ms), but not while decoration rests (3.5)
+  - sage: pings on each successful poll (scale to 2.6, fade, 900ms), but not while decoration rests (3.5); a request's frame echoes it while it listens (Listening ping)
   - honey: pulses 1 to 1.3 every 1800ms while reconnecting
   - hollow radish: refresh failed
 
@@ -513,11 +513,19 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 - **Spent.** Once the hold commits, the quote is used: its ring fades out with the commit, over a tick as the flash rises, driven from the UI thread with the hold (HoldButton's `commit`) rather than by the payment's render, which a busy JavaScript thread held back 600ms while the ring ran on beside the new orbit; and for the rest of that payment nothing expires, turns honey or offers a refresh, whatever its clock or the balance's age says. Only the engine refusing the quote as it is sent (`QUOTE_EXPIRED`) brings the refresh back, since nothing went out.
 - **Request frames.** The same ring runs around the QR frame's perimeter, and turns honey in the request's last tenth or last minute, whichever is longer.
 
+### Listening ping
+
+- **Look.** A request listening for its payment: a 1.5pt ring the frame's shape, in bloom (slate on a test network), drawn behind the frame's expiry ring and outside the code, so the code stays ink on cream and the ring that counts down is untouched. It is the pulse dot's ping grown to the request's frame.
+- **Cycle.** One ping every `sheen` (2400ms): quiet for the first third, then the ring sets out from the frame at .35, goes 12pt out fast and slows as it fades over `halo` (1600ms), gone at every whole number of the clock, so the ping at rest draws nothing (`listenPose` in `scenes/receive/ListeningPing`).
+- **When.** Only while the code shown can be paid and is not lifted, and not before it has bloomed in (`QR_SETTLED`, 500ms after the step mounts): a paid, expired or scattered code listens for nothing.
+- **Ambient.** It only decorates, since the frame's ring says the request is live, so it rests with the ambient clock after 20s untouched, finishing the cycle it is in, and wakes with the next touch (3.5).
+- **Reduced motion.** It draws nothing.
+
 ### QrBloom
 
 - **Modules.** Built with `require('qrcode').create(uri, {errorCorrectionLevel: 'M'}).modules`, split into 5 bands by distance from the center, plus the finder squares.
 - **Fit.** The modules fill the card but for a quiet zone of four modules, a little more on the densest codes so the card's rounded corner stays a module clear of each finder (`qrGrid`). Every module edge falls on a whole pixel, so bands meet without a seam and a dense unified request still scans, inline and lifted alike.
-- **Reveal.** The card scales .92 to 1. Starting at t80, band k enters at 40k ms. The finder squares pop last.
+- **Reveal.** The card scales .92 to 1. Starting at t80, band k enters at 40k ms. The finder squares pop last, and have entered by `QR_SETTLED` (500ms), when a request's frame starts to listen (Listening ping).
 - **Worked out after the card.** A dense request's modules and bands take a frame or more to work out, so they are worked out once the card has first drawn (`useQrDrawing`), in one pass over the grid, rather than in the render that changes the step: the step switches and the card arrives first. A card that waited for its drawing gives up only the t80 lead-in (`bloomMotion`), never the bands' stagger.
 - **Dissolve.**
   - Expired: outer bands go first.
@@ -685,7 +693,7 @@ A Lightning max review shows three facts: the recipient minimum at 48pt marked `
 | amount refused       | The amount turns radish and shakes, an error haptic, as Send's past the total; Continue dims until another amount is entered.                                             |
 | offline on           | The moon fills, the night tint shows, and the cap is marked on the amount.                                                                                                |
 | quote                | `- fee = net`, a sum: a glyph column, an operator column of one width, and the amounts set right in tabular figures. The create control is a tap, inside the expiry ring. |
-| request              | QrBloom with a frame ring, rails beneath (`bolt` + `chain`, or `bolt` only), a moon badge when offline, `share`, `copy` and `plus`.                                       |
+| request              | QrBloom with a frame ring, rails beneath (`bolt` + `chain`, or `bolt` only), a moon badge when offline, `share`, `copy` and `plus`. Once the code has bloomed in, the frame listens: a ping sets out from it every 2400ms for as long as the code can be paid (5, Listening ping).                                       |
 | near expiry          | The frame turns honey.                                                                                                                                                    |
 | expired              | The QR dissolves; share and copy are removed.                                                                                                                             |
 | reused address       | The QR scatters, a honey `twin` appears, share and copy are removed, and `plus` becomes the primary control.                                                              |
@@ -870,6 +878,7 @@ The hold's centre is read in window points while the payment is out (`watchCentr
   - A shake becomes a 400ms radish tint.
   - The hold fill still runs.
   - The comet holds still at its heading. A result's mark does not travel: it crossfades in where it rests within 160ms, and the hold fades with its review.
+  - A waiting request's frame draws no ping.
   - Settings: the arrival cascade and what a row opens crossfade within 160ms, the rows lay out with a 160ms fade (`smooth` turns to `FadingTransition`), the chevron and the disc's fill are set at once and a press dips nothing, the card's bloom holds still and is drawn unfolded with its halo a still ring, the halo round the phrase to save is a still ring, the connecting dot is solid honey, the shackle and the haptics bars only crossfade (160ms, nothing drops or grows), the app lock's glyph is simply there, the phrase's move to its row is a crossfade with its colours switched at once, and a row brought into view is jumped to rather than scrolled.
 
 ## 9. Accessibility

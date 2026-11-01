@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Reanimated, {
   cancelAnimation,
@@ -15,7 +15,7 @@ import type { GlyphName } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
 import { inlineAmount } from '../../glyphs/InlineAmount';
-import { QrBloom } from '../../glyphs/QrBloom';
+import { QR_SETTLED, QrBloom } from '../../glyphs/QrBloom';
 import { Whisper } from '../../glyphs/Whisper';
 import { riseIn, stagger } from '../../motion/presets';
 import { curves } from '../../motion/tokens';
@@ -31,6 +31,7 @@ import {
 } from './controls';
 import type { Focus } from './focus';
 import { useReceiveHost } from './host';
+import { ListeningPing } from './ListeningPing';
 import { Rock } from './loops';
 import type { Refused, RequestFace } from './model';
 import { useBloom, useTestNetwork } from './tone';
@@ -56,7 +57,10 @@ const LINE = typography.line.fontSize;
  * A request and what becomes of it (REDESIGN.md 6, Receive). The code
  * blooms in a frame whose ring runs down to the request's expiry, turning
  * honey near the end; under it the amount or an infinity, the note, and how
- * it can be paid, with a rocking moon when it is payable offline.
+ * it can be paid, with a rocking moon when it is payable offline. While the
+ * code can be paid and is not lifted, once it has bloomed in, the frame
+ * listens: a ping sets out from it every 2400ms (REDESIGN.md 5, Listening
+ * ping), behind the ring and clear of the code.
  *
  * An expired request dissolves and a reused address scatters, and either
  * way share and copy go, leaving plus as the way on. Money arriving implodes
@@ -89,6 +93,7 @@ export function RequestStep({
   onActivity,
   focus,
   qrFocus,
+  lifted = false,
 }: {
   request: ReceiveRequest;
   createdAt: number;
@@ -115,10 +120,21 @@ export function RequestStep({
   focus: Focus;
   /** The code, where a screen reader goes back to as a lifted code is set down. */
   qrFocus?: Focus;
+  /** The code is lifted over the step, so the frame here is not the one seen. */
+  lifted?: boolean;
 }) {
   const test = useTestNetwork();
   const { room } = useReceiveHost();
   const side = frameSide(qr);
+  // The frame listens once the code has bloomed in, and for as long as the
+  // code shown can be paid and is not lifted away from it.
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    setSettled(false);
+    const timer = setTimeout(() => setSettled(true), QR_SETTLED);
+    return () => clearTimeout(timer);
+  }, [request.uri]);
+  const listening = face.shareable && !lifted && settled;
   const remainder = remainderSats(request.amountSats, receipt);
   const scattered = face.qr === 'scattered';
   const status =
@@ -154,6 +170,11 @@ export function RequestStep({
             style={receipt ? styles.over : undefined}
           >
             <View style={[styles.frame, { width: side, height: side }]}>
+              <ListeningPing
+                side={side}
+                radius={radius.qr + RING_GAP}
+                running={listening}
+              />
               {/* Kept through expiry, so the ring can collapse as it ends. */}
               {face.qr === 'shown' || face.qr === 'expired' ? (
                 <View pointerEvents="none" style={styles.fill}>

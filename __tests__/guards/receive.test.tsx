@@ -12,6 +12,7 @@ import { ReceiveRequestDetails } from '../../src/components/ReceiveRequestDetail
 import { ToastProvider, useToast } from '../../src/components/Toast';
 import { copy } from '../../src/design/copy';
 import { CopyChip, chipText } from '../../src/glyphs/CopyChip';
+import { QR_SETTLED } from '../../src/glyphs/QrBloom';
 import { ReceiveScreen } from '../../src/screens/Receive';
 import type { WalletAdapter } from '../../src/services/wallet';
 import {
@@ -416,6 +417,10 @@ const GUARDED: GuardedState[] = [
 
   // The request.
   state('a request', receive(clientOf(), toRequest)),
+  state(
+    'a request, listening',
+    receive(clientOf(), [...toRequest, wait(QR_SETTLED)]),
+  ),
   state(
     'a request for any amount',
     receive(clientOf({ request: made({ amountSats: null }) }), toRequest),
