@@ -1574,6 +1574,45 @@ describe('the celebration', () => {
     await act(async () => still.unmount());
   });
 
+  test('hands its controls over as money arrives, rather than cutting to them', async () => {
+    const client = clientOf({
+      getReceiveStatus: jest
+        .fn()
+        .mockResolvedValueOnce(waiting)
+        .mockResolvedValue(paid),
+    });
+    const tree = await screen(client);
+    await toRequest(tree);
+    /** The keyed view that moves the element labelled `label`. */
+    const keyed = (label: string, prop: 'layout' | 'exiting') => {
+      let at: ReactTestInstance | null =
+        tree.root.findAll(
+          node =>
+            typeof node.type === 'string' &&
+            node.props.accessibilityLabel === label,
+        )[0] ?? null;
+      while (at && at.props[prop] === undefined) at = at.parent;
+      return at;
+    };
+    // Share and copy go together, dissolving, and the row glides.
+    const pair = keyed(copy.receive.share, 'layout');
+    expect(pair?.props.exiting).toEqual(expect.any(Function));
+    expect(pair).toBe(keyed(copy.receive.copy, 'layout'));
+    expect(keyed(copy.receive.createAnother, 'layout')).toBeTruthy();
+    // What the request says of itself drops out.
+    const about = keyed(copy.receive.unified, 'exiting');
+    expect(about?.props.exiting).toEqual(expect.any(Function));
+    expect(find(tree, copy.receive.viewActivity)).toBeFalsy();
+    // The next poll brings the receipt.
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(find(tree, copy.receive.share)).toBeFalsy();
+    const history = keyed(copy.receive.viewActivity, 'layout');
+    expect(history?.props.entering).toEqual(expect.any(Function));
+    await act(async () => tree.unmount());
+  });
+
   test('keeps the code over the mark it lands on, and tells it where', async () => {
     const request = requestOf();
     const tree = await mount(

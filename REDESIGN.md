@@ -711,6 +711,8 @@ A Lightning max review shows three facts: the recipient minimum at 48pt marked `
 
 On a test network Receive draws slate wherever it would draw bloom (`scenes/receive/tone.ts`): its glyphs, the busy orbit, the halo, the offline switch, the primary controls and the bloom's petals, and `ReceiveRequestDetails` does the same for the request a payment's detail keeps when it is given `test`. The quote's and the request's expiry rings take the test network too, so their calm stroke is slate.
 
+**As money arrives** the request's controls hand over by the overlap rule (3.5) rather than each cutting to the next: what the request said of itself drops 8pt as it fades (140ms), its warning pips fade, share and copy dissolve as a pair (320ms, to .9), the history control rises 12pt into their place from +80, plus crossfades from raised to the way on over 160ms, its disc and its glyph each, and the row glides as it centres again (`smooth`). An expired or scattered code lets share and copy go the same way.
+
 ### Backup and setup
 
 - **Backup pending.** A honey halo on the mark and a shield tile in the shelf. It cannot be dismissed, and tapping it opens Settings > Recovery phrase.
@@ -883,7 +885,7 @@ The hold's centre is read in window points while the payment is out (`watchCentr
   - A shake becomes a 400ms radish tint.
   - The hold fill still runs.
   - The comet holds still at its heading. A result's mark does not travel: it crossfades in where it rests within 160ms, and the hold fades with its review.
-  - A waiting request's frame draws no ping, and a paid request opens no petals: the ring, the check and the amount are set at once, and the sage tint flashes at once.
+  - A waiting request's frame draws no ping, and a paid request opens no petals: the ring, the check and the amount are set at once, and the sage tint flashes at once. Its controls hand over by crossfade, nothing dropping, shrinking or gliding.
   - Settings: the arrival cascade and what a row opens crossfade within 160ms, the rows lay out with a 160ms fade (`smooth` turns to `FadingTransition`), the chevron and the disc's fill are set at once and a press dips nothing, the card's bloom holds still and is drawn unfolded with its halo a still ring, the halo round the phrase to save is a still ring, the connecting dot is solid honey, the shackle and the haptics bars only crossfade (160ms, nothing drops or grows), the app lock's glyph is simply there, the phrase's move to its row is a crossfade with its colours switched at once, and a row brought into view is jumped to rather than scrolled.
 
 ## 9. Accessibility

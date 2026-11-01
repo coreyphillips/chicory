@@ -17,7 +17,14 @@ import { ExpiryRing } from '../../glyphs/ExpiryRing';
 import { inlineAmount } from '../../glyphs/InlineAmount';
 import { QR_SETTLED, QrBloom } from '../../glyphs/QrBloom';
 import { Whisper } from '../../glyphs/Whisper';
-import { riseIn, stagger } from '../../motion/presets';
+import { dissolve } from '../../motion/effects';
+import {
+  dropOut,
+  fadeOut,
+  riseIn,
+  smooth,
+  stagger,
+} from '../../motion/presets';
 import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { MASK, radius, space, type as typography } from '../../theme';
@@ -68,6 +75,10 @@ const LINE = typography.line.fontSize;
  * 120pt mark at the code's centre, Send's done disc, with the amount under
  * it (P10, 42-c3: the code had faded as a flat taupe square onto a 275pt
  * ring). The mark is under the card, so the card lands on it and hands over.
+ * The controls hand over by the overlap rule (REDESIGN.md 3.5): what the
+ * request said of itself drops out, share and copy dissolve as a pair, the
+ * history control rises in and plus crossfades to the way on, the row
+ * gliding as it centres again, rather than each cutting to the next.
  *
  * In the scene (`room`) the controls are pinned to the bottom of the step,
  * in the row the amount and the quote keep theirs in, so the thumb stays
@@ -237,19 +248,34 @@ export function RequestStep({
             />
           )}
         </View>
-        {receipt ? null : <WarningPips warnings={request.warnings} />}
+        {receipt || !request.warnings.length ? null : (
+          <Reanimated.View key="pips" exiting={fadeOut()}>
+            <WarningPips warnings={request.warnings} />
+          </Reanimated.View>
+        )}
       </View>
       <Reanimated.View entering={stagger(2)} style={styles.controls}>
         <View style={styles.side} />
         <View style={styles.buttons}>
           {receipt ? (
-            <GlyphButton
-              glyph={ACTIVITY}
-              label={copy.receive.viewActivity}
-              onPress={onActivity}
-            />
+            <Reanimated.View
+              key="history"
+              entering={stagger(0)}
+              layout={smooth()}
+            >
+              <GlyphButton
+                glyph={ACTIVITY}
+                label={copy.receive.viewActivity}
+                onPress={onActivity}
+              />
+            </Reanimated.View>
           ) : face.shareable ? (
-            <>
+            <Reanimated.View
+              key="share"
+              exiting={dissolve()}
+              layout={smooth()}
+              style={styles.pair}
+            >
               <GlyphButton
                 glyph="share"
                 label={copy.receive.share}
@@ -261,34 +287,36 @@ export function RequestStep({
                 confirm={copies}
                 onPress={onCopy}
               />
-            </>
+            </Reanimated.View>
           ) : null}
-          <GlyphButton
-            glyph="plus"
-            label={
-              remainder !== null
-                ? copy.receive.requestRemaining
-                : copy.receive.createAnother
-            }
-            tone={face.shareable && !receipt ? 'raised' : 'primary'}
-            halo={scattered}
-            pulse={face.qr === 'expired' ? 1 : undefined}
-            value={
-              remainder === null
-                ? undefined
+          <Reanimated.View key="again" layout={smooth()}>
+            <GlyphButton
+              glyph="plus"
+              label={
+                remainder !== null
+                  ? copy.receive.requestRemaining
+                  : copy.receive.createAnother
+              }
+              tone={face.shareable && !receipt ? 'raised' : 'primary'}
+              halo={scattered}
+              pulse={face.qr === 'expired' ? 1 : undefined}
+              value={
+                remainder === null
+                  ? undefined
+                  : hidden
+                  ? copy.amount.hidden
+                  : copy.amount.spoken(remainder)
+              }
+              onPress={onAgain}
+            >
+              {/* What is owed gives away what arrived, so it hides with it. */}
+              {remainder === null
+                ? null
                 : hidden
-                ? copy.amount.hidden
-                : copy.amount.spoken(remainder)
-            }
-            onPress={onAgain}
-          >
-            {/* What is owed gives away what arrived, so it hides with it. */}
-            {remainder === null
-              ? null
-              : hidden
-              ? MASK
-              : inlineAmount(remainder, 'sats', symbol, LINE)}
-          </GlyphButton>
+                ? MASK
+                : inlineAmount(remainder, 'sats', symbol, LINE)}
+            </GlyphButton>
+          </Reanimated.View>
         </View>
         <View style={[styles.side, styles.end]}>
           {error ? (
@@ -378,7 +406,11 @@ function About({
         .filter(Boolean)
         .join('. ');
   return (
-    <Reanimated.View entering={stagger(1)} style={styles.about}>
+    <Reanimated.View
+      entering={stagger(1)}
+      exiting={dropOut(8)}
+      style={styles.about}
+    >
       <View
         ref={focus}
         accessible
@@ -477,4 +509,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: space.lg,
   },
+  // Share and copy, which come and go together.
+  pair: { flexDirection: 'row', alignItems: 'center', gap: space.lg },
 });
