@@ -1,13 +1,25 @@
-import React, { useEffect, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { ComponentRef, ReactNode, Ref } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import type { HostInstance } from 'react-native';
 import Reanimated, {
   ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import type { EntryExitAnimationFunction } from 'react-native-reanimated';
+import type {
+  EntryExitAnimationFunction,
+  SharedValue,
+} from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 import { Glyph } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
@@ -16,9 +28,21 @@ import { Whisper } from '../../glyphs/Whisper';
 import { popIn, useShake } from '../../motion/effects';
 import { useLoop, wave } from '../../motion/loops';
 import { fadeOut } from '../../motion/presets';
-import { curves, durations } from '../../motion/tokens';
+import { steady } from '../../motion/steady';
+import { curves, durations, springs } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
 import { usePaneActive } from '../../stage/panes/Pane';
+import {
+  CHECK_LEAD,
+  CLOSE_MS,
+  FILL_MS,
+  MARK,
+  arrivalBeats,
+  travelPose,
+  watchCentre,
+} from './arrival';
+import type { Arrival, ArrivalBeats } from './arrival';
+import { COMET, Comet } from './Comet';
 import { CONTROL } from './Controls';
 import { BANG, DrawnGlyph } from './DrawnGlyph';
 import type { Stroke } from './DrawnGlyph';
@@ -26,9 +50,8 @@ import type { ResultVisual } from './model';
 import { Orbit } from './Orbit';
 import { useBloom } from './tone';
 
-const SIZE = 120;
+const SIZE = MARK;
 const STROKE = 5;
-const R = (SIZE - STROKE) / 2;
 
 /**
  * The orbit of a held payment still under way, on a track of its own inside
@@ -55,23 +78,42 @@ export const RESOLVE_FROM = (SIZE - 2 * STROKE) / SIZE;
 export const resolveOutMs = () =>
   motionReduced() ? durations.crossfade / 2 : durations.exit;
 
+/**
+ * The hold's look, grown with the mark: its 4pt ring and the comet's 6pt
+ * head, each the hold's own size where the mark sets out at the hold's.
+ */
+const DEPART = {
+  ring: (4 * SIZE) / CONTROL,
+  head: (COMET.head * SIZE) / CONTROL,
+};
+
+/**
+ * How long a mark that is growing out of the hold waits to be placed before
+ * it is drawn where it rests regardless, so no mark is ever left unseen.
+ */
+export const PLACE_LATEST = 300;
+
 /** The pause bars pop in one after the other, then hold still. */
 const PAUSE: Stroke[] = [
   { pop: { x: 9, y: 12 } },
   { pop: { x: 15, y: 12 }, delay: 60 },
 ];
 
-/** A still ring round the mark, in `color`. */
-function Ring({ color }: { color: string }) {
+/** `strokes`, each beginning `lead` ms later than it would. */
+const after = (lead: number, strokes: Stroke[]): Stroke[] =>
+  lead ? strokes.map(s => ({ ...s, delay: (s.delay ?? 0) + lead })) : strokes;
+
+/** A still ring round the mark, in `color`, `stroke` wide. */
+function Ring({ color, stroke = STROKE }: { color: string; stroke?: number }) {
   return (
     <Svg width={SIZE} height={SIZE} style={styles.layer}>
       <Circle
         cx={SIZE / 2}
         cy={SIZE / 2}
-        r={R}
+        r={(SIZE - stroke) / 2}
         fill="none"
         stroke={color}
-        strokeWidth={STROKE}
+        strokeWidth={stroke}
       />
     </Svg>
   );
@@ -79,15 +121,22 @@ function Ring({ color }: { color: string }) {
 
 interface FaceProps {
   visual: ResultVisual;
+  /** When the face's glyph begins, in ms from its mount. */
+  lead: number;
+  /** The done disc's cream, 0 to 1: it fills as a landing mark closes. */
+  fill: SharedValue<number>;
 }
 
 /**
  * Done: a cream disc, and an ink check drawing across it. At rest, for a
- * payment seen before, the check is simply there.
+ * payment seen before, the check is simply there. Landing from the hold,
+ * the cream fills the ring the comet has closed before the check draws.
  */
-function Disc({ visual }: FaceProps) {
+function Disc({ visual, lead, fill }: FaceProps) {
+  const cream = useAnimatedStyle(() => ({ opacity: fill.get() }));
   return (
     <View style={styles.disc}>
+      <Reanimated.View style={[styles.cream, cream]} />
       {visual.resting ? (
         <Glyph name="check" size={56} color={palette.ink} />
       ) : (
@@ -95,7 +144,7 @@ function Disc({ visual }: FaceProps) {
           name="check"
           size={56}
           color={palette.ink}
-          strokes={[{ duration: durations.draw, delay: 120 }]}
+          strokes={[{ duration: durations.draw, delay: lead }]}
         />
       )}
     </View>
@@ -121,7 +170,7 @@ function Moving() {
  * cream against its honey, the motion that says money is moving (REDESIGN.md
  * 3.5), and never rests. An outcome that is unknown has none.
  */
-function Held({ visual }: FaceProps) {
+function Held({ visual, lead }: FaceProps) {
   // Out and back once each 1600ms.
   const halo = useLoop(durations.halo, true);
   const haloStyle = useAnimatedStyle(() => {
@@ -151,19 +200,64 @@ function Held({ visual }: FaceProps) {
         name="pause"
         size={48}
         color={palette.honey}
-        strokes={PAUSE}
+        strokes={after(lead, PAUSE)}
       />
     </>
   );
 }
 
 /** Failed: a radish outline, and a bang drawing in. */
-function Broken() {
+function Broken({ lead }: FaceProps) {
   return (
     <>
       <Ring color={palette.radish} />
-      <DrawnGlyph name="bang" size={48} color={palette.radish} strokes={BANG} />
+      <DrawnGlyph
+        name="bang"
+        size={48}
+        color={palette.radish}
+        strokes={after(lead, BANG)}
+      />
     </>
+  );
+}
+
+/**
+ * The hold's look, for a mark growing out of it (REDESIGN.md 7, T7): the
+ * soft disc the hold sat on, honey where it was warned, its husk ring, and
+ * the comet carrying on round it on the hold's own clock, closing into the
+ * whole ring for a payment that went through.
+ */
+function Departing({
+  origin,
+  closing,
+  style,
+}: {
+  origin: Arrival;
+  closing: SharedValue<number>;
+  style: ReturnType<typeof useAnimatedStyle>;
+}) {
+  const bloom = useBloom();
+  return (
+    <Reanimated.View
+      pointerEvents="none"
+      style={[styles.layer, styles.centred, style]}
+    >
+      <View
+        style={[
+          styles.ground,
+          { backgroundColor: origin.warned ? palette.honeySoft : bloom.soft },
+        ]}
+      />
+      <Ring color={palette.husk} stroke={DEPART.ring} />
+      <Comet
+        size={SIZE}
+        stroke={DEPART.ring}
+        head={DEPART.head}
+        color={bloom.tone}
+        clock={origin.clock}
+        closing={closing}
+      />
+    </Reanimated.View>
   );
 }
 
@@ -184,10 +278,18 @@ const FACES: Record<ResultVisual['shape'], (props: FaceProps) => ReactNode> = {
 
 /**
  * How a payment ended, as a 120pt mark grown from the control it was sent
- * with (REDESIGN.md 6, Send). A failure shakes as it lands. A mark at rest
- * (`visual.resting`), for a payment seen before, is simply there. The held
- * ring, seen to complete (`visual.resolves`), fades as the disc grows out
- * of it and its check draws, rather than cutting to the disc in a frame.
+ * with (REDESIGN.md 6, Send, and 7, T7). Given an `arrival`, the mark sets
+ * out from the hold's centre looking as the hold did, its comet carrying on,
+ * and travels to where it rests, growing from the hold's 88pt to its own on
+ * the pane spring; a payment that went through closes the comet's lap into
+ * the whole ring, fills it with cream and draws its check, and any other
+ * face takes over from the hold's look by a crossfade as the mark lands.
+ * `onArrived` is called once the hold's look is gone. Without an arrival,
+ * or under Reduce Motion, the mark pops in where it rests. A failure shakes
+ * as it lands. A mark at rest (`visual.resting`), for a payment seen
+ * before, is simply there. The held ring, seen to complete
+ * (`visual.resolves`), fades as the disc grows out of it and its check
+ * draws, rather than cutting to the disc in a frame.
  *
  * The mark carries the words: `accessibilityLabel` for what happened,
  * `accessibilityValue` for the status, and `accessibilityHint` for the
@@ -201,6 +303,8 @@ export function ResultMark({
   accessibilityValue,
   accessibilityHint,
   onPress,
+  arrival = null,
+  onArrived,
   ref,
 }: {
   visual: ResultVisual;
@@ -208,16 +312,145 @@ export function ResultMark({
   accessibilityValue: string;
   accessibilityHint: string;
   onPress?: () => void;
+  /** What the mark grows out of, read as it mounts; null to pop in at rest. */
+  arrival?: Arrival | null;
+  /** The hold's look is gone: the mark is its own. */
+  onArrived?: () => void;
   ref?: Ref<ComponentRef<typeof View>>;
 }) {
   const live = usePaneActive();
   const refusal = useShake();
   const { play } = refusal;
   const broken = visual.shape === 'broken';
-  useEffect(() => {
-    if (broken) play();
-  }, [broken, play]);
+  const done = visual.shape === 'disc';
   const Face = FACES[visual.shape];
+
+  // What the mark grows out of, settled as it mounts: a mark at rest, or
+  // one under Reduce Motion, grows out of nothing and pops in where it rests.
+  const [origin] = useState(() =>
+    arrival && !visual.resting && !motionReduced() ? arrival : null,
+  );
+  const [beats] = useState<ArrivalBeats | null>(() =>
+    origin ? arrivalBeats(done) : null,
+  );
+  const [arriving, setArriving] = useState(origin !== null);
+  const lead = beats ? beats.check : done ? CHECK_LEAD : 0;
+
+  // A failure shakes as it lands: at once where it pops in, and as the hold's
+  // look gives way where it grows out of the hold.
+  useEffect(() => {
+    if (!broken) return;
+    if (!beats) {
+      play();
+      return;
+    }
+    const timer = setTimeout(play, beats.arrive);
+    return () => clearTimeout(timer);
+  }, [broken, play, beats]);
+
+  // The travel: unseen until the mark knows where it rests (`placed`), from
+  // the hold's centre to there (`travel`), the comet's lap closing into the
+  // ring (`closing`) and the cream filling it (`fill`) for a payment that
+  // went through, and the hold's look giving way to any other face
+  // (`departing`, `faceIn`).
+  const placed = useSharedValue(origin ? 0 : 1);
+  const travel = useSharedValue(origin ? 0 : 1);
+  const toX = useSharedValue(0);
+  const toY = useSharedValue(0);
+  const closing = useSharedValue(0);
+  const fill = useSharedValue(origin && done ? 0 : 1);
+  const departing = useSharedValue(1);
+  const faceIn = useSharedValue(origin && !done ? 0 : 1);
+  const anchor = useRef<HostInstance>(null);
+  const setOut = useRef(false);
+  const watch = useRef<() => void>(() => {});
+  const latest = useRef(onArrived);
+  useLayoutEffect(() => {
+    latest.current = onArrived;
+  });
+
+  /**
+   * The mark sets out, placed where it rests (`measured`) or, past
+   * PLACE_LATEST without a reading, drawn there at once, and its beats run.
+   */
+  const land = useCallback(
+    (measured: boolean) => {
+      if (setOut.current || !beats) return;
+      setOut.current = true;
+      placed.set(1);
+      travel.set(measured ? steady(withSpring(1, springs.pane)) : 1);
+      if (done) {
+        closing.set(
+          withTiming(1, { duration: CLOSE_MS, easing: curves.standard }),
+        );
+        fill.set(
+          withDelay(
+            beats.fill,
+            withTiming(1, { duration: FILL_MS, easing: curves.enter }),
+          ),
+        );
+        return;
+      }
+      const fade = { duration: durations.crossfade, easing: curves.standard };
+      departing.set(withDelay(beats.arrive, withTiming(0, fade)));
+      faceIn.set(withDelay(beats.arrive, withTiming(1, fade)));
+    },
+    [beats, done, placed, travel, closing, fill, departing, faceIn],
+  );
+
+  /** Reads where the mark rests, following it while anything still moves it. */
+  const place = useCallback(() => {
+    if (!origin) return;
+    watch.current();
+    watch.current = watchCentre(
+      () => anchor.current,
+      at => {
+        toX.set(at.x);
+        toY.set(at.y);
+        land(true);
+      },
+    );
+  }, [origin, toX, toY, land]);
+
+  useLayoutEffect(() => {
+    if (!origin) return;
+    place();
+    const latestBy = setTimeout(() => land(false), PLACE_LATEST);
+    return () => {
+      clearTimeout(latestBy);
+      watch.current();
+    };
+  }, [origin, place, land]);
+
+  // The hold's look is gone, and the mark is its own.
+  useEffect(() => {
+    if (!beats) return;
+    const timer = setTimeout(() => {
+      setArriving(false);
+      latest.current?.();
+    }, beats.gone);
+    return () => clearTimeout(timer);
+  }, [beats]);
+
+  const travelStyle = useAnimatedStyle(() => {
+    if (!origin) return { opacity: 1, transform: [] };
+    const pose = travelPose(travel.get(), origin.from, {
+      x: toX.get(),
+      y: toY.get(),
+    });
+    return {
+      opacity: placed.get(),
+      transform: [
+        { translateX: pose.translateX },
+        { translateY: pose.translateY },
+        { scale: pose.scale },
+      ],
+    };
+  }, [origin]);
+  const departingStyle = useAnimatedStyle(() => ({
+    opacity: departing.get(),
+  }));
+  const faceStyle = useAnimatedStyle(() => ({ opacity: faceIn.get() }));
 
   // The held ring on screen, as whether it orbits, for a resolve to grow out
   // of: it stays where it is, under the disc, while it fades, and then goes.
@@ -251,71 +484,95 @@ export function ResultMark({
   }, [resolving, gone]);
   const ringStyle = useAnimatedStyle(() => ({ opacity: 1 - gone.get() }));
 
+  const faceProps = { visual, lead, fill };
   // Each shape is a layer of its own, the one drawn last on top. Resolving,
   // the ring keeps its layer and the disc's comes after it.
   const layers: Layer[] = resolving
     ? [
         {
           key: 'held',
-          face: <Held visual={{ ...visual, orbit: ring?.orbit }} />,
+          face: (
+            <Held {...faceProps} visual={{ ...visual, orbit: ring?.orbit }} />
+          ),
         },
         {
           key: visual.shape,
-          face: <Face visual={visual} />,
+          face: <Face {...faceProps} />,
           entering: popIn(RESOLVE_FROM),
         },
       ]
     : [
         {
           key: visual.shape,
-          face: <Face visual={visual} />,
+          face: <Face {...faceProps} />,
           entering: visual.resolves ? popIn(RESOLVE_FROM) : undefined,
           exiting: visual.shape === 'held' ? fadeOut() : undefined,
         },
       ];
   return (
     <Whisper label={accessibilityHint}>
-      <Reanimated.View
-        entering={visual.resting ? undefined : popIn(CONTROL / SIZE)}
-        style={[styles.mark, refusal.style]}
+      {/* The anchor never moves: it is where the mark rests, which the
+          travelling view inside it is measured against. */}
+      <View
+        ref={anchor}
+        collapsable={false}
+        onLayout={place}
+        style={styles.mark}
       >
-        <Pressable
-          ref={ref}
-          accessibilityRole={onPress ? 'button' : 'none'}
-          accessibilityLabel={accessibilityLabel}
-          accessibilityValue={{ text: accessibilityValue }}
-          accessibilityHint={accessibilityHint}
-          accessible
-          onPress={
-            live && onPress
-              ? () => {
-                  haptics.tick();
-                  onPress();
-                }
-              : undefined
+        <Reanimated.View
+          entering={
+            visual.resting || origin ? undefined : popIn(CONTROL / SIZE)
           }
-          style={styles.face}
+          style={[styles.layer, travelStyle]}
         >
-          {layers.map(layer => (
-            <Reanimated.View
-              key={layer.key}
-              entering={layer.entering}
-              exiting={layer.exiting}
-              style={[
-                styles.layer,
-                styles.centred,
-                layer.key === 'held' && ringStyle,
-              ]}
+          <Reanimated.View style={[styles.mark, refusal.style]}>
+            <Pressable
+              ref={ref}
+              accessibilityRole={onPress ? 'button' : 'none'}
+              accessibilityLabel={accessibilityLabel}
+              accessibilityValue={{ text: accessibilityValue }}
+              accessibilityHint={accessibilityHint}
+              accessible
+              onPress={
+                live && onPress
+                  ? () => {
+                      haptics.tick();
+                      onPress();
+                    }
+                  : undefined
+              }
+              style={styles.face}
             >
-              {layer.face}
-            </Reanimated.View>
-          ))}
-          <Reanimated.View
-            pointerEvents="none"
-            style={[styles.layer, styles.tint, refusal.tint]}
-          />
-        </Pressable>
-      </Reanimated.View>
+              {arriving && origin ? (
+                <Departing
+                  origin={origin}
+                  closing={closing}
+                  style={departingStyle}
+                />
+              ) : null}
+              {layers.map(layer => (
+                <Reanimated.View
+                  key={layer.key}
+                  entering={layer.entering}
+                  exiting={layer.exiting}
+                  style={[
+                    styles.layer,
+                    styles.centred,
+                    layer.key === 'held' && ringStyle,
+                    arriving && faceStyle,
+                  ]}
+                >
+                  {layer.face}
+                </Reanimated.View>
+              ))}
+              <Reanimated.View
+                pointerEvents="none"
+                style={[styles.layer, styles.tint, refusal.tint]}
+              />
+            </Pressable>
+          </Reanimated.View>
+        </Reanimated.View>
+      </View>
     </Whisper>
   );
 }
@@ -337,8 +594,13 @@ const styles = StyleSheet.create({
     borderRadius: SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  cream: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: SIZE / 2,
     backgroundColor: palette.cream,
   },
+  ground: { ...StyleSheet.absoluteFill, borderRadius: SIZE / 2 },
   halo: { borderRadius: SIZE / 2, borderWidth: 2, borderColor: palette.honey },
   tint: { borderRadius: SIZE / 2, backgroundColor: palette.radishWash },
 });

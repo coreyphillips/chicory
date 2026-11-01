@@ -134,6 +134,29 @@ export function fadeOut() {
   return tween(SHOWN, HIDDEN, EXIT);
 }
 
+/** One frame: the most a hand-over leaves two of one element drawn. */
+const FRAME_MS = 17;
+
+/**
+ * Something another element takes the place of in the same frame, such as
+ * the hold a result's mark grows out of (REDESIGN.md 6, Send): drawn whole
+ * for one more frame, under what replaces it, then gone, so the two are
+ * never seen apart and never seen twice. Under Reduce Motion it fades as
+ * its scene does.
+ */
+export function vanish(): EntryExitAnimationFunction {
+  if (motionReduced()) return crossfade(SHOWN, HIDDEN, HALF);
+  return () => {
+    'worklet';
+    return {
+      initialValues: { opacity: 1 },
+      animations: {
+        opacity: withDelay(FRAME_MS, withTiming(0, { duration: 1 })),
+      },
+    };
+  };
+}
+
 /** Fades out while dropping `distance` points, for rows giving way. */
 export function dropOut(distance: number) {
   if (motionReduced()) return crossfade(SHOWN, HIDDEN, durations.exit);
