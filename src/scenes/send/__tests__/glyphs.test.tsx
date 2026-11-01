@@ -8,6 +8,7 @@ import {
 import { fireGestureHandler } from 'react-native-gesture-handler/jest-utils';
 import * as Reanimated from 'react-native-reanimated';
 import { ReduceMotion } from 'react-native-reanimated';
+import type { SharedValue } from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
@@ -19,6 +20,7 @@ import { durations } from '../../../motion/tokens';
 import { mount } from '../../../../test-support/guard';
 import { activate } from '../../../../test-support/query';
 import { GLYPHS } from '../../../design/glyphs';
+import { Comet } from '../Comet';
 import { Commit } from '../Commit';
 import { QuoteRefresh } from '../Controls';
 import { BANG, DrawnGlyph } from '../DrawnGlyph';
@@ -163,15 +165,30 @@ describe('HoldButton', () => {
     await act(async () => tree.unmount());
   });
 
-  test('sending, an orbit runs round the ring', async () => {
+  test('sending, a comet runs round the ring, on the clock it is given', async () => {
     const tree = await onCanvas(
       <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} busy />,
     );
-    expect(tree.root.findAllByType(Orbit)).toHaveLength(1);
+    expect(tree.root.findAllByType(Comet)).toHaveLength(1);
+    expect(tree.root.findByType(Comet).props.clock).toBeUndefined();
     await act(async () => tree.unmount());
+    const clock = {
+      get: () => 0.5,
+      set: jest.fn(),
+    } as unknown as SharedValue<number>;
+    const timed = await onCanvas(
+      <HoldButton
+        accessibilityLabel={LABEL}
+        onCommit={jest.fn()}
+        comet={clock}
+        busy
+      />,
+    );
+    expect(timed.root.findByType(Comet).props.clock).toBe(clock);
+    await act(async () => timed.unmount());
   });
 
-  test('sending after a warned hold, the orbit is bloom against the honey it held with', async () => {
+  test('sending after a warned hold, the comet is bloom against the honey it held with', async () => {
     const tree = await onCanvas(
       <HoldButton
         accessibilityLabel={LABEL}
@@ -180,7 +197,7 @@ describe('HoldButton', () => {
         busy
       />,
     );
-    expect(tree.root.findByType(Orbit).props.color).toBe(palette.bloom);
+    expect(tree.root.findByType(Comet).props.color).toBe(palette.bloom);
     await act(async () => tree.unmount());
   });
 

@@ -55,7 +55,9 @@ function ringOut(commit: SharedValue<number>): EntryExitAnimationFunction {
  * rises, on the UI thread with the hold, rather than once the payment's
  * render comes (`spent`), and nothing it could say applies to the payment
  * any more, so the hold stays, with its orbit, whatever the quote's clock
- * or the balance's age would have made of it. Money is going out.
+ * or the balance's age would have made of it. Money is going out. The
+ * comet that says so turns on `comet` where the screen keeps that clock,
+ * so a result's mark carries it on (REDESIGN.md 7, T7).
  *
  * A screen reader commits the hold with one action, so the hold says the
  * whole review with it: `summary`, the total, the fee and every engine
@@ -74,6 +76,7 @@ export function Commit({
   stale,
   busy,
   spent = false,
+  comet,
   onCommit,
   onRefreshQuote,
   onRefresh,
@@ -89,6 +92,8 @@ export function Commit({
   busy: boolean;
   /** The hold has committed: the payment is going out on this quote. */
   spent?: boolean;
+  /** The clock the hold's comet turns on, where the screen keeps one. */
+  comet?: SharedValue<number>;
   onCommit: () => void;
   onRefreshQuote?: () => void;
   onRefresh?: () => void;
@@ -149,6 +154,7 @@ export function Commit({
             busy={busy || spent}
             test={test}
             commit={commit}
+            comet={comet}
           />
         )}
       </View>

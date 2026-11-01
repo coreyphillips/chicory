@@ -14,6 +14,7 @@ import {
   withTiming,
 } from 'react-native-reanimated';
 import { copy } from '../../src/design/copy';
+import { palette } from '../../src/design/palette';
 import { Bloom } from '../../src/glyphs/Bloom';
 import type { BloomEvent, BloomMode, BloomTone } from '../../src/glyphs/Bloom';
 import { CopyChip } from '../../src/glyphs/CopyChip';
@@ -30,6 +31,7 @@ import type { RingSize } from '../../src/glyphs/StatusRing';
 import { Vessel } from '../../src/glyphs/Vessel';
 import { Whisper, WhisperProvider } from '../../src/glyphs/Whisper';
 import { ringVisual } from '../../src/scenes/activity/visual';
+import { Comet } from '../../src/scenes/send/Comet';
 import { Pane } from '../../src/stage/panes/Pane';
 import { StageProvider, useStageStore } from '../../src/stage/StageContext';
 import { colors, space } from '../../src/theme';
@@ -453,6 +455,27 @@ const holds: Shot[] = [
   })),
 ];
 
+// The comet.
+
+const comet = (color: string) => <Comet size={88} stroke={4} color={color} />;
+
+/** The comet with its ring closing `to` (0 to 1), as a result lands on it. */
+function Closing({ to }: { to: number }) {
+  const closing = useSharedValue(0);
+  useEffect(() => {
+    closing.set(withTiming(to, { duration: 320 }));
+  }, [closing, to]);
+  return <Comet size={88} stroke={4} color={palette.bloom} closing={closing} />;
+}
+
+const comets: Shot[] = [
+  glyph('comet, in flight', () => comet(palette.bloom)),
+  glyph('comet, on a test network', () => comet(palette.slate)),
+  changing('comet, closing the ring', () =>
+    [0, 0.5, 1].map(to => <Closing to={to} />),
+  ),
+];
+
 // The expiry ring.
 
 const expiry = (
@@ -545,6 +568,7 @@ export const GLYPHS: Shot[] = [
   ...rings,
   ...chips,
   ...holds,
+  ...comets,
   ...expiries,
   ...codes,
   ...whispers,

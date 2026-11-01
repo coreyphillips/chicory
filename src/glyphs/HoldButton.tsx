@@ -33,9 +33,10 @@ import { copy } from '../design/copy';
 import { Glyph } from '../design/glyphs';
 import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
+import { fadeIn, fadeOut } from '../motion/presets';
 import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
-import { Orbit } from '../scenes/send/Orbit';
+import { Comet } from '../scenes/send/Comet';
 import { bloomFor } from '../scenes/send/tone';
 import { usePaneActive } from '../stage/panes/Pane';
 
@@ -53,9 +54,12 @@ import { usePaneActive } from '../stage/panes/Pane';
  * tick at each quarter. Complete, it thuds, flashes cream and pops, and as
  * the flash peaks the arrow launches, twelve petal sparks burst and the fill
  * drains away. Let go early, the fill drains with the snap spring. With
- * warnings the fill is honey. While `busy` an orbit runs round the emptied
- * ring, in bloom for money in flight. On a test network (`test`) slate
- * stands in for bloom throughout.
+ * warnings the fill is honey. While `busy` a comet runs round the emptied
+ * ring, in bloom for money in flight (REDESIGN.md 5, Comet), setting off
+ * from the arrow's heading and turning on the clock the caller keeps in
+ * `comet` where it does, so the mark a result grows into carries it on
+ * from where it was. On a test network (`test`) slate stands in for bloom
+ * throughout.
  *
  * A screen reader has no hold to give, so it gets one `activate` action that
  * commits at once: the confirmation is the deliberate double tap. TalkBack
@@ -90,6 +94,12 @@ export interface HoldButtonProps {
    * can hold back, left it drawn and running down for 600ms (P12, 06d).
    */
   commit?: SharedValue<number>;
+  /**
+   * The clock the comet turns on while `busy`, where the caller keeps one:
+   * Send's, so the comet round a result's mark carries on from where this
+   * one was (REDESIGN.md 7, T7). Without one the comet keeps its own.
+   */
+  comet?: SharedValue<number>;
   /** The circle itself, for a screen that moves a screen reader to it. */
   ref?: Ref<ComponentRef<typeof View>>;
 }
@@ -272,6 +282,7 @@ export function HoldButton({
   test = false,
   children,
   commit,
+  comet,
   ref,
 }: HoldButtonProps) {
   const live = usePaneActive() && !disabled && !busy;
@@ -400,8 +411,8 @@ export function HoldButton({
 
   const bloom = bloomFor(test);
   const tone = disabled ? palette.dust : warning ? palette.honey : bloom.tone;
-  // The payment is in flight whatever the fill was, so the orbit is bloom.
-  const orbit = disabled ? palette.dust : bloom.tone;
+  // The payment is in flight whatever the fill was, so the comet is bloom.
+  const flight = disabled ? palette.dust : bloom.tone;
   return (
     <Reanimated.View style={[styles.frame, frameStyle]}>
       {SPARK_INDEXES.map(index => (
@@ -470,7 +481,16 @@ export function HoldButton({
           <Reanimated.View style={arrowStyle}>
             {children ?? <Glyph name="send" size={32} color={palette.cream} />}
           </Reanimated.View>
-          {busy ? <Orbit size={SIZE} stroke={RING} color={orbit} /> : null}
+          {busy ? (
+            <Comet
+              size={SIZE}
+              stroke={RING}
+              color={flight}
+              clock={comet}
+              entering={fadeIn()}
+              exiting={fadeOut()}
+            />
+          ) : null}
         </View>
       </GestureDetector>
     </Reanimated.View>
