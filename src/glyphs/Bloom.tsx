@@ -124,6 +124,9 @@ export const PETALS = 12;
 /** Each petal's length, so the flower is hand-drawn rather than stamped. */
 const LENGTHS = [1, 0.96, 0.99, 0.94, 1, 0.97, 0.95, 1, 0.98, 0.95, 0.99, 0.96];
 
+/** The petals' lengths, for a flower drawn elsewhere, such as a receipt's. */
+export const PETAL_LENGTHS: readonly number[] = LENGTHS;
+
 /** A petal pointing up from the centre, with a fringed five-tooth tip. */
 const PETAL =
   'M-1.6,-8 C-4.2,-18 -9.8,-31 -10.4,-41.5 L-8.3,-44.8 L-6.25,-42.6 L-4.2,-45.6 L-2.1,-43.3 L0,-46 L2.1,-43.3 L4.2,-45.6 L6.25,-42.6 L8.3,-44.8 L10.4,-41.5 C9.8,-31 4.2,-18 1.6,-8 Z';
@@ -132,8 +135,22 @@ const PETAL_SMALL =
   'M-1.6,-8 C-4.2,-18 -9.8,-31 -10.4,-41.5 L-6.9,-45 L-3.5,-42.6 L0,-45.8 L3.5,-42.6 L6.9,-45 L10.4,-41.5 C9.8,-31 4.2,-18 1.6,-8 Z';
 const VEIN = 'M0,-12 L0,-38';
 
+/**
+ * The petal as a drawing, for a flower drawn elsewhere (the receipt's bloom,
+ * REDESIGN.md 5, Received celebration): each path points up from the
+ * flower's centre on the bloom's 100 box, its base at y -8 and its tip at
+ * y -46, within 24 across.
+ */
+export const PETAL_ART = {
+  full: PETAL,
+  small: PETAL_SMALL,
+  base: 8,
+  tip: 46,
+  width: 24,
+};
+
 /** A petal's resting angle: 30 degrees apart, nudged so none sit square. */
-function angle(i: number) {
+export function petalAngle(i: number) {
   'worklet';
   return 30 * i + (i % 2 ? 2 : 0) - (i % 3 === 0 ? 1.5 : 0);
 }
@@ -147,7 +164,7 @@ export function petalState(q: number, i: number) {
   return {
     scaleX: 0.18 + 0.82 * q,
     scaleY: (0.25 + 0.75 * q) * LENGTHS[i],
-    rotate: angle(i) - 14 * (1 - q),
+    rotate: petalAngle(i) - 14 * (1 - q),
     opacity: Math.min(1, 0.25 + 0.75 * q),
   };
 }
@@ -400,7 +417,9 @@ const FlowerArt = memo(function FlowerDrawing({
         <Path
           key={i}
           d={small ? PETAL_SMALL : PETAL}
-          transform={`translate(50 50) rotate(${angle(i)}) scale(1 ${length})`}
+          transform={`translate(50 50) rotate(${petalAngle(
+            i,
+          )}) scale(1 ${length})`}
           {...petalPaint(art, gradient)}
         />
       ))}

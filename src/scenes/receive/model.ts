@@ -6,8 +6,11 @@ import type {
 } from '@beignet/wallet-core';
 import { copy } from '../../design/copy';
 import type { GlyphName } from '../../design/glyphs';
+import { PETALS, PETAL_LENGTHS, petalAngle } from '../../glyphs/Bloom';
 import { QR_CARD_GONE } from '../../glyphs/QrBloom';
 import type { QrState } from '../../glyphs/QrBloom';
+import { springStep } from '../../motion/springMath';
+import { durations, overlap, springs } from '../../motion/tokens';
 
 /**
  * What Receive shows for each state, as pure answers (REDESIGN.md 6,
@@ -300,42 +303,74 @@ export function receiptTransactions(
  * The received celebration (REDESIGN.md 5), in ms from the moment money is
  * seen: the code implodes at once as its card contracts onto the receipt's
  * mark, the amount counts up, the sage ring draws round the mark once the
- * card has landed on it, and a completed payment draws its check and bursts
- * its petals. The ring and its husk track wait for the code's card to go, so
- * no dark ring cuts across the code while it implodes.
+ * card has landed on it, and a completed payment draws its check and opens
+ * the bloom's petals round the mark, a petal at a time (`bloom`), which
+ * fold back into the ring once the amount has counted up (`fold`). The ring
+ * and its husk track wait for the code's card to go, so no dark ring cuts
+ * across the code while it implodes.
  */
 export const CELEBRATION = {
   ring: { delay: QR_CARD_GONE, duration: 480 },
   track: { delay: QR_CARD_GONE, duration: 220 },
   count: { delay: 200, duration: 700 },
   check: { delay: 600, duration: 420 },
-  burst: { delay: 700, duration: 800 },
+  bloom: { delay: 700, stagger: overlap.staggerMin, enter: durations.enter },
+  fold: { delay: 1200, stagger: overlap.staggerMin, duration: durations.move },
   tint: { delay: 700 },
 };
 
-/** Petals in the burst, one per 30 degrees as the bloom has them. */
-export const PETALS = 12;
+/** The petals round the mark: the bloom's twelve. */
+export { PETALS };
 
 /**
- * Where burst petal `i` is at `p` (0 to 1) of the burst, from the ring's
- * edge at `radius` outward by `travel`: it flies out along its ray, turns a
- * little with the direction it flies, swells and then fades.
+ * How long the bloom's clock runs, in ms from its first petal setting out to
+ * its last folded away: the clock every petal reads its own pose from.
  */
-export function petalPose(
+export const BLOOM_SPAN =
+  CELEBRATION.fold.delay -
+  CELEBRATION.bloom.delay +
+  CELEBRATION.fold.stagger * (PETALS - 1) +
+  CELEBRATION.fold.duration;
+
+/** How far a petal reaches past the rim's outer edge, in points. */
+export const PETAL_REACH = 30;
+
+/** How far inside the rim's outer edge a petal is rooted, so no gap shows. */
+export const PETAL_ROOT = 2;
+
+/**
+ * Petal `i` of the bloom at `t` ms on the bloom's clock: how far it has
+ * opened out from the rim (0 to 1, past 1 as the reveal spring overshoots),
+ * its resting angle and length as the bloom has them, and how much of it
+ * shows. Each petal sets out a stagger after the one before, opens on the
+ * reveal spring and fades in over an entrance, holds, and then folds back
+ * in the same order over a move, on the exit curve's shape.
+ */
+export function bloomPetalPose(
   i: number,
-  p: number,
-  radius: number,
-  travel: number,
-): { x: number; y: number; rotate: number; scale: number; opacity: number } {
+  t: number,
+): { open: number; rotate: number; length: number; opacity: number } {
   'worklet';
-  const angle = (i * 2 * Math.PI) / PETALS;
-  const eased = 1 - (1 - p) * (1 - p);
-  const distance = radius + travel * eased;
+  const since = t - CELEBRATION.bloom.stagger * i;
+  const unfold = springStep(since / 1000, springs.reveal);
+  const shown = Math.min(1, Math.max(0, since / CELEBRATION.bloom.enter));
+  const faded = 1 - (1 - shown) * (1 - shown);
+  const folding = Math.min(
+    1,
+    Math.max(
+      0,
+      (t -
+        (CELEBRATION.fold.delay - CELEBRATION.bloom.delay) -
+        CELEBRATION.fold.stagger * i) /
+        CELEBRATION.fold.duration,
+    ),
+  );
+  // The exit curve's shape, which the UI thread can take as arithmetic.
+  const gone = folding * folding * folding;
   return {
-    x: Math.sin(angle) * distance,
-    y: -Math.cos(angle) * distance,
-    rotate: (i * 360) / PETALS + 20 * eased * (i % 2 ? 1 : -1),
-    scale: 0.6 + 0.5 * eased,
-    opacity: p < 0.35 ? p / 0.35 : Math.max(0, 1 - (p - 0.35) / 0.65),
+    open: unfold * (1 - gone),
+    rotate: petalAngle(i),
+    length: PETAL_LENGTHS[i],
+    opacity: faded * (1 - gone),
   };
 }

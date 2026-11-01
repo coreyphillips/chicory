@@ -72,7 +72,8 @@ import { ReceiveHostContext, slotRoom } from '../host';
 import { DrawnGlyph as DrawnMark } from '../draw';
 import { ListeningPing } from '../ListeningPing';
 import { Spin } from '../loops';
-import { CELEBRATION, receiveRefusal, requestFace } from '../model';
+import { CELEBRATION, PETALS, receiveRefusal, requestFace } from '../model';
+import { space } from '../../../theme';
 import { ReceiveScene } from '../ReceiveScene';
 import { ACTIVITY, RequestStep, frameSide } from '../RequestStep';
 import { SIGN } from '../QuoteStep';
@@ -1510,6 +1511,69 @@ describe('the celebration', () => {
     await act(async () => tree.unmount());
   });
 
+  test('opens the bloom round the mark, over the rim and under the check, with room under it', async () => {
+    const room = frameSide(264);
+    const tree = await mount(
+      <ReceiveReceipt
+        status={paid}
+        amountSats={1000}
+        celebrate
+        size={RECEIPT_MARK}
+        room={room}
+      />,
+    );
+    const petals = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        StyleSheet.flatten(node.props.style)?.transformOrigin === '50% 100%',
+    );
+    expect(petals).toHaveLength(PETALS);
+    // Rooted on the mark's centre, each turns about it to its own angle.
+    for (const petal of petals) {
+      const { transform } = StyleSheet.flatten(petal.props.style);
+      expect(transform.map((step: object) => Object.keys(step)[0])).toEqual([
+        'rotate',
+        'translateY',
+        'scaleY',
+      ]);
+    }
+    const check = tree.root
+      .findAllByType(DrawnMark)
+      .find(glyph => glyph.props.name === 'check')!;
+    const all = tree.root.findAll(() => true);
+    expect(all.indexOf(petals[0])).toBeLessThan(all.indexOf(check));
+    // The amount sits further under the mark while the petals crown it.
+    const [head] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel?.startsWith(copy.receive.received),
+    );
+    expect(StyleSheet.flatten(head.props.style)).toMatchObject({
+      gap: space.xxl,
+    });
+    await act(async () => tree.unmount());
+    // A still receipt keeps its petals folded and its amount close.
+    const still = await mount(
+      <ReceiveReceipt status={paid} amountSats={1000} size={RECEIPT_MARK} />,
+    );
+    expect(
+      still.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          StyleSheet.flatten(node.props.style)?.transformOrigin === '50% 100%',
+      ),
+    ).toHaveLength(0);
+    const [stillHead] = still.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel?.startsWith(copy.receive.received),
+    );
+    expect(StyleSheet.flatten(stillHead.props.style)).toMatchObject({
+      gap: space.md,
+    });
+    await act(async () => still.unmount());
+  });
+
   test('keeps the code over the mark it lands on, and tells it where', async () => {
     const request = requestOf();
     const tree = await mount(
@@ -1752,7 +1816,7 @@ describe('a test network', () => {
     }
   });
 
-  test('bursts a paid request into slate petals', async () => {
+  test('opens a paid request into slate petals', async () => {
     const completed: ReceiveStatus = {
       phase: 'completed',
       receivedSats: 1000,

@@ -15,6 +15,7 @@ import { copy } from '../src/design/copy';
 import { GLYPHS } from '../src/design/glyphs';
 import { haptics } from '../src/design/haptics';
 import { palette } from '../src/design/palette';
+import { PETAL_LENGTHS, petalAngle } from '../src/glyphs/Bloom';
 import { CopiedGlyph, CopyChip } from '../src/glyphs/CopyChip';
 import { ExpiryRing } from '../src/glyphs/ExpiryRing';
 import {
@@ -28,14 +29,16 @@ import {
 } from '../src/glyphs/QrBloom';
 import type { QrState } from '../src/glyphs/QrBloom';
 import {
+  BLOOM_SPAN,
   CELEBRATION,
   OFFLINE_MIN_SATS,
   ORBIT_SHARE,
+  PETALS,
   amountCue,
+  bloomPetalPose,
   detailFace,
   feeGlyph,
   lateAt,
-  petalPose,
   receiptRing,
   receiptTransactions,
   remainderSats,
@@ -1793,17 +1796,39 @@ describe('the receive model', () => {
     ]);
   });
 
-  test('the burst petals fly out from the ring, and are gone at both ends', () => {
-    const start = petalPose(3, 0, 100, 40);
-    const end = petalPose(3, 1, 100, 40);
-    expect(Math.hypot(start.x, start.y)).toBeCloseTo(100);
-    expect(Math.hypot(end.x, end.y)).toBeCloseTo(140);
-    expect(start.opacity).toBe(0);
-    expect(end.opacity).toBe(0);
-    expect(petalPose(3, 0.35, 100, 40).opacity).toBe(1);
-    // Petal 0 flies straight up.
-    expect(petalPose(0, 1, 100, 40).x).toBeCloseTo(0);
-    expect(petalPose(0, 1, 100, 40).y).toBeCloseTo(-140);
+  test('the bloom opens a petal at a time from the rim, holds, and folds back in turn', () => {
+    const { bloom, fold } = CELEBRATION;
+    expect(bloom.delay).toBe(CELEBRATION.tint.delay);
+    // No petal folds while another is still opening.
+    expect(fold.delay).toBeGreaterThanOrEqual(
+      bloom.delay + (PETALS - 1) * bloom.stagger + bloom.enter,
+    );
+    expect(BLOOM_SPAN).toBe(
+      fold.delay - bloom.delay + fold.stagger * (PETALS - 1) + fold.duration,
+    );
+    for (const i of [0, 5, 11]) {
+      const before = bloomPetalPose(i, i * bloom.stagger - 1);
+      expect(before.open).toBe(0);
+      expect(before.opacity).toBe(0);
+      const open = bloomPetalPose(i, i * bloom.stagger + 400);
+      expect(open.open).toBeGreaterThan(0.9);
+      expect(open.open).toBeLessThan(1.1);
+      expect(open.opacity).toBe(1);
+      // The bloom's own petals, at the bloom's own angles and lengths.
+      expect(open.rotate).toBe(petalAngle(i));
+      expect(open.length).toBe(PETAL_LENGTHS[i]);
+      const rest = bloomPetalPose(i, BLOOM_SPAN);
+      expect(rest.open).toBe(0);
+      expect(rest.opacity).toBe(0);
+    }
+    // The first petal opens before the last, and folds before it.
+    expect(bloomPetalPose(0, 100).open).toBeGreaterThan(
+      bloomPetalPose(11, 100).open,
+    );
+    const folding = fold.delay - bloom.delay + fold.duration / 2;
+    expect(bloomPetalPose(0, folding).open).toBeLessThan(
+      bloomPetalPose(11, folding).open,
+    );
   });
 });
 

@@ -384,6 +384,7 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
   - Petal lengths, in order: 1, .96, .99, .94, 1, .97, .95, 1, .98, .95, .99, .96.
 - **Petal path** (pointing up): `M-1.6,-8 C-4.2,-18 -9.8,-31 -10.4,-41.5 L-8.3,-44.8 L-6.25,-42.6 L-4.2,-45.6 L-2.1,-43.3 L0,-46 L2.1,-43.3 L4.2,-45.6 L6.25,-42.6 L8.3,-44.8 L10.4,-41.5 C9.8,-31 4.2,-18 1.6,-8 Z`.
   - Below 40pt, use the three-tooth tip: `L-6.9,-45 L-3.5,-42.6 L0,-45.8 L3.5,-42.6 L6.9,-45 L10.4,-41.5`.
+  - Exported for a flower drawn elsewhere: `PETAL_ART` (both paths, the base at 8, the tip at 46, 24 across), `PETAL_LENGTHS` and `petalAngle`, which the receipt's bloom draws round its mark (Received celebration).
 - **Fill.** A userSpace gradient from y -8 to -46: bloomNight, bloomDeep at .45, bloomHi.
 - **Vein.** `M0,-12 L0,-38`, bloomNight at .35 alpha, width .8. Full detail only.
 - **Center.** Circle r7.5 in stamen, with 8 anthers (r1.1) at radius 9.5 and 5 pollen dots (r.9) at radius 5. At mark size the center is a plain circle, r8.
@@ -540,9 +541,13 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 | 200       | the amount counts up (700ms)                                                 |
 | 420       | the card has landed; the sage ring draws round the mark (480ms)              |
 | 600       | the check draws (420ms)                                                      |
-| 700       | the petal burst (800ms) and the sage tint                                    |
+| 700       | the sage tint, and the bloom's petals open from the rim a petal at a time, 25ms apart on the reveal spring, each fading in over 220ms (the last is open by about 1200) |
+| 1200      | the petals fold back into the ring in the same order, 25ms apart, 320ms each on the exit curve's shape |
+| 1795      | at rest: the sage ring, the ink check and the amount in sage                 |
 
 The mark is Send's result's size (`RECEIPT_MARK`, 120pt) at the code's centre. Done, it is Send's done disc, cream with a 56pt ink check, rimmed in sage, with the amount under it at 48pt in sage; confirming or part paid, a husk track with the sage orbit or the split arc. It is drawn under the code, whose card lands on it, and its rim and husk track wait for the card to go (`QR_CARD_GONE`), so no dark ring cuts across the code as it implodes.
+
+The petals are the bloom's own (Bloom, `PETAL_ART`, with its angles and lengths), twelve of them rooted 2pt inside the rim's outer edge and reaching 30pt past it (`PETAL_REACH`), drawn over the rim and under the check, in bloomHi or slate on a test network, so the receipt opens into the chicory flower and settles back to its ring. Each petal is one still drawing in a box whose bottom centre sits on the mark's centre, scaled along its length from its base, carried out to the rim and turned round the centre, so it grows out of the rim rather than from a point in the air (`bloomPetalPose` in `scenes/receive/model`, a clock of `BLOOM_SPAN` ms that every petal reads). While the mark celebrates the amount sits 32pt under it rather than 16, so the petals never cross it.
 
 Under the done mark the way to the payment list is the history glyph (`HISTORY_GLYPH`, `restore`), as under Send's results (6, Send).
 
@@ -700,11 +705,11 @@ A Lightning max review shows three facts: the recipient minimum at 48pt marked `
 | tracking unavailable | A `question` badge.                                                                                                                                                       |
 | detected             | Celebration part 1.                                                                                                                                                       |
 | partial              | A split ring showing received over requested, and `plus` with the remainder.                                                                                              |
-| completed            | The full celebration.                                                                                                                                                     |
+| completed            | The full celebration: the bloom opens round the receipt's mark and folds back into its ring (5, Received celebration).                                                     |
 
 **The amount step.** `pencil` (a note) and `moon` (offline, when offered) sit either side of the amount's cue, in a row of three whose sides share its width, so the cue stays centred without the moon; the pencil is a bare glyph as the cue is, not a disc, and turns bloom while the note is open. Then the amount and its presets. Continue is pinned at the bottom of the step, above the bottom inset, with a refusal's pip beside it as Send has it, so a refusal is never pushed off screen. A refusal Receive knows is said in its own words, its amounts formatted as amounts (`receiveRefusal`: the primary's cap on one receive becomes "funds at most 1,000,000 sats"), while the diagnostic log keeps the engine's; one that refuses the amount itself also turns the amount radish (the table's amount refused). In the scene the step measures its slot (`ReceiveHost.room`) and fits it: what is entered scrolls on a short phone, and the way on stays in view. Every step keeps its way on in one row at its foot (`CONTROL_ROW`, as tall as the quote's ring): Continue, the quote's create or refresh, and the request's controls sit at one height above the bottom inset, as Send's control does, each with a refusal beside it, so the thumb stays put from step to step. Held back, Continue is drawn at full size, as Send's review is, so the circle that lands on it never lands on a smaller control that then grows. Continue's row holds still as the step arrives, as Send's does, since Home's circle is landing on it (7, T2), and Continue is measured again whenever the row moves, as it does when the step is fitted to its slot.
 
-On a test network Receive draws slate wherever it would draw bloom (`scenes/receive/tone.ts`): its glyphs, the busy orbit, the halo, the offline switch, the primary controls and the burst petals, and `ReceiveRequestDetails` does the same for the request a payment's detail keeps when it is given `test`. The quote's and the request's expiry rings take the test network too, so their calm stroke is slate.
+On a test network Receive draws slate wherever it would draw bloom (`scenes/receive/tone.ts`): its glyphs, the busy orbit, the halo, the offline switch, the primary controls and the bloom's petals, and `ReceiveRequestDetails` does the same for the request a payment's detail keeps when it is given `test`. The quote's and the request's expiry rings take the test network too, so their calm stroke is slate.
 
 ### Backup and setup
 
@@ -878,7 +883,7 @@ The hold's centre is read in window points while the payment is out (`watchCentr
   - A shake becomes a 400ms radish tint.
   - The hold fill still runs.
   - The comet holds still at its heading. A result's mark does not travel: it crossfades in where it rests within 160ms, and the hold fades with its review.
-  - A waiting request's frame draws no ping.
+  - A waiting request's frame draws no ping, and a paid request opens no petals: the ring, the check and the amount are set at once, and the sage tint flashes at once.
   - Settings: the arrival cascade and what a row opens crossfade within 160ms, the rows lay out with a 160ms fade (`smooth` turns to `FadingTransition`), the chevron and the disc's fill are set at once and a press dips nothing, the card's bloom holds still and is drawn unfolded with its halo a still ring, the halo round the phrase to save is a still ring, the connecting dot is solid honey, the shackle and the haptics bars only crossfade (160ms, nothing drops or grows), the app lock's glyph is simply there, the phrase's move to its row is a crossfade with its colours switched at once, and a row brought into view is jumped to rather than scrolled.
 
 ## 9. Accessibility
