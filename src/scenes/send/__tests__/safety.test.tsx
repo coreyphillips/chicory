@@ -1354,6 +1354,149 @@ describe('a completed payment', () => {
   });
 });
 
+describe('a payment broadcast on chain', () => {
+  const txid = 'c'.repeat(64);
+  /**
+   * `request` reviewed as `review` says and held to send, under fake timers,
+   * with a call to pay it that answers when the test says, and `onDone` to
+   * watch. What the hold itself felt and said is forgotten, so only the
+   * answer counts.
+   */
+  async function sent(
+    request: string,
+    review: Partial<SendReview>,
+    props: Props = {},
+  ) {
+    jest.useFakeTimers();
+    let answer!: (result: SendResult) => void;
+    const send = jest.fn(
+      () => new Promise<SendResult>(resolve => (answer = resolve)),
+    );
+    const onDone = jest.fn();
+    const tree = await draw(
+      { prepareSend: jest.fn().mockResolvedValue(quote(review)), send },
+      { initialRequest: request, onDone, ...props },
+    );
+    await press(tree, copy.send.review);
+    await activate(tree, HOLD);
+    expect(send).toHaveBeenCalledTimes(1);
+    jest.mocked(HapticFeedback.trigger).mockClear();
+    said.mockClear();
+    return {
+      tree,
+      onDone,
+      answer: (result: SendResult) => act(async () => answer(result)),
+    };
+  }
+  const past = (ms: number) => act(async () => jest.advanceTimersByTime(ms));
+  const markOf = (tree: ReactTestRenderer) =>
+    tree.root.findAllByType(ResultMark)[0].props.visual;
+
+  test.each([
+    ['a splice-out', priced('splice-out'), {}],
+    [
+      'a direct funding',
+      priced('direct-funding'),
+      { method: 'direct-funding' as const },
+    ],
+  ])(
+    '%s answered pending with its transaction rests on the done disc with a clock, felt softly, heard as confirming, and goes home on its own',
+    async (_, request, method) => {
+      // It stayed on the orbit, "Payment on its way.", until closed by hand:
+      // the splice confirms in blocks, which nobody waits on this screen
+      // for (issue 91).
+      const { tree, onDone, answer } = await sent(request, {
+        route: 'bitcoin',
+        ...method,
+      });
+      await answer({ ...outcome('pending'), txid });
+      expect(markOf(tree)).toMatchObject({
+        shape: 'disc',
+        glyph: 'clock',
+        title: copy.send.confirming,
+        returnsHome: true,
+      });
+      expect(meaning(tree)).toContain(copy.send.confirming);
+      expect(meaning(tree)).not.toContain(copy.send.onItsWay);
+      expect(meaning(tree)).not.toContain(copy.send.held);
+      expect(find(tree, copy.send.viewActivity)).toBeDefined();
+      // Not landed, so not felt as a success, and said by its own name.
+      expect(felt()).toEqual(['soft']);
+      await arrive(true);
+      expect(said).toHaveBeenCalledWith(copy.send.confirming);
+      expect(said).not.toHaveBeenCalledWith(copy.send.sent);
+      // Home a moment later, as a completed result goes.
+      expect(onDone).not.toHaveBeenCalled();
+      await past(HOME_AFTER_MS);
+      expect(onDone).toHaveBeenCalledTimes(1);
+      expect(felt()).toEqual(['soft']);
+      await act(async () => tree.unmount());
+    },
+  );
+
+  test('stays once touched', async () => {
+    const { tree, onDone, answer } = await sent(priced('splice-touched'), {
+      route: 'bitcoin',
+    });
+    await answer({ ...outcome('pending'), txid });
+    await act(async () => {
+      tree.root
+        .findAll(node => typeof node.props.onTouchStart === 'function')[0]
+        .props.onTouchStart();
+    });
+    await past(10_000);
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('stays while a screen reader is running', async () => {
+    jest
+      .mocked(AccessibilityInfo.isScreenReaderEnabled)
+      .mockResolvedValueOnce(true);
+    const { tree, onDone, answer } = await sent(priced('splice-reader'), {
+      route: 'bitcoin',
+    });
+    await answer({ ...outcome('pending'), txid });
+    await past(10_000);
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test.each([
+    [
+      'a Lightning payment still in flight',
+      { route: 'lightning' as const },
+      { paymentHash: 'd'.repeat(64) },
+    ],
+    [
+      'an address payment answered without its transaction',
+      { route: 'bitcoin' as const },
+      {},
+    ],
+  ])(
+    '%s keeps the orbit, and never goes home on its own',
+    async (_, review, reference) => {
+      const { tree, onDone, answer } = await sent(
+        priced(`flying-${review.route}`),
+        review,
+      );
+      await answer({ ...outcome('pending'), ...reference });
+      expect(markOf(tree)).toMatchObject({
+        shape: 'orbit',
+        title: copy.send.onItsWay,
+        returnsHome: false,
+      });
+      expect(meaning(tree)).not.toContain(copy.send.confirming);
+      expect(felt()).toEqual(['soft']);
+      await arrive(true);
+      expect(said).toHaveBeenCalledWith(copy.send.onItsWay);
+      await past(10_000);
+      expect(onDone).not.toHaveBeenCalled();
+      await act(async () => tree.unmount());
+    },
+  );
+});
+
 test('a failed payment touched and paid again still goes home once it completes', async () => {
   jest.useFakeTimers();
   const onDone = jest.fn();

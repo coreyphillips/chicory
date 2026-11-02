@@ -51,6 +51,7 @@ import {
   alreadySubmitted,
   amountTone,
   amountWords,
+  confirming,
   errorCode,
   fixedAmount,
   heldVisual,
@@ -173,9 +174,10 @@ function quoteExpired(): () => void {
  *
  * On the canvas, `onScan` opens the scan overlay and the Send scene hands the
  * code back through `receive`. Rendered on its own, with no `onScan`, the
- * camera opens inside it instead. `onDone` takes a completed payment home
- * once it has been seen, and `onDetail` opens the payment a held request is
- * waiting on.
+ * camera opens inside it instead. `onDone` takes a payment home once it has
+ * been seen to complete, or to go out on chain, where the history follows
+ * it (`confirming` in scenes/send/model), and `onDetail` opens the payment
+ * a held request is waiting on.
  */
 export function SendScreen({
   client,
@@ -285,10 +287,11 @@ export function SendScreen({
   );
   // Each refusal of the amount shakes it, the same one again included.
   const [amountShakes, setAmountShakes] = useState(0);
-  // A completed payment, or a held ring seen to resolve into one, goes home
-  // on its own unless the screen is touched or focused, and never while a
-  // screen reader is running: its user reaches the result a swipe at a
-  // time, and no timer should take it away.
+  // A result that returns home (a completed payment, or one broadcast on
+  // chain), or a held ring seen to resolve into one, goes home on its own
+  // unless the screen is touched or focused, and never while a screen
+  // reader is running: its user reaches the result a swipe at a time, and
+  // no timer should take it away.
   const [stayed, setStayed] = useState(false);
   const reader = useScreenReader();
   // A request that names its amount sets it and locks it, so the amount
@@ -585,6 +588,12 @@ export function SendScreen({
   );
   const flash = useFlashTint();
 
+  // How the result looks: a pending payment broadcast on chain, over the
+  // rail the review settled on, rests on the done disc rather than the
+  // orbit, since nothing more happens here before it confirms.
+  const broadcast = result ? confirming(result, rail) : false;
+  const visual = result ? resultVisual(result.status, broadcast) : null;
+
   // A result is felt as it lands, and said once its mark has taken a screen
   // reader's focus, so the move never cuts an assertive message short. An
   // unknown one is a safety state, said through `announceSafety` once the
@@ -599,8 +608,10 @@ export function SendScreen({
         say(copy.send.sent);
         break;
       case 'pending':
+        // Soft whether in flight or broadcast: neither has landed, so
+        // neither is felt as a success.
         haptics.soft();
-        say(copy.send.onItsWay);
+        say(resultVisual('pending', broadcast).title);
         break;
       case 'uncertain':
         haptics.held();
@@ -613,9 +624,9 @@ export function SendScreen({
         break;
     }
     return withdraw;
-  }, [result, flash, land, say]);
+  }, [result, broadcast, flash, land, say]);
 
-  const done = result?.status === 'completed' || resolved;
+  const done = visual?.returnsHome || resolved;
   useEffect(() => {
     if (!done || !onDone || stayed || reader) return;
     const timer = setTimeout(onDone, HOME_AFTER_MS);
@@ -1088,8 +1099,7 @@ export function SendScreen({
         )
       : undefined;
 
-  if (result) {
-    const visual = resultVisual(result.status);
+  if (result && visual) {
     const reference = result.txid || result.paymentHash;
     const item = paymentOf(result, activity);
     const failed = result.status === 'failed';
@@ -1185,7 +1195,7 @@ export function SendScreen({
     const item = held.item;
     // A payment this screen sent shows what it sent, amount typed or not.
     const shown = item?.amountSats ?? fixedSats ?? (Number(amount) || null);
-    const visual = heldVisual(held.status, resolved);
+    const ring = heldVisual(held.status, resolved);
     const paid = held.status === 'completed';
     // Paid for good, or seen to complete here for a request that may be
     // paid again, which is not said to be held for good.
@@ -1199,8 +1209,8 @@ export function SendScreen({
         <View style={styles.body}>
           <ResultMark
             ref={mark}
-            visual={visual}
-            accessibilityLabel={visual.title}
+            visual={ring}
+            accessibilityLabel={ring.title}
             accessibilityValue={statusLabel(held.status)}
             accessibilityHint={[
               !paid ? copy.send.held : once ? copy.send.paid : null,

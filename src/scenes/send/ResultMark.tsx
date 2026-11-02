@@ -128,9 +128,11 @@ interface FaceProps {
 }
 
 /**
- * Done: a cream disc, and an ink check drawing across it. At rest, for a
- * payment seen before, the check is simply there. Landing from the hold,
- * the cream fills the ring the comet has closed before the check draws.
+ * Done: a cream disc, and the visual's glyph drawing across it in ink, the
+ * check for a payment that settled and a clock for one broadcast on chain.
+ * At rest, for a payment seen before, the glyph is simply there. Landing
+ * from the hold, the cream fills the ring the comet has closed before the
+ * glyph draws.
  */
 function Disc({ visual, lead, fill }: FaceProps) {
   const cream = useAnimatedStyle(() => ({ opacity: fill.get() }));
@@ -138,10 +140,10 @@ function Disc({ visual, lead, fill }: FaceProps) {
     <View style={styles.disc}>
       <Reanimated.View style={[styles.cream, cream]} />
       {visual.resting ? (
-        <Glyph name="check" size={56} color={palette.ink} />
+        <Glyph name={visual.glyph} size={56} color={palette.ink} />
       ) : (
         <DrawnGlyph
-          name="check"
+          name={visual.glyph}
           size={56}
           color={palette.ink}
           strokes={[{ duration: durations.draw, delay: lead }]}

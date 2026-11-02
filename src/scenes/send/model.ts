@@ -417,10 +417,25 @@ export function sendFailure(
 }
 
 /**
+ * Whether `result` is a payment broadcast on chain, which lands in a block
+ * rather than inside the call: pending, on the chain or funding `rail`,
+ * with the transaction that carries it. The engine answers a splice-out,
+ * and a direct funding, this way once the transaction is out, and nothing
+ * more is asked of the payer; the history follows it to its confirmation,
+ * which takes blocks. A Lightning payment pending with only its hash can
+ * still settle within seconds, so it is not one.
+ */
+export function confirming(result: SendResult, rail: GlyphName): boolean {
+  return result.status === 'pending' && rail !== 'bolt' && !!result.txid;
+}
+
+/**
  * A result's mark (REDESIGN.md 6, Send). Each outcome has its own shape as
  * well as its own colour, so none can be mistaken for another without
  * colour: a filled disc is done, an orbit is moving, a steady ring with a
- * halo is held, and an open outline with a bang has failed.
+ * halo is held, and an open outline with a bang has failed. A payment
+ * broadcast on chain is done as far as the payer goes, so it is the disc
+ * too, with a clock in the check's place.
  */
 export interface ResultVisual {
   shape: 'disc' | 'orbit' | 'held' | 'broken';
@@ -441,7 +456,18 @@ export interface ResultVisual {
   resolves?: boolean;
 }
 
-export function resultVisual(status: SendResult['status']): ResultVisual {
+/**
+ * The mark for a result of `status`. A pending one is the orbit of a
+ * payment still in flight, unless it is `broadcast` on chain (`confirming`
+ * above): then it rests on the done disc with a clock, since nothing more
+ * happens on this screen, and goes home on its own as a completed payment
+ * does. The clock, not the check, says it is not settled yet without
+ * relying on colour (REDESIGN.md 9, Shape as well as color).
+ */
+export function resultVisual(
+  status: SendResult['status'],
+  broadcast = false,
+): ResultVisual {
   switch (status) {
     case 'completed':
       return {
@@ -452,13 +478,21 @@ export function resultVisual(status: SendResult['status']): ResultVisual {
         returnsHome: true,
       };
     case 'pending':
-      return {
-        shape: 'orbit',
-        tone: 'bloom',
-        glyph: 'send',
-        title: copy.send.onItsWay,
-        returnsHome: false,
-      };
+      return broadcast
+        ? {
+            shape: 'disc',
+            tone: 'cream',
+            glyph: 'clock',
+            title: copy.send.confirming,
+            returnsHome: true,
+          }
+        : {
+            shape: 'orbit',
+            tone: 'bloom',
+            glyph: 'send',
+            title: copy.send.onItsWay,
+            returnsHome: false,
+          };
     case 'uncertain':
       return {
         shape: 'held',
@@ -509,7 +543,7 @@ export function heldVisual(
     : held;
 }
 
-/** How long a completed payment stays on screen before home. */
+/** How long a result that returns home stays on screen before it does. */
 export const HOME_AFTER_MS = 2200;
 
 /**
