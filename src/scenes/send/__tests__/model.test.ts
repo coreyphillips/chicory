@@ -5,6 +5,7 @@ import {
   alreadySubmitted,
   amountTone,
   amountWords,
+  confirming,
   fixedAmount,
   heldVisual,
   isUncertain,
@@ -304,10 +305,61 @@ describe('a result', () => {
     });
   });
 
-  test('only a completed payment goes home on its own', () => {
+  test('only a completed payment goes home on its own, as its status stands', () => {
     expect(STATUSES.filter(status => resultVisual(status).returnsHome)).toEqual(
       ['completed'],
     );
+  });
+
+  test('broadcast on chain, a pending payment rests on the done disc with a clock, and goes home', () => {
+    // The splice-out of issue 91: the engine answers once the transaction
+    // is out, and the orbit stayed up until the screen was closed by hand.
+    const sent = resultVisual('pending', true);
+    expect(sent).toMatchObject({
+      shape: 'disc',
+      tone: 'cream',
+      glyph: 'clock',
+      title: copy.send.confirming,
+      returnsHome: true,
+    });
+    // Told from a settled payment by its glyph, with no colour to go on,
+    // and from one still in flight by its shape and its words.
+    const settled = resultVisual('completed');
+    expect(sent.glyph).not.toBe(settled.glyph);
+    expect(sent.title).not.toBe(settled.title);
+    const flying = resultVisual('pending');
+    expect(sent.shape).not.toBe(flying.shape);
+    expect(sent.title).not.toBe(flying.title);
+    expect(flying.returnsHome).toBe(false);
+    // No other outcome reads the flag.
+    for (const status of ['completed', 'uncertain', 'failed'] as const) {
+      expect(resultVisual(status, true)).toEqual(resultVisual(status));
+    }
+  });
+
+  test('a pending payment is confirming on chain only off Lightning, with the transaction that carries it', () => {
+    const pending = (over: Partial<SendResult>): SendResult => ({
+      id: 'p-chain',
+      status: 'pending',
+      amountSats: 4_200,
+      feeSats: 20,
+      message: 'Payment submitted. Follow its progress in Activity.',
+      ...over,
+    });
+    const txid = 'a'.repeat(64);
+    const paymentHash = 'b'.repeat(64);
+    // A splice-out, and a direct funding, once their transaction is out.
+    expect(confirming(pending({ txid }), 'chain')).toBe(true);
+    expect(confirming(pending({ txid }), 'fund')).toBe(true);
+    // A Lightning payment still in flight can settle within seconds.
+    expect(confirming(pending({ paymentHash }), 'bolt')).toBe(false);
+    expect(confirming(pending({ txid }), 'bolt')).toBe(false);
+    // Without its transaction there is nothing for the history to follow.
+    expect(confirming(pending({}), 'chain')).toBe(false);
+    expect(confirming(pending({ paymentHash }), 'chain')).toBe(false);
+    for (const status of ['completed', 'uncertain', 'failed'] as const) {
+      expect(confirming(pending({ txid, status }), 'chain')).toBe(false);
+    }
   });
 
   test('a request paid before rests, and one seen to complete on its held ring resolves, worded as sent and going home', () => {
