@@ -1,4 +1,4 @@
-import type { SendResult, SendReview } from '@beignet/wallet-core';
+import type { FeeRates, SendResult, SendReview } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
 import { snapshotOf } from '../../../../test-support/fixtures';
 import {
@@ -6,9 +6,14 @@ import {
   amountTone,
   amountWords,
   confirming,
+  feeRange,
   fixedAmount,
   heldVisual,
+  isRatedReview,
   isUncertain,
+  previewFee,
+  previewReview,
+  rateRefusal,
   requestRail,
   requestRefusal,
   resultVisual,
@@ -380,5 +385,97 @@ describe('a result', () => {
     expect(watched.resting).toBeFalsy();
     // Held, watched or not, it is the ring: only paid resolves.
     expect(heldVisual('pending', true)).toEqual(heldVisual('pending'));
+  });
+});
+
+describe('a rated review', () => {
+  const RATES: FeeRates = { fast: 8, normal: 2, slow: 1, minimum: 1 };
+  const splice: SendReview = {
+    id: 'review-rated',
+    destination: ADDRESS,
+    description: '',
+    amountSats: 4_200,
+    feeSats: 500,
+    feeLabel: 'Estimated network fee',
+    totalSats: 4_700,
+    route: 'bitcoin',
+    feeRate: 2,
+    feeRates: RATES,
+    expiresAt: Date.now() + 60_000,
+    warnings: [],
+  };
+
+  test('is a Bitcoin splice that says its rate and the estimates, and nothing else', () => {
+    expect(isRatedReview(splice)).toBe(true);
+    expect(isRatedReview({ ...splice, route: 'lightning' })).toBe(false);
+    expect(isRatedReview({ ...splice, method: 'direct-funding' })).toBe(false);
+    expect(isRatedReview({ ...splice, method: 'drain' })).toBe(false);
+    expect(isRatedReview({ ...splice, feeRate: undefined })).toBe(false);
+    expect(isRatedReview({ ...splice, feeRates: undefined })).toBe(false);
+    expect(isRatedReview({ ...splice, feeRate: 0 })).toBe(false);
+  });
+
+  test('previews its fee by scaling the reviewed fee with the rate, rounded up', () => {
+    const rated = splice as SendReview & { feeRate: number; feeRates: FeeRates };
+    expect(previewFee(rated, 4)).toBe(1_000);
+    expect(previewFee(rated, 1)).toBe(250);
+    expect(previewFee({ ...rated, feeSats: 225 }, 3)).toBe(338);
+    expect(previewFee({ ...rated, feeSats: 225 }, 1)).toBe(113);
+    expect(previewFee({ ...rated, feeSats: 1 }, 1)).toBe(1);
+  });
+
+  test('previews a fixed amount with its total following the fee', () => {
+    const rated = splice as SendReview & { feeRate: number; feeRates: FeeRates };
+    expect(previewReview(rated, 4)).toMatchObject({
+      feeRate: 4,
+      feeSats: 1_000,
+      amountSats: 4_200,
+      totalSats: 5_200,
+    });
+  });
+
+  test("previews a max review with its amount giving way to the fee and its total holding", () => {
+    const max = {
+      ...splice,
+      max: true as const,
+      keptSats: 1_402,
+      keptReason: 'commitment-cost' as const,
+      amountSats: 99_500,
+      totalSats: 100_000,
+    } as SendReview & { feeRate: number; feeRates: FeeRates };
+    expect(previewReview(max, 8)).toMatchObject({
+      feeRate: 8,
+      feeSats: 2_000,
+      amountSats: 98_000,
+      totalSats: 100_000,
+      keptSats: 1_402,
+    });
+    expect(previewReview({ ...max, amountSats: 100, feeSats: 100 }, 400).amountSats).toBe(0);
+  });
+
+  test("reaches from the engine's minimum to twice its fast estimate, within the ceiling", () => {
+    expect(feeRange(RATES, 2)).toEqual({ min: 1, max: 18 });
+    expect(feeRange({ fast: 30, normal: 20, slow: 10, minimum: 5 }, 20)).toEqual({ min: 5, max: 60 });
+    expect(feeRange({ fast: 300, normal: 200, slow: 100, minimum: 50 }, 200)).toEqual({ min: 50, max: 400 });
+  });
+
+  test('is always wide enough to hold the rate the review stands at', () => {
+    expect(feeRange(RATES, 50)).toEqual({ min: 1, max: 50 });
+    expect(feeRange({ fast: 30, normal: 20, slow: 10, minimum: 5 }, 3)).toEqual({ min: 3, max: 60 });
+    expect(feeRange({ fast: 1, normal: 1, slow: 1, minimum: 1 }, 1)).toEqual({ min: 1, max: 11 });
+  });
+
+  test("a refused rate keeps the engine's tone and glyphs, beside the hold, with no shake", () => {
+    const refused = rateRefusal(
+      sendFailure(Object.assign(new Error('short'), { code: 'INSUFFICIENT_FUNDS' }), {
+        message: 'short',
+        amountSats: 4_200,
+        balance: snapshotOf().balance,
+      }),
+    );
+    expect(refused.target).toBe('control');
+    expect(refused.shake).toBe(false);
+    expect(refused.code).toBe('INSUFFICIENT_FUNDS');
+    expect(['honey', 'radish']).toContain(refused.tone);
   });
 });

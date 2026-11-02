@@ -4,7 +4,12 @@ import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import type { SendResult, SendReview } from '@beignet/wallet-core';
 import { chipText } from '../../src/glyphs/CopyChip';
-import { fixedAmount, shortRequest } from '../../src/scenes/send/model';
+import { FeeSlider } from '../../src/scenes/send/FeeSlider';
+import {
+  REQUOTE_BEAT_MS,
+  fixedAmount,
+  shortRequest,
+} from '../../src/scenes/send/model';
 import { SendScreen } from '../../src/screens/Send';
 import type { WalletAdapter } from '../../src/services/wallet';
 import { clearHeldRequests, holdRequest } from '../../src/stage/heldRequests';
@@ -133,6 +138,25 @@ async function sent(client: object, request = fresh(), props: Drawn = {}) {
 const reviewing = (over: Partial<SendReview> = {}) => ({
   prepareSend: jest.fn().mockResolvedValue(quote(over)),
 });
+
+/** A review priced as a splice at the engine's normal rate, with its slider. */
+const RATED: Partial<SendReview> = {
+  route: 'bitcoin',
+  feeLabel: 'Estimated network fee',
+  feeSats: 500,
+  totalSats: 4_700,
+  feeRate: 2,
+  feeRates: { fast: 8, normal: 2, slow: 1, minimum: 1 },
+};
+/** The same payment priced again at 6 sat/vB. */
+const RERATED: Partial<SendReview> = {
+  ...RATED,
+  id: 'review-guard-6',
+  feeRate: 6,
+  feeSats: 1_500,
+  totalSats: 5_700,
+};
+const slider = (tree: ReactTestRenderer) => tree.root.findByType(FeeSlider);
 const paying = (result: Promise<SendResult>) => ({
   prepareSend: jest.fn().mockResolvedValue(quote()),
   send: jest.fn().mockReturnValue(result),
@@ -237,6 +261,75 @@ const GUARDED: GuardedState[] = [
     name: 'review, with engine warnings',
     render: () =>
       reviewed(reviewing({ warnings: ['This invoice expires soon.'] })),
+    data: onReview,
+  },
+  {
+    name: 'review, over Bitcoin, with its fee rate',
+    render: () => reviewed(reviewing(RATED)),
+    data: onReview,
+  },
+  {
+    name: 'review, a fee rate being dragged',
+    render: async () => {
+      const tree = await reviewed(reviewing(RATED));
+      await act(async () => slider(tree).props.onPreview(6));
+      return tree;
+    },
+    data: onReview,
+  },
+  {
+    name: 'review, a fee rate being priced',
+    render: async () => {
+      const tree = await reviewed({
+        prepareSend: jest
+          .fn()
+          .mockResolvedValueOnce(quote(RATED))
+          .mockImplementationOnce(never),
+      });
+      // The engine never answers here, so the choice is not waited on, and
+      // the hold has turned busy for it.
+      await act(async () => {
+        slider(tree).props.onChoose(6);
+      });
+      await act(async () => {
+        await new Promise<void>(resolve =>
+          setTimeout(resolve, REQUOTE_BEAT_MS + 50),
+        );
+      });
+      return tree;
+    },
+    data: onReview,
+  },
+  {
+    name: 'review, a fee rate refused',
+    render: async () => {
+      const tree = await reviewed({
+        prepareSend: jest
+          .fn()
+          .mockResolvedValueOnce(quote(RATED))
+          .mockRejectedValueOnce(refusal('INSUFFICIENT_FUNDS')),
+      });
+      await act(async () => {
+        await slider(tree).props.onChoose(6);
+      });
+      return tree;
+    },
+    data: onReview,
+  },
+  {
+    name: 'review, a fee rate chosen',
+    render: async () => {
+      const tree = await reviewed({
+        prepareSend: jest
+          .fn()
+          .mockResolvedValueOnce(quote(RATED))
+          .mockResolvedValueOnce(quote(RERATED)),
+      });
+      await act(async () => {
+        await slider(tree).props.onChoose(6);
+      });
+      return tree;
+    },
     data: onReview,
   },
   {

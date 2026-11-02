@@ -11,11 +11,10 @@ import { copy } from '../../design/copy';
 import { GLYPHS, strokeFor } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
-import { useShake } from '../../motion/effects';
+import { useOnce, useShake } from '../../motion/effects';
 import { springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { usePaneActive } from '../../stage/panes/Pane';
-import { useOnce } from './controls';
 import { useBloom } from './tone';
 
 const TRACK = { width: 60, height: 36 };

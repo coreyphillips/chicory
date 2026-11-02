@@ -15,6 +15,7 @@ import { holdRequest } from '../../src/stage/heldRequests';
 import { hex, receiptOf } from '../../test-support/fixtures';
 import {
   ADDRESS,
+  FEE_RATES,
   INVOICE,
   NOTE,
   configOf,
@@ -22,6 +23,7 @@ import {
   never,
   onMainnet,
   quoteOf,
+  ratedReviewOf,
   refusal,
   requestFor,
   resultOf,
@@ -185,11 +187,35 @@ const sends: Shot[] = [
     totalSats: 5_212,
     estimatedFeeSats: 12,
   })),
-  reviewed('review, over Bitcoin', () => ({
-    route: 'bitcoin',
-    feeLabel: 'Network fee',
-    feeSats: 1_000,
-    totalSats: 5_200,
+  // A payment to an address is priced as a splice, at the engine's normal
+  // rate unless the slider under the sum chose another.
+  send('review, over Bitcoin', () => ({
+    client: {
+      prepareSend: async input =>
+        ratedReviewOf({}, input.feeRate ?? FEE_RATES.normal),
+    },
+    steps: [...AMOUNT_4200, REVIEW],
+  })),
+  send('review, over Bitcoin, the fee rate raised', () => ({
+    client: {
+      prepareSend: async input =>
+        ratedReviewOf({}, input.feeRate ?? FEE_RATES.normal),
+    },
+    steps: [...AMOUNT_4200, REVIEW, drive => drive.call('onChoose', 8)],
+  })),
+  send('review, over Bitcoin, a rate refused', () => ({
+    client: {
+      prepareSend: async input => {
+        if (input.feeRate) {
+          throw refusal(
+            'The available balance is too low for this payment and its fee.',
+            'INSUFFICIENT_FUNDS',
+          );
+        }
+        return ratedReviewOf();
+      },
+    },
+    steps: [...AMOUNT_4200, REVIEW, drive => drive.call('onChoose', 8)],
   })),
   reviewed('review, by direct funding', () => ({
     route: 'bitcoin',
