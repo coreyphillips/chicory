@@ -107,14 +107,17 @@ async function reviewed(client: object, measured = true) {
   return tree;
 }
 
-/** The step's view, keyed by the step, which the scene moves. */
+/**
+ * The step's view, keyed by the step, which the scene moves: the one given
+ * a touch handler, set only on a result's step.
+ */
 const stepOf = (tree: ReactTestRenderer) =>
   tree.root.find(
     node =>
       typeof node.type !== 'string' &&
       node.props.layout !== undefined &&
       node.props.exiting !== undefined &&
-      node.props.onTouchStart !== undefined,
+      'onTouchStart' in node.props,
   );
 
 beforeEach(() => {
@@ -143,13 +146,16 @@ test('a result grows out of the hold: from its centre, on its comet clock, and n
   const commit = tree.root.findByType(Commit);
   expect(commit.parent?.props.exiting).toBeUndefined();
   await activate(tree, HOLD);
-  // Sent, the hold is drawn one frame under what takes its place, then gone.
-  expect(tree.root.findByType(Commit).parent?.props.exiting).toEqual(
-    expect.any(Function),
-  );
+  // Sent, the hold's exit reads as it leaves whether a mark takes its
+  // place: here one does, so the hold is drawn one frame under the mark and
+  // then gone.
+  const leave = tree.root.findByType(Commit).parent?.props.exiting;
+  expect(leave).toEqual(expect.any(Function));
+  expect(leave({}).animations.opacity).toBe(1);
   const clock = tree.root.findByType(Commit).props.comet;
   expect(clock).toBeDefined();
   await act(async () => answer(outcome('completed')));
+  expect(leave({}).animations.opacity).toBe(0);
   const mark = tree.root.findByType(ResultMark);
   expect(mark.props.arrival).toEqual({
     from: CENTRE,
@@ -219,6 +225,42 @@ test('the held ring a payment past its grace moves to grows out of the hold too'
   const mark = tree.root.findByType(ResultMark);
   expect(mark.props.visual.shape).toBe('held');
   expect(mark.props.arrival?.from).toEqual(CENTRE);
+  await act(async () => tree.unmount());
+});
+
+test('a payment the engine refuses takes nothing over, so the hold leaves with its review', async () => {
+  let refuse!: (reason: unknown) => void;
+  const send = jest.fn(
+    () =>
+      new Promise<SendResult>((_, reject) => {
+        refuse = reject;
+      }),
+  );
+  const client = { prepareSend: jest.fn().mockResolvedValue(quote()), send };
+  const tree = await reviewed(client);
+  await activate(tree, HOLD);
+  const leave = tree.root.findByType(Commit).parent?.props.exiting;
+  await act(async () => refuse(new Error('No route to the recipient.')));
+  // Back in compose with the request kept: no mark grew out of the hold, so
+  // the hold stays whole and goes with the review round it.
+  expect(tree.root.findAllByType(ResultMark)).toHaveLength(0);
+  expect(leave({}).animations.opacity).toBe(1);
+  await act(async () => tree.unmount());
+});
+
+test("a held ring gone before the hold's look has given way lets the arrival go with it", async () => {
+  const { send } = deferred();
+  const client = { prepareSend: jest.fn().mockResolvedValue(quote()), send };
+  const tree = await reviewed(client);
+  await activate(tree, HOLD);
+  await act(async () => jest.advanceTimersByTime(SEND_GRACE_MS));
+  expect(tree.root.findByType(ResultMark).props.arrival).not.toBeNull();
+  // The chip tapped within the half second opens compose again: the ring
+  // goes, nothing is left growing out of a hold that is gone, and compose
+  // moves in as a step does.
+  await press(tree, copy.send.request);
+  expect(tree.root.findAllByType(ResultMark)).toHaveLength(0);
+  expect(stepOf(tree).props.entering).toEqual(expect.any(Function));
   await act(async () => tree.unmount());
 });
 

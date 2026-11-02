@@ -10,7 +10,7 @@ import React, {
 import type { ReactNode, Ref } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { HostInstance } from 'react-native';
-import Reanimated from 'react-native-reanimated';
+import Reanimated, { useSharedValue } from 'react-native-reanimated';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { parseSats } from '@beignet/wallet-core';
 import type {
@@ -31,7 +31,7 @@ import { CopyChip } from '../glyphs/CopyChip';
 import { Whisper } from '../glyphs/Whisper';
 import { inlineAmount } from '../glyphs/InlineAmount';
 import { useLoop } from '../motion/loops';
-import { riseIn, sceneIn, sceneOut, smooth, vanish } from '../motion/presets';
+import { riseIn, sceneIn, sceneOut, smooth, vanishIf } from '../motion/presets';
 import { announceSafety } from '../motion/speech';
 import { durations, overlap } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
@@ -395,6 +395,11 @@ export function SendScreen({
   const { reduced } = useMotionPrefs();
   const [arrival, setArrival] = useState<Arrival | null>(null);
   const comet = useLoop(durations.orbit, spent || arrival !== null);
+  // Whether a mark takes the hold's place as it leaves, read by the hold's
+  // exit in the frame it goes (`vanishIf`): set as a result or the overdue
+  // ring is shown grown out of it, and clear while a payment is out, so the
+  // hold of a payment the engine refuses leaves with its review.
+  const taken = useSharedValue(false);
   const holdAt = useRef<Centre | null>(null);
   useLayoutEffect(() => {
     if (!spent) {
@@ -766,7 +771,9 @@ export function SendScreen({
 
   /** Shows how a payment came out, grown out of the hold that sent it. */
   function show(outcome: SendResult) {
-    setArrival(arrivalFrom((review?.warnings.length ?? 0) > 0));
+    const from = arrivalFrom((review?.warnings.length ?? 0) > 0);
+    taken.set(from !== null);
+    setArrival(from);
     setResult(outcome);
     setStayed(false);
     setReview(null);
@@ -790,7 +797,9 @@ export function SendScreen({
     setRingFor(paying.trim());
     setStayed(false);
     setBusy(false);
-    setArrival(arrivalFrom((review?.warnings.length ?? 0) > 0));
+    const from = arrivalFrom((review?.warnings.length ?? 0) > 0);
+    taken.set(from !== null);
+    setArrival(from);
     toHeld();
   }
 
@@ -885,6 +894,7 @@ export function SendScreen({
     // twice (REDESIGN.md rule 6).
     holdRequest(paying, { status: 'pending', calling: true });
     const call = goingOut();
+    taken.set(false);
     setSpent(true);
     setFailure(null);
     setRail(reviewRail(quote).glyph);
@@ -1276,8 +1286,10 @@ export function SendScreen({
           </View>
           {/* A hold that has sent is taken over by the result's mark in the
               same frame, which grows out of it (REDESIGN.md 7, T7): drawn
-              whole in that frame, under the mark, and gone from the next. */}
-          <Reanimated.View exiting={spent ? vanish() : undefined}>
+              whole in that frame, under the mark, and gone from the next.
+              Refused, with no mark to take it over, it leaves with the
+              review. */}
+          <Reanimated.View exiting={spent ? vanishIf(taken) : undefined}>
             <Commit
               ref={control}
               accessibilityLabel={
@@ -1452,10 +1464,18 @@ export function SendScreen({
           />
         )}
         {/* The step slides, rather than jumps, as the request above it opens
-          into the well or closes into a chip. */}
+          into the well or closes into a chip. A step whose mark grows out of
+          the hold takes no entrance, since a rise would carry the mark with
+          it; one that takes the mark's place before the hold's look has
+          given way, as compose does when the chip is tapped, moves as the
+          steps do. */}
         <Reanimated.View
           key={step}
-          entering={arrival ? undefined : sceneIn()}
+          entering={
+            arrival && (step === 'result' || step === 'held')
+              ? undefined
+              : sceneIn()
+          }
           exiting={sceneOut()}
           layout={smooth()}
           onTouchStart={result || resolved ? stay : undefined}

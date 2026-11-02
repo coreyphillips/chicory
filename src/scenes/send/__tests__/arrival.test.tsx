@@ -71,12 +71,15 @@ beforeEach(() => {
     .spyOn(Reanimated, 'useSharedValue')
     .mockImplementation(init => React.useState(() => made(init))[0]);
 });
-afterEach(() => {
-  jest.restoreAllMocks();
-  // Every view measures through one mock, which keeps what a test taught it.
+/** Every view measures through one mock, which keeps what a test taught it. */
+const unmeasured = () =>
   (
     View.prototype as unknown as { measureInWindow: jest.Mock }
   ).measureInWindow.mockReset();
+
+afterEach(() => {
+  jest.restoreAllMocks();
+  unmeasured();
   jest.useRealTimers();
 });
 
@@ -280,12 +283,15 @@ describe('the mark growing out of the hold', () => {
     const timings = jest.spyOn(Reanimated, 'withTiming');
     const delays = jest.spyOn(Reanimated, 'withDelay');
     const tree = await mount(<Arriving status="completed" />);
-    expect(drawnOf(tree, DrawnGlyph)[0].props.strokes).toEqual([
-      { duration: durations.draw, delay: CLOSE_MS + CHECK_LEAD },
-    ]);
+    // Its face waits to be placed, so the check counts from the same moment
+    // as the ring's closing and the cream.
+    expect(drawnOf(tree, DrawnGlyph)).toHaveLength(0);
     timings.mockClear();
     delays.mockClear();
     await placeAt(tree);
+    expect(drawnOf(tree, DrawnGlyph)[0].props.strokes).toEqual([
+      { duration: durations.draw, delay: CLOSE_MS + CHECK_LEAD },
+    ]);
     const started = timings.mock.calls.map(([to, config]) => ({
       to,
       duration: config?.duration,
@@ -296,20 +302,28 @@ describe('the mark growing out of the hold', () => {
         { to: 1, duration: FILL_MS },
       ]),
     );
-    expect(delays.mock.calls.map(([ms]) => ms)).toEqual([CLOSE_MS]);
+    // The cream waits for the ring to close, and the check for the cream.
+    expect(delays.mock.calls.map(([ms]) => ms)).toEqual([
+      CLOSE_MS,
+      CLOSE_MS + CHECK_LEAD,
+    ]);
     await act(async () => tree.unmount());
   });
 
   test("any other face fades in over the hold's look as the mark lands, its glyph waiting for it", async () => {
     const delays = jest.spyOn(Reanimated, 'withDelay');
     const tree = await mount(<Arriving status="failed" />);
+    expect(drawnOf(tree, DrawnGlyph)).toHaveLength(0);
+    delays.mockClear();
+    await placeAt(tree);
     expect(drawnOf(tree, DrawnGlyph)[0].props.strokes).toEqual([
       { duration: 200, delay: ARRIVE_MS },
       { pop: { x: 12, y: 18.5 }, delay: 200 + ARRIVE_MS },
     ]);
-    delays.mockClear();
-    await placeAt(tree);
-    expect(delays.mock.calls.map(([ms]) => ms)).toEqual([ARRIVE_MS, ARRIVE_MS]);
+    // The hold's look and the face crossfade as the mark lands, and the
+    // bang's line and then its dot wait for the landing.
+    const waited = delays.mock.calls.map(([ms]) => ms).sort((a, b) => a - b);
+    expect(waited).toEqual([ARRIVE_MS, ARRIVE_MS, ARRIVE_MS, 200 + ARRIVE_MS]);
     await act(async () => tree.unmount());
   });
 
@@ -317,7 +331,12 @@ describe('the mark growing out of the hold', () => {
     const shakes = jest.spyOn(tokens, 'shake');
     const tree = await mount(<Arriving status="failed" />);
     expect(shakes).not.toHaveBeenCalled();
-    await act(async () => jest.advanceTimersByTime(ARRIVE_MS));
+    // Not yet placed, it has not landed, so nothing shakes.
+    await act(async () => jest.advanceTimersByTime(200));
+    await placeAt(tree);
+    await act(async () => jest.advanceTimersByTime(ARRIVE_MS - 1));
+    expect(shakes).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTime(1));
     expect(shakes).toHaveBeenCalled();
     await act(async () => tree.unmount());
     // Popping in where it rests, it shakes at once.
@@ -333,11 +352,90 @@ describe('the mark growing out of the hold', () => {
       <Arriving status="completed" onArrived={onArrived} />,
     );
     expect(tree.root.findAllByType(Comet)).toHaveLength(1);
+    await placeAt(tree);
     await act(async () => jest.advanceTimersByTime(CLOSE_MS + FILL_MS - 1));
     expect(onArrived).not.toHaveBeenCalled();
     await act(async () => jest.advanceTimersByTime(1));
     expect(onArrived).toHaveBeenCalledTimes(1);
     expect(tree.root.findAllByType(Comet)).toHaveLength(0);
+    // Said once: going later, it has nothing more to say.
+    await act(async () => tree.unmount());
+    expect(onArrived).toHaveBeenCalledTimes(1);
+  });
+
+  test('one clock: a mark placed late, or never, runs every beat from the moment it is placed', async () => {
+    const onArrived = jest.fn();
+    const late = await mount(
+      <Arriving status="completed" onArrived={onArrived} />,
+    );
+    await act(async () => jest.advanceTimersByTime(200));
+    await placeAt(late);
+    await act(async () => jest.advanceTimersByTime(CLOSE_MS + FILL_MS - 1));
+    expect(onArrived).not.toHaveBeenCalled();
+    expect(late.root.findAllByType(Comet)).toHaveLength(1);
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(onArrived).toHaveBeenCalledTimes(1);
+    await act(async () => late.unmount());
+    // Never placed, it is drawn where it rests at PLACE_LATEST, its face
+    // with it, and its beats run from there.
+    onArrived.mockClear();
+    unmeasured();
+    const unplaced = await mount(
+      <Arriving status="completed" onArrived={onArrived} />,
+    );
+    expect(drawnOf(unplaced, DrawnGlyph)).toHaveLength(0);
+    await act(async () => jest.advanceTimersByTime(PLACE_LATEST));
+    expect(drawnOf(unplaced, DrawnGlyph)).toHaveLength(1);
+    await act(async () => jest.advanceTimersByTime(CLOSE_MS + FILL_MS - 1));
+    expect(onArrived).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(onArrived).toHaveBeenCalledTimes(1);
+    await act(async () => unplaced.unmount());
+  });
+
+  test("gone before the hold's look has given way, the mark says so as it goes", async () => {
+    const onArrived = jest.fn();
+    const tree = await mount(
+      <Arriving status="failed" onArrived={onArrived} />,
+    );
+    await placeAt(tree);
+    await act(async () => jest.advanceTimersByTime(100));
+    await act(async () => tree.unmount());
+    expect(onArrived).toHaveBeenCalledTimes(1);
+  });
+
+  test("a held ring that grew out of the hold keeps its lead as it resolves, and the disc's check takes its own", async () => {
+    function HeldThenPaid({ paid }: { paid: boolean }) {
+      const clock = Reanimated.useSharedValue(0);
+      const visual = paid
+        ? heldVisual('completed', true)
+        : heldVisual('pending');
+      return (
+        <ResultMark
+          visual={visual}
+          accessibilityLabel={visual.title}
+          accessibilityValue=""
+          accessibilityHint=""
+          arrival={{ from: FROM, clock, warned: false }}
+        />
+      );
+    }
+    const tree = await mount(<HeldThenPaid paid={false} />);
+    await placeAt(tree);
+    await act(async () =>
+      jest.advanceTimersByTime(ARRIVE_MS + durations.crossfade),
+    );
+    await act(async () => tree.update(<HeldThenPaid paid />));
+    const glyphs = drawnOf(tree, DrawnGlyph);
+    const pause = glyphs.find(glyph => glyph.props.name === 'pause');
+    const check = glyphs.find(glyph => glyph.props.name === 'check');
+    expect(pause?.props.strokes).toEqual([
+      { pop: { x: 9, y: 12 }, delay: ARRIVE_MS },
+      { pop: { x: 15, y: 12 }, delay: 60 + ARRIVE_MS },
+    ]);
+    expect(check?.props.strokes).toEqual([
+      { duration: durations.draw, delay: CHECK_LEAD },
+    ]);
     await act(async () => tree.unmount());
   });
 
@@ -386,6 +484,7 @@ describe('the mark growing out of the hold', () => {
     }
     const tree = await mount(<HeldArriving />);
     expect(tree.root.findAllByType(Comet)).toHaveLength(1);
+    await placeAt(tree);
     const pause = drawnOf(tree, DrawnGlyph).find(
       glyph => glyph.props.name === 'pause',
     );

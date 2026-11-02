@@ -10,6 +10,8 @@ import type {
   EntryAnimationsValues,
   EntryExitAnimationFunction,
   ExitAnimationsValues,
+  LayoutAnimation,
+  SharedValue,
   WithTimingConfig,
 } from 'react-native-reanimated';
 import { motionReduced } from '../services/motion';
@@ -139,8 +141,8 @@ export function fadeOut() {
  * the hold a result's mark grows out of (REDESIGN.md 6, Send): drawn whole
  * in the frame its exit starts, which is the frame the other appears over
  * it, and gone from the next, so the two are never seen apart and never
- * seen twice. Any longer, as one frame's delay was, and the hold was still
- * drawn under a mark already on its way. Under Reduce Motion it fades as
+ * seen twice: a mark on its way is drawn over the hold from its first frame,
+ * so the hold cannot stay a frame longer. Under Reduce Motion it fades as
  * its scene does.
  */
 export function vanish(): EntryExitAnimationFunction {
@@ -150,6 +152,31 @@ export function vanish(): EntryExitAnimationFunction {
     return {
       initialValues: { opacity: 1 },
       animations: { opacity: withTiming(0, { duration: 1 }) },
+    };
+  };
+}
+
+/**
+ * Something that may be taken over in the frame it leaves, or may not: the
+ * hold a result's mark grows out of is, and the hold of a payment the engine
+ * refuses is not, since its review goes back to compose with no mark. Which
+ * it is gets decided in the render that removes it, so `taken` is read as
+ * it leaves, not as it was last drawn: set, it vanishes (`vanish`); clear,
+ * it stays whole and leaves with the scene round it, as it would with no
+ * exit of its own.
+ */
+export function vanishIf(
+  taken: SharedValue<boolean>,
+): EntryExitAnimationFunction {
+  // Neither of vanish's exits reads the values an exit is given.
+  const gone = vanish() as () => LayoutAnimation;
+  const stays = motionReduced() ? HALF : durations.exit;
+  return () => {
+    'worklet';
+    if (taken.get()) return gone();
+    return {
+      initialValues: { opacity: 1 },
+      animations: { opacity: withTiming(1, { duration: stays }) },
     };
   };
 }

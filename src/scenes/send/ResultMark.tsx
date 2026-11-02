@@ -284,12 +284,14 @@ const FACES: Record<ResultVisual['shape'], (props: FaceProps) => ReactNode> = {
  * the pane spring; a payment that went through closes the comet's lap into
  * the whole ring, fills it with cream and draws its check, and any other
  * face takes over from the hold's look by a crossfade as the mark lands.
- * `onArrived` is called once the hold's look is gone. Without an arrival,
- * or under Reduce Motion, the mark pops in where it rests. A failure shakes
- * as it lands. A mark at rest (`visual.resting`), for a payment seen
- * before, is simply there. The held ring, seen to complete
- * (`visual.resolves`), fades as the disc grows out of it and its check
- * draws, rather than cutting to the disc in a frame.
+ * Every beat of the landing counts from the moment the mark is placed, so
+ * one placed late lands late and whole. `onArrived` is called once the
+ * hold's look is gone, or as the mark goes if it goes first, so no arrival
+ * outlives its mark. Without an arrival, or under Reduce Motion, the mark
+ * pops in where it rests. A failure shakes as it lands. A mark at rest
+ * (`visual.resting`), for a payment seen before, is simply there. The held
+ * ring, seen to complete (`visual.resolves`), fades as the disc grows out
+ * of it and its check draws, rather than cutting to the disc in a frame.
  *
  * The mark carries the words: `accessibilityLabel` for what happened,
  * `accessibilityValue` for the status, and `accessibilityHint` for the
@@ -314,7 +316,7 @@ export function ResultMark({
   onPress?: () => void;
   /** What the mark grows out of, read as it mounts; null to pop in at rest. */
   arrival?: Arrival | null;
-  /** The hold's look is gone: the mark is its own. */
+  /** The hold's look is gone, or the mark went first: it is its own. */
   onArrived?: () => void;
   ref?: Ref<ComponentRef<typeof View>>;
 }) {
@@ -334,18 +336,21 @@ export function ResultMark({
     origin ? arrivalBeats(done) : null,
   );
   const [arriving, setArriving] = useState(origin !== null);
-  const lead = beats ? beats.check : done ? CHECK_LEAD : 0;
+  // Placed where it rests, its beats under way: a mark growing out of the
+  // hold draws its face from then, so every beat of the landing counts from
+  // the one moment, however late the placing.
+  const [landed, setLanded] = useState(origin === null);
+  // A glyph's lead counts from its face's mount: the landing's for the face
+  // that grew out of the hold, and the check's own for the disc a held ring
+  // resolves into later, while the ring keeps the lead it had.
+  const [grew] = useState(visual.shape);
+  const leadFor = (shape: ResultVisual['shape']) =>
+    beats && shape === grew ? beats.check : shape === 'disc' ? CHECK_LEAD : 0;
 
   // A failure shakes as it lands: at once where it pops in, and as the hold's
-  // look gives way where it grows out of the hold.
+  // look gives way where it grows out of the hold (`land`).
   useEffect(() => {
-    if (!broken) return;
-    if (!beats) {
-      play();
-      return;
-    }
-    const timer = setTimeout(play, beats.arrive);
-    return () => clearTimeout(timer);
+    if (broken && !beats) play();
   }, [broken, play, beats]);
 
   // The travel: unseen until the mark knows where it rests (`placed`), from
@@ -368,6 +373,9 @@ export function ResultMark({
   useLayoutEffect(() => {
     latest.current = onArrived;
   });
+  // The landing's timers, and whether the hold's look has given way.
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const ended = useRef(false);
 
   /**
    * The mark sets out, placed where it rests (`measured`) or, past
@@ -379,6 +387,17 @@ export function ResultMark({
       setOut.current = true;
       placed.set(1);
       travel.set(measured ? steady(withSpring(1, springs.pane)) : 1);
+      setLanded(true);
+      // The hold's look is gone, and the mark is its own, at `gone`; a
+      // failure shakes as it lands.
+      timers.current = [
+        setTimeout(() => {
+          ended.current = true;
+          setArriving(false);
+          latest.current?.();
+        }, beats.gone),
+        ...(broken ? [setTimeout(play, beats.arrive)] : []),
+      ];
       if (done) {
         closing.set(
           withTiming(1, { duration: CLOSE_MS, easing: curves.standard }),
@@ -395,7 +414,18 @@ export function ResultMark({
       departing.set(withDelay(beats.arrive, withTiming(0, fade)));
       faceIn.set(withDelay(beats.arrive, withTiming(1, fade)));
     },
-    [beats, done, placed, travel, closing, fill, departing, faceIn],
+    [
+      beats,
+      done,
+      broken,
+      play,
+      placed,
+      travel,
+      closing,
+      fill,
+      departing,
+      faceIn,
+    ],
   );
 
   /** Reads where the mark rests, following it while anything still moves it. */
@@ -422,15 +452,16 @@ export function ResultMark({
     };
   }, [origin, place, land]);
 
-  // The hold's look is gone, and the mark is its own.
-  useEffect(() => {
-    if (!beats) return;
-    const timer = setTimeout(() => {
-      setArriving(false);
-      latest.current?.();
-    }, beats.gone);
-    return () => clearTimeout(timer);
-  }, [beats]);
+  // Gone before the hold's look has given way, as a held ring tapped back
+  // to compose within the half second is, the mark says so all the same, so
+  // no arrival outlives its mark.
+  useEffect(
+    () => () => {
+      for (const timer of timers.current) clearTimeout(timer);
+      if (beats && !ended.current) latest.current?.();
+    },
+    [beats],
+  );
 
   const travelStyle = useAnimatedStyle(() => {
     if (!origin) return { opacity: 1, transform: [] };
@@ -484,15 +515,20 @@ export function ResultMark({
   }, [resolving, gone]);
   const ringStyle = useAnimatedStyle(() => ({ opacity: 1 - gone.get() }));
 
-  const faceProps = { visual, lead, fill };
+  const faceProps = { visual, lead: leadFor(visual.shape), fill };
   // Each shape is a layer of its own, the one drawn last on top. Resolving,
-  // the ring keeps its layer and the disc's comes after it.
+  // the ring keeps its layer and the disc's comes after it. A mark growing
+  // out of the hold draws them once it is placed (`landed`).
   const layers: Layer[] = resolving
     ? [
         {
           key: 'held',
           face: (
-            <Held {...faceProps} visual={{ ...visual, orbit: ring?.orbit }} />
+            <Held
+              {...faceProps}
+              visual={{ ...visual, orbit: ring?.orbit }}
+              lead={leadFor('held')}
+            />
           ),
         },
         {
@@ -550,21 +586,23 @@ export function ResultMark({
                   style={departingStyle}
                 />
               ) : null}
-              {layers.map(layer => (
-                <Reanimated.View
-                  key={layer.key}
-                  entering={layer.entering}
-                  exiting={layer.exiting}
-                  style={[
-                    styles.layer,
-                    styles.centred,
-                    layer.key === 'held' && ringStyle,
-                    arriving && faceStyle,
-                  ]}
-                >
-                  {layer.face}
-                </Reanimated.View>
-              ))}
+              {landed
+                ? layers.map(layer => (
+                    <Reanimated.View
+                      key={layer.key}
+                      entering={layer.entering}
+                      exiting={layer.exiting}
+                      style={[
+                        styles.layer,
+                        styles.centred,
+                        layer.key === 'held' && ringStyle,
+                        arriving && faceStyle,
+                      ]}
+                    >
+                      {layer.face}
+                    </Reanimated.View>
+                  ))
+                : null}
               <Reanimated.View
                 pointerEvents="none"
                 style={[styles.layer, styles.tint, refusal.tint]}
