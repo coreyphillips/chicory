@@ -8,6 +8,7 @@ import {
   normalizeRequest,
   paidOnce,
   paymentHashOf,
+  submissionId,
   subscribeHeld,
 } from '../../../stage/heldRequests';
 
@@ -280,6 +281,63 @@ test('an on-chain payment is found in the history by its transaction', () => {
     txid: hex(15),
   });
   expect(heldRequest(bare, [sent])).toBeNull();
+});
+
+test('an address payment answered without its transaction is found in the history by its submission', () => {
+  // The engine answers a splice-out as the splice starts, before its
+  // transaction exists, and the history names it once it is broadcast.
+  const bare = 'bcrt1qsubmittedbare';
+  holdRequest(bare, { status: 'pending', calling: true, id: 'review-1' });
+  // The answer comes under the payment's own id, which wins.
+  holdRequest(bare, { status: 'pending', id: 'p-1' });
+  const going = activityOf('sent', 'pending', {
+    rail: 'chain',
+    id: submissionId('p-1'),
+    timestamp: Date.now() - 60_000,
+  });
+  expect(heldRequest(bare, [going])).toEqual({
+    status: 'pending',
+    item: going,
+  });
+  // Broadcast, and still pending: held, so it is not paid twice.
+  const broadcast = { ...going, txid: hex(21) };
+  expect(heldRequest(bare, [broadcast])).toEqual({
+    status: 'pending',
+    item: broadcast,
+  });
+  // Confirmed: an address that may be paid again is let go, and its
+  // completion kept apart for a screen that watched it, though the row is
+  // older than the attempt, since it is the attempt's own.
+  const done = { ...broadcast, status: 'completed' as const };
+  expect(heldRequest(bare, [done])).toBeNull();
+  expect(completedHere(bare)).toMatchObject({
+    status: 'completed',
+    txid: hex(21),
+  });
+  // Another submission says nothing about this one.
+  const other = 'bcrt1qsubmittedother';
+  holdRequest(other, { status: 'pending', id: 'p-2' });
+  const stranger = activityOf('sent', 'failed', {
+    rail: 'chain',
+    id: submissionId('p-3'),
+    timestamp: Date.now() - 60_000,
+  });
+  expect(heldRequest(other, [stranger])).toEqual({ status: 'pending' });
+  // Its own failing lets it go.
+  const failed = { ...stranger, id: submissionId('p-2') };
+  expect(heldRequest(other, [failed])).toBeNull();
+  expect(completedHere(other)).toBeNull();
+});
+
+test('an answer without an id keeps the one its payment went out under', () => {
+  const bare = 'bcrt1qsubmittedkept';
+  holdRequest(bare, { status: 'pending', calling: true, id: 'review-4' });
+  holdRequest(bare, { status: 'uncertain' });
+  const row = activityOf('sent', 'uncertain', {
+    rail: 'chain',
+    id: submissionId('review-4'),
+  });
+  expect(heldRequest(bare, [row])).toEqual({ status: 'uncertain', item: row });
 });
 
 test('a payment going out is held against an earlier attempt the history shows settled', () => {

@@ -68,6 +68,9 @@ const outcome = (status: SendResult['status']): SendResult => ({
   message: 'The engine had its say.',
 });
 
+/** The transaction a payment to an address went out in. */
+const TXID = 'c'.repeat(64);
+
 const refusal = (code: string) =>
   Object.assign(new Error('The engine said no.'), { code });
 
@@ -413,6 +416,32 @@ const GUARDED: GuardedState[] = [
     name: 'pending',
     render: () => sent(paying(Promise.resolve(outcome('pending')))),
     data: onResult,
+  },
+  {
+    // A splice-out the engine took before naming its transaction: the orbit
+    // round the chain glyph, the Reference chip's place kept, unseen.
+    name: 'sending to Bitcoin',
+    render: () =>
+      sent({
+        prepareSend: jest.fn().mockResolvedValue(quote(RATED)),
+        send: jest
+          .fn()
+          .mockResolvedValue({ ...outcome('pending'), paymentHash: undefined }),
+      }),
+    data: guardData(snapshot),
+  },
+  {
+    name: 'sent, confirming on Bitcoin',
+    render: () =>
+      sent({
+        prepareSend: jest.fn().mockResolvedValue(quote(RATED)),
+        send: jest.fn().mockResolvedValue({
+          ...outcome('pending'),
+          paymentHash: undefined,
+          txid: TXID,
+        }),
+      }),
+    data: guardData(snapshot, [chipText(TXID)]),
   },
   {
     name: 'uncertain',

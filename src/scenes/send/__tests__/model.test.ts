@@ -5,7 +5,7 @@ import {
   alreadySubmitted,
   amountTone,
   amountWords,
-  confirming,
+  chainStage,
   feeRange,
   fixedAmount,
   heldVisual,
@@ -319,7 +319,7 @@ describe('a result', () => {
   test('broadcast on chain, a pending payment rests on the done disc with a clock, and goes home', () => {
     // The splice-out of issue 91: the engine answers once the transaction
     // is out, and the orbit stayed up until the screen was closed by hand.
-    const sent = resultVisual('pending', true);
+    const sent = resultVisual('pending', 'broadcast');
     expect(sent).toMatchObject({
       shape: 'disc',
       tone: 'cream',
@@ -336,13 +336,41 @@ describe('a result', () => {
     expect(sent.shape).not.toBe(flying.shape);
     expect(sent.title).not.toBe(flying.title);
     expect(flying.returnsHome).toBe(false);
-    // No other outcome reads the flag.
+    // No other outcome reads the stage.
     for (const status of ['completed', 'uncertain', 'failed'] as const) {
-      expect(resultVisual(status, true)).toEqual(resultVisual(status));
+      for (const stage of ['broadcast', 'broadcasting'] as const) {
+        expect(resultVisual(status, stage, 'chain')).toEqual(
+          resultVisual(status),
+        );
+      }
     }
   });
 
-  test('a pending payment is confirming on chain only off Lightning, with the transaction that carries it', () => {
+  test.each(['chain', 'fund'] as const)(
+    'broadcasting on the %s rail, a pending payment orbits its rail, not the Lightning arrow, and stays',
+    rail => {
+      // The engine took the payment and has not named its transaction yet:
+      // the splice is still being put together and broadcast.
+      const going = resultVisual('pending', 'broadcasting', rail);
+      expect(going).toMatchObject({
+        shape: 'orbit',
+        tone: 'bloom',
+        glyph: rail,
+        title: copy.send.broadcasting,
+        returnsHome: false,
+      });
+      // Told from a Lightning payment in flight by its glyph and its words,
+      // and from the broadcast disc by its shape.
+      const flying = resultVisual('pending');
+      expect(going.glyph).not.toBe(flying.glyph);
+      expect(going.title).not.toBe(flying.title);
+      const sent = resultVisual('pending', 'broadcast', rail);
+      expect(going.shape).not.toBe(sent.shape);
+      expect(going.title).not.toBe(sent.title);
+    },
+  );
+
+  test('a pending payment off Lightning is broadcasting until its transaction is named, by its answer or by the history', () => {
     const pending = (over: Partial<SendResult>): SendResult => ({
       id: 'p-chain',
       status: 'pending',
@@ -353,17 +381,32 @@ describe('a result', () => {
     });
     const txid = 'a'.repeat(64);
     const paymentHash = 'b'.repeat(64);
-    // A splice-out, and a direct funding, once their transaction is out.
-    expect(confirming(pending({ txid }), 'chain')).toBe(true);
-    expect(confirming(pending({ txid }), 'fund')).toBe(true);
+    // A splice-out, and a direct funding, whose answer names it.
+    expect(chainStage(pending({ txid }), 'chain')).toBe('broadcast');
+    expect(chainStage(pending({ txid }), 'fund')).toBe('broadcast');
+    // One the engine answered as the splice started: still going out.
+    expect(chainStage(pending({}), 'chain')).toBe('broadcasting');
+    expect(chainStage(pending({ paymentHash }), 'chain')).toBe('broadcasting');
+    expect(chainStage(pending({}), 'fund')).toBe('broadcasting');
+    // The history names its transaction, or has seen it confirm.
+    expect(chainStage(pending({}), 'chain', { txid, status: 'pending' })).toBe(
+      'broadcast',
+    );
+    expect(chainStage(pending({}), 'chain', { status: 'completed' })).toBe(
+      'broadcast',
+    );
+    // A row that names nothing yet leaves it going out.
+    expect(chainStage(pending({}), 'chain', { status: 'pending' })).toBe(
+      'broadcasting',
+    );
+    expect(chainStage(pending({}), 'chain', null)).toBe('broadcasting');
     // A Lightning payment still in flight can settle within seconds.
-    expect(confirming(pending({ paymentHash }), 'bolt')).toBe(false);
-    expect(confirming(pending({ txid }), 'bolt')).toBe(false);
-    // Without its transaction there is nothing for the history to follow.
-    expect(confirming(pending({}), 'chain')).toBe(false);
-    expect(confirming(pending({ paymentHash }), 'chain')).toBe(false);
+    expect(chainStage(pending({ paymentHash }), 'bolt')).toBeNull();
+    expect(chainStage(pending({ txid }), 'bolt')).toBeNull();
+    // Only a pending answer has a stage.
     for (const status of ['completed', 'uncertain', 'failed'] as const) {
-      expect(confirming(pending({ txid, status }), 'chain')).toBe(false);
+      expect(chainStage(pending({ txid, status }), 'chain')).toBeNull();
+      expect(chainStage(pending({ status }), 'chain')).toBeNull();
     }
   });
 

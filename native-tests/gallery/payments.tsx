@@ -12,7 +12,7 @@ import type {
 import { copy } from '../../src/design/copy';
 import type { WalletAdapter } from '../../src/services/wallet';
 import { holdRequest } from '../../src/stage/heldRequests';
-import { hex, receiptOf } from '../../test-support/fixtures';
+import { activityOf, hex, receiptOf } from '../../test-support/fixtures';
 import {
   ADDRESS,
   FEE_RATES,
@@ -58,6 +58,8 @@ const COMMIT: Step = drive => drive.activate(SEND);
 interface Paying {
   request?: string;
   snapshot?: WalletSnapshot;
+  /** Later reads of the wallet, one after each step, as polls bring them. */
+  later?: WalletSnapshot[];
   client?: Partial<WalletAdapter>;
   steps?: Step[];
 }
@@ -70,8 +72,8 @@ export function send(
   return wallet(
     `send, ${name}`,
     () => {
-      const { request = ADDRESS, snapshot, client, steps } = make();
-      return { snapshot, client, open: [open.send(request)], steps };
+      const { request = ADDRESS, snapshot, later, client, steps } = make();
+      return { snapshot, later, client, open: [open.send(request)], steps };
     },
     hold,
   );
@@ -125,6 +127,16 @@ export const answered =
 
 /** The steps that see a late answer land: a wait a little past it. */
 const landed = [wait(AFTER_BURST_MS + 100)];
+
+/**
+ * A payment to the address the engine took before naming its transaction,
+ * as the embedded engine answers a splice-out as the splice starts: priced
+ * as a splice, and answered pending with no transaction and no hash.
+ */
+const broadcasting = (): Partial<WalletAdapter> => ({
+  prepareSend: async () => ratedReviewOf(),
+  send: answered('pending', { paymentHash: undefined }),
+});
 
 /** Reviewed, and refused by the engine with `code`. */
 const refused = (name: string, code: string, before: Step[] = AMOUNT_4200) =>
@@ -271,6 +283,36 @@ const sends: Shot[] = [
     answered('pending'),
     [],
     landed,
+    SEEN_THROUGH,
+  ),
+  send(
+    'sending to Bitcoin, after the burst',
+    () => ({
+      client: broadcasting(),
+      steps: [...AMOUNT_4200, REVIEW, COMMIT, ...landed],
+    }),
+    SEEN_THROUGH,
+  ),
+  // The history names its transaction a few seconds on, as a read brings
+  // the payment's row: the orbit resolves where it stands into the clock
+  // disc, the transaction fades in under it, and it goes home.
+  send(
+    'sending to Bitcoin, seen broadcast',
+    () => ({
+      client: broadcasting(),
+      steps: [...AMOUNT_4200, REVIEW, COMMIT, ...landed, wait(1_500)],
+      later: [
+        onMainnet({
+          activity: [
+            activityOf('sent', 'pending', {
+              rail: 'chain',
+              id: 'submission:gallery-payment',
+              txid: hex(41),
+            }),
+          ],
+        }),
+      ],
+    }),
     SEEN_THROUGH,
   ),
   sent(

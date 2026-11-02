@@ -1,11 +1,11 @@
 import React, { createRef } from 'react';
-import { AccessibilityInfo, TextInput } from 'react-native';
+import { AccessibilityInfo, AppState, TextInput } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
-import type { SendResult, SendReview } from '@beignet/wallet-core';
+import type { Activity, SendResult, SendReview } from '@beignet/wallet-core';
 import { announce } from '../../../design/announce';
 import { copy } from '../../../design/copy';
 import { forgetPendingHaptics } from '../../../design/haptics';
@@ -35,7 +35,12 @@ import {
   pressableLabels,
 } from '../../../../test-support/query';
 import { Amount } from '../Amount';
-import { HOME_AFTER_MS, SEND_GRACE_MS } from '../model';
+import {
+  BROADCAST_POLL_MS,
+  BROADCAST_WATCH_MS,
+  HOME_AFTER_MS,
+  SEND_GRACE_MS,
+} from '../model';
 import { ResultMark } from '../ResultMark';
 import { ReviewLines } from '../ReviewLines';
 import { AmountReadout } from '../../keypad/AmountReadout';
@@ -1356,11 +1361,21 @@ describe('a completed payment', () => {
 
 describe('a payment broadcast on chain', () => {
   const txid = 'c'.repeat(64);
+  // The history is read on a payment's account only while the app is in
+  // front, as the wallet's own poll is.
+  const state = Object.getOwnPropertyDescriptor(AppState, 'currentState');
+  beforeEach(() => {
+    AppState.currentState = 'active';
+  });
+  afterEach(() => {
+    if (state) Object.defineProperty(AppState, 'currentState', state);
+  });
   /**
    * `request` reviewed as `review` says and held to send, under fake timers,
-   * with a call to pay it that answers when the test says, and `onDone` to
-   * watch. What the hold itself felt and said is forgotten, so only the
-   * answer counts.
+   * with a call to pay it that answers when the test says, and `onDone` and
+   * `onRefresh` to watch. `read` draws the screen again with the history a
+   * fresh read brings. What the hold itself felt and said is forgotten, so
+   * only the answer counts.
    */
   async function sent(
     request: string,
@@ -1373,10 +1388,13 @@ describe('a payment broadcast on chain', () => {
       () => new Promise<SendResult>(resolve => (answer = resolve)),
     );
     const onDone = jest.fn();
-    const tree = await draw(
-      { prepareSend: jest.fn().mockResolvedValue(quote(review)), send },
-      { initialRequest: request, onDone, ...props },
-    );
+    const onRefresh = jest.fn();
+    const client = {
+      prepareSend: jest.fn().mockResolvedValue(quote(review)),
+      send,
+    };
+    const base = { initialRequest: request, onDone, onRefresh, ...props };
+    const tree = await draw(client, base);
     await press(tree, copy.send.review);
     await activate(tree, HOLD);
     expect(send).toHaveBeenCalledTimes(1);
@@ -1385,7 +1403,10 @@ describe('a payment broadcast on chain', () => {
     return {
       tree,
       onDone,
+      onRefresh,
       answer: (result: SendResult) => act(async () => answer(result)),
+      read: (activity: Activity[]) =>
+        act(async () => tree.update(screen(client, { ...base, activity }))),
     };
   }
   const past = (ms: number) => act(async () => jest.advanceTimersByTime(ms));
@@ -1462,39 +1483,209 @@ describe('a payment broadcast on chain', () => {
     await act(async () => tree.unmount());
   });
 
+  test('a Lightning payment still in flight keeps the orbit, and never goes home on its own', async () => {
+    const { tree, onDone, onRefresh, answer } = await sent(
+      priced('flying-lightning'),
+      { route: 'lightning' },
+    );
+    await answer({ ...outcome('pending'), paymentHash: 'd'.repeat(64) });
+    expect(markOf(tree)).toMatchObject({
+      shape: 'orbit',
+      glyph: 'send',
+      title: copy.send.onItsWay,
+      returnsHome: false,
+    });
+    expect(meaning(tree)).not.toContain(copy.send.confirming);
+    expect(meaning(tree)).not.toContain(copy.send.broadcasting);
+    expect(felt()).toEqual(['soft']);
+    await arrive(true);
+    expect(said).toHaveBeenCalledWith(copy.send.onItsWay);
+    // Nothing on chain to follow, so the history is not read on its account.
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 4; i++) await past(BROADCAST_POLL_MS);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  /** The row the history keeps for the payment these tests send. */
+  const rowOf = (over: Partial<Activity> = {}) =>
+    activityOf('sent', 'pending', {
+      rail: 'chain',
+      id: 'submission:p-safety',
+      // Named only once the chain has it.
+      txid: undefined,
+      ...over,
+    });
+
   test.each([
-    [
-      'a Lightning payment still in flight',
-      { route: 'lightning' as const },
-      { paymentHash: 'd'.repeat(64) },
-    ],
-    [
-      'an address payment answered without its transaction',
-      { route: 'bitcoin' as const },
-      {},
-    ],
-  ])(
-    '%s keeps the orbit, and never goes home on its own',
-    async (_, review, reference) => {
-      const { tree, onDone, answer } = await sent(
-        priced(`flying-${review.route}`),
-        review,
+    ['a splice-out', 'chain', {}],
+    ['a direct funding', 'fund', { method: 'direct-funding' as const }],
+  ] as const)(
+    '%s answered without its transaction orbits its rail, then resolves into the confirming disc once the history names it, and goes home',
+    async (_, rail, method) => {
+      // The engine answers a splice-out as the splice starts, before its
+      // transaction exists; the screen sat on "Payment on its way." until
+      // closed by hand, though the payment had gone out.
+      const { tree, onDone, onRefresh, answer, read } = await sent(
+        priced(`broadcasting-${rail}`),
+        { route: 'bitcoin', ...method },
       );
-      await answer({ ...outcome('pending'), ...reference });
+      await answer(outcome('pending'));
       expect(markOf(tree)).toMatchObject({
         shape: 'orbit',
-        title: copy.send.onItsWay,
+        glyph: rail,
+        title: copy.send.broadcasting,
         returnsHome: false,
       });
-      expect(meaning(tree)).not.toContain(copy.send.confirming);
+      expect(meaning(tree)).toContain(copy.send.broadcasting);
+      expect(meaning(tree)).not.toContain(copy.send.onItsWay);
+      expect(meaning(tree)).not.toContain(copy.send.reference);
       expect(felt()).toEqual(['soft']);
       await arrive(true);
-      expect(said).toHaveBeenCalledWith(copy.send.onItsWay);
-      await past(10_000);
+      expect(said).toHaveBeenCalledWith(copy.send.broadcasting);
+      // The answer is followed by a read, and another each few seconds.
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+      await past(BROADCAST_POLL_MS);
+      expect(onRefresh).toHaveBeenCalledTimes(2);
+      await past(BROADCAST_POLL_MS);
+      expect(onRefresh).toHaveBeenCalledTimes(3);
       expect(onDone).not.toHaveBeenCalled();
+      // A read that shows the row with nothing named yet changes nothing.
+      await read([rowOf()]);
+      expect(markOf(tree)).toMatchObject({ shape: 'orbit' });
+      expect(felt()).toEqual(['soft']);
+      // The history names the transaction: the orbit resolves where it
+      // stands into the disc with a clock, the transaction shows as its
+      // reference, and the news is felt and heard once.
+      said.mockClear();
+      await read([rowOf({ txid })]);
+      expect(markOf(tree)).toMatchObject({
+        shape: 'disc',
+        glyph: 'clock',
+        title: copy.send.confirming,
+        returnsHome: true,
+        resolves: true,
+      });
+      expect(meaning(tree)).toContain(copy.send.confirming);
+      expect(meaning(tree)).toContain(txid);
+      expect(felt()).toEqual(['soft', 'notificationSuccess']);
+      expect(said).toHaveBeenCalledWith(copy.send.confirming);
+      // Home a moment later, as a completed result goes.
+      const reads = onRefresh.mock.calls.length;
+      await past(HOME_AFTER_MS - 1);
+      expect(onDone).not.toHaveBeenCalled();
+      await past(1);
+      expect(onDone).toHaveBeenCalledTimes(1);
+      // And the history is read no more on its account.
+      await past(BROADCAST_POLL_MS * 2);
+      expect(onRefresh).toHaveBeenCalledTimes(reads);
       await act(async () => tree.unmount());
     },
   );
+
+  test('a read that leaves the row out keeps the disc, and plays nothing again', async () => {
+    const { tree, answer, read } = await sent(priced('broadcast-dropped'), {
+      route: 'bitcoin',
+    });
+    await answer(outcome('pending'));
+    await read([rowOf({ txid })]);
+    expect(markOf(tree)).toMatchObject({ shape: 'disc', glyph: 'clock' });
+    said.mockClear();
+    // The wallet keeps only completed rows a read leaves out.
+    await read([]);
+    expect(markOf(tree)).toMatchObject({ shape: 'disc', glyph: 'clock' });
+    expect(meaning(tree)).toContain(txid);
+    await read([rowOf({ txid })]);
+    expect(felt()).toEqual(['soft', 'notificationSuccess']);
+    expect(said).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('touched while its orbit runs, it still goes home once broadcast', async () => {
+    const { tree, onDone, answer, read } = await sent(
+      priced('broadcast-touched'),
+      { route: 'bitcoin' },
+    );
+    await answer(outcome('pending'));
+    await act(async () => {
+      for (const node of tree.root.findAll(
+        candidate => typeof candidate.props.onTouchStart === 'function',
+      ))
+        node.props.onTouchStart();
+    });
+    await read([rowOf({ txid })]);
+    await past(HOME_AFTER_MS);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('the history showing it failed first moves the orbit to the failure, which returns to the payment', async () => {
+    const { tree, onDone, answer, read } = await sent(
+      priced('broadcast-failed'),
+      { route: 'bitcoin' },
+    );
+    await answer(outcome('pending'));
+    await arrive(true);
+    said.mockClear();
+    await read([rowOf({ status: 'failed' })]);
+    expect(markOf(tree)).toMatchObject({
+      shape: 'broken',
+      title: copy.send.failed,
+    });
+    // The answer said it was submitted, which it no longer speaks for.
+    expect(meaning(tree)).toContain(copy.send.notSent);
+    expect(meaning(tree)).not.toContain(outcome('pending').message);
+    expect(felt()).toEqual(['soft', 'notificationError']);
+    expect(said).toHaveBeenCalledWith(
+      `${copy.send.failed} ${copy.send.notSent}`,
+      { assertive: true },
+    );
+    expect(logged()).toContain('FAILED');
+    await past(HOME_AFTER_MS * 2);
+    expect(onDone).not.toHaveBeenCalled();
+    // Nothing moved, so a tap goes back to the payment.
+    await press(tree, copy.send.failed);
+    expect(tree.root.findAllByType(ResultMark)).toHaveLength(0);
+    expect(find(tree, copy.send.review)).toBeDefined();
+    await act(async () => tree.unmount());
+  });
+
+  test('the history showing it unknown first moves the orbit to the held ring', async () => {
+    const { tree, onDone, answer, read } = await sent(
+      priced('broadcast-unknown'),
+      { route: 'bitcoin' },
+    );
+    await answer(outcome('pending'));
+    await read([rowOf({ status: 'uncertain' })]);
+    expect(markOf(tree)).toMatchObject({
+      shape: 'held',
+      title: copy.send.unknown,
+    });
+    expect(meaning(tree)).toContain(copy.send.checkActivity);
+    expect(felt()[0]).toBe('soft');
+    expect(felt()).toContain('notificationWarning');
+    expect(logged()).toContain('UNCERTAIN');
+    await past(HOME_AFTER_MS * 2);
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('the history is read on its account for a minute at most', async () => {
+    const { tree, onRefresh, answer } = await sent(priced('broadcast-slow'), {
+      route: 'bitcoin',
+    });
+    await answer(outcome('pending'));
+    for (let at = 0; at < BROADCAST_WATCH_MS; at += BROADCAST_POLL_MS)
+      await past(BROADCAST_POLL_MS);
+    const reads = onRefresh.mock.calls.length;
+    expect(reads).toBeGreaterThan(10);
+    for (let i = 0; i < 10; i++) await past(BROADCAST_POLL_MS);
+    expect(onRefresh).toHaveBeenCalledTimes(reads);
+    // Still going out as far as anyone has said, so still orbiting.
+    expect(markOf(tree)).toMatchObject({ shape: 'orbit', glyph: 'chain' });
+    await act(async () => tree.unmount());
+  });
 });
 
 test('a failed payment touched and paid again still goes home once it completes', async () => {

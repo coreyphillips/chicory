@@ -8,7 +8,7 @@ import React, {
   useSyncExternalStore,
 } from 'react';
 import type { ReactNode, Ref } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { AppState, StyleSheet, Text, View } from 'react-native';
 import type { HostInstance } from 'react-native';
 import Reanimated, { useSharedValue } from 'react-native-reanimated';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -32,7 +32,14 @@ import { CopyChip } from '../glyphs/CopyChip';
 import { Whisper } from '../glyphs/Whisper';
 import { inlineAmount } from '../glyphs/InlineAmount';
 import { useLoop } from '../motion/loops';
-import { riseIn, sceneIn, sceneOut, smooth, vanishIf } from '../motion/presets';
+import {
+  fadeIn,
+  riseIn,
+  sceneIn,
+  sceneOut,
+  smooth,
+  vanishIf,
+} from '../motion/presets';
 import { announceSafety } from '../motion/speech';
 import { durations, overlap } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
@@ -48,13 +55,15 @@ import { FailureMark } from '../scenes/send/FailureMark';
 import { FeeSlider } from '../scenes/send/FeeSlider';
 import { GlyphButton } from '../scenes/send/GlyphButton';
 import {
+  BROADCAST_POLL_MS,
+  BROADCAST_WATCH_MS,
   HOME_AFTER_MS,
   REQUOTE_BEAT_MS,
   SEND_GRACE_MS,
   alreadySubmitted,
   amountTone,
   amountWords,
-  confirming,
+  chainStage,
   errorCode,
   feeRange,
   fixedAmount,
@@ -89,6 +98,7 @@ import {
   heldRequest,
   heldVersion,
   holdRequest,
+  submissionId,
   subscribeHeld,
 } from '../stage/heldRequests';
 import type { HeldOutcome } from '../stage/heldRequests';
@@ -107,7 +117,12 @@ export interface SendHandle {
   receive: (code: string) => void;
 }
 
-/** The payment `result` is, once the history shows it. */
+/**
+ * The payment `result` is, once the history shows it: by its invoice's
+ * payment hash, its transaction, or the row of this app's submission of it,
+ * which is how a payment to an address the engine answered without its
+ * transaction is found until the history names one.
+ */
 const paymentOf = (
   result: SendResult | HeldOutcome,
   activity: Activity[] = [],
@@ -115,8 +130,20 @@ const paymentOf = (
   activity.find(
     payment =>
       (!!result.paymentHash && payment.paymentHash === result.paymentHash) ||
-      (!!result.txid && payment.txid === result.txid),
+      (!!result.txid && payment.txid === result.txid) ||
+      (!!result.id && payment.id === submissionId(result.id)),
   ) ?? null;
+
+/**
+ * What the history has shown of a payment broadcasting on chain since its
+ * answer, kept once shown: that its transaction is out, and which one, or
+ * that it came to nothing or to an unknown outcome first. Kept, because a
+ * read can leave a pending row out, and the disc never turns back into the
+ * orbit for it.
+ */
+type Followed =
+  | { broadcast: true; txid?: string }
+  | { broadcast?: false; status: 'failed' | 'uncertain' };
 
 /**
  * The control under a result that opens the history. An orbit there would
@@ -124,6 +151,12 @@ const paymentOf = (
  * is the history's own glyph, as Receive's receipt draws it.
  */
 const ACTIVITY_GLYPH: GlyphName = HISTORY_GLYPH;
+
+/**
+ * What the Reference chip holds while it keeps its place, unseen: a space
+ * that keeps the chip's line, and draws nothing.
+ */
+const NOTHING_YET = '\u00a0';
 
 /** A quote this close to running out is said aloud once. */
 const LATE_MS = 10_000;
@@ -225,7 +258,8 @@ export function SendScreen({
   /** A refreshed snapshot also refreshes the quote's fee and reserve figures. */
   quoteRevision?: number;
   onActivity: () => void;
-  onRefresh: () => void;
+  /** A fresh read of the wallet; one that returns a promise is waited on. */
+  onRefresh: () => void | Promise<void>;
   onBusy: (busy: boolean) => void;
   /** Open straight onto the camera, when rendered without the overlay. */
   initialScanning?: boolean;
@@ -281,6 +315,10 @@ export function SendScreen({
   const [spent, setSpent] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [rail, setRail] = useState<GlyphName>('bolt');
+  // What the history has since shown of a result broadcasting on chain.
+  const [followed, setFollowed] = useState<Followed | null>(null);
+  // When the result showing came, for how long it is followed.
+  const shownAt = useRef(0);
   const [busy, setBusy] = useState(false);
   // A review asked for while the wallet was still opening, prepared as its
   // first live read lands (`opening`).
@@ -606,21 +644,47 @@ export function SendScreen({
     say(resolved ? copy.send.sent : copy.send.paidAlready);
   }, [paidFor, resolved, land, say]);
 
+  // How the result looks. A pending payment over a Bitcoin rail, the rail
+  // the review settled on, follows its stage (`chainStage`): broadcast, it
+  // rests on the done disc rather than the orbit, since nothing more happens
+  // here before it confirms; broadcasting, its orbit runs round the rail's
+  // glyph until the history names its transaction, and the orbit resolves
+  // into the disc where it stands. The history may instead show it failed or
+  // unknown first, and the result is then that.
+  const item = result ? paymentOf(result, activity) : null;
+  const answered = result ? chainStage(result, rail) : null;
+  useEffect(() => {
+    if (answered !== 'broadcasting' || followed || !item) return;
+    if (item.txid || item.status === 'completed') {
+      setFollowed({ broadcast: true, txid: item.txid });
+    } else if (item.status === 'failed' || item.status === 'uncertain') {
+      setFollowed({ status: item.status });
+    }
+  }, [answered, followed, item]);
+  const stage =
+    answered === 'broadcasting' && followed?.broadcast ? 'broadcast' : answered;
+  const status = result
+    ? (!followed?.broadcast && followed?.status) || result.status
+    : null;
+  const visual =
+    result && status
+      ? {
+          ...resultVisual(status, stage, rail),
+          // Seen broadcasting here, it grows out of its orbit.
+          ...(followed?.broadcast ? { resolves: true } : {}),
+        }
+      : null;
+  const broadcasting = stage === 'broadcasting' && !followed;
+
   // The ground behind the canvas holds honey while an outcome is unknown,
   // here before the wallet's own read of it says so, and flashes radish as a
   // payment fails (REDESIGN.md 3.2, G3).
   useHoldTint(
-    result?.status === 'uncertain' || (held && held.status !== 'completed')
+    status === 'uncertain' || (held && held.status !== 'completed')
       ? 'honey'
       : null,
   );
   const flash = useFlashTint();
-
-  // How the result looks: a pending payment broadcast on chain, over the
-  // rail the review settled on, rests on the done disc rather than the
-  // orbit, since nothing more happens here before it confirms.
-  const broadcast = result ? confirming(result, rail) : false;
-  const visual = result ? resultVisual(result.status, broadcast) : null;
 
   // A result is felt as it lands, and said once its mark has taken a screen
   // reader's focus, so the move never cuts an assertive message short. An
@@ -636,10 +700,10 @@ export function SendScreen({
         say(copy.send.sent);
         break;
       case 'pending':
-        // Soft whether in flight or broadcast: neither has landed, so
-        // neither is felt as a success.
+        // Soft whether in flight, broadcasting or broadcast: none has
+        // landed, so none is felt as a success as it comes.
         haptics.soft();
-        say(resultVisual('pending', broadcast).title);
+        say(resultVisual('pending', answered, rail).title);
         break;
       case 'uncertain':
         haptics.held();
@@ -652,7 +716,69 @@ export function SendScreen({
         break;
     }
     return withdraw;
-  }, [result, broadcast, flash, land, say]);
+  }, [result, answered, rail, flash, land, say]);
+
+  // The history moving a broadcasting payment on, once for each answer, with
+  // the mark where it was, so a screen reader is not moved: broadcast, the
+  // news its orbit waited for, felt as a held ring's resolve is and heard as
+  // confirming; or failed or unknown first, felt and heard as that outcome
+  // is when the engine answers it. Nothing is felt or said for it over a
+  // screen that came after Send.
+  useEffect(() => {
+    if (!followed || !mounted.current) return;
+    if (followed.broadcast) {
+      haptics.resolved();
+      say(copy.send.confirming);
+      return;
+    }
+    recordDiagnostic({
+      phase: 'ui',
+      code: followed.status.toUpperCase(),
+      message:
+        followed.status === 'failed' ? copy.send.notSent : copy.send.unknown,
+    });
+    if (followed.status === 'uncertain') {
+      haptics.held();
+      return announceSafety(copy.send.heldAnnouncement, 'held');
+    }
+    haptics.error();
+    flash('radish');
+    say(`${copy.send.failed} ${copy.send.notSent}`, true);
+  }, [followed, flash, say]);
+
+  // While a payment is broadcasting, the wallet is read again a moment after
+  // each read settles, so the transaction shows here as the chain has it
+  // rather than at the wallet's next poll: while this screen is in front and
+  // the app is active, and for BROADCAST_WATCH_MS after the answer at most.
+  // The wallet's own poll carries it after that.
+  const refreshNow = useRef(onRefresh);
+  useLayoutEffect(() => {
+    refreshNow.current = onRefresh;
+  });
+  useEffect(() => {
+    if (!broadcasting || !live) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const next = () => {
+      timer = setTimeout(async () => {
+        if (stopped || Date.now() - shownAt.current >= BROADCAST_WATCH_MS)
+          return;
+        if (AppState.currentState === 'active') {
+          try {
+            await refreshNow.current();
+          } catch {
+            // The wallet's own poll says when reads fail.
+          }
+        }
+        if (!stopped) next();
+      }, BROADCAST_POLL_MS);
+    };
+    next();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [broadcasting, live]);
 
   const done = visual?.returnsHome || resolved;
   useEffect(() => {
@@ -662,6 +788,12 @@ export function SendScreen({
   }, [done, onDone, stayed, reader]);
 
   const stay = () => setStayed(true);
+  // Only a result that returns home is kept by a touch: one touched while
+  // its orbit still ran, before it could, goes home all the same once it is
+  // broadcast, as a held ring touched before it resolves does.
+  const touched = () => {
+    if (done) stay();
+  };
 
   /**
    * Marks a request to the engine as going out, and returns its number. The
@@ -820,6 +952,8 @@ export function SendScreen({
     taken.set(from !== null);
     setArrival(from);
     setResult(outcome);
+    setFollowed(null);
+    shownAt.current = Date.now();
     setStayed(false);
     dropQuote();
     setFeeRate(null);
@@ -1061,7 +1195,7 @@ export function SendScreen({
     // history shows lets it go until this call answers, so however Send is
     // left from here, and however the request comes back, it is never paid
     // twice (REDESIGN.md rule 6).
-    holdRequest(paying, { status: 'pending', calling: true });
+    holdRequest(paying, { status: 'pending', calling: true, id: quote.id });
     const call = goingOut();
     taken.set(false);
     setSpent(true);
@@ -1171,6 +1305,7 @@ export function SendScreen({
   function retry() {
     setArrival(null);
     setResult(null);
+    setFollowed(null);
     setFailure(null);
     land(readout);
   }
@@ -1215,7 +1350,7 @@ export function SendScreen({
         edit();
         return true;
       }
-      if (result?.status === 'failed') {
+      if (status === 'failed') {
         retry();
         return true;
       }
@@ -1263,11 +1398,21 @@ export function SendScreen({
         )
       : undefined;
 
-  if (result && visual) {
-    const reference = result.txid || result.paymentHash;
-    const item = paymentOf(result, activity);
-    const failed = result.status === 'failed';
-    const uncertain = result.status === 'uncertain';
+  if (result && visual && status) {
+    const reference =
+      result.txid ||
+      (followed?.broadcast ? followed.txid : undefined) ||
+      result.paymentHash;
+    const failed = status === 'failed';
+    const uncertain = status === 'uncertain';
+    // The engine's answer said a payment the history then showed failed or
+    // unknown was submitted, which it no longer speaks for.
+    const message =
+      followed && !followed.broadcast
+        ? failed
+          ? copy.send.notSent
+          : null
+        : result.message;
     content = (
       <>
         <View style={styles.body}>
@@ -1275,9 +1420,9 @@ export function SendScreen({
             ref={mark}
             visual={visual}
             accessibilityLabel={visual.title}
-            accessibilityValue={statusLabel(result.status)}
+            accessibilityValue={statusLabel(status)}
             accessibilityHint={[
-              result.message,
+              message,
               uncertain ? copy.send.checkActivity : null,
               failed ? copy.send.retry : null,
               uncertain && item && onDetail ? copy.send.showPayment : null,
@@ -1339,9 +1484,28 @@ export function SendScreen({
             )}
           </Reanimated.View>
           {reference ? (
-            <Reanimated.View entering={landing(2)}>
+            <Reanimated.View
+              key="reference"
+              // Named by the history after the mark has landed, it fades
+              // into the place kept for it.
+              entering={
+                landing(2) ?? (followed?.broadcast ? fadeIn() : undefined)
+              }
+            >
               <CopyChip label={copy.send.reference} value={reference} />
             </Reanimated.View>
+          ) : broadcasting ? (
+            // The transaction's place, kept while it is broadcast so nothing
+            // under the mark moves as the history names it.
+            <View
+              key="reference-to-come"
+              style={styles.unseen}
+              pointerEvents="none"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              <CopyChip label={copy.send.reference} value={NOTHING_YET} />
+            </View>
           ) : null}
         </View>
         <View style={[styles.controls, styles.centred]}>
@@ -1356,9 +1520,9 @@ export function SendScreen({
       </>
     );
   } else if (held) {
-    const item = held.item;
+    const heldItem = held.item;
     // A payment this screen sent shows what it sent, amount typed or not.
-    const shown = item?.amountSats ?? fixedSats ?? (Number(amount) || null);
+    const shown = heldItem?.amountSats ?? fixedSats ?? (Number(amount) || null);
     const ring = heldVisual(held.status, resolved);
     const paid = held.status === 'completed';
     // Paid for good, or seen to complete here for a request that may be
@@ -1367,7 +1531,7 @@ export function SendScreen({
     // Once the history shows the payment, the way to it is the payment
     // itself; until then, the history it will show in.
     const openItem =
-      live && item && onDetail ? () => onDetail(item) : undefined;
+      live && heldItem && onDetail ? () => onDetail(heldItem) : undefined;
     content = (
       <>
         <View style={styles.body}>
@@ -1679,8 +1843,8 @@ export function SendScreen({
           }
           exiting={sceneOut()}
           layout={smooth()}
-          onTouchStart={result || resolved ? stay : undefined}
-          onFocus={result || resolved ? stay : undefined}
+          onTouchStart={result || resolved ? touched : undefined}
+          onFocus={result || resolved ? touched : undefined}
           style={styles.step}
         >
           {content}
@@ -1719,5 +1883,6 @@ const styles = StyleSheet.create({
   start: { alignItems: 'flex-start' },
   end: { alignItems: 'flex-end' },
   fee: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  unseen: { opacity: 0 },
   feeText: { ...typography.line, color: palette.steam },
 });

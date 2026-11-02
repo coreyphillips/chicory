@@ -24,7 +24,8 @@ import { Comet } from '../Comet';
 import { CONTROL } from '../Controls';
 import { DrawnGlyph } from '../DrawnGlyph';
 import { heldVisual, resultVisual } from '../model';
-import { PLACE_LATEST, ResultMark } from '../ResultMark';
+import { Orbit } from '../Orbit';
+import { PLACE_LATEST, ResultMark, resolveOutMs } from '../ResultMark';
 
 /**
  * A result growing out of the hold that sent it (REDESIGN.md 6, Send and 7,
@@ -435,6 +436,88 @@ describe('the mark growing out of the hold', () => {
     ]);
     expect(check?.props.strokes).toEqual([
       { duration: durations.draw, delay: CHECK_LEAD },
+    ]);
+    await act(async () => tree.unmount());
+  });
+
+  /**
+   * The orbit of a payment to an address the engine took before naming its
+   * transaction, grown out of the hold, and then the face the history moves
+   * it to: the clock disc it resolves into, or a failure.
+   */
+  function Broadcasting({ then }: { then?: 'broadcast' | 'failed' }) {
+    const clock = Reanimated.useSharedValue(0);
+    const visual =
+      then === 'broadcast'
+        ? { ...resultVisual('pending', 'broadcast'), resolves: true }
+        : then === 'failed'
+        ? resultVisual('failed')
+        : resultVisual('pending', 'broadcasting', 'chain');
+    return (
+      <ResultMark
+        visual={visual}
+        accessibilityLabel={visual.title}
+        accessibilityValue=""
+        accessibilityHint=""
+        arrival={{ from: FROM, clock, warned: false }}
+      />
+    );
+  }
+  /** Glyphs drawn still, by name, as the orbit draws its rail's. */
+  const still = (tree: ReactTestRenderer, name: string) =>
+    tree.root.findAll(
+      node => node.props.name === name && node.props.strokes === undefined,
+    ).length > 0;
+
+  test('an orbit that grew out of the hold resolves where it stands into the clock disc, its own glyph fading under it', async () => {
+    const tree = await mount(<Broadcasting />);
+    await placeAt(tree);
+    await act(async () =>
+      jest.advanceTimersByTime(ARRIVE_MS + durations.crossfade),
+    );
+    expect(still(tree, 'chain')).toBe(true);
+    await act(async () => tree.update(<Broadcasting then="broadcast" />));
+    // The disc grows over the orbit, its clock drawing on the disc's own
+    // lead, while the orbit stays under it as it was, round the chain
+    // glyph, never the clock the disc has brought.
+    const clock = drawnOf(tree, DrawnGlyph).find(
+      glyph => glyph.props.name === 'clock',
+    );
+    expect(clock?.props.strokes).toEqual([
+      { duration: durations.draw, delay: CHECK_LEAD },
+    ]);
+    expect(tree.root.findAllByType(Orbit)).toHaveLength(1);
+    expect(still(tree, 'chain')).toBe(true);
+    expect(still(tree, 'clock')).toBe(false);
+    const drawn = tree.root.findAll(() => true);
+    expect(drawn.indexOf(tree.root.findByType(Orbit))).toBeLessThan(
+      drawn.indexOf(clock!),
+    );
+    // Faded, it goes, and the disc is all there is.
+    await act(async () => jest.advanceTimersByTime(resolveOutMs()));
+    expect(tree.root.findAllByType(Orbit)).toEqual([]);
+    expect(still(tree, 'chain')).toBe(false);
+    expect(drawnOf(tree, DrawnGlyph).map(glyph => glyph.props.name)).toEqual([
+      'clock',
+    ]);
+    await act(async () => tree.unmount());
+  });
+
+  test('an orbit that grew out of the hold shakes as it becomes a failure, which fades up over it', async () => {
+    const shakes = jest.spyOn(tokens, 'shake');
+    const tree = await mount(<Broadcasting />);
+    await placeAt(tree);
+    await act(async () =>
+      jest.advanceTimersByTime(ARRIVE_MS + durations.crossfade),
+    );
+    expect(shakes).not.toHaveBeenCalled();
+    await act(async () => tree.update(<Broadcasting then="failed" />));
+    expect(shakes).toHaveBeenCalled();
+    expect(tree.root.findAllByType(Orbit)).toHaveLength(1);
+    await act(async () => jest.advanceTimersByTime(resolveOutMs()));
+    expect(tree.root.findAllByType(Orbit)).toEqual([]);
+    expect(drawnOf(tree, DrawnGlyph).map(glyph => glyph.props.name)).toEqual([
+      'bang',
     ]);
     await act(async () => tree.unmount());
   });

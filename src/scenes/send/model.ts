@@ -1,5 +1,6 @@
 import { MAX_FEE_RATE, parsePayment } from '@beignet/wallet-core';
 import type {
+  Activity,
   FeeRates,
   SendResult,
   SendReview,
@@ -505,17 +506,42 @@ export const rateRefusal = (failure: Failure): Failure => ({
 });
 
 /**
- * Whether `result` is a payment broadcast on chain, which lands in a block
- * rather than inside the call: pending, on the chain or funding `rail`,
- * with the transaction that carries it. The engine answers a splice-out,
- * and a direct funding, this way once the transaction is out, and nothing
- * more is asked of the payer; the history follows it to its confirmation,
- * which takes blocks. A Lightning payment pending with only its hash can
- * still settle within seconds, so it is not one.
+ * Where a payment over a Bitcoin `rail` (on chain or direct funding) stands
+ * once the engine has answered it pending, or null for any other result.
+ *
+ * - broadcast: the transaction that carries it is out, so nothing more is
+ *   asked of the payer and the history follows it to its confirmation, which
+ *   takes blocks. The engine's answer may name the transaction, or the
+ *   payment's row in the history (`item`) names it later, or has completed.
+ * - broadcasting: the engine took the payment but has not named its
+ *   transaction yet. A splice-out is answered this way as the splice starts,
+ *   and is negotiated, signed and broadcast a few seconds later; the history
+ *   names the transaction once the chain has it.
+ *
+ * A Lightning payment pending with only its hash can still settle within
+ * seconds, so it has neither.
  */
-export function confirming(result: SendResult, rail: GlyphName): boolean {
-  return result.status === 'pending' && rail !== 'bolt' && !!result.txid;
+export type ChainStage = 'broadcasting' | 'broadcast';
+
+export function chainStage(
+  result: SendResult,
+  rail: GlyphName,
+  item?: Pick<Activity, 'txid' | 'status'> | null,
+): ChainStage | null {
+  if (result.status !== 'pending' || rail === 'bolt') return null;
+  return result.txid || item?.txid || item?.status === 'completed'
+    ? 'broadcast'
+    : 'broadcasting';
 }
+
+/**
+ * How often Send asks for a fresh read of the history while a payment is
+ * broadcasting, counted from the end of the read before, and for how long
+ * after the payment's answer it keeps asking. After that the wallet's own
+ * poll carries it.
+ */
+export const BROADCAST_POLL_MS = 3_000;
+export const BROADCAST_WATCH_MS = 60_000;
 
 /**
  * A result's mark (REDESIGN.md 6, Send). Each outcome has its own shape as
@@ -537,24 +563,28 @@ export interface ResultVisual {
   /** Drawn as it stands, for a payment seen before: no pop, no draw-in. */
   resting?: boolean;
   /**
-   * Grown out of the held ring it replaces, for a payment seen to complete
-   * while its ring was on screen: the ring gives way to the disc and the
-   * check draws, felt once as a success.
+   * Grown out of the held ring or the orbit it replaces, for a payment seen
+   * to complete, or to be broadcast, while that was on screen: the ring
+   * gives way to the disc and its glyph draws.
    */
   resolves?: boolean;
 }
 
 /**
  * The mark for a result of `status`. A pending one is the orbit of a
- * payment still in flight, unless it is `broadcast` on chain (`confirming`
- * above): then it rests on the done disc with a clock, since nothing more
- * happens on this screen, and goes home on its own as a completed payment
- * does. The clock, not the check, says it is not settled yet without
- * relying on colour (REDESIGN.md 9, Shape as well as color).
+ * payment still in flight, round the send arrow for Lightning. Over a
+ * Bitcoin `rail` it follows its `stage` (`chainStage` above): while it is
+ * broadcasting the orbit runs round the rail's own glyph, so it never reads
+ * as a Lightning payment in flight; once broadcast it rests on the done disc
+ * with a clock, since nothing more happens on this screen, and goes home on
+ * its own as a completed payment does. The clock, not the check, says it is
+ * not settled yet without relying on colour (REDESIGN.md 9, Shape as well as
+ * color).
  */
 export function resultVisual(
   status: SendResult['status'],
-  broadcast = false,
+  stage: ChainStage | null = null,
+  rail: GlyphName = 'chain',
 ): ResultVisual {
   switch (status) {
     case 'completed':
@@ -566,13 +596,21 @@ export function resultVisual(
         returnsHome: true,
       };
     case 'pending':
-      return broadcast
+      if (stage === 'broadcast')
+        return {
+          shape: 'disc',
+          tone: 'cream',
+          glyph: 'clock',
+          title: copy.send.confirming,
+          returnsHome: true,
+        };
+      return stage === 'broadcasting'
         ? {
-            shape: 'disc',
-            tone: 'cream',
-            glyph: 'clock',
-            title: copy.send.confirming,
-            returnsHome: true,
+            shape: 'orbit',
+            tone: 'bloom',
+            glyph: rail,
+            title: copy.send.broadcasting,
+            returnsHome: false,
           }
         : {
             shape: 'orbit',
