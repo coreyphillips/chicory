@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
@@ -137,6 +138,16 @@ const slider = (tree: ReactTestRenderer) => tree.root.findByType(FeeSlider);
 const lines = (tree: ReactTestRenderer) =>
   tree.root.findByType(ReviewLines).props;
 const commit = (tree: ReactTestRenderer) => tree.root.findByType(Commit).props;
+/** The rates the sum draws, leaving out the ghost that holds the column out of sight. */
+const drawnRates = (tree: ReactTestRenderer) =>
+  tree.root
+    .findAllByType(Text)
+    .filter(
+      text =>
+        /sat\/vB$/.test(String(text.props.children)) &&
+        StyleSheet.flatten(text.props.style).opacity !== 0,
+    )
+    .map(text => text.props.children);
 
 /** Lets a step rise into view, so what waited for a landing is said. */
 const arrive = () =>
@@ -201,6 +212,56 @@ test('a drag previews the fee and the total on the sum without asking the engine
   expect(prepareSend).toHaveBeenCalledTimes(1);
   // The hold says what the sum shows.
   expect(commit(tree).summary).toContain(copy.amount.spoken(5_200));
+});
+
+test('the fee line says the rate it was priced at beside the fee, following the thumb, a refusal and the engine, and a review priced without one says none', async () => {
+  const prepareSend = jest
+    .fn()
+    .mockResolvedValueOnce(quote())
+    .mockRejectedValueOnce(coded('INSUFFICIENT_FUNDS'))
+    .mockResolvedValueOnce(requoted());
+  const tree = await reviewed({ prepareSend });
+  expect(drawnRates(tree)).toEqual(['2 sat/vB']);
+  await act(async () => slider(tree).props.onPreview(4));
+  expect(drawnRates(tree)).toEqual(['4 sat/vB']);
+  expect(lines(tree).quick).toBe(true);
+  // Refused, the rate springs back with the thumb.
+  await act(async () => {
+    await slider(tree).props.onChoose(4);
+  });
+  expect(drawnRates(tree)).toEqual(['2 sat/vB']);
+  // Priced, it says the rate the engine answered with.
+  await act(async () => {
+    await slider(tree).props.onChoose(8);
+  });
+  expect(drawnRates(tree)).toEqual(['8 sat/vB']);
+  expect(lines(tree).quick).toBe(false);
+  // A screen reader hears the rate from the slider, never from the sum.
+  const [fee] = lines(tree).review.feeLabel
+    ? tree.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          String(node.props.accessibilityLabel).endsWith(
+            lines(tree).review.feeLabel,
+          ),
+      )
+    : [];
+  expect(fee.props.accessibilityValue).toEqual({
+    text: copy.amount.spoken(2_000),
+  });
+  for (const over of [
+    { route: 'lightning' as const, feeRate: undefined, feeRates: undefined },
+    { method: 'direct-funding' as const, feeRate: undefined },
+  ]) {
+    const plain = await reviewed({
+      prepareSend: jest.fn().mockResolvedValue(quote(over)),
+    });
+    expect(
+      plain.root
+        .findAllByType(Text)
+        .some(text => /sat\/vB$/.test(String(text.props.children))),
+    ).toBe(false);
+  }
 });
 
 test("a max review's amount gives way to the fee under the thumb, and its total holds", async () => {

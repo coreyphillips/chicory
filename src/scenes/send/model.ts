@@ -80,6 +80,11 @@ export interface ReviewFigure {
   key: 'fee' | 'expected' | 'total';
   signs: string;
   sats: number;
+  /**
+   * The rate the fee was priced at, whole sats per virtual byte, on a rated
+   * review's fee line; drawn beside the fee as `rateText` says it.
+   */
+  rate?: number;
   /** What a screen reader calls the line, as the engine and old screen did. */
   label: string;
   /** How its amount is read out. */
@@ -148,6 +153,13 @@ export function previewReview(review: RatedReview, rate: number): RatedReview {
     : { ...review, feeRate: rate, feeSats, totalSats: review.amountSats + feeSats };
 }
 
+/**
+ * A fee rate as the fee line draws it, `3 sat/vB`: one string, the one
+ * shape of a rate the copy guard admits as data (REDESIGN.md rule 1). A
+ * screen reader hears it as `copy.send` says it, in sats per virtual byte.
+ */
+export const rateText = (rate: number) => `${rate} sat/vB`;
+
 /** The least a rate can be: nothing below one sat per virtual byte relays. */
 export const MIN_FEE_RATE = 1;
 
@@ -206,6 +218,7 @@ export function reviewFigures(review: SendReview): ReviewFigure[] {
       key: 'fee',
       signs: '+ ≤',
       sats: review.feeSats,
+      ...(isRatedReview(review) ? { rate: review.feeRate } : {}),
       label: review.feeLabel || copy.send.fee,
       value: copy.amount.spoken(review.feeSats),
     },
