@@ -20,6 +20,7 @@ import { activate, press } from '../../../../test-support/query';
 import { copyViolations } from '../../../../test-support/copyGuard';
 import { a11yProblems } from '../../../../test-support/a11y';
 import { Amount } from '../Amount';
+import { FeeSlider } from '../FeeSlider';
 import { reviewFigures, reviewWords, shortRequest } from '../model';
 
 const ADDRESS = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
@@ -126,7 +127,7 @@ test('the installed wallet core offers address max before home funding confirms'
   const core = new EmbeddedWalletClient({
     walletId: 'unconfirmed',
     runtime: {
-      request: async ({ path }) => {
+      request: async ({ path, body }) => {
         if (path === '/api/wallets/unconfirmed') {
           return {
             id: 'unconfirmed',
@@ -148,9 +149,13 @@ test('the installed wallet core offers address max before home funding confirms'
             },
           ];
         }
-        if (path.endsWith('/fees/estimates')) return { normal: 2 };
+        if (path.endsWith('/fees/estimates'))
+          return { fast: 8, normal: 2, slow: 1, minimum: 1 };
         if (path.endsWith('/channel/splice-quote')) {
-          return { feeSats: 579, maxAmountSats: 99421 };
+          // A splice of 1,158 weight units, priced at the rate asked for.
+          const { feeratePerkw } = body as { feeratePerkw: number };
+          const feeSats = Math.ceil((1158 * feeratePerkw) / 1000);
+          return { feeSats, maxAmountSats: 100000 - feeSats };
         }
         if (path.endsWith('/peers'))
           return [{ pubkey: primary, state: 'connected' }];
@@ -173,6 +178,28 @@ test('the installed wallet core offers address max before home funding confirms'
   const prepared = await prepareSend.mock.results[0].value;
   expect(prepared.amountSats).toBe(99421);
   expect(prepared.warnings.join(' ')).toContain('funding is unconfirmed');
+  // The slider prices the max again at the rate chosen: the fee rises, the
+  // amount gives way, and the chip follows the rate back in compose.
+  const slider = () => tree.root.findByType(FeeSlider);
+  expect(slider().props).toMatchObject({
+    rate: 2,
+    rates: { fast: 8, normal: 2, slow: 1, minimum: 1 },
+    feeSats: 579,
+  });
+  await act(async () => {
+    await slider().props.onChoose(8);
+  });
+  expect(prepareSend).toHaveBeenLastCalledWith({
+    request: ADDRESS,
+    max: true,
+    feeRate: 8,
+  });
+  const rated = await prepareSend.mock.results[1].value;
+  expect(rated).toMatchObject({ feeRate: 8, feeSats: 2316, amountSats: 97684 });
+  expect(slider().props).toMatchObject({ rate: 8, feeSats: 2316 });
+  await press(tree, copy.send.edit);
+  await act(async () => {});
+  expect(tree.root.findByType(Chip).props.label).toBe('97,684 sats');
 });
 
 test('typing deselects max and continues with the typed amount', async () => {

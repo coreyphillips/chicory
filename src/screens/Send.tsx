@@ -16,6 +16,7 @@ import { parseSats } from '@beignet/wallet-core';
 import type {
   Activity,
   MaxQuote,
+  SendInput,
   SendResult,
   SendReview,
   WalletSnapshot,
@@ -44,19 +45,25 @@ import type { Arrival, Origin as Centre } from '../scenes/send/arrival';
 import { Commit } from '../scenes/send/Commit';
 import { CircleControl } from '../scenes/send/Controls';
 import { FailureMark } from '../scenes/send/FailureMark';
+import { FeeSlider } from '../scenes/send/FeeSlider';
 import { GlyphButton } from '../scenes/send/GlyphButton';
 import {
   HOME_AFTER_MS,
+  REQUOTE_BEAT_MS,
   SEND_GRACE_MS,
   alreadySubmitted,
   amountTone,
   amountWords,
   confirming,
   errorCode,
+  feeRange,
   fixedAmount,
   heldVisual,
   isUncertain,
   isPayAllReview,
+  isRatedReview,
+  previewReview,
+  rateRefusal,
   resultVisual,
   reviewRail,
   requestRefusal,
@@ -287,6 +294,23 @@ export function SendScreen({
   );
   // Each refusal of the amount shakes it, the same one again included.
   const [amountShakes, setAmountShakes] = useState(0);
+  // The rate the payer chose for a payment to a Bitcoin address, in whole
+  // sats per virtual byte; null is the engine's own normal. Kept through an
+  // edit of the same payment, and let go with the payment, so every new one
+  // starts on the default.
+  const [feeRate, setFeeRate] = useState<number | null>(null);
+  // The rate under the slider's thumb, which the sum shows as a preview
+  // until the engine has priced it or refused it.
+  const [preview, setPreview] = useState<number | null>(null);
+  // The slider's quotes to the engine, numbered, and the one still out, or
+  // 0. A quote holds the hold, not the stage or the pencil: pricing a rate
+  // pays nothing.
+  const requotes = useRef(0);
+  const quoting = useRef(0);
+  // A slider quote that has outlasted a beat shows on the hold as its orbit.
+  const [quoteSlow, setQuoteSlow] = useState(false);
+  // Each rate the engine refused, for the thumb to spring back on.
+  const [refusals, setRefusals] = useState(0);
   // A result that returns home (a completed payment, or one broadcast on
   // chain), or a held ring seen to resolve into one, goes home on its own
   // unless the screen is touched or focused, and never while a screen
@@ -347,7 +371,10 @@ export function SendScreen({
     if (!canQuoteMax) return;
     let current = true;
     client
-      .quoteMax({ request: request.trim() })
+      .quoteMax({
+        request: request.trim(),
+        ...(feeRate === null ? {} : { feeRate }),
+      })
       .then(quote => {
         if (!current) return;
         setMaximum(
@@ -368,6 +395,7 @@ export function SendScreen({
     client,
     request,
     canQuoteMax,
+    feeRate,
     quoteRevision,
     balance?.availableSats,
     balance?.totalSats,
@@ -697,7 +725,11 @@ export function SendScreen({
   function accept(code: string): boolean {
     queuedFor.current = null;
     setQueued(false);
-    if (code !== request) setMaxFor(null);
+    if (code !== request) {
+      setMaxFor(null);
+      setFeeRate(null);
+    }
+    dropQuote();
     setRequest(code);
     setScanning(false);
     const refused = requestRefusal(code);
@@ -773,6 +805,8 @@ export function SendScreen({
    * step it was on.
    */
   function toHeld() {
+    dropQuote();
+    setFeeRate(null);
     setReview(null);
     setExpired(false);
     setSpent(false);
@@ -787,6 +821,8 @@ export function SendScreen({
     setArrival(from);
     setResult(outcome);
     setStayed(false);
+    dropQuote();
+    setFeeRate(null);
     setReview(null);
     setExpired(false);
     setSpent(false);
@@ -814,6 +850,134 @@ export function SendScreen({
     toHeld();
   }
 
+  /**
+   * What the engine is asked to price: the request, an amount or max, and
+   * the rate chosen for it, if one is. Left out when none is, the engine
+   * prices at its own normal.
+   */
+  function sendInput(rate: number | null = feeRate): SendInput {
+    return {
+      request: request.trim(),
+      ...(maxSelected
+        ? { max: true }
+        : {
+            amountSats:
+              fixedSats === null && amount.trim()
+                ? parseSats(amount)
+                : undefined,
+          }),
+      ...(rate === null ? {} : { feeRate: rate }),
+    };
+  }
+
+  /**
+   * A fresh review takes the step: its clock starts now, and a screen reader
+   * lands on its amount, or on the control when the quote has already run
+   * out. A review the slider asked for (`quiet`) moves a screen reader
+   * nowhere: it is on the slider, stepping.
+   */
+  function adopt(next: SendReview, quiet = false) {
+    setReview(next);
+    setReviewedAt(Date.now());
+    setCollapsed(true);
+    const late = next.expiresAt <= Date.now();
+    setExpired(late);
+    if (late) {
+      land(control);
+      sayExpired.current();
+    } else if (!quiet) {
+      land(summary);
+    }
+  }
+
+  /**
+   * Forgets a slider quote still out: its answer is dropped as it comes,
+   * and the sum shows the review that stands.
+   */
+  function dropQuote() {
+    requotes.current += 1;
+    quoting.current = 0;
+    setQuoteSlow(false);
+    setPreview(null);
+  }
+
+  /** The thumb moved: the sum previews the rate under it. */
+  function previewRate(rate: number) {
+    setPreview(rate);
+    setFailure(null);
+  }
+
+  /**
+   * The thumb was let go at `rate`: the engine prices the payment at it, and
+   * its review takes the step, with a fresh quote and clock, once it lands.
+   * The hold waits for it (`pay`), busy once it has outlasted a beat. A
+   * rate the engine refuses leaves the review that stood, and the slider
+   * springs back to it; the refusal is felt, said, logged and drawn beside
+   * the hold as any engine refusal is.
+   */
+  async function requote(rate: number) {
+    if (!review || spent || !isRatedReview(review)) {
+      dropQuote();
+      return;
+    }
+    if (rate === review.feeRate || waitingFor.current || opening) {
+      // Back where it was, or a call already out: nothing to price.
+      dropQuote();
+      return;
+    }
+    if (heldRequest(request, activity)) {
+      toHeld();
+      return;
+    }
+    const asking = request;
+    const call = (requotes.current += 1);
+    quoting.current = call;
+    setPreview(rate);
+    setFailure(null);
+    const beat = setTimeout(() => {
+      if (quoting.current === call && mounted.current) setQuoteSlow(true);
+    }, REQUOTE_BEAT_MS);
+    try {
+      const next = await client.prepareSend(sendInput(rate));
+      // Gone, or a later rate was chosen since.
+      if (!mounted.current || quoting.current !== call) return;
+      setFeeRate(rate);
+      adopt(next, true);
+      if (isRatedReview(next)) say(copy.send.feeRateAt(next.feeRate, next.feeSats));
+    } catch (e) {
+      if (!mounted.current || quoting.current !== call) return;
+      if (alreadySubmitted(e)) {
+        holdRequest(asking, { status: 'uncertain' });
+        recordDiagnostic({
+          phase: 'ui',
+          code: errorCode(e),
+          message: errorMessage(e),
+        });
+        toHeld();
+        return;
+      }
+      setRefusals(n => n + 1);
+      refuse(
+        rateRefusal(
+          sendFailure(e, {
+            message: errorMessage(e),
+            amountSats: fixedSats ?? (amount ? Number(amount) : null),
+            balance,
+          }),
+        ),
+      );
+    } finally {
+      clearTimeout(beat);
+      if (quoting.current === call) {
+        quoting.current = 0;
+        if (mounted.current) {
+          setQuoteSlow(false);
+          setPreview(null);
+        }
+      }
+    }
+  }
+
   async function prepare() {
     if (waitingFor.current) return;
     if (opening) {
@@ -827,6 +991,8 @@ export function SendScreen({
       toHeld();
       return;
     }
+    // A review asked for outranks a slider quote still out.
+    dropQuote();
     // A refresh is asked for from a review whose quote ran out.
     const fromReview = review !== null;
     const asking = request;
@@ -835,25 +1001,9 @@ export function SendScreen({
     const cancelGrace = grace(call);
     setFailure(null);
     try {
-      const next = await client.prepareSend({
-        request: request.trim(),
-        ...(maxSelected
-          ? { max: true }
-          : {
-              amountSats:
-                fixedSats === null && amount.trim()
-                  ? parseSats(amount)
-                  : undefined,
-            }),
-      });
+      const next = await client.prepareSend(sendInput());
       if (!mounted.current) return;
-      setReview(next);
-      setReviewedAt(Date.now());
-      setCollapsed(true);
-      const late = next.expiresAt <= Date.now();
-      setExpired(late);
-      land(late ? control : summary);
-      if (late) sayExpired.current();
+      adopt(next);
     } catch (e) {
       if (alreadySubmitted(e)) {
         // The engine has a payment for this request out already.
@@ -885,6 +1035,14 @@ export function SendScreen({
 
   async function pay() {
     if (!review || waitingFor.current || expired || disabled || opening) return;
+    // What the sum shows is not yet what the engine priced: the hold waits
+    // for the slider's quote, busy, and is held again once the figures are
+    // the engine's own.
+    if (preview !== null || quoting.current) {
+      setQuoteSlow(true);
+      say(copy.send.preparing);
+      return;
+    }
     // The quote's own clock has the last word, not the render the hold began
     // in, and a request held or paid since the review never pays twice.
     if (review.expiresAt <= Date.now()) {
@@ -991,8 +1149,12 @@ export function SendScreen({
     }
   }
 
-  /** Back to compose from the review, keeping the request and amount. */
+  /**
+   * Back to compose from the review, keeping the request, the amount and
+   * the rate chosen, so the payment reviewed again is priced as it was.
+   */
   function edit() {
+    dropQuote();
     setReview(null);
     setExpired(false);
     setFailure(null);
@@ -1076,6 +1238,8 @@ export function SendScreen({
     queuedFor.current = null;
     setQueued(false);
     setMaxFor(null);
+    setFeeRate(null);
+    dropQuote();
     setRequest(text);
     setCollapsed(false);
     setFailure(null);
@@ -1247,6 +1411,12 @@ export function SendScreen({
       </>
     );
   } else if (review) {
+    // A Bitcoin review carries its fee rate slider, and while the thumb
+    // moves the sum shows the review as it would read at the rate under it.
+    const rated = isRatedReview(review) ? review : null;
+    const shown =
+      rated && preview !== null ? previewReview(rated, preview) : review;
+    const still = spent || expired || busy || disabled;
     content = (
       <>
         <View style={styles.body}>
@@ -1257,11 +1427,11 @@ export function SendScreen({
             <Amount
               ref={summary}
               sats={
-                isPayAllReview(review)
-                  ? review.minRecipientSats
-                  : review.amountSats
+                isPayAllReview(shown)
+                  ? shown.minRecipientSats
+                  : shown.amountSats
               }
-              minimum={isPayAllReview(review)}
+              minimum={isPayAllReview(shown)}
               hint={
                 review.max ? copy.send.maxKept(review.keptSats ?? 0) : undefined
               }
@@ -1279,11 +1449,32 @@ export function SendScreen({
             </Text>
           ) : null}
           <ReviewLines
-            review={review}
+            review={shown}
             unit={unit}
             symbol={symbol}
             spent={spent}
-          />
+            quick={preview !== null}
+          >
+            {rated ? (
+              <FeeSlider
+                rate={preview ?? rated.feeRate}
+                rates={rated.feeRates}
+                {...feeRange(rated.feeRates, preview ?? rated.feeRate)}
+                feeSats={shown.feeSats}
+                disabled={still}
+                hint={
+                  expired
+                    ? copy.send.quoteExpired
+                    : disabled
+                    ? copy.send.stale
+                    : undefined
+                }
+                refused={refusals}
+                onPreview={previewRate}
+                onChoose={requote}
+              />
+            ) : null}
+          </ReviewLines>
         </View>
         <View style={styles.controls}>
           <View style={[styles.side, styles.start]}>
@@ -1303,17 +1494,17 @@ export function SendScreen({
             <Commit
               ref={control}
               accessibilityLabel={
-                review.max
+                shown.max
                   ? copy.send.sendMax
-                  : copy.send.sendSats(review.amountSats)
+                  : copy.send.sendSats(shown.amountSats)
               }
-              summary={reviewWords(review)}
+              summary={reviewWords(shown)}
               expiresAt={review.expiresAt}
               createdAt={reviewedAt}
               warning={review.warnings.length > 0}
               expired={expired}
               stale={disabled}
-              busy={busy}
+              busy={busy || quoteSlow}
               spent={spent}
               comet={comet}
               onCommit={pay}

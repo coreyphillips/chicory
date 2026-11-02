@@ -2,9 +2,11 @@ import React from 'react';
 import { StyleSheet } from 'react-native';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance } from 'react-test-renderer';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AmountField } from '../src/components/AmountField';
 import { Chip, IconButton } from '../src/components/ui';
 import { copy } from '../src/design/copy';
+import { FeeSlider } from '../src/scenes/send/FeeSlider';
 import { MIN_TARGET } from '../src/theme';
 import { mount } from '../test-support/guard';
 
@@ -50,6 +52,32 @@ test('an icon button is a 48pt frame, before its hitSlop', async () => {
   const style = StyleSheet.flatten(button.props.style);
   expect(style.width).toBeGreaterThanOrEqual(MIN_TARGET);
   expect(style.height).toBeGreaterThanOrEqual(MIN_TARGET);
+  await act(async () => tree.unmount());
+});
+
+test("the fee rate slider's row reaches 48pt each way", async () => {
+  const tree = await mount(
+    <GestureHandlerRootView>
+      <FeeSlider
+        rate={2}
+        rates={{ fast: 8, normal: 2, slow: 1, minimum: 1 }}
+        min={1}
+        max={18}
+        feeSats={500}
+        refused={0}
+        onPreview={noop}
+        onChoose={noop}
+      />
+    </GestureHandlerRootView>,
+  );
+  const [row] = tree.root.findAll(
+    node =>
+      typeof node.type === 'string' &&
+      node.props.accessibilityRole === 'adjustable',
+  );
+  const { across, down } = reach(row);
+  expect(across).toBeGreaterThanOrEqual(MIN_TARGET);
+  expect(down).toBeGreaterThanOrEqual(MIN_TARGET);
   await act(async () => tree.unmount());
 });
 

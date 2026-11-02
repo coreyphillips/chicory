@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Reanimated, {
   ReduceMotion,
@@ -9,7 +10,7 @@ import Reanimated, {
 import type { SendReview } from '@beignet/wallet-core';
 import { Glyph } from '../../design/glyphs';
 import { palette } from '../../design/palette';
-import { inlineAmount } from '../../glyphs/InlineAmount';
+import { Odometer } from '../../glyphs/Odometer';
 import { Whisper } from '../../glyphs/Whisper';
 import { curves, durations } from '../../motion/tokens';
 import { space, type as typography } from '../../theme';
@@ -28,26 +29,27 @@ export const LINE_SCALE = 1.4;
  */
 export const WIDEST_SIGNS = '+ ≤';
 
-/** The size the sum's amounts are set at. */
-const LINE_SIZE = typography.line.fontSize;
-
 /**
  * One line of the sum, as one element: the rail on the first line, its
  * signs in the operators' column, and its amount set right in tabular
- * figures, so the places of every amount line up and the total reads as
- * their sum. A screen reader hears the line's words, and the rail's with the
- * first, since the glyph is not a control of its own.
+ * figures by the odometer, so the places of every amount line up, the total
+ * reads as their sum, and a figure that changes rolls to its new value. A
+ * screen reader hears the line's words, and the rail's with the first, since
+ * the glyph is not a control of its own; the odometer's cells are hidden
+ * from it, as the amount above hides its own.
  */
 function Figure({
   figure,
   unit,
   symbol,
   rail,
+  quick,
 }: {
   figure: ReviewFigure;
   unit: Unit;
   symbol: boolean;
   rail?: ReturnType<typeof reviewRail>;
+  quick: boolean;
 }) {
   const bloom = useBloom();
   const total = figure.key === 'total';
@@ -77,12 +79,20 @@ function Figure({
           {figure.signs}
         </Text>
       </View>
-      <Text
-        style={[styles.amount, total && styles.total]}
-        maxFontSizeMultiplier={LINE_SCALE}
+      <View
+        style={styles.amount}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
       >
-        {inlineAmount(figure.sats, unit, symbol, LINE_SIZE)}
-      </Text>
+        <Odometer
+          sats={figure.sats}
+          unit={unit}
+          symbol={symbol}
+          variant="line"
+          color={total ? palette.cream : palette.steam}
+          duration={quick ? durations.crossfade : undefined}
+        />
+      </View>
     </View>
   );
 }
@@ -110,20 +120,27 @@ export const SPENT_OPACITY = 0.4;
  *
  * The figures are in `unit`, the one the balance is shown in, and sats as
  * `₿2,000` with `symbol` on. They are never hidden: a review is where the
- * payment is checked before it is sent. Once the hold commits (`spent`)
- * there is nothing left to check, so the sum dims back and the screen reads
- * as money going out.
+ * payment is checked before it is sent. A figure that changes rolls to its
+ * new value, and `quick` while the fee slider's thumb is moving, so the sum
+ * keeps up with the finger. `children` sit under the lines and over the
+ * pips, as wide as the sum: the fee rate slider on a Bitcoin review. Once
+ * the hold commits (`spent`) there is nothing left to check, so the sum and
+ * what sits in it dim back and the screen reads as money going out.
  */
 export function ReviewLines({
   review,
   unit = 'sats',
   symbol = false,
   spent = false,
+  quick = false,
+  children,
 }: {
   review: SendReview;
   unit?: Unit;
   symbol?: boolean;
   spent?: boolean;
+  quick?: boolean;
+  children?: ReactNode;
 }) {
   const rail = reviewRail(review);
   // A colour change, not a movement, so it plays under Reduce Motion too.
@@ -147,8 +164,10 @@ export function ReviewLines({
           unit={unit}
           symbol={symbol}
           rail={index === 0 ? rail : undefined}
+          quick={quick}
         />
       ))}
+      {children}
       {review.warnings.length ? (
         <View style={styles.pips}>
           {review.warnings.map(warning => (
@@ -170,13 +189,7 @@ const styles = StyleSheet.create({
   ghost: { opacity: 0 },
   shownSign: { position: 'absolute', left: 0, top: 0 },
   // Set right, in the line's tabular figures, so places line up.
-  amount: {
-    ...typography.line,
-    color: palette.steam,
-    flexGrow: 1,
-    textAlign: 'right',
-  },
-  total: { color: palette.cream },
+  amount: { flexGrow: 1, flexDirection: 'row', justifyContent: 'flex-end' },
   pips: {
     flexDirection: 'row',
     justifyContent: 'center',

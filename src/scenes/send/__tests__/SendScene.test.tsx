@@ -15,6 +15,7 @@ import { Odometer } from '../../../glyphs/Odometer';
 import { forgetSafety } from '../../../motion/speech';
 import { durations } from '../../../motion/tokens';
 import { SendScreen } from '../../../screens/Send';
+import { FeeSlider } from '../FeeSlider';
 import {
   clearDiagnostics,
   recentDiagnostics,
@@ -256,9 +257,13 @@ test('amounts follow the balance, hidden and in its unit, except on a review', a
     field(tree, copy.send.request).props.onChangeText(priced('masked'));
   });
   await press(tree, copy.send.review);
-  // Send's own, not the balance's in the mini strip.
+  // Send's own, not the balance's in the mini strip, and the amount's, not
+  // a line of the sum's.
   const send = () => tree.root.findByType(SendScreen);
-  const amount = () => send().findByType(Odometer).props;
+  const amount = () =>
+    send()
+      .findAllByType(Odometer)
+      .find(odometer => odometer.props.variant === 'amount')!.props;
   const drawn = () =>
     send()
       .findAllByType(Text)
@@ -267,9 +272,18 @@ test('amounts follow the balance, hidden and in its unit, except on a review', a
     send()
       .findAll(node => typeof node.props.accessibilityLabel === 'string')
       .map(node => node.props.accessibilityLabel);
-  // A review is where the payment is checked, so it is never hidden.
+  // A review is where the payment is checked, so it is never hidden, and
+  // the sum's lines are in the balance's unit with it.
   expect(amount()).toMatchObject({ sats: 4200, unit: 'btc', masked: false });
-  expect(drawn()).toContain('0.0000422 BTC');
+  const lines = () =>
+    send()
+      .findAllByType(Odometer)
+      .filter(odometer => odometer.props.variant === 'line')
+      .map(odometer => odometer.props);
+  expect(lines()).toEqual(
+    expect.arrayContaining([expect.objectContaining({ sats: 4220, unit: 'btc' })]),
+  );
+  expect(lines().some(line => line.masked)).toBe(false);
   expect(labels()).toContain(copy.amount.spoken(4200));
   await activate(tree, copy.send.sendSats(4200));
   expect(amount()).toMatchObject({ sats: 4200, unit: 'btc', masked: true });
@@ -284,6 +298,34 @@ test('amounts follow the balance, hidden and in its unit, except on a review', a
       node.props.accessibilityLabel === copy.send.feePaid,
   );
   expect(fee.props.accessibilityValue.text).toBe(copy.amount.spoken(20));
+  await act(async () => tree.unmount());
+});
+
+test('an address review on the demo wallet carries its slider, and a rate chosen is the fee sent', async () => {
+  const tree = await openSend();
+  await act(async () => {
+    field(tree, copy.send.request).props.onChangeText(priced('rated'));
+  });
+  await press(tree, copy.send.review);
+  const slider = () => tree.root.findByType(FeeSlider);
+  expect(slider().props).toMatchObject({
+    rate: 3,
+    rates: { fast: 4, normal: 3, slow: 2, minimum: 1 },
+    feeSats: 350,
+  });
+  await act(async () => {
+    await slider().props.onChoose(1);
+  });
+  expect(slider().props).toMatchObject({ rate: 1, feeSats: 118 });
+  await activate(tree, copy.send.sendSats(4200));
+  const [fee] = tree.root.findAll(
+    node =>
+      typeof node.type === 'string' &&
+      [copy.send.feePaid, copy.send.reviewedFee].includes(
+        node.props.accessibilityLabel,
+      ),
+  );
+  expect(fee.props.accessibilityValue.text).toBe(copy.amount.spoken(118));
   await act(async () => tree.unmount());
 });
 

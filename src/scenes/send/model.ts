@@ -1,5 +1,6 @@
-import { parsePayment } from '@beignet/wallet-core';
+import { MAX_FEE_RATE, parsePayment } from '@beignet/wallet-core';
 import type {
+  FeeRates,
   SendResult,
   SendReview,
   WalletSnapshot,
@@ -99,6 +100,81 @@ export function isPayAllReview(review: SendReview): review is SendReview & {
     typeof review.debitMsat === 'string'
   );
 }
+
+/**
+ * A review whose rate can move: a payment to a Bitcoin address by splice,
+ * which the engine prices at a rate it reports (`feeRate`, whole sats per
+ * virtual byte) with the estimates it had (`feeRates`). Lightning, direct
+ * funding and a drain price themselves and carry neither.
+ */
+export type RatedReview = SendReview & { feeRate: number; feeRates: FeeRates };
+
+export function isRatedReview(review: SendReview): review is RatedReview {
+  return (
+    review.route === 'bitcoin' &&
+    review.method === undefined &&
+    typeof review.feeRate === 'number' &&
+    review.feeRate > 0 &&
+    review.feeRates != null
+  );
+}
+
+/**
+ * The fee at `rate` from a review priced at `review.feeRate`. The engine's
+ * fee is ceil(weight * rate * 250 / 1000) for a weight the rate does not
+ * change, so scaling the reviewed fee by the ratio of the rates is exact to
+ * within the engine's rounding; the quote on release settles the sat. At 1
+ * sat per virtual byte the engine floors the rate at 253 sat/kw, so the
+ * preview there runs about one percent low.
+ */
+export function previewFee(review: RatedReview, rate: number): number {
+  return Math.max(1, Math.ceil((review.feeSats * rate) / review.feeRate));
+}
+
+/**
+ * The review as it would read at `rate`: a max review's amount gives way to
+ * the fee and its total holds; otherwise the total follows the fee.
+ */
+export function previewReview(review: RatedReview, rate: number): RatedReview {
+  const feeSats = previewFee(review, rate);
+  return review.max
+    ? {
+        ...review,
+        feeRate: rate,
+        feeSats,
+        amountSats: Math.max(0, review.amountSats + review.feeSats - feeSats),
+      }
+    : { ...review, feeRate: rate, feeSats, totalSats: review.amountSats + feeSats };
+}
+
+/** The least a rate can be: nothing below one sat per virtual byte relays. */
+export const MIN_FEE_RATE = 1;
+
+/**
+ * The slider's reach: from the engine's minimum estimate to twice its fast
+ * one, or ten above it in a quiet mempool so the track is never a few sats
+ * wide, within the engine's ceiling; and always wide enough to hold `rate`,
+ * the rate the review stands at, since the estimates move between quotes.
+ */
+export function feeRange(
+  rates: FeeRates,
+  rate: number,
+): { min: number; max: number } {
+  const min = Math.min(rate, Math.max(MIN_FEE_RATE, rates.minimum));
+  const max = Math.max(
+    rate,
+    min + 1,
+    Math.min(MAX_FEE_RATE, Math.max(rates.fast * 2, rates.fast + 10)),
+  );
+  return { min, max };
+}
+
+/**
+ * How long the slider's quote may take before the hold shows it: a quote
+ * back within a crossfade shows no change, and a slower one runs the hold's
+ * orbit until it lands.
+ */
+export const REQUOTE_BEAT_MS = 160;
 
 /**
  * What a payment will cost, as the review lays it out (REDESIGN.md 6,
@@ -415,6 +491,18 @@ export function sendFailure(
       return failure('control', 'radish', ['bang']);
   }
 }
+
+/**
+ * A refusal of a rate the slider chose: drawn beside the hold whatever its
+ * code, since the review it came from stays, so the chip never reopens and
+ * no amount on the review is shaken. Its tone and glyphs are the engine
+ * error table's.
+ */
+export const rateRefusal = (failure: Failure): Failure => ({
+  ...failure,
+  target: 'control',
+  shake: false,
+});
 
 /**
  * Whether `result` is a payment broadcast on chain, which lands in a block

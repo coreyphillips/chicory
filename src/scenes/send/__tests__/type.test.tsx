@@ -5,6 +5,7 @@ import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import type { SendResult, SendReview } from '@beignet/wallet-core';
 import { copy } from '../../../design/copy';
+import { Odometer } from '../../../glyphs/Odometer';
 import { SendScreen } from '../../../screens/Send';
 import type { WalletAdapter } from '../../../services/wallet';
 import { activate, press } from '../../../../test-support/query';
@@ -101,11 +102,13 @@ test('the sum sets its operators in one column and its amounts right, so places 
     expect(WIDEST_SIGNS.length).toBeGreaterThanOrEqual(
       figures[index].signs.length,
     );
-    // The amount fills the rest of the line, set right in tabular figures.
-    const amount = style(texts[2]);
-    expect(amount.textAlign).toBe('right');
-    expect(amount.flexGrow).toBe(1);
-    expect(amount.fontVariant).toEqual(['tabular-nums']);
+    // The amount fills the rest of the line, set right, drawn by the
+    // odometer at the line's size in tabular figures.
+    const amount = line.findByType(Odometer);
+    expect(amount.props.variant).toBe('line');
+    const box = StyleSheet.flatten(amount.parent!.props.style);
+    expect(box.flexGrow).toBe(1);
+    expect(box.justifyContent).toBe('flex-end');
   });
   await act(async () => tree.unmount());
 });

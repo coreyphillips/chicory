@@ -1,5 +1,9 @@
 import { sats } from './shared';
 
+/** A fee rate as it is spoken: whole sats per virtual byte. */
+const perVbyte = (rate: number) =>
+  `${rate === 1 ? '1 sat' : `${rate} sats`} per virtual byte`;
+
 /**
  * Send: the request, the review, the hold and the results. None of it is
  * drawn: it is what the glyphs, rings and lines say to a screen reader and
@@ -50,6 +54,26 @@ export const send = {
   about: (value: number) => `about ${sats(value)}`,
   totalAtMost: 'Total, at most',
   totalWithFee: 'Total including fee',
+  // The fee rate slider under a Bitcoin review's sum: nothing on it is
+  // drawn, the fee line is its readout, and these are its words.
+  feeRate: 'Network fee rate',
+  feeRateHint: 'A higher rate confirms sooner and costs more.',
+  feeRateFixed: 'The fee rate cannot change now.',
+  /** Its value: where the rate stands against the engine's estimates, the rate, and the fee it gives. */
+  feeRateValue: (rate: number, fee: number, zone: string) =>
+    `${zone}, ${perVbyte(rate)}, fee ${sats(fee)}`,
+  feeZones: {
+    belowSlow: 'Below the slow estimate',
+    slow: 'Slow',
+    betweenSlowAndNormal: 'Between slow and normal',
+    normal: 'Normal',
+    betweenNormalAndFast: 'Between normal and fast',
+    fast: 'Fast',
+    aboveFast: 'Above the fast estimate',
+  },
+  /** Said once the engine has priced a chosen rate. */
+  feeRateAt: (rate: number, fee: number) =>
+    `Fee ${sats(fee)} at ${perVbyte(rate)}.`,
   // Results.
   sent: 'Sent.',
   onItsWay: 'Payment on its way.',

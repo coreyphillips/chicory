@@ -5,8 +5,9 @@
  */
 import type {
   Activity,
-  HostConfig,
   DrainProgress,
+  FeeRates,
+  HostConfig,
   ReceiveInput,
   ReceiveQuote,
   ReceiveRequest,
@@ -127,6 +128,32 @@ export function reviewOf(over: Partial<SendReview> = {}): SendReview {
     warnings: [],
     ...over,
   };
+}
+
+/** The engine's estimates when the gallery prices an address, whole sats per virtual byte. */
+export const FEE_RATES: FeeRates = { fast: 8, normal: 2, slow: 1, minimum: 1 };
+
+/**
+ * A review priced as a splice to ADDRESS at `rate`, the engine's normal
+ * unless the slider chose another, with a fee that scales with the rate so
+ * the sum's lines roll on the device.
+ */
+export function ratedReviewOf(
+  over: Partial<SendReview> = {},
+  rate = FEE_RATES.normal,
+): SendReview {
+  const feeSats = 250 * rate;
+  const amountSats = over.amountSats ?? 4_200;
+  return reviewOf({
+    id: `gallery-review-${rate}`,
+    route: 'bitcoin',
+    feeLabel: 'Estimated network fee',
+    feeSats,
+    totalSats: amountSats + feeSats,
+    feeRate: rate,
+    feeRates: FEE_RATES,
+    ...over,
+  });
 }
 
 export function resultOf(
@@ -346,9 +373,14 @@ export function clientOf(over: Partial<WalletAdapter> = {}): WalletAdapter {
     cancelDrain: async () =>
       (drain = { ...drain, revision: drain.revision + 1, phase: 'cancelled' }),
     prepareSend: async input =>
-      reviewOf(
-        input.amountSats ? { amountSats: Number(input.amountSats) } : {},
-      ),
+      input.feeRate
+        ? ratedReviewOf(
+            input.amountSats ? { amountSats: Number(input.amountSats) } : {},
+            input.feeRate,
+          )
+        : reviewOf(
+            input.amountSats ? { amountSats: Number(input.amountSats) } : {},
+          ),
     send: async review => {
       if (review.method === 'drain') {
         drain = {

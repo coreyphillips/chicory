@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import type { PropsWithChildren } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Reanimated, {
@@ -21,7 +21,7 @@ import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { CopiedGlyph } from '../../glyphs/CopyChip';
 import { Whisper } from '../../glyphs/Whisper';
-import { useShake } from '../../motion/effects';
+import { useOnce, useShake } from '../../motion/effects';
 import { riseIn } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
@@ -72,19 +72,6 @@ const FADE_IN = FadeIn.duration(durations.crossfade).reduceMotion(
 const FADE_OUT = FadeOut.duration(durations.crossfade).reduceMotion(
   ReduceMotion.Never,
 );
-
-/**
- * Plays once each time `key` changes to a new truthy value, never on mount:
- * a shake or a pulse that answers something that just happened.
- */
-export function useOnce(key: number | undefined, play: () => void) {
-  const seen = useRef(key);
-  useEffect(() => {
-    if (!key || key === seen.current) return;
-    seen.current = key;
-    play();
-  });
-}
 
 /**
  * A control arriving in place of another by turning once, as refresh does

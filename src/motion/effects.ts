@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   ReduceMotion,
   useAnimatedStyle,
@@ -23,6 +23,19 @@ import { useMotionPrefs } from './useMotionPrefs';
 
 /** How long a refusal tints radish in place of a shake, under Reduce Motion. */
 const TINT_MS = 400;
+
+/**
+ * Plays once each time `key` changes to a new truthy value, never on mount:
+ * a shake or a pulse that answers something that just happened.
+ */
+export function useOnce(key: number | undefined, play: () => void) {
+  const seen = useRef(key);
+  useEffect(() => {
+    if (!key || key === seen.current) return;
+    seen.current = key;
+    play();
+  });
+}
 
 /**
  * A refusal: a short damped shake, or under Reduce Motion a radish tint that
