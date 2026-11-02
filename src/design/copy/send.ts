@@ -77,9 +77,15 @@ export const send = {
   // Results.
   sent: 'Sent.',
   onItsWay: 'Payment on its way.',
+  // A payment to a Bitcoin address the engine has taken, whose transaction
+  // is still being put together and broadcast.
+  broadcasting: 'Sending to Bitcoin.',
   // A payment broadcast on chain: the payer's part is done, and the
   // history follows it to its confirmation.
   confirming: 'Sent. Confirming on Bitcoin.',
+  // A payment the engine took that the history then shows did not go out:
+  // the engine's own answer said it was submitted, so it is not repeated.
+  notSent: 'The payment did not go out. Check Activity.',
   unknown: 'Result unknown.',
   failed: 'Payment failed.',
   retry: 'Returns to the payment, with the request kept.',

@@ -19,10 +19,12 @@ import type { Activity, PaymentStatus } from '@beignet/wallet-core';
  *
  * Two things hold a request. What this app saw happen to it, kept for the
  * life of the process, and the history itself: a sent payment there matched
- * by the payment hash of the invoice the request carries, or by the
- * transaction this app saw it paid with. Either knowing a request paid is
- * enough, so there is no gap between a payment's call answering and the
- * history showing it. The history lets a request go once the payment it
+ * by the payment hash of the invoice the request carries, by the
+ * transaction this app saw it paid with, or by the row the engine keeps for
+ * this app's submission of it (`submissionId`), which names the transaction
+ * of a payment to an address only once it is broadcast. Either knowing a
+ * request paid is enough, so there is no gap between a payment's call
+ * answering and the history showing it. The history lets a request go once the payment it
  * shows has failed, or has completed and the request may be paid again, but
  * never while this app's own call to pay it has not answered: an older
  * attempt the history shows says nothing about the one still going out.
@@ -49,6 +51,8 @@ interface Entry {
   status: HeldStatus;
   paymentHash?: string;
   txid?: string;
+  /** The id this app sent the payment under, which its history row carries. */
+  id?: string;
   /** This app's call to pay it has not answered yet. */
   calling?: boolean;
   /**
@@ -64,6 +68,12 @@ export interface HeldOutcome {
   paymentHash?: string;
   txid?: string;
   /**
+   * The id the payment was sent under: the review's as it goes out, and the
+   * answer's once it comes. The history shows this app's submission as
+   * `submissionId(id)`.
+   */
+  id?: string;
+  /**
    * The payment is going out now and its call has not answered: nothing the
    * history shows lets the request go until the call does.
    */
@@ -71,6 +81,13 @@ export interface HeldOutcome {
 }
 
 const held = new Map<string, Entry>();
+
+/**
+ * The id the history gives a payment this app submitted under `id`: the
+ * engine and the adapter both keep it as `submission:` and the id, until its
+ * transaction or its invoice's payment shows under a row of its own.
+ */
+export const submissionId = (id: string) => `submission:${id}`;
 
 /**
  * The payment this app last saw complete each request that may be paid
@@ -250,6 +267,8 @@ export function holdRequest(request: string, outcome: HeldOutcome) {
       status,
       paymentHash: outcome.paymentHash || paymentHashOf(request) || undefined,
       txid: outcome.txid || undefined,
+      // An answer without an id keeps the one the call went out under.
+      id: outcome.id || (open ? before?.id : undefined) || undefined,
       calling: (status === 'pending' && outcome.calling) || undefined,
       // An answer to the call keeps the time the attempt began.
       since: open ? before?.since ?? Date.now() : undefined,
@@ -282,11 +301,17 @@ export function heldRequest(
   const entry = held.get(key);
   const hash = entry?.paymentHash ?? paymentHashOf(request);
   const txid = entry?.txid;
+  const submitted = entry?.id ? submissionId(entry.id) : null;
+  // This attempt's own rows: its transaction, or its submission.
+  const own = (payment: Activity) =>
+    !!(
+      (txid && payment.txid === txid) ||
+      (submitted && payment.id === submitted)
+    );
   const payments = activity.filter(
     payment =>
       payment.kind === 'sent' &&
-      ((hash && payment.paymentHash === hash) ||
-        (txid && payment.txid === txid)),
+      ((hash && payment.paymentHash === hash) || own(payment)),
   );
   const paid = payments.find(payment => payment.status === 'completed');
   const once = paidOnce(request);
@@ -298,21 +323,20 @@ export function heldRequest(
       held.set(key, {
         status: 'completed',
         paymentHash: hash ?? undefined,
-        txid,
+        txid: txid ?? paid?.txid,
+        id: entry?.id,
       });
     }
     return paid ? { status: 'completed', item: paid } : { status: 'completed' };
   }
   const open = payments.find(unsettled);
   if (open) return { status: open.status as HeldStatus, item: open };
-  // The transaction this app paid with is this attempt's own; a payment
-  // hash is shared by every attempt at the invoice.
+  // The transaction this app paid with, and the row of its submission, are
+  // this attempt's own; a payment hash is shared by every attempt at the
+  // invoice.
   const since = entry?.since;
   const current = since
-    ? payments.filter(
-        payment =>
-          (txid && payment.txid === txid) || payment.timestamp >= since,
-      )
+    ? payments.filter(payment => own(payment) || payment.timestamp >= since)
     : payments;
   if (current.length && !entry?.calling) {
     held.delete(key);

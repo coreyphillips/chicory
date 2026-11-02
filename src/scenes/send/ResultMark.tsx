@@ -22,12 +22,13 @@ import type {
 } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 import { Glyph } from '../../design/glyphs';
+import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { Whisper } from '../../glyphs/Whisper';
 import { popIn, useShake } from '../../motion/effects';
 import { useLoop, wave } from '../../motion/loops';
-import { fadeOut } from '../../motion/presets';
+import { fadeIn, fadeOut } from '../../motion/presets';
 import { steady } from '../../motion/steady';
 import { curves, durations, springs } from '../../motion/tokens';
 import { motionReduced } from '../../services/motion';
@@ -65,15 +66,16 @@ export const HELD_ORBIT = { stroke: 3, gap: 4, alpha: 0.6 };
 const HELD_ORBIT_SIZE = SIZE - 2 * (STROKE + HELD_ORBIT.gap);
 
 /**
- * How big the disc starts as the held ring resolves into it: the ring's
- * inside, so it grows out of the ring as the ring fades.
+ * How big the disc starts as the held ring, or the orbit, resolves into it:
+ * the ring's inside, so it grows out of the ring as the ring fades. Both
+ * are drawn on the same ring.
  */
 export const RESOLVE_FROM = (SIZE - 2 * STROKE) / SIZE;
 
 /**
- * How long the held ring takes to fade as the disc grows out of it: as long
- * as anything leaving takes, or half a crossfade under Reduce Motion, as
- * `fadeOut` would have faded it.
+ * How long the held ring or the orbit takes to fade as the face after it
+ * comes up: as long as anything leaving takes, or half a crossfade under
+ * Reduce Motion, as `fadeOut` would have faded it.
  */
 export const resolveOutMs = () =>
   motionReduced() ? durations.crossfade / 2 : durations.exit;
@@ -153,17 +155,45 @@ function Disc({ visual, lead, fill }: FaceProps) {
   );
 }
 
-/** On its way: an orbit round the arrow that left, slate on a test network. */
-function Moving() {
+/**
+ * On its way: an orbit round the visual's glyph, slate on a test network.
+ * The arrow that left for a Lightning payment, and the rail's own glyph for
+ * one to a Bitcoin address whose transaction is still being broadcast.
+ */
+function Moving({ visual }: FaceProps) {
   const bloom = useBloom();
   return (
     <>
       <Ring color={palette.husk} />
       <Orbit size={SIZE} stroke={STROKE} color={bloom.tone} />
-      <Glyph name="send" size={44} color={bloom.tone} />
+      <Glyph name={visual.glyph} size={44} color={bloom.tone} />
     </>
   );
 }
+
+/**
+ * A face another one comes up over, kept under it while it fades: the held
+ * ring, with whether its orbit runs, or the orbit, with the glyph it ran
+ * round. Kept as it was drawn, so the face after it never shows through.
+ */
+interface Kept {
+  shape: 'held' | 'orbit';
+  orbit: boolean;
+  glyph: GlyphName;
+}
+
+const keptOf = (visual: ResultVisual): Kept | null =>
+  visual.shape === 'held' || visual.shape === 'orbit'
+    ? { shape: visual.shape, orbit: !!visual.orbit, glyph: visual.glyph }
+    : null;
+
+const sameKept = (a: Kept | null, b: Kept | null) =>
+  a === b ||
+  (!!a &&
+    !!b &&
+    a.shape === b.shape &&
+    a.orbit === b.orbit &&
+    a.glyph === b.glyph);
 
 /**
  * Held: a steady honey ring, a halo breathing round it and the pause bars.
@@ -294,6 +324,9 @@ const FACES: Record<ResultVisual['shape'], (props: FaceProps) => ReactNode> = {
  * (`visual.resting`), for a payment seen before, is simply there. The held
  * ring, seen to complete (`visual.resolves`), fades as the disc grows out
  * of it and its check draws, rather than cutting to the disc in a frame.
+ * The orbit of a payment broadcasting on chain resolves into its disc the
+ * same way, and gives way to a held ring or a failure by a crossfade, the
+ * failure shaking as it comes.
  *
  * The mark carries the words: `accessibilityLabel` for what happened,
  * `accessibilityValue` for the status, and `accessibilityHint` for the
@@ -349,10 +382,12 @@ export function ResultMark({
   const leadFor = (shape: ResultVisual['shape']) =>
     beats && shape === grew ? beats.check : shape === 'disc' ? CHECK_LEAD : 0;
 
-  // A failure shakes as it lands: at once where it pops in, and as the hold's
-  // look gives way where it grows out of the hold (`land`).
+  // A failure shakes as it lands: at once where it pops in, as the hold's
+  // look gives way where it grows out of the hold (`land`), and at once where
+  // a mark already set out becomes one, as an orbit does whose payment the
+  // history shows failed.
   useEffect(() => {
-    if (broken && !beats) play();
+    if (broken && (!beats || setOut.current)) play();
   }, [broken, play, beats]);
 
   // The travel: unseen until the mark knows where it rests (`placed`), from
@@ -400,7 +435,9 @@ export function ResultMark({
         }, beats.gone),
         ...(broken ? [setTimeout(play, beats.arrive)] : []),
       ];
-      if (done) {
+      // The landing is the face the mark grew as: a disc reached later, as an
+      // orbit's broadcast is, grows out of the face that landed instead.
+      if (grew === 'disc') {
         closing.set(
           withTiming(1, { duration: CLOSE_MS, easing: curves.standard }),
         );
@@ -418,7 +455,7 @@ export function ResultMark({
     },
     [
       beats,
-      done,
+      grew,
       broken,
       play,
       placed,
@@ -485,22 +522,27 @@ export function ResultMark({
   }));
   const faceStyle = useAnimatedStyle(() => ({ opacity: faceIn.get() }));
 
-  // The held ring on screen, as whether it orbits, for a resolve to grow out
-  // of: it stays where it is, under the disc, while it fades, and then goes.
-  // Left to fade as a layer leaving, it was drawn over the disc on iOS, its
-  // pause and orbit showing through the done disc as it filled (P14, 05r).
-  const [ring, setRing] = useState<{ orbit: boolean } | null>(() =>
-    visual.shape === 'held' ? { orbit: !!visual.orbit } : null,
-  );
-  const resolving = !!visual.resolves && ring !== null;
-  if (visual.shape === 'held') {
-    if (ring?.orbit !== !!visual.orbit) setRing({ orbit: !!visual.orbit });
-  } else if (!resolving && ring !== null) {
-    setRing(null);
-  }
+  // The held ring or the orbit on screen, for the face after it to come up
+  // over: it stays where it is, under that face, while it fades, and then
+  // goes. Left to fade as a layer leaving, it was drawn over the disc on iOS,
+  // its pause and orbit showing through the done disc as it filled (P14,
+  // 05r). A disc it resolves into grows out of it; a held ring or a failure
+  // after an orbit fades up over it. A disc it does not resolve into, such
+  // as a paid mark at rest, takes its place at once.
+  const now = keptOf(visual);
+  const [kept, setKept] = useState<Kept | null>(now);
+  const moving =
+    kept !== null &&
+    kept.shape !== visual.shape &&
+    (visual.shape !== 'disc' || !!visual.resolves);
+  if (!moving && !sameKept(kept, now)) setKept(now);
+  const latestKept = useRef(now);
+  useLayoutEffect(() => {
+    latestKept.current = now;
+  });
   const gone = useSharedValue(0);
   useEffect(() => {
-    if (!resolving) {
+    if (!moving) {
       gone.set(0);
       return;
     }
@@ -512,41 +554,49 @@ export function ResultMark({
         reduceMotion: ReduceMotion.Never,
       }),
     );
-    const timer = setTimeout(() => setRing(null), ms);
+    const timer = setTimeout(() => setKept(latestKept.current), ms);
     return () => clearTimeout(timer);
-  }, [resolving, gone]);
-  const ringStyle = useAnimatedStyle(() => ({ opacity: 1 - gone.get() }));
+  }, [moving, gone]);
+  const keptStyle = useAnimatedStyle(() => ({ opacity: 1 - gone.get() }));
 
   const faceProps = { visual, lead: leadFor(visual.shape), fill };
-  // Each shape is a layer of its own, the one drawn last on top. Resolving,
-  // the ring keeps its layer and the disc's comes after it. A mark growing
-  // out of the hold draws them once it is placed (`landed`).
-  const layers: Layer[] = resolving
-    ? [
-        {
-          key: 'held',
-          face: (
-            <Held
-              {...faceProps}
-              visual={{ ...visual, orbit: ring?.orbit }}
-              lead={leadFor('held')}
-            />
-          ),
-        },
-        {
-          key: visual.shape,
-          face: <Face {...faceProps} />,
-          entering: popIn(RESOLVE_FROM),
-        },
-      ]
-    : [
-        {
-          key: visual.shape,
-          face: <Face {...faceProps} />,
-          entering: visual.resolves ? popIn(RESOLVE_FROM) : undefined,
-          exiting: visual.shape === 'held' ? fadeOut() : undefined,
-        },
-      ];
+  // Each shape is a layer of its own, the one drawn last on top. Moving on,
+  // the kept face keeps its layer, under its own key so it is not drawn
+  // again, and the next face's comes after it. A mark growing out of the
+  // hold draws them once it is placed (`landed`).
+  const KeptFace = kept ? FACES[kept.shape] : null;
+  const layers: Layer[] =
+    moving && kept && KeptFace
+      ? [
+          {
+            key: kept.shape,
+            face: (
+              <KeptFace
+                {...faceProps}
+                visual={{
+                  ...visual,
+                  shape: kept.shape,
+                  orbit: kept.orbit,
+                  glyph: kept.glyph,
+                }}
+                lead={leadFor(kept.shape)}
+              />
+            ),
+          },
+          {
+            key: visual.shape,
+            face: <Face {...faceProps} />,
+            entering: visual.shape === 'disc' ? popIn(RESOLVE_FROM) : fadeIn(),
+          },
+        ]
+      : [
+          {
+            key: visual.shape,
+            face: <Face {...faceProps} />,
+            entering: visual.resolves ? popIn(RESOLVE_FROM) : undefined,
+            exiting: visual.shape === 'held' ? fadeOut() : undefined,
+          },
+        ];
   return (
     <Whisper label={accessibilityHint}>
       {/* The anchor never moves: it is where the mark rests, which the
@@ -597,7 +647,7 @@ export function ResultMark({
                       style={[
                         styles.layer,
                         styles.centred,
-                        layer.key === 'held' && ringStyle,
+                        moving && layer.key === kept?.shape && keptStyle,
                         arriving && faceStyle,
                       ]}
                     >
