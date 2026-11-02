@@ -219,6 +219,11 @@ export function GlyphButton({
     press.set(reduced ? 1 : withSpring(scale, springs.snap));
   const round = { width: size, height: size, borderRadius: size / 2 };
   const pill = { minHeight: size, borderRadius: size / 2 };
+  // A layer over the disc fills the control from its insets, inside any husk
+  // ring. Given a size of its own it would start inside the ring's border
+  // and spill past it at the bottom right, since Yoga places an absolute
+  // child from the border's inside and lets a width beat a right inset.
+  const over = { borderRadius: size / 2 };
   // The disc's colour, which a layer keyed by it fades out of as it changes.
   const fill = primary ? bloom : bare ? null : palette.mocha;
   // Held back, it is drawn as Send's way on is, a mocha disc in a husk ring
@@ -279,11 +284,7 @@ export function GlyphButton({
                   key={fill}
                   exiting={FADE_OUT}
                   pointerEvents="none"
-                  style={[
-                    styles.tint,
-                    children ? pill : round,
-                    { backgroundColor: fill },
-                  ]}
+                  style={[styles.tint, over, { backgroundColor: fill }]}
                 />
               ) : null}
               <Reanimated.View key={ink} entering={FADE_IN} exiting={FADE_OUT}>
@@ -313,7 +314,7 @@ export function GlyphButton({
             ) : null}
             <Reanimated.View
               pointerEvents="none"
-              style={[styles.tint, children ? pill : round, refusal.tint]}
+              style={[styles.tint, over, refusal.tint]}
             />
           </Pressable>
           {busy ? (

@@ -880,6 +880,29 @@ describe('the amount step', () => {
     expect(glyphsIn(way).map(glyph => glyph.props.color)).toEqual([
       palette.dust,
     ]);
+    // The disc's own layer fills the control from its insets, inside the
+    // ring: given a size of its own it sat a border in and spilled past the
+    // ring at the bottom right.
+    const layers = way.findAll(node => {
+      const drawn = StyleSheet.flatten(node.props.style) ?? {};
+      return (
+        typeof node.type === 'string' &&
+        drawn.position === 'absolute' &&
+        drawn.backgroundColor === palette.mocha
+      );
+    });
+    expect(layers).toHaveLength(1);
+    const layer = StyleSheet.flatten(layers[0].props.style);
+    expect(layer).toMatchObject({
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      borderRadius: SEND_CONTROL / 2,
+    });
+    expect(layer.width).toBeUndefined();
+    expect(layer.height).toBeUndefined();
+    expect(layer.minHeight).toBeUndefined();
     await act(async () => tree.unmount());
   });
 
