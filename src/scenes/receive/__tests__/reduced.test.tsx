@@ -6,7 +6,9 @@ import { act } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import { copy } from '../../../design/copy';
 import { COPIED, CopyChip } from '../../../glyphs/CopyChip';
-import { QrBloom } from '../../../glyphs/QrBloom';
+import { QR_SETTLED, QrBloom } from '../../../glyphs/QrBloom';
+import * as effects from '../../../motion/effects';
+import * as presets from '../../../motion/presets';
 import { durations } from '../../../motion/tokens';
 import * as tokens from '../../../motion/tokens';
 import { ReceiveScreen } from '../../../screens/Receive';
@@ -14,6 +16,7 @@ import type { WalletAdapter } from '../../../services/wallet';
 import { mount } from '../../../../test-support/guard';
 import { enterAmount } from '../../../../test-support/keypad';
 import { find } from '../../../../test-support/query';
+import { ListeningPing } from '../ListeningPing';
 
 /**
  * Receive under Reduce Motion (REDESIGN.md 8). Reanimated skips any animation
@@ -129,6 +132,137 @@ test('the moon refused offline tints the switch, and the tint plays', async () =
   for (const config of tint) {
     expect(config.reduceMotion).toBe(ReduceMotion.Never);
   }
+  await act(async () => tree.unmount());
+});
+
+test("a request's frame draws no ping while it waits", async () => {
+  const client = {
+    quoteReceive: jest.fn().mockResolvedValue({
+      id: 'q1',
+      amountSats: 1000,
+      description: '',
+      feeSats: 0,
+      netSats: 1000,
+      expiresAt: Date.now() + 60_000,
+      warnings: [],
+    }),
+    receive: jest.fn().mockResolvedValue({
+      id: 'r1',
+      uri: URI,
+      address: 'bcrt1address',
+      bolt11: 'lnbcrt1invoice',
+      paymentHash: 'ab'.repeat(32),
+      amountSats: 1000,
+      description: '',
+      feeSats: 0,
+      expiresAt: Date.now() + 600_000,
+      warnings: [],
+      demo: false,
+      bitcoinTracking: 'unique',
+    }),
+    getReceiveStatus: jest.fn().mockResolvedValue({
+      phase: 'waiting',
+      receivedSats: 0,
+      confirmedSats: 0,
+      pendingSats: 0,
+      txids: [],
+    }),
+  } as unknown as WalletAdapter;
+  const tree = await mount(
+    <ReceiveScreen
+      client={client}
+      receivableSats={10_000}
+      onActivity={noop}
+      onBusy={noop}
+    />,
+  );
+  await enterAmount(tree, '1000');
+  await press(tree, copy.receive.continue);
+  await press(tree, copy.receive.create);
+  await act(async () => {
+    jest.advanceTimersByTime(QR_SETTLED);
+  });
+  const ping = tree.root.findByType(ListeningPing);
+  expect(ping.props.running).toBe(true);
+  expect(ping.children).toEqual([]);
+  await act(async () => tree.unmount());
+});
+
+test("a paid request's controls hand over by the presets, which crossfade", async () => {
+  const dissolves = jest.spyOn(effects, 'dissolve');
+  const drops = jest.spyOn(presets, 'dropOut');
+  const staggers = jest.spyOn(presets, 'stagger');
+  const smooths = jest.spyOn(presets, 'smooth');
+  const waiting = {
+    phase: 'waiting',
+    receivedSats: 0,
+    confirmedSats: 0,
+    pendingSats: 0,
+    txids: [],
+  };
+  const client = {
+    quoteReceive: jest.fn().mockResolvedValue({
+      id: 'q1',
+      amountSats: 1000,
+      description: '',
+      feeSats: 0,
+      netSats: 1000,
+      expiresAt: Date.now() + 60_000,
+      warnings: [],
+    }),
+    receive: jest.fn().mockResolvedValue({
+      id: 'r1',
+      uri: URI,
+      address: 'bcrt1address',
+      bolt11: 'lnbcrt1invoice',
+      paymentHash: 'ab'.repeat(32),
+      amountSats: 1000,
+      description: '',
+      feeSats: 0,
+      expiresAt: Date.now() + 600_000,
+      warnings: [],
+      demo: false,
+      bitcoinTracking: 'unique',
+    }),
+    getReceiveStatus: jest
+      .fn()
+      .mockResolvedValueOnce(waiting)
+      .mockResolvedValue({
+        phase: 'completed',
+        receivedSats: 1000,
+        confirmedSats: 1000,
+        pendingSats: 0,
+        txids: [],
+        method: 'lightning',
+      }),
+  } as unknown as WalletAdapter;
+  const tree = await mount(
+    <ReceiveScreen
+      client={client}
+      receivableSats={10_000}
+      onActivity={noop}
+      onBusy={noop}
+    />,
+  );
+  await enterAmount(tree, '1000');
+  await press(tree, copy.receive.continue);
+  await press(tree, copy.receive.create);
+  // Share and copy are drawn ready to dissolve, and the row ready to glide.
+  expect(dissolves).toHaveBeenCalled();
+  expect(drops).toHaveBeenCalledWith(8);
+  expect(smooths).toHaveBeenCalled();
+  staggers.mockClear();
+  const { timings } = await started(() =>
+    act(async () => {
+      jest.advanceTimersByTime(2000);
+    }),
+  );
+  // The history control rises in first in its row, by a crossfade here.
+  expect(staggers).toHaveBeenCalledWith(0);
+  const fades = timings.filter(
+    config => config.duration === durations.crossfade,
+  );
+  for (const fade of fades) expect(fade.reduceMotion).toBe(ReduceMotion.Never);
   await act(async () => tree.unmount());
 });
 

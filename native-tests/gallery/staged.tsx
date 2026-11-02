@@ -119,9 +119,14 @@ export interface OnWallet {
   steps?: Step[];
 }
 
-export function wallet(name: string, make: () => OnWallet = () => ({})): Shot {
+export function wallet(
+  name: string,
+  make: () => OnWallet = () => ({}),
+  hold?: number,
+): Shot {
   return {
     name,
+    hold,
     make: () => {
       const state = make();
       const snapshot = state.snapshot ?? onMainnet();

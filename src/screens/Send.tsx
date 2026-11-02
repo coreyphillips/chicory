@@ -10,7 +10,7 @@ import React, {
 import type { ReactNode, Ref } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { HostInstance } from 'react-native';
-import Reanimated from 'react-native-reanimated';
+import Reanimated, { useSharedValue } from 'react-native-reanimated';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { parseSats } from '@beignet/wallet-core';
 import type {
@@ -30,12 +30,17 @@ import { palette } from '../design/palette';
 import { CopyChip } from '../glyphs/CopyChip';
 import { Whisper } from '../glyphs/Whisper';
 import { inlineAmount } from '../glyphs/InlineAmount';
-import { riseIn, sceneIn, sceneOut, smooth } from '../motion/presets';
+import { useLoop } from '../motion/loops';
+import { riseIn, sceneIn, sceneOut, smooth, vanishIf } from '../motion/presets';
 import { announceSafety } from '../motion/speech';
+import { durations, overlap } from '../motion/tokens';
+import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { AmountReadout } from '../scenes/keypad/AmountReadout';
 import { digitsOnly, grouped } from '../scenes/keypad/keys';
 import type { AmountTone } from '../scenes/keypad/keys';
 import { Amount } from '../scenes/send/Amount';
+import { ARRIVE_MS, watchCentre } from '../scenes/send/arrival';
+import type { Arrival, Origin as Centre } from '../scenes/send/arrival';
 import { Commit } from '../scenes/send/Commit';
 import { CircleControl } from '../scenes/send/Controls';
 import { FailureMark } from '../scenes/send/FailureMark';
@@ -382,6 +387,38 @@ export function SendScreen({
   const control = useRef<HostInstance>(null);
   const readout = useRef<HostInstance>(null);
   const mark = useRef<HostInstance>(null);
+
+  // What a result's mark grows out of (REDESIGN.md 7, T7): the hold's
+  // centre, read while the payment is out, and the comet's clock, which Send
+  // keeps so the mark's comet carries on from where the hold's was. Under
+  // Reduce Motion nothing travels, so no arrival is kept.
+  const { reduced } = useMotionPrefs();
+  const [arrival, setArrival] = useState<Arrival | null>(null);
+  const comet = useLoop(durations.orbit, spent || arrival !== null);
+  // Whether a mark takes the hold's place as it leaves, read by the hold's
+  // exit in the frame it goes (`vanishIf`): set as a result or the overdue
+  // ring is shown grown out of it, and clear while a payment is out, so the
+  // hold of a payment the engine refuses leaves with its review.
+  const taken = useSharedValue(false);
+  const holdAt = useRef<Centre | null>(null);
+  useLayoutEffect(() => {
+    if (!spent) {
+      holdAt.current = null;
+      return;
+    }
+    return watchCentre(
+      () => control.current,
+      at => {
+        holdAt.current = at;
+      },
+    );
+  }, [spent]);
+  /** What a result landing now grows out of, where the hold was measured. */
+  const arrivalFrom = (warned: boolean): Arrival | null =>
+    holdAt.current && !reduced
+      ? { from: holdAt.current, clock: comet, warned }
+      : null;
+  const arrived = () => setArrival(null);
   // Whether the hold is up, for the balance's gate to read as it turns.
   const reviewing = useRef(false);
   useLayoutEffect(() => {
@@ -732,8 +769,11 @@ export function SendScreen({
     setCollapsed(true);
   }
 
-  /** Shows how a payment came out. */
+  /** Shows how a payment came out, grown out of the hold that sent it. */
   function show(outcome: SendResult) {
+    const from = arrivalFrom((review?.warnings.length ?? 0) > 0);
+    taken.set(from !== null);
+    setArrival(from);
     setResult(outcome);
     setStayed(false);
     setReview(null);
@@ -757,6 +797,9 @@ export function SendScreen({
     setRingFor(paying.trim());
     setStayed(false);
     setBusy(false);
+    const from = arrivalFrom((review?.warnings.length ?? 0) > 0);
+    taken.set(from !== null);
+    setArrival(from);
     toHeld();
   }
 
@@ -851,6 +894,7 @@ export function SendScreen({
     // twice (REDESIGN.md rule 6).
     holdRequest(paying, { status: 'pending', calling: true });
     const call = goingOut();
+    taken.set(false);
     setSpent(true);
     setFailure(null);
     setRail(reviewRail(quote).glyph);
@@ -952,6 +996,7 @@ export function SendScreen({
 
   /** A failed payment tapped: back to compose with the request kept. */
   function retry() {
+    setArrival(null);
     setResult(null);
     setFailure(null);
     land(readout);
@@ -1033,6 +1078,15 @@ export function SendScreen({
     ? 'review'
     : 'compose';
   let content: ReactNode;
+  // What sits under a mark growing out of the hold rises in once the mark
+  // has landed, a sibling's stagger apart; otherwise the step moves it.
+  const landing = (index: number) =>
+    arrival
+      ? riseIn(
+          overlap.rise,
+          ARRIVE_MS + overlap.enterDelay + index * overlap.staggerMax,
+        )
+      : undefined;
 
   if (result) {
     const visual = resultVisual(result.status);
@@ -1065,15 +1119,20 @@ export function SendScreen({
                 ? () => onDetail(item)
                 : undefined
             }
+            arrival={arrival}
+            onArrived={arrived}
           />
-          <Amount
-            sats={result.amountSats}
-            unit={unit}
-            symbol={symbol}
-            masked={masked}
-            color={uncertain ? palette.honey : palette.cream}
-          />
-          <View
+          <Reanimated.View entering={landing(0)}>
+            <Amount
+              sats={result.amountSats}
+              unit={unit}
+              symbol={symbol}
+              masked={masked}
+              color={uncertain ? palette.honey : palette.cream}
+            />
+          </Reanimated.View>
+          <Reanimated.View
+            entering={landing(1)}
             accessible
             accessibilityLabel={
               result.feeEstimated ? copy.send.reviewedFee : copy.send.feePaid
@@ -1104,17 +1163,21 @@ export function SendScreen({
                     )}
               </Text>
             )}
-          </View>
+          </Reanimated.View>
           {reference ? (
-            <CopyChip label={copy.send.reference} value={reference} />
+            <Reanimated.View entering={landing(2)}>
+              <CopyChip label={copy.send.reference} value={reference} />
+            </Reanimated.View>
           ) : null}
         </View>
         <View style={[styles.controls, styles.centred]}>
-          <GlyphButton
-            glyph={ACTIVITY_GLYPH}
-            accessibilityLabel={copy.send.viewActivity}
-            onPress={live ? onActivity : undefined}
-          />
+          <Reanimated.View entering={landing(3)}>
+            <GlyphButton
+              glyph={ACTIVITY_GLYPH}
+              accessibilityLabel={copy.send.viewActivity}
+              onPress={live ? onActivity : undefined}
+            />
+          </Reanimated.View>
         </View>
       </>
     );
@@ -1146,24 +1209,30 @@ export function SendScreen({
               .filter(Boolean)
               .join(' ')}
             onPress={openItem}
+            arrival={arrival}
+            onArrived={arrived}
           />
           {shown ? (
-            <Amount
-              sats={shown}
-              unit={unit}
-              symbol={symbol}
-              masked={masked}
-              color={paid ? palette.cream : palette.honey}
-            />
+            <Reanimated.View entering={landing(0)}>
+              <Amount
+                sats={shown}
+                unit={unit}
+                symbol={symbol}
+                masked={masked}
+                color={paid ? palette.cream : palette.honey}
+              />
+            </Reanimated.View>
           ) : null}
         </View>
         <View style={[styles.controls, styles.centred]}>
-          <GlyphButton
-            glyph={ACTIVITY_GLYPH}
-            accessibilityLabel={copy.send.viewActivity}
-            accessibilityHint={openItem ? copy.send.showPayment : undefined}
-            onPress={live ? openItem ?? onActivity : undefined}
-          />
+          <Reanimated.View entering={landing(1)}>
+            <GlyphButton
+              glyph={ACTIVITY_GLYPH}
+              accessibilityLabel={copy.send.viewActivity}
+              accessibilityHint={openItem ? copy.send.showPayment : undefined}
+              onPress={live ? openItem ?? onActivity : undefined}
+            />
+          </Reanimated.View>
         </View>
       </>
     );
@@ -1215,25 +1284,33 @@ export function SendScreen({
               disabled={busy}
             />
           </View>
-          <Commit
-            ref={control}
-            accessibilityLabel={
-              review.max
-                ? copy.send.sendMax
-                : copy.send.sendSats(review.amountSats)
-            }
-            summary={reviewWords(review)}
-            expiresAt={review.expiresAt}
-            createdAt={reviewedAt}
-            warning={review.warnings.length > 0}
-            expired={expired}
-            stale={disabled}
-            busy={busy}
-            spent={spent}
-            onCommit={pay}
-            onRefreshQuote={live && !busy ? refreshQuote : undefined}
-            onRefresh={live ? onRefresh : undefined}
-          />
+          {/* A hold that has sent is taken over by the result's mark in the
+              same frame, which grows out of it (REDESIGN.md 7, T7): drawn
+              whole in that frame, under the mark, and gone from the next.
+              Refused, with no mark to take it over, it leaves with the
+              review. */}
+          <Reanimated.View exiting={spent ? vanishIf(taken) : undefined}>
+            <Commit
+              ref={control}
+              accessibilityLabel={
+                review.max
+                  ? copy.send.sendMax
+                  : copy.send.sendSats(review.amountSats)
+              }
+              summary={reviewWords(review)}
+              expiresAt={review.expiresAt}
+              createdAt={reviewedAt}
+              warning={review.warnings.length > 0}
+              expired={expired}
+              stale={disabled}
+              busy={busy}
+              spent={spent}
+              comet={comet}
+              onCommit={pay}
+              onRefreshQuote={live && !busy ? refreshQuote : undefined}
+              onRefresh={live ? onRefresh : undefined}
+            />
+          </Reanimated.View>
           <View style={[styles.side, styles.end]}>
             {failure ? <FailureMark failure={failure} /> : null}
           </View>
@@ -1387,10 +1464,18 @@ export function SendScreen({
           />
         )}
         {/* The step slides, rather than jumps, as the request above it opens
-          into the well or closes into a chip. */}
+          into the well or closes into a chip. A step whose mark grows out of
+          the hold takes no entrance, since a rise would carry the mark with
+          it; one that takes the mark's place before the hold's look has
+          given way, as compose does when the chip is tapped, moves as the
+          steps do. */}
         <Reanimated.View
           key={step}
-          entering={sceneIn()}
+          entering={
+            arrival && (step === 'result' || step === 'held')
+              ? undefined
+              : sceneIn()
+          }
           exiting={sceneOut()}
           layout={smooth()}
           onTouchStart={result || resolved ? stay : undefined}

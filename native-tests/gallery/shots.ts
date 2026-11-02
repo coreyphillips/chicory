@@ -5,15 +5,23 @@ import type { Drive } from './drive';
 /**
  * One thing done to a state on the way to what it shows. A step reaches for
  * one control at most, and is run again until that control is there to use
- * (drive.ts, `perform`), so it does nothing else before it reaches.
+ * (drive.ts, `perform`), so it does nothing else before it reaches. A step
+ * that starts something slow, such as a wait for a wallet's late answer,
+ * returns a promise, and the step after it waits for that to settle.
  */
-export type Step = (drive: Drive) => void;
+export type Step = (drive: Drive) => void | Promise<void>;
 
 /** Taps the control labelled `label`. */
 export const press =
   (label: string): Step =>
   drive =>
     drive.press(label);
+
+/** Waits `ms` before the next step, as a person waits for a wallet. */
+export const wait =
+  (ms: number): Step =>
+  () =>
+    new Promise(resolve => setTimeout(resolve, ms));
 
 /** A state as drawn: what to draw, and the steps that bring it about. */
 export interface Take {
@@ -29,6 +37,11 @@ export interface Take {
 export interface Shot {
   name: string;
   make: () => Take;
+  /**
+   * How long the state holds once reached, where the gallery's own dwell
+   * would cut a motion short: a celebration, or an answer that comes late.
+   */
+  hold?: number;
 }
 
 /** A count a step moves on, for a state that changes after it is drawn. */

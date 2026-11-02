@@ -560,6 +560,7 @@ export function ReceiveScreen({
               onActivity={onActivity}
               focus={focus}
               qrFocus={qrFocus}
+              lifted={showLift}
             />
           ) : quote ? (
             <QuoteStep

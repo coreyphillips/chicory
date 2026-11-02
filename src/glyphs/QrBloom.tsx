@@ -264,6 +264,14 @@ export const QR_CARD_GONE = QR_TIMING.step * BANDS + QR_TIMING.dissolve;
 export const QR_HANDOVER = 90;
 
 /**
+ * When a code has bloomed in, in ms from its mount: the finders, its last
+ * layer, have entered. A request's frame starts to listen for its payment
+ * then (REDESIGN.md 5, Listening ping), never over a code still arriving.
+ */
+export const QR_SETTLED =
+  QR_TIMING.start + QR_TIMING.step * FINDERS + QR_TIMING.enter;
+
+/**
  * A paid code's card `c` (0 to 1) of the way to the disc it lands on,
  * `lands` across, from a card `size` across with corners of `corner`: its
  * scale, and the corner that makes it that disc, a circle, at the end.

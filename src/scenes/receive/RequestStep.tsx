@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Reanimated, {
   cancelAnimation,
@@ -15,9 +15,16 @@ import type { GlyphName } from '../../design/glyphs';
 import { palette } from '../../design/palette';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
 import { inlineAmount } from '../../glyphs/InlineAmount';
-import { QrBloom } from '../../glyphs/QrBloom';
+import { QR_SETTLED, QrBloom } from '../../glyphs/QrBloom';
 import { Whisper } from '../../glyphs/Whisper';
-import { riseIn, stagger } from '../../motion/presets';
+import { dissolve } from '../../motion/effects';
+import {
+  dropOut,
+  fadeOut,
+  riseIn,
+  smooth,
+  stagger,
+} from '../../motion/presets';
 import { curves } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { MASK, radius, space, type as typography } from '../../theme';
@@ -31,6 +38,7 @@ import {
 } from './controls';
 import type { Focus } from './focus';
 import { useReceiveHost } from './host';
+import { ListeningPing } from './ListeningPing';
 import { Rock } from './loops';
 import type { Refused, RequestFace } from './model';
 import { useBloom, useTestNetwork } from './tone';
@@ -56,7 +64,10 @@ const LINE = typography.line.fontSize;
  * A request and what becomes of it (REDESIGN.md 6, Receive). The code
  * blooms in a frame whose ring runs down to the request's expiry, turning
  * honey near the end; under it the amount or an infinity, the note, and how
- * it can be paid, with a rocking moon when it is payable offline.
+ * it can be paid, with a rocking moon when it is payable offline. While the
+ * code can be paid and is not lifted, once it has bloomed in, the frame
+ * listens: a ping sets out from it every 2400ms (REDESIGN.md 5, Listening
+ * ping), behind the ring and clear of the code.
  *
  * An expired request dissolves and a reused address scatters, and either
  * way share and copy go, leaving plus as the way on. Money arriving implodes
@@ -64,6 +75,10 @@ const LINE = typography.line.fontSize;
  * 120pt mark at the code's centre, Send's done disc, with the amount under
  * it (P10, 42-c3: the code had faded as a flat taupe square onto a 275pt
  * ring). The mark is under the card, so the card lands on it and hands over.
+ * The controls hand over by the overlap rule (REDESIGN.md 3.5): what the
+ * request said of itself drops out, share and copy dissolve as a pair, the
+ * history control rises in and plus crossfades to the way on, the row
+ * gliding as it centres again, rather than each cutting to the next.
  *
  * In the scene (`room`) the controls are pinned to the bottom of the step,
  * in the row the amount and the quote keep theirs in, so the thumb stays
@@ -89,6 +104,7 @@ export function RequestStep({
   onActivity,
   focus,
   qrFocus,
+  lifted = false,
 }: {
   request: ReceiveRequest;
   createdAt: number;
@@ -115,10 +131,21 @@ export function RequestStep({
   focus: Focus;
   /** The code, where a screen reader goes back to as a lifted code is set down. */
   qrFocus?: Focus;
+  /** The code is lifted over the step, so the frame here is not the one seen. */
+  lifted?: boolean;
 }) {
   const test = useTestNetwork();
   const { room } = useReceiveHost();
   const side = frameSide(qr);
+  // The frame listens once the code has bloomed in, and for as long as the
+  // code shown can be paid and is not lifted away from it.
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    setSettled(false);
+    const timer = setTimeout(() => setSettled(true), QR_SETTLED);
+    return () => clearTimeout(timer);
+  }, [request.uri]);
+  const listening = face.shareable && !lifted && settled;
   const remainder = remainderSats(request.amountSats, receipt);
   const scattered = face.qr === 'scattered';
   const status =
@@ -154,6 +181,11 @@ export function RequestStep({
             style={receipt ? styles.over : undefined}
           >
             <View style={[styles.frame, { width: side, height: side }]}>
+              <ListeningPing
+                side={side}
+                radius={radius.qr + RING_GAP}
+                running={listening}
+              />
               {/* Kept through expiry, so the ring can collapse as it ends. */}
               {face.qr === 'shown' || face.qr === 'expired' ? (
                 <View pointerEvents="none" style={styles.fill}>
@@ -216,19 +248,34 @@ export function RequestStep({
             />
           )}
         </View>
-        {receipt ? null : <WarningPips warnings={request.warnings} />}
+        {receipt || !request.warnings.length ? null : (
+          <Reanimated.View key="pips" exiting={fadeOut()}>
+            <WarningPips warnings={request.warnings} />
+          </Reanimated.View>
+        )}
       </View>
       <Reanimated.View entering={stagger(2)} style={styles.controls}>
         <View style={styles.side} />
         <View style={styles.buttons}>
           {receipt ? (
-            <GlyphButton
-              glyph={ACTIVITY}
-              label={copy.receive.viewActivity}
-              onPress={onActivity}
-            />
+            <Reanimated.View
+              key="history"
+              entering={stagger(0)}
+              layout={smooth()}
+            >
+              <GlyphButton
+                glyph={ACTIVITY}
+                label={copy.receive.viewActivity}
+                onPress={onActivity}
+              />
+            </Reanimated.View>
           ) : face.shareable ? (
-            <>
+            <Reanimated.View
+              key="share"
+              exiting={dissolve()}
+              layout={smooth()}
+              style={styles.pair}
+            >
               <GlyphButton
                 glyph="share"
                 label={copy.receive.share}
@@ -240,34 +287,36 @@ export function RequestStep({
                 confirm={copies}
                 onPress={onCopy}
               />
-            </>
+            </Reanimated.View>
           ) : null}
-          <GlyphButton
-            glyph="plus"
-            label={
-              remainder !== null
-                ? copy.receive.requestRemaining
-                : copy.receive.createAnother
-            }
-            tone={face.shareable && !receipt ? 'raised' : 'primary'}
-            halo={scattered}
-            pulse={face.qr === 'expired' ? 1 : undefined}
-            value={
-              remainder === null
-                ? undefined
+          <Reanimated.View key="again" layout={smooth()}>
+            <GlyphButton
+              glyph="plus"
+              label={
+                remainder !== null
+                  ? copy.receive.requestRemaining
+                  : copy.receive.createAnother
+              }
+              tone={face.shareable && !receipt ? 'raised' : 'primary'}
+              halo={scattered}
+              pulse={face.qr === 'expired' ? 1 : undefined}
+              value={
+                remainder === null
+                  ? undefined
+                  : hidden
+                  ? copy.amount.hidden
+                  : copy.amount.spoken(remainder)
+              }
+              onPress={onAgain}
+            >
+              {/* What is owed gives away what arrived, so it hides with it. */}
+              {remainder === null
+                ? null
                 : hidden
-                ? copy.amount.hidden
-                : copy.amount.spoken(remainder)
-            }
-            onPress={onAgain}
-          >
-            {/* What is owed gives away what arrived, so it hides with it. */}
-            {remainder === null
-              ? null
-              : hidden
-              ? MASK
-              : inlineAmount(remainder, 'sats', symbol, LINE)}
-          </GlyphButton>
+                ? MASK
+                : inlineAmount(remainder, 'sats', symbol, LINE)}
+            </GlyphButton>
+          </Reanimated.View>
         </View>
         <View style={[styles.side, styles.end]}>
           {error ? (
@@ -357,7 +406,11 @@ function About({
         .filter(Boolean)
         .join('. ');
   return (
-    <Reanimated.View entering={stagger(1)} style={styles.about}>
+    <Reanimated.View
+      entering={stagger(1)}
+      exiting={dropOut(8)}
+      style={styles.about}
+    >
       <View
         ref={focus}
         accessible
@@ -456,4 +509,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: space.lg,
   },
+  // Share and copy, which come and go together.
+  pair: { flexDirection: 'row', alignItems: 'center', gap: space.lg },
 });

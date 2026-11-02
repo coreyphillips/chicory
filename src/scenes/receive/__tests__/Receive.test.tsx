@@ -42,6 +42,7 @@ import { Odometer } from '../../../glyphs/Odometer';
 import {
   BANDS,
   QR_CARD_GONE,
+  QR_SETTLED,
   QR_TIMING,
   QrBloom,
 } from '../../../glyphs/QrBloom';
@@ -69,8 +70,10 @@ import { Unplugged } from '../../send/LoopingGlyphs';
 import { CONTROL_ROW, quietRing } from '../controls';
 import { ReceiveHostContext, slotRoom } from '../host';
 import { DrawnGlyph as DrawnMark } from '../draw';
+import { ListeningPing } from '../ListeningPing';
 import { Spin } from '../loops';
-import { CELEBRATION, receiveRefusal, requestFace } from '../model';
+import { CELEBRATION, PETALS, receiveRefusal, requestFace } from '../model';
+import { space } from '../../../theme';
 import { ReceiveScene } from '../ReceiveScene';
 import { ACTIVITY, RequestStep, frameSide } from '../RequestStep';
 import { SIGN } from '../QuoteStep';
@@ -877,6 +880,29 @@ describe('the amount step', () => {
     expect(glyphsIn(way).map(glyph => glyph.props.color)).toEqual([
       palette.dust,
     ]);
+    // The disc's own layer fills the control from its insets, inside the
+    // ring: given a size of its own it sat a border in and spilled past the
+    // ring at the bottom right.
+    const layers = way.findAll(node => {
+      const drawn = StyleSheet.flatten(node.props.style) ?? {};
+      return (
+        typeof node.type === 'string' &&
+        drawn.position === 'absolute' &&
+        drawn.backgroundColor === palette.mocha
+      );
+    });
+    expect(layers).toHaveLength(1);
+    const layer = StyleSheet.flatten(layers[0].props.style);
+    expect(layer).toMatchObject({
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      borderRadius: SEND_CONTROL / 2,
+    });
+    expect(layer.width).toBeUndefined();
+    expect(layer.height).toBeUndefined();
+    expect(layer.minHeight).toBeUndefined();
     await act(async () => tree.unmount());
   });
 
@@ -990,6 +1016,63 @@ describe('the amount step', () => {
 });
 
 describe('the request', () => {
+  const listening = (tree: ReactTestRenderer) =>
+    tree.root.findByType(ListeningPing).props.running;
+
+  test('listens for its payment once its code has bloomed in, and not while the code is lifted', async () => {
+    const tree = await screen(clientOf());
+    await toRequest(tree);
+    expect(listening(tree)).toBe(false);
+    await act(async () => {
+      jest.advanceTimersByTime(QR_SETTLED);
+    });
+    expect(listening(tree)).toBe(true);
+    // Lifted, the frame seen is the lifted one, so this one rests.
+    await tap(tree, copy.receive.qr);
+    expect(listening(tree)).toBe(false);
+    await tap(tree, copy.receive.closeQr);
+    expect(listening(tree)).toBe(true);
+    await act(async () => tree.unmount());
+  });
+
+  test('stops listening once money has arrived, or the request has run out', async () => {
+    const completed: ReceiveStatus = {
+      phase: 'completed',
+      receivedSats: 1000,
+      confirmedSats: 1000,
+      pendingSats: 0,
+      txids: [],
+      method: 'lightning',
+    };
+    const paid = await screen(
+      clientOf({ getReceiveStatus: jest.fn().mockResolvedValue(completed) }),
+    );
+    await toRequest(paid);
+    await act(async () => {
+      jest.advanceTimersByTime(QR_SETTLED + 2000);
+    });
+    expect(listening(paid)).toBe(false);
+    await act(async () => paid.unmount());
+
+    const soon = await screen(
+      clientOf({
+        receive: jest
+          .fn()
+          .mockResolvedValue(requestOf({ expiresAt: Date.now() + 5_000 })),
+      }),
+    );
+    await toRequest(soon);
+    await act(async () => {
+      jest.advanceTimersByTime(QR_SETTLED);
+    });
+    expect(listening(soon)).toBe(true);
+    await act(async () => {
+      jest.advanceTimersByTime(6_000);
+    });
+    expect(listening(soon)).toBe(false);
+    await act(async () => soon.unmount());
+  });
+
   test('holds how it can be paid in a place a finger can hold, as text', async () => {
     // It was a 48 by 18 element, under the 48pt target (P10, 39-c3-request).
     const tree = await screen(clientOf());
@@ -1451,6 +1534,108 @@ describe('the celebration', () => {
     await act(async () => tree.unmount());
   });
 
+  test('opens the bloom round the mark, over the rim and under the check, with room under it', async () => {
+    const room = frameSide(264);
+    const tree = await mount(
+      <ReceiveReceipt
+        status={paid}
+        amountSats={1000}
+        celebrate
+        size={RECEIPT_MARK}
+        room={room}
+      />,
+    );
+    const petals = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        StyleSheet.flatten(node.props.style)?.transformOrigin === '50% 100%',
+    );
+    expect(petals).toHaveLength(PETALS);
+    // Rooted on the mark's centre, each turns about it to its own angle.
+    for (const petal of petals) {
+      const { transform } = StyleSheet.flatten(petal.props.style);
+      expect(transform.map((step: object) => Object.keys(step)[0])).toEqual([
+        'rotate',
+        'translateY',
+        'scaleY',
+      ]);
+    }
+    const check = tree.root
+      .findAllByType(DrawnMark)
+      .find(glyph => glyph.props.name === 'check')!;
+    const all = tree.root.findAll(() => true);
+    expect(all.indexOf(petals[0])).toBeLessThan(all.indexOf(check));
+    // The amount sits further under the mark while the petals crown it.
+    const [head] = tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel?.startsWith(copy.receive.received),
+    );
+    expect(StyleSheet.flatten(head.props.style)).toMatchObject({
+      gap: space.xxl,
+    });
+    await act(async () => tree.unmount());
+    // A still receipt keeps its petals folded and its amount close.
+    const still = await mount(
+      <ReceiveReceipt status={paid} amountSats={1000} size={RECEIPT_MARK} />,
+    );
+    expect(
+      still.root.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          StyleSheet.flatten(node.props.style)?.transformOrigin === '50% 100%',
+      ),
+    ).toHaveLength(0);
+    const [stillHead] = still.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel?.startsWith(copy.receive.received),
+    );
+    expect(StyleSheet.flatten(stillHead.props.style)).toMatchObject({
+      gap: space.md,
+    });
+    await act(async () => still.unmount());
+  });
+
+  test('hands its controls over as money arrives, rather than cutting to them', async () => {
+    const client = clientOf({
+      getReceiveStatus: jest
+        .fn()
+        .mockResolvedValueOnce(waiting)
+        .mockResolvedValue(paid),
+    });
+    const tree = await screen(client);
+    await toRequest(tree);
+    /** The keyed view that moves the element labelled `label`. */
+    const keyed = (label: string, prop: 'layout' | 'exiting') => {
+      let at: ReactTestInstance | null =
+        tree.root.findAll(
+          node =>
+            typeof node.type === 'string' &&
+            node.props.accessibilityLabel === label,
+        )[0] ?? null;
+      while (at && at.props[prop] === undefined) at = at.parent;
+      return at;
+    };
+    // Share and copy go together, dissolving, and the row glides.
+    const pair = keyed(copy.receive.share, 'layout');
+    expect(pair?.props.exiting).toEqual(expect.any(Function));
+    expect(pair).toBe(keyed(copy.receive.copy, 'layout'));
+    expect(keyed(copy.receive.createAnother, 'layout')).toBeTruthy();
+    // What the request says of itself drops out.
+    const about = keyed(copy.receive.unified, 'exiting');
+    expect(about?.props.exiting).toEqual(expect.any(Function));
+    expect(find(tree, copy.receive.viewActivity)).toBeFalsy();
+    // The next poll brings the receipt.
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(find(tree, copy.receive.share)).toBeFalsy();
+    const history = keyed(copy.receive.viewActivity, 'layout');
+    expect(history?.props.entering).toEqual(expect.any(Function));
+    await act(async () => tree.unmount());
+  });
+
   test('keeps the code over the mark it lands on, and tells it where', async () => {
     const request = requestOf();
     const tree = await mount(
@@ -1693,7 +1878,7 @@ describe('a test network', () => {
     }
   });
 
-  test('bursts a paid request into slate petals', async () => {
+  test('opens a paid request into slate petals', async () => {
     const completed: ReceiveStatus = {
       phase: 'completed',
       receivedSats: 1000,

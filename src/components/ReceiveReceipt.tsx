@@ -13,6 +13,7 @@ import type { ReceiveStatus } from '@beignet/wallet-core';
 import { copy } from '../design/copy';
 import { Glyph } from '../design/glyphs';
 import { palette } from '../design/palette';
+import { PETAL_ART } from '../glyphs/Bloom';
 import { CopyChip } from '../glyphs/CopyChip';
 import { Odometer } from '../glyphs/Odometer';
 import { curves } from '../motion/tokens';
@@ -21,9 +22,12 @@ import { DrawnArc, DrawnGlyph } from '../scenes/receive/draw';
 import type { Focus } from '../scenes/receive/focus';
 import { Spin } from '../scenes/receive/loops';
 import {
+  BLOOM_SPAN,
   CELEBRATION,
   PETALS,
-  petalPose,
+  PETAL_REACH,
+  PETAL_ROOT,
+  bloomPetalPose,
   receiptRing,
   receiptTransactions,
 } from '../scenes/receive/model';
@@ -50,9 +54,11 @@ export const RECEIPT_MARK = 120;
  * centre, where the code's card lands, with the amount under it.
  *
  * `celebrate` plays the arrival the first time it is seen: the ring draws,
- * the amount counts up, and a completed payment draws its check and bursts
- * its petals as the ground behind the canvas flashes sage (REDESIGN.md 3.2,
- * G3). The words are in its label, masked like the amounts when `hidden`.
+ * the amount counts up, and a completed payment draws its check and opens
+ * the bloom's petals round the mark as the ground behind the canvas flashes
+ * sage (REDESIGN.md 3.2, G3), which fold back into the ring once the amount
+ * has counted up. The words are in its label, masked like the amounts when
+ * `hidden`.
  *
  * A payment's detail keeps the receipt `bare`: its header already draws the
  * ring and the amount, so a second ring and a second amount would give the
@@ -227,6 +233,7 @@ export function ReceiveReceipt({
         }
         style={[
           styles.head,
+          celebrate && styles.crowned,
           room !== undefined && {
             minHeight: room,
             paddingTop: Math.max(0, (room - size) / 2),
@@ -296,7 +303,9 @@ function Ring({
 }) {
   const arc = useSharedValue(play ? 0 : share);
   const check = useSharedValue(!play && completed ? 1 : 0);
-  const burst = useSharedValue(0);
+  // The bloom's clock, in ms from its first petal: each petal reads its own
+  // pose from it (`bloomPetalPose`).
+  const bloom = useSharedValue(0);
   // The husk track stays out of sight while the code implodes under it.
   const track = useSharedValue(play ? 0 : 1);
   const first = useRef(true);
@@ -340,25 +349,25 @@ function Ring({
       check.set(1);
       return;
     }
-    const { check: drawn, burst: petals } = CELEBRATION;
+    const { check: drawn, bloom: petals } = CELEBRATION;
     check.set(
       withDelay(
         drawn.delay,
         withTiming(1, { duration: drawn.duration, easing: curves.enter }),
       ),
     );
-    burst.set(0);
-    burst.set(
+    bloom.set(0);
+    bloom.set(
       withDelay(
         petals.delay,
-        withTiming(1, { duration: petals.duration, easing: curves.standard }),
+        withTiming(BLOOM_SPAN, { duration: BLOOM_SPAN, easing: curves.linear }),
       ),
     );
     return () => {
       cancelAnimation(check);
-      cancelAnimation(burst);
+      cancelAnimation(bloom);
     };
-  }, [completed, play, check, burst]);
+  }, [completed, play, check, bloom]);
 
   const stroke = rimOf(size);
   const c = size / 2;
@@ -424,6 +433,8 @@ function Ring({
           </Svg>
         </Spin>
       ) : null}
+      {/* Over the rim and under the check, as a flower's petals are. */}
+      {play && completed ? <Petals size={size} progress={bloom} /> : null}
       <View style={styles.center}>
         {completed ? (
           <DrawnGlyph
@@ -440,16 +451,20 @@ function Ring({
           />
         )}
       </View>
-      {play && completed ? <Petals size={size} progress={burst} /> : null}
     </View>
   );
 }
 
-/** A burst petal: the bloom's fringed petal, small, pointing out. */
-const PETAL =
-  'M-1.6,-8 C-4.2,-18 -9.8,-31 -10.4,-41.5 L-6.9,-45 L-3.5,-42.6 L0,-45.8 L3.5,-42.6 L6.9,-45 L10.4,-41.5 C9.8,-31 4.2,-18 1.6,-8 Z';
-const PETAL_SIZE = 18;
+/** The petal's drawing, from its base to its tip, in the bloom's units. */
+const PETAL_SPAN = PETAL_ART.tip - PETAL_ART.base;
 
+/**
+ * The bloom's twelve petals round the mark (REDESIGN.md 5, Received
+ * celebration): the flower's own fringed petals, each rooted just inside
+ * the rim and reaching PETAL_REACH past it, in bloomHi or slate on a test
+ * network, opening in turn round the ring and folding back on `progress`,
+ * the bloom's clock.
+ */
 function Petals({
   size,
   progress,
@@ -459,7 +474,7 @@ function Petals({
 }) {
   const { hi } = useBloom();
   return (
-    <View pointerEvents="none" style={styles.center}>
+    <View pointerEvents="none" style={styles.petals}>
       {Array.from({ length: PETALS }, (_, i) => (
         <Petal key={i} index={i} size={size} progress={progress} color={hi} />
       ))}
@@ -467,6 +482,13 @@ function Petals({
   );
 }
 
+/**
+ * One petal: a still drawing in a box whose bottom centre sits on the
+ * mark's centre, which is where every transform turns about. It is scaled
+ * along its length from its base, carried out to the rim, and turned round
+ * the centre to its angle, so it grows out of the rim rather than from a
+ * point in the air.
+ */
 function Petal({
   index,
   size,
@@ -478,22 +500,36 @@ function Petal({
   progress: SharedValue<number>;
   color: string;
 }) {
+  const c = size / 2;
+  const height = PETAL_REACH + PETAL_ROOT;
+  const width = (PETAL_ART.width / PETAL_SPAN) * height;
   const style = useAnimatedStyle(() => {
-    const pose = petalPose(index, progress.get(), size / 2, size * 0.28);
+    const pose = bloomPetalPose(index, progress.get());
     return {
       opacity: pose.opacity,
       transform: [
-        { translateX: pose.x },
-        { translateY: pose.y },
         { rotate: `${pose.rotate}deg` },
-        { scale: pose.scale },
+        { translateY: -(c - PETAL_ROOT) },
+        { scaleY: pose.open * pose.length },
       ],
     };
   });
   return (
-    <Reanimated.View style={[styles.petal, style]}>
-      <Svg width={PETAL_SIZE} height={PETAL_SIZE} viewBox="-12 -48 24 48">
-        <Path d={PETAL} fill={color} />
+    <Reanimated.View
+      style={[
+        styles.petal,
+        { left: c - width / 2, top: c - height, width, height },
+        style,
+      ]}
+    >
+      <Svg
+        width={width}
+        height={height}
+        viewBox={`${-PETAL_ART.width / 2} ${-PETAL_ART.tip} ${
+          PETAL_ART.width
+        } ${PETAL_SPAN}`}
+      >
+        <Path d={PETAL_ART.small} fill={color} />
       </Svg>
     </Reanimated.View>
   );
@@ -543,6 +579,8 @@ function TxRing({ confirmed }: { confirmed: boolean }) {
 const styles = StyleSheet.create({
   stack: { gap: space.md, alignItems: 'center', alignSelf: 'stretch' },
   head: { alignItems: 'center', gap: space.md },
+  // Room under the mark for the petals that crown it as it celebrates.
+  crowned: { gap: space.xxl },
   amount: { alignItems: 'center', gap: space.xxs },
   of: { alignItems: 'center', gap: space.xxs },
   rule: { width: 48, height: 1, backgroundColor: palette.husk },
@@ -551,7 +589,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  petal: { position: 'absolute' },
+  petals: { ...StyleSheet.absoluteFill, overflow: 'visible' },
+  petal: { position: 'absolute', transformOrigin: '50% 100%' },
   disc: { ...StyleSheet.absoluteFill, backgroundColor: palette.cream },
   tx: {
     flexDirection: 'row',
