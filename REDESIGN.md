@@ -520,6 +520,7 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 - **Cycle.** One ping every `sheen` (2400ms): quiet for the first third, then the ring sets out from the frame at .45, goes 12pt out fast and slows as it fades over `halo` (1600ms), gone at every whole number of the clock, so the ping at rest draws nothing (`listenPose` in `scenes/receive/ListeningPing`).
 - **When.** Only while the code shown can be paid and is not lifted, and not before it has bloomed in (`QR_SETTLED`, 500ms after the step mounts): a paid, expired or scattered code listens for nothing.
 - **Ambient.** It only decorates, since the frame's ring says the request is live, so it rests with the ambient clock after 20s untouched, finishing the cycle it is in, and wakes with the next touch (3.5).
+- **Stopping.** Told to stop mid-flight, as the code is paid, lifted or runs out, the ring fades out over 140ms where it is going, its clock running on under the fade, and never turns back (3.5).
 - **Reduced motion.** It draws nothing.
 
 ### QrBloom

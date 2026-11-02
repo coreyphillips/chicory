@@ -1,9 +1,13 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet } from 'react-native';
-import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import Svg, { Rect } from 'react-native-svg';
 import { fract, useLoop } from '../../motion/loops';
-import { durations } from '../../motion/tokens';
+import { curves, durations } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { useBloom } from './tone';
 
@@ -11,10 +15,10 @@ import { useBloom } from './tone';
  * A request listening for its payment (REDESIGN.md 5, Listening ping): a
  * thin ring the frame's shape sets out from it once every 2400ms, 12pt
  * out and gone within 1600, the pulse dot's ping grown to the request's
- * frame. On the phone a 1.5pt ring at .35 was all but lost against the
- * frame's 2.5pt ring, so it is 2pt at .45, still well under the frame's. It is drawn behind the frame's expiry ring and outside the code,
- * so the code stays ink on cream and the ring that counts down is
- * untouched.
+ * frame. It is 2pt at .45: enough to be seen beside the frame's own 2.5pt
+ * ring, and still well under it. It is drawn behind the frame's expiry ring
+ * and outside the code, so the code stays ink on cream and the ring that
+ * counts down is untouched.
  */
 export const PING = {
   /** One ping every this many ms. */
@@ -51,12 +55,36 @@ export function listenPose(
 }
 
 /**
+ * Whether `running` turned false within the last `durations.exit` ms: the
+ * time a ping told to stop takes to fade.
+ */
+function useStopping(running: boolean): boolean {
+  const [stopping, setStopping] = useState(false);
+  // Known in the render that stops, so the clock is never told to rest in
+  // a render the ring still shows in.
+  const [was, setWas] = useState(running);
+  if (was !== running) {
+    setWas(running);
+    setStopping(!running);
+  }
+  useEffect(() => {
+    if (!stopping) return;
+    const timer = setTimeout(() => setStopping(false), durations.exit);
+    return () => clearTimeout(timer);
+  }, [stopping]);
+  return stopping;
+}
+
+/**
  * The ping round a request's frame, `side` across with corners of
  * `radius`, in the network's tone. It only decorates: the frame's ring
  * says the request is live, so the ping rests with the ambient clock,
  * finishing the cycle it is in (REDESIGN.md 3.5), and under Reduce Motion
  * it draws nothing. `running` is whether the request is listening: the
- * code shown and still payable, not lifted, and bloomed in.
+ * code shown and still payable, not lifted, and bloomed in. Told to stop
+ * mid-flight, as the code is paid, lifted or runs out, the ring fades out
+ * where it is going rather than turning back (3.5): its clock runs on under
+ * the fade, and rests once nothing shows.
  */
 export function ListeningPing({
   side,
@@ -69,10 +97,23 @@ export function ListeningPing({
 }) {
   const { reduced } = useMotionPrefs();
   const { bloom } = useBloom();
-  const clock = useLoop(PING.period, running, true);
+  const stopping = useStopping(running);
+  const clock = useLoop(PING.period, running || stopping, true);
+  const shown = useSharedValue(running ? 1 : 0);
+  useEffect(() => {
+    shown.set(
+      withTiming(running ? 1 : 0, {
+        duration: durations.exit,
+        easing: curves.standard,
+      }),
+    );
+  }, [running, shown]);
   const style = useAnimatedStyle(() => {
     const pose = listenPose(clock.get(), side);
-    return { opacity: pose.opacity, transform: [{ scale: pose.scale }] };
+    return {
+      opacity: pose.opacity * shown.get(),
+      transform: [{ scale: pose.scale }],
+    };
   });
   if (reduced) return null;
   const inset = PING.stroke / 2;

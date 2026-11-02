@@ -1,5 +1,6 @@
 import React from 'react';
 import { AccessibilityInfo, AppState } from 'react-native';
+import * as Reanimated from 'react-native-reanimated';
 import { act } from 'react-test-renderer';
 import { Rect } from 'react-native-svg';
 import { palette } from '../../../design/palette';
@@ -19,7 +20,10 @@ import { TestNetwork } from '../tone';
 beforeEach(() => {
   AppState.currentState = 'active';
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  jest.useRealTimers();
+});
 
 const SIDE = 280;
 const CORNER = radius.qr + RING_GAP;
@@ -94,6 +98,42 @@ describe('the ping round a frame', () => {
       <ListeningPing side={SIDE} radius={CORNER} running={false} />,
     );
     expect(clocks).toHaveBeenCalledWith(durations.sheen, false, true);
+    await act(async () => tree.unmount());
+  });
+
+  test('told to stop mid-flight, it fades out where it is going: its clock runs on under the fade, then rests', async () => {
+    jest.useFakeTimers();
+    // Shared values live as long as their component, as on a device, so
+    // the clock is the same one from render to render.
+    const made = Reanimated.useSharedValue;
+    jest
+      .spyOn(Reanimated, 'useSharedValue')
+      .mockImplementation(init => React.useState(() => made(init))[0]);
+    const clocks = jest.spyOn(loops, 'useLoop');
+    const timings = jest.spyOn(Reanimated, 'withTiming');
+    const repeats = jest.spyOn(Reanimated, 'withRepeat');
+    const tree = await mount(
+      <ListeningPing side={SIDE} radius={CORNER} running />,
+    );
+    clocks.mockClear();
+    timings.mockClear();
+    repeats.mockClear();
+    await act(async () =>
+      tree.update(
+        <ListeningPing side={SIDE} radius={CORNER} running={false} />,
+      ),
+    );
+    expect(timings).toHaveBeenCalledWith(
+      0,
+      expect.objectContaining({ duration: durations.exit }),
+    );
+    // The render that commits keeps the clock running, and nothing rested
+    // or restarted it, which would have turned the ring back toward the
+    // frame.
+    expect(clocks).toHaveBeenLastCalledWith(durations.sheen, true, true);
+    expect(repeats).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTime(durations.exit));
+    expect(clocks).toHaveBeenLastCalledWith(durations.sheen, false, true);
     await act(async () => tree.unmount());
   });
 });
