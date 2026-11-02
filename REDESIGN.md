@@ -523,6 +523,7 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 - **Held back.** Spent, expired, stale, busy or a range with no room: a mocha disc in a 2pt husk ring with a dust gauge, no fill, bark marks, and a long press whispers why.
 - **Refused.** `rigid`, the row shakes (a radish tint under Reduce Motion) and a radishSoft wash flashes over the thumb; the thumb springs back to the rate that stood.
 - **Reduced motion.** The thumb tracks the finger as ever; a settle, a tap's move and the spring back become a 160ms crossfade with the jump unseen at its middle (`moveTo`); the dip and the needle's wake are skipped. Haptics play as ever.
+- **Seen.** `docs/screenshots/fee-slider.jpg`: the review at rest on the normal rate, the fee line rolling as the thumb moves, a raised rate priced, and a refused rate sprung back with its mark beside the hold.
 - **Accessibility.** An `adjustable` control labelled "Network fee rate", whose value is the zone against the estimates, the rate in sats per virtual byte and the fee it gives (`feeSpoken`), with increment and decrement actions: one sat on a short range, a stride that crosses a wide one in about forty steps, landing on any estimate it would pass. The step ticks and chooses; the thumb moves as the parent echoes the rate. Out of use in a pane behind, it keeps its role and drops its step. The hint says a higher rate confirms sooner and costs more, or why the slider is held back.
 
 ### Listening ping
