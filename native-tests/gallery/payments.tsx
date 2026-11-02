@@ -32,7 +32,7 @@ import {
 } from './fakes';
 import { press, wait } from './shots';
 import type { Shot, Step } from './shots';
-import { hideBalance, inSats, open, wallet } from './staged';
+import { hideBalance, inBtc, inSats, open, wallet } from './staged';
 
 /** Keys `digits` in on the keypad, one key a step. */
 export const keyed = (digits: string): Step[] =>
@@ -207,6 +207,15 @@ const sends: Shot[] = [
         ratedReviewOf({}, input.feeRate ?? FEE_RATES.normal),
     },
     steps: [...AMOUNT_4200, REVIEW],
+  })),
+  // The same sum in BTC, its widest face: the rate keeps its column while
+  // the sum fits its room, and drops under the fee at the largest text sizes.
+  send('review, over Bitcoin, in BTC', () => ({
+    client: {
+      prepareSend: async input =>
+        ratedReviewOf({}, input.feeRate ?? FEE_RATES.normal),
+    },
+    steps: [...inBtc, ...AMOUNT_4200, REVIEW],
   })),
   send('review, over Bitcoin, the fee rate raised', () => ({
     client: {

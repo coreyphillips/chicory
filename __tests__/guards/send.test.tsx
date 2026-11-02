@@ -272,6 +272,11 @@ const GUARDED: GuardedState[] = [
     data: onReview,
   },
   {
+    name: 'review, over Bitcoin, in BTC',
+    render: () => reviewed(reviewing(RATED), ADDRESS, { unit: 'btc' }),
+    data: onReview,
+  },
+  {
     name: 'review, a fee rate being dragged',
     render: async () => {
       const tree = await reviewed(reviewing(RATED));

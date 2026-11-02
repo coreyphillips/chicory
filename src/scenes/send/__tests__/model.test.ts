@@ -14,9 +14,11 @@ import {
   previewFee,
   previewReview,
   rateRefusal,
+  rateText,
   requestRail,
   requestRefusal,
   resultVisual,
+  reviewFigures,
   reviewOpensLive,
   reviewRail,
   reviewWaiting,
@@ -475,6 +477,29 @@ describe('a rated review', () => {
       amountSats: 4_200,
       totalSats: 5_200,
     });
+  });
+
+  test('says its rate on the fee line, which follows a preview; no other line, and no review priced without one, says a rate', () => {
+    const rated = splice as SendReview & { feeRate: number; feeRates: FeeRates };
+    expect(reviewFigures(splice).map(figure => [figure.key, figure.rate])).toEqual([
+      ['fee', 2],
+      ['total', undefined],
+    ]);
+    expect(reviewFigures(previewReview(rated, 4))[0].rate).toBe(4);
+    for (const review of [
+      { ...splice, route: 'lightning' as const },
+      { ...splice, method: 'direct-funding' as const },
+      { ...splice, method: 'drain' as const },
+      { ...splice, feeRate: undefined },
+    ]) {
+      expect(reviewFigures(review).every(figure => figure.rate === undefined)).toBe(true);
+    }
+  });
+
+  test('draws its rate as a whole number and its unit, in one string', () => {
+    expect(rateText(1)).toBe('1 sat/vB');
+    expect(rateText(2)).toBe('2 sat/vB');
+    expect(rateText(400)).toBe('400 sat/vB');
   });
 
   test("previews a max review with its amount giving way to the fee and its total holding", () => {
