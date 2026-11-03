@@ -96,8 +96,8 @@ android {
         applicationId "com.chicory"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 24
-        versionName "0.7.11"
+        versionCode 25
+        versionName "0.7.12"
     }
     signingConfigs {
         debug {
