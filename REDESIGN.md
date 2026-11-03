@@ -537,6 +537,7 @@ Semantic names are defined in `src/design/haptics.ts` on top of `services/haptic
 - **Readout.** Above it, the share in title figures, cream and tabular, popping to 1.06 at each new detent, and "Up to" the sats it stands for today in the wallet's unit, rolling on the odometer at the row's size (dimmed while the balance is stale). At 0% the sats give way to "Every code waits for your hold". Under it, in steam, what it does.
 - **Waking.** Switched on, the row's limit rises in, and the thumb grows out from 0 to the share on the reveal spring, the readout counting up with it, and lands with a `soft`.
 - **Reduced motion.** The thumb tracks the finger as ever; a settle and a tap's move become the 160ms crossfade, nothing pops, and switched on the thumb is simply at its share.
+- **Seen.** `docs/screenshots/auto-pay.jpg`: Settings with Auto-pay off in This phone; switched on, the thumb growing out with the share counting up and its sats rolling after it; at 80%, at rest; and a scanned invoice within the share going out with no hold, its review spent under the comet.
 - **Accessibility.** An `adjustable` control labelled "Auto-pay limit", whose value is the share and what it allows ("50% of your balance, up to 125,000 sats"), stepped 5% at a time with a `tick`, each step saved. The readout is drawn for the eye and hidden from a screen reader, which hears it all as the value. In a pane out of use it drops its step and its gestures.
 
 ### Listening ping
