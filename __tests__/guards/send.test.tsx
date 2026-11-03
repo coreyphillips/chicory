@@ -11,6 +11,10 @@ import {
   shortRequest,
 } from '../../src/scenes/send/model';
 import { SendScreen } from '../../src/screens/Send';
+import {
+  AUTO_PAY_OFF,
+  setAutoPayPreference,
+} from '../../src/services/autoPayPreference';
 import type { WalletAdapter } from '../../src/services/wallet';
 import { clearHeldRequests, holdRequest } from '../../src/stage/heldRequests';
 import {
@@ -413,6 +417,29 @@ const GUARDED: GuardedState[] = [
     data: onReview,
   },
   {
+    // A scanned invoice within Settings > Auto-pay's share, gone out with
+    // no hold: the review spent under the comet.
+    name: 'sending, by Auto-pay',
+    render: async () => {
+      await setAutoPayPreference({ on: true, share: 50 });
+      return draw({
+        initialRequest: INVOICE,
+        scanned: true,
+        client: {
+          prepareSend: jest.fn().mockResolvedValue(
+            quote({ amountSats: 24_425, totalSats: 24_445 }),
+          ),
+          send: jest.fn().mockReturnValue(never()),
+        },
+      });
+    },
+    data: guardData(snapshot, [
+      shortRequest(INVOICE),
+      shortRequest(ADDRESS),
+      NOTE,
+    ]),
+  },
+  {
     name: 'completed',
     render: () => sent(paying(Promise.resolve(outcome('completed')))),
     data: onResult,
@@ -620,5 +647,9 @@ const GUARDED: GuardedState[] = [
     data: onResult,
   },
 ];
+
+// Auto-pay is one value the whole app shares, so a state that turns it on
+// leaves it off for the next.
+afterEach(() => setAutoPayPreference(AUTO_PAY_OFF));
 
 guard('send', GUARDED);

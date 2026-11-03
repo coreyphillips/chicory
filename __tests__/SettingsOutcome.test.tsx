@@ -1,5 +1,6 @@
 import React from 'react';
 import { AccessibilityInfo, AppState, Text } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
 import * as Keychain from 'react-native-keychain';
@@ -11,12 +12,18 @@ import type { GlyphName } from '../src/design/glyphs';
 import { haptics } from '../src/design/haptics';
 import { drawPlan } from '../src/scenes/settings/motion';
 import { SettingsScreen, WalletPicker } from '../src/screens/Settings';
+import { SettingsHostContext } from '../src/scenes/settings/host';
 import {
   clearDiagnostics,
   recentDiagnostics,
   recordDiagnostic,
 } from '../src/services/diagnosticLog';
 import { setHapticsEnabled } from '../src/services/haptics';
+import {
+  AUTO_PAY_OFF,
+  autoPayNow,
+  setAutoPayPreference,
+} from '../src/services/autoPayPreference';
 import type { WalletAdapter } from '../src/services/wallet';
 import { APP_VERSION } from '../src/version';
 import { ACTIVATE, activate } from '../test-support/query';
@@ -523,6 +530,172 @@ describe('haptics', () => {
     trigger.mockClear();
     haptics.tick();
     expect(trigger).toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('auto-pay', () => {
+  const AUTO_PAY = 'com.beignet.wallet.auto-pay';
+  const words = copy.settings.phone;
+  const toggle = (tree: ReactTestRenderer) =>
+    tree.root.findAll(
+      node =>
+        node.props.accessibilityLabel === words.autoPayLabel &&
+        typeof node.props.onValueChange === 'function',
+    )[0];
+  const limit = (tree: ReactTestRenderer) =>
+    tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityRole === 'adjustable',
+    )[0];
+  const step = (tree: ReactTestRenderer, actionName: string) =>
+    act(async () =>
+      limit(tree).props.onAccessibilityAction({ nativeEvent: { actionName } }),
+    );
+  /** What was last written to the auto-pay entry. */
+  const saved = () =>
+    jest
+      .mocked(Keychain.setGenericPassword)
+      .mock.calls.filter(([, , options]) => options?.service === AUTO_PAY)
+      .map(([, value]) => JSON.parse(value as string));
+  const funded = {
+    ...base,
+    balance: { ...base.balance, availableSats: 100_000 },
+  };
+  /**
+   * Settings as the app draws it, under the gesture root its slider needs,
+   * with the scene's `reveal` where one is given.
+   */
+  async function rooted(
+    snapshot: WalletSnapshot,
+    adapter: WalletAdapter,
+    reveal?: jest.Mock,
+  ) {
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(
+        <GestureHandlerRootView>
+          <SettingsHostContext.Provider value={{ useBack: () => {}, reveal }}>
+            <SettingsScreen
+              snapshot={snapshot}
+              client={adapter}
+              switchError=""
+              onDisconnect={jest.fn()}
+              onRefresh={jest.fn()}
+              onNetwork={jest.fn()}
+            />
+          </SettingsHostContext.Provider>
+        </GestureHandlerRootView>,
+      );
+    });
+    return tree;
+  }
+  /** Reports the Auto-pay row's frame laid out `height` tall. */
+  const laidOut = (tree: ReactTestRenderer, height: number) => {
+    let at = toggle(tree).parent;
+    while (at && typeof at.props.onLayout !== 'function') at = at.parent;
+    return act(async () =>
+      at!.props.onLayout({
+        nativeEvent: { layout: { x: 0, y: 0, width: 320, height } },
+      }),
+    );
+  };
+  beforeEach(async () => {
+    await setAutoPayPreference(AUTO_PAY_OFF);
+    jest.mocked(Keychain.setGenericPassword).mockClear();
+  });
+  afterEach(async () => {
+    jest.mocked(Keychain.setGenericPassword).mockResolvedValue({
+      service: 'test',
+    } as never);
+    await setAutoPayPreference(AUTO_PAY_OFF);
+  });
+
+  test('is off by default, in This phone after Haptics, with no limit shown', async () => {
+    const tree = await rooted(funded, client());
+    expect(toggle(tree).props.value).toBe(false);
+    expect(limit(tree)).toBeUndefined();
+    expect(text(tree)).toContain(words.autoPay);
+    expect(text(tree)).not.toContain(words.autoPayNote);
+    await act(async () => tree.unmount());
+  });
+
+  test('switched on, it is saved at 50% and opens its limit, which says what 50% allows', async () => {
+    const tree = await rooted(funded, client());
+    await act(async () => toggle(tree).props.onValueChange(true));
+    expect(saved().at(-1)).toEqual({ on: true, share: 50 });
+    expect(autoPayNow()).toEqual({ on: true, share: 50 });
+    expect(toggle(tree).props.value).toBe(true);
+    expect(limit(tree).props.accessibilityLabel).toBe(words.autoPayLimit);
+    expect(limit(tree).props.accessibilityValue).toEqual({
+      min: 0,
+      max: 100,
+      now: 50,
+      text: words.autoPaySpoken(50, 50_000),
+    });
+    expect(text(tree)).toContain(words.autoPayNote);
+    // The thumb grows out from 0, and the readout lands on the share with it.
+    await act(async () => {
+      await new Promise<void>(resolve => setTimeout(resolve, 500));
+    });
+    expect(text(tree)).toContain(words.autoPayShare(50));
+    expect(text(tree)).toContain(words.autoPayUpTo);
+    await act(async () => tree.unmount());
+  });
+
+  test('a step of the limit is saved, and the share is kept while it is off', async () => {
+    const tree = await rooted(funded, client());
+    await act(async () => toggle(tree).props.onValueChange(true));
+    await step(tree, 'increment');
+    expect(saved().at(-1)).toEqual({ on: true, share: 55 });
+    expect(text(tree)).toContain(words.autoPayShare(55));
+    expect(limit(tree).props.accessibilityValue.now).toBe(55);
+    await act(async () => toggle(tree).props.onValueChange(false));
+    expect(saved().at(-1)).toEqual({ on: false, share: 55 });
+    expect(limit(tree)).toBeUndefined();
+    await act(async () => toggle(tree).props.onValueChange(true));
+    expect(saved().at(-1)).toEqual({ on: true, share: 55 });
+    expect(limit(tree).props.accessibilityValue.now).toBe(55);
+    await act(async () => tree.unmount());
+  });
+
+  test('at 0% it says every code waits for the hold', async () => {
+    await setAutoPayPreference({ on: true, share: 5 });
+    const tree = await rooted(funded, client());
+    await step(tree, 'decrement');
+    expect(saved().at(-1)).toEqual({ on: true, share: 0 });
+    expect(text(tree)).toContain(words.autoPayNothing);
+    expect(limit(tree).props.accessibilityValue.text).toBe(
+      words.autoPaySpoken(0, 0),
+    );
+    await act(async () => tree.unmount());
+  });
+
+  test('switched on, the grown row is brought into view; opened already on, it stays where it is', async () => {
+    const reveal = jest.fn();
+    const tree = await rooted(funded, client(), reveal);
+    await laidOut(tree, 56);
+    await act(async () => toggle(tree).props.onValueChange(true));
+    await laidOut(tree, 260);
+    expect(reveal).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+
+    const again = jest.fn();
+    const reopened = await rooted(funded, client(), again);
+    await laidOut(reopened, 260);
+    await laidOut(reopened, 262);
+    expect(again).not.toHaveBeenCalled();
+    await act(async () => reopened.unmount());
+  });
+
+  test('a choice that could not be saved changes nothing and says why', async () => {
+    const tree = await rooted(funded, client());
+    jest.mocked(Keychain.setGenericPassword).mockResolvedValueOnce(false);
+    await act(async () => toggle(tree).props.onValueChange(true));
+    expect(toggle(tree).props.value).toBe(false);
+    expect(autoPayNow()).toEqual({ on: false, share: 50 });
+    expect(text(tree)).toContain(words.autoPayFailed);
     await act(async () => tree.unmount());
   });
 });

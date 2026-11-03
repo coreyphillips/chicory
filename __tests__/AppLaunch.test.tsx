@@ -10,6 +10,11 @@ import HapticFeedback from 'react-native-haptic-feedback';
 import { haptics } from '../src/design/haptics';
 import { WhisperProvider } from '../src/glyphs/Whisper';
 import { setHapticsEnabled } from '../src/services/haptics';
+import {
+  AUTO_PAY_OFF,
+  autoPayNow,
+  setAutoPayPreference,
+} from '../src/services/autoPayPreference';
 import { LockScreen } from '../src/scenes/phases/Locked';
 import { Canvas } from '../src/stage/Canvas';
 import { SceneSlot } from '../src/stage/panes/SceneSlot';
@@ -20,6 +25,7 @@ const SESSION = 'com.beignet.wallet.last-session';
 const LOCK = 'com.beignet.wallet.lock';
 const GUARD = 'com.beignet.wallet.lock-guard';
 const HAPTICS = 'com.beignet.wallet.haptics';
+const AUTO_PAY = 'com.beignet.wallet.auto-pay';
 
 function strings(children: unknown, out: string[] = []): string[] {
   if (typeof children === 'string' || typeof children === 'number')
@@ -169,6 +175,30 @@ test('haptics turned off in Settings stay off from launch', async () => {
   } finally {
     if (tree) await act(async () => tree!.unmount());
     setHapticsEnabled(true);
+    jest.restoreAllMocks();
+  }
+});
+
+test('Auto-pay is read as the app opens, before Settings is ever shown', async () => {
+  records.set(AUTO_PAY, JSON.stringify({ on: true, share: 30 }));
+  let tree: ReactTestRenderer | undefined;
+  try {
+    expect(autoPayNow()).toEqual({ on: false, share: 50 });
+    await act(async () => {
+      tree = create(<App />);
+    });
+    expect(autoPayNow()).toEqual({ on: true, share: 30 });
+    // Nothing saved reads as off at the next launch.
+    await act(async () => tree!.unmount());
+    tree = undefined;
+    records.delete(AUTO_PAY);
+    await act(async () => {
+      tree = create(<App />);
+    });
+    expect(autoPayNow()).toEqual({ on: false, share: 50 });
+  } finally {
+    if (tree) await act(async () => tree!.unmount());
+    await setAutoPayPreference(AUTO_PAY_OFF);
     jest.restoreAllMocks();
   }
 });

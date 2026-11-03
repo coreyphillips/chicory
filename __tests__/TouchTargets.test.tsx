@@ -7,6 +7,7 @@ import { AmountField } from '../src/components/AmountField';
 import { Chip, IconButton } from '../src/components/ui';
 import { copy } from '../src/design/copy';
 import { FeeSlider } from '../src/scenes/send/FeeSlider';
+import { ShareSlider } from '../src/scenes/settings/ShareSlider';
 import { MIN_TARGET } from '../src/theme';
 import { mount } from '../test-support/guard';
 
@@ -65,6 +66,28 @@ test("the fee rate slider's row reaches 48pt each way", async () => {
         max={18}
         feeSats={500}
         refused={0}
+        onPreview={noop}
+        onChoose={noop}
+      />
+    </GestureHandlerRootView>,
+  );
+  const [row] = tree.root.findAll(
+    node =>
+      typeof node.type === 'string' &&
+      node.props.accessibilityRole === 'adjustable',
+  );
+  const { across, down } = reach(row);
+  expect(across).toBeGreaterThanOrEqual(MIN_TARGET);
+  expect(down).toBeGreaterThanOrEqual(MIN_TARGET);
+  await act(async () => tree.unmount());
+});
+
+test("Auto-pay's limit slider's row reaches 48pt each way", async () => {
+  const tree = await mount(
+    <GestureHandlerRootView>
+      <ShareSlider
+        share={50}
+        spoken={share => `${share}%`}
         onPreview={noop}
         onChoose={noop}
       />

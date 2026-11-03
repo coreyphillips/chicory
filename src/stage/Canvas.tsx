@@ -525,7 +525,12 @@ export function Canvas({
       <SceneLeave leaving={gone} onGone={() => letGo(at.key)}>
         <Launched onOpen={launchOpen} onLeave={launchLeave} leaving={gone}>
           {at.name === 'send' ? (
-            <SendScene {...drawn} sceneKey={at.key} prefill={at.prefill} />
+            <SendScene
+              {...drawn}
+              sceneKey={at.key}
+              prefill={at.prefill}
+              scanned={at.scanned === true}
+            />
           ) : (
             <ReceiveScene {...drawn} sceneKey={at.key} />
           )}

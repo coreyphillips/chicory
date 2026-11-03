@@ -32,7 +32,9 @@ import { activeScene } from '../test-support/scene';
  * The scan overlay (REDESIGN.md 2.3): a layer over the whole canvas, which
  * leaves the panes drawn beneath and out of use. A code it reads from home
  * opens Send with it; a code read for the Send already open goes to that
- * Send. Either way a code only fills in a request, and nothing is paid.
+ * Send. Either way a code only fills in a request, and nothing is paid,
+ * unless Settings > Auto-pay is on: Send is told the camera read it, and
+ * decides (`src/scenes/send/__tests__/auto-pay.test.tsx`).
  */
 const SCANNED = 'lnbcrt1scanned';
 /** A primary node's address, as its QR carries it. */
@@ -126,6 +128,15 @@ describe('from the app', () => {
     expect(activeScene(tree)).toBe('send');
     expect(field(tree, 'Payment request or address').props.value).toBe(SCANNED);
     expect(device.send).not.toHaveBeenCalled();
+  });
+
+  test('a code read from home reaches Send as one the camera read', async () => {
+    await press(tree, 'Scan a payment request');
+    await detect(tree, SCANNED);
+    expect(tree.root.findByType(SendScreen).props).toMatchObject({
+      initialRequest: SCANNED,
+      scanned: true,
+    });
   });
 
   test('closing the camera returns to home with nothing opened', async () => {

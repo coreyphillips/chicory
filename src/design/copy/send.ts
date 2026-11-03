@@ -25,6 +25,8 @@ export const send = {
   reviewRefused: 'This request cannot be paid. Paste or scan another.',
   amountWaits: 'Enter an amount first.',
   preparing: 'Preparing the payment.',
+  /** Settings > Auto-pay sent a scanned code without a hold. */
+  autoPaying: (value: number) => `Paying ${sats(value)} automatically.`,
   sendSats: (value: number) => `Send ${sats(value)}`,
   sendMax: 'Send everything you can',
   recipientAtLeast: (value: number) => `Recipient at least ${sats(value)}`,

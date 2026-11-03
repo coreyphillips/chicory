@@ -263,6 +263,16 @@ export const GLYPHS = {
     { id: 'left', d: 'M4 9v6' },
     { id: 'right', d: 'M20 9v6' },
   ],
+  // The scan frame's corners round a small bolt: a code that pays itself,
+  // apart so Settings can close the frame and pop the bolt as Auto-pay turns
+  // on.
+  autoPay: [
+    {
+      id: 'frame',
+      d: 'M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2',
+    },
+    { id: 'bolt', d: 'M12.4 6.6 7.6 13.2h3.6l-.6 4.2 4.8-6.6h-3.6z' },
+  ],
 } satisfies Record<string, GlyphPart[]>;
 
 export type GlyphName = keyof typeof GLYPHS;

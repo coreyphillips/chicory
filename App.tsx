@@ -14,6 +14,7 @@ import { useWalletSession } from './src/services/useWalletSession';
 import type { Tab } from './src/services/useWalletSession';
 import { setHapticsEnabled } from './src/services/haptics';
 import { loadHapticsPreference } from './src/services/hapticsPreference';
+import { loadAutoPayPreference } from './src/services/autoPayPreference';
 import { useReducedMotion } from './src/services/motion';
 import { useAppLock } from './src/services/useAppLock';
 import { usePaymentLinks } from './src/services/links';
@@ -28,6 +29,12 @@ function WalletApp() {
   // has been opened (REDESIGN.md rule 7). It only reads the secure store.
   useEffect(() => {
     loadHapticsPreference().then(setHapticsEnabled);
+  }, []);
+  // Settings > Auto-pay is read as the app opens, so a code scanned before
+  // Settings is ever opened is judged by it. Until it answers it reads as
+  // off, which pays nothing on its own.
+  useEffect(() => {
+    loadAutoPayPreference();
   }, []);
   const stage = useStageStore();
   const { dispatch } = stage;

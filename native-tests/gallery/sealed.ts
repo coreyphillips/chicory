@@ -14,6 +14,11 @@ import * as Keychain from 'react-native-keychain';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { setHapticsPreference } from '../../src/services/hapticsPreference';
 import {
+  AUTO_PAY_OFF,
+  setAutoPayPreference,
+} from '../../src/services/autoPayPreference';
+import type { AutoPay } from '../../src/services/autoPayPreference';
+import {
   defaultPreferences,
   saveNetworkPreferences,
 } from '../../src/services/networks';
@@ -28,6 +33,15 @@ let biometry: string | null = null;
 /** Forgets the balance face a state tapped to, so the next opens on `₿`. */
 export function forgetFace() {
   entries.delete('com.beignet.wallet.balance-face');
+}
+
+/**
+ * Settings > Auto-pay as a state needs it, kept here with the rest of the
+ * secure store: off unless the state says otherwise, so one that turns it
+ * on never pays a later state's scan.
+ */
+export function setAutoPay(next: AutoPay = AUTO_PAY_OFF) {
+  setAutoPayPreference(next).catch(() => {});
 }
 
 /** The biometry the lock and Settings are told this phone has. */

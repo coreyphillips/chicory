@@ -25,7 +25,8 @@ import { ROW_GLYPH } from './hub';
 /*
  * The glyphs of Settings' rows that move in parts (REDESIGN.md 4, Animated
  * glyphs): the lock whose shackle closes as Lock device wallet is pressed,
- * and the phone that buzzes as haptics turn on. Each is drawn as its glyph
+ * the phone that buzzes as haptics turn on, and the scan frame that closes
+ * on its bolt as Auto-pay does. Each is drawn as its glyph
  * is, in layers of its parts, so only the part that moves is moved, and
  * only by transform and opacity. Their numbers are exported, so each is a
  * table test.
@@ -313,6 +314,109 @@ export function HapticsGlyph({
       </Reanimated.View>
       <Reanimated.View style={[StyleSheet.absoluteFill, buzzing]}>
         <Parts name="haptics" parts={['body']} size={size} color={color} />
+      </Reanimated.View>
+    </View>
+  );
+}
+
+/** How the bolt rests while Auto-pay is off: faint and small in its frame. */
+export const BOLT_OFF_OPACITY = 0.35;
+export const BOLT_OFF_SCALE = 0.7;
+/** How far the frame reaches out before it closes on the bolt. */
+export const FRAME_REACH = 1.1;
+
+/** The bolt's pose at `on`, from 0 (off) to 1 (on). */
+export function boltPose(on: number, reduced: boolean, shown: boolean) {
+  'worklet';
+  return {
+    opacity: BOLT_OFF_OPACITY + (1 - BOLT_OFF_OPACITY) * on,
+    // Reduced, it only crossfades: its size says on or off at once.
+    scale: reduced
+      ? shown
+        ? 1
+        : BOLT_OFF_SCALE
+      : BOLT_OFF_SCALE + (1 - BOLT_OFF_SCALE) * on,
+  };
+}
+
+/**
+ * The scan frame round its bolt beside Auto-pay. As Auto-pay turns on, the
+ * frame's corners reach out a tick and close back on the code on the reveal
+ * spring, and the bolt pops to full inside them; as it turns off, the bolt
+ * eases back, faint and small, over an exit's 140ms. All of it runs on the
+ * steady clock. Under Reduce Motion the frame holds still and the bolt only
+ * crossfades. What it shows as it is first drawn is where it rests: only a
+ * change moves it.
+ */
+export function AutoPayGlyph({
+  on,
+  size,
+  color,
+}: {
+  on: boolean;
+  size: number;
+  color: string;
+}) {
+  const { reduced } = useMotionPrefs();
+  const frame = useSharedValue(1);
+  const bolt = useSharedValue(on ? 1 : 0);
+  const seen = useRef(on);
+  useEffect(() => {
+    if (seen.current === on) return;
+    seen.current = on;
+    if (!on) {
+      bolt.set(
+        steady(
+          withTiming(0, {
+            duration: reduced ? durations.crossfade : durations.exit,
+            easing: curves.standard,
+          }),
+        ),
+      );
+      return;
+    }
+    if (!reduced) {
+      frame.set(
+        steady(
+          withSequence(
+            withTiming(FRAME_REACH, {
+              duration: durations.tick,
+              easing: curves.exit,
+            }),
+            withSpring(1, springs.reveal),
+          ),
+        ),
+      );
+    }
+    bolt.set(
+      steady(
+        reduced
+          ? withTiming(1, {
+              duration: durations.crossfade,
+              easing: curves.standard,
+            })
+          : withSpring(1, springs.reveal),
+      ),
+    );
+  }, [on, reduced, frame, bolt]);
+  const closing = useAnimatedStyle(() => ({
+    transform: [{ scale: frame.get() }],
+  }));
+  const popping = useAnimatedStyle(() => {
+    const pose = boltPose(bolt.get(), reduced, on);
+    return { opacity: pose.opacity, transform: [{ scale: pose.scale }] };
+  });
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{ width: size, height: size }}
+    >
+      <Reanimated.View style={[StyleSheet.absoluteFill, closing]}>
+        <Parts name="autoPay" parts={['frame']} size={size} color={color} />
+      </Reanimated.View>
+      <Reanimated.View style={[StyleSheet.absoluteFill, popping]}>
+        <Parts name="autoPay" parts={['bolt']} size={size} color={color} />
       </Reanimated.View>
     </View>
   );

@@ -38,6 +38,7 @@ import { curves, durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { Comet } from '../scenes/send/Comet';
 import { bloomFor } from '../scenes/send/tone';
+import { stepInMs } from '../scenes/send/useLanding';
 import { usePaneActive } from '../stage/panes/Pane';
 
 /**
@@ -85,6 +86,14 @@ export interface HoldButtonProps {
   busy?: boolean;
   /** A test network, where slate stands in for bloom. */
   test?: boolean;
+  /**
+   * The payment was committed for the payer, with no hold, by Settings >
+   * Auto-pay (REDESIGN.md rule 5). As `busy` arrives the circle plays the
+   * complete a hold ends in, the thud, the flash, the pop, the launch and
+   * the burst, once its step has risen into view, rather than simply
+   * showing no arrow.
+   */
+  auto?: boolean;
   /** What sits in the circle instead of the send glyph. */
   children?: ReactNode;
   /**
@@ -279,6 +288,7 @@ export function HoldButton({
   warning = false,
   disabled = false,
   busy = false,
+  auto = false,
   test = false,
   children,
   commit,
@@ -306,6 +316,15 @@ export function HoldButton({
   useLayoutEffect(() => {
     latest.current = onCommit;
   });
+
+  // Auto-pay's complete, waiting for the review's step to rise in.
+  const autoSeal = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (autoSeal.current) clearTimeout(autoSeal.current);
+    },
+    [],
+  );
 
   const stopRamp = useCallback(() => {
     ramp.current.forEach(clearTimeout);
@@ -339,11 +358,24 @@ export function HoldButton({
   // Sending shows no arrow. Back from sending without a result, as when the
   // send itself was refused, the circle is ready to be held again and the
   // arrow comes back. Under Reduce Motion that is only a fade, so it plays.
+  // Sent by Auto-pay, the complete plays as if held, once the review's step
+  // has risen in, so the payer sees it go.
   useEffect(() => {
     if (busy) {
-      if (!committed.current) launch.set(1);
+      if (committed.current) return;
+      if (!auto) {
+        launch.set(1);
+        return;
+      }
+      committed.current = true;
+      autoSeal.current = setTimeout(() => {
+        autoSeal.current = null;
+        if (seal(parts, reduced)) haptics.holdRamp(4);
+      }, stepInMs());
       return;
     }
+    if (autoSeal.current) clearTimeout(autoSeal.current);
+    autoSeal.current = null;
     committed.current = false;
     sealed.set(false);
     launch.set(
@@ -353,7 +385,7 @@ export function HoldButton({
       }),
     );
     fill.set(withSpring(0, springs.snap));
-  }, [busy, reduced, launch, fill, sealed]);
+  }, [busy, auto, reduced, parts, launch, fill, sealed]);
 
   // The hold is timed where the fill runs, on the UI thread: it commits the
   // moment the ring is whole, and a finger lifted after that cannot undo it.

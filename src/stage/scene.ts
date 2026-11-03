@@ -30,7 +30,16 @@ export type Scene =
   | { name: 'home'; key: number }
   | { name: 'activity'; key: number }
   | { name: 'detail'; item: Activity; from: Rect | null; key: number }
-  | { name: 'send'; prefill: string; key: number }
+  | {
+      name: 'send';
+      prefill: string;
+      /**
+       * The camera read `prefill`, rather than a link bringing it: the one
+       * way a request may pay itself, when Settings > Auto-pay allows it.
+       */
+      scanned?: true;
+      key: number;
+    }
   | { name: 'receive'; key: number }
   | { name: 'settings'; key: number };
 
@@ -170,11 +179,20 @@ function settle(
   return innermost(next) === innermost(state) ? next : { ...next, step: null };
 }
 
-/** A fresh Send over home, for a request that came from outside the canvas. */
-function sendOver(state: StageState, prefill: string): StageState {
+/**
+ * A fresh Send over home, for a request that came from outside the canvas:
+ * a link, or a code the camera read from home (`scanned`).
+ */
+function sendOver(
+  state: StageState,
+  prefill: string,
+  scanned = false,
+): StageState {
   const key = state.key + 1;
   return settle(state, {
-    scene: { name: 'send', prefill, key },
+    scene: scanned
+      ? { name: 'send', prefill, scanned: true, key }
+      : { name: 'send', prefill, key },
     stack: [base(state)],
     overlay: null,
     key,
@@ -279,7 +297,7 @@ export function stageReducer(
       if (state.overlay.target !== 'home') {
         return settle(state, { overlay: null });
       }
-      return sendOver(state, action.value);
+      return sendOver(state, action.value, true);
     case 'busy':
       return state.busy === action.busy
         ? state
