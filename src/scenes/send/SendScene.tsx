@@ -22,7 +22,8 @@ import type { Origin } from './RequestEntry';
 /**
  * Send, in the top slot under the status row and the mini strip. `prefill`
  * is the request a scanned code or a tapped link brought with the scene,
- * never sent without a review.
+ * never sent without a review, and without a hold only when the camera read
+ * it (`scanned`) and Settings > Auto-pay allows it.
  *
  * `sceneKey` is the key of the scene this Send is. A scan started from this
  * Send delivers its code here: the receiver is armed by this Send's own scan
@@ -46,9 +47,12 @@ export function SendScene({
   session,
   view,
   sceneKey,
+  scanned = false,
 }: RegionProps & {
   sceneKey: number;
   prefill: string;
+  /** The camera read `prefill` from home. */
+  scanned?: boolean;
 }) {
   const { actions, state, dispatch, felt } = useStage();
   const insets = useSafeAreaInsets();
@@ -82,7 +86,7 @@ export function SendScene({
     [actions],
   );
   useScanReceiver(
-    useCallback((code: string) => screen.current?.receive(code), []),
+    useCallback((code: string) => screen.current?.receive(code, true), []),
     current && armed,
   );
   useSceneBack(() => screen.current?.back() ?? false, usePaneActive());
@@ -110,6 +114,7 @@ export function SendScene({
               ref={screen}
               client={client}
               initialRequest={prefill}
+              scanned={scanned}
               disabled={gated}
               opening={opening}
               primaryConnected={snapshot.primary.connected}

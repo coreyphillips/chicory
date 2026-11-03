@@ -399,7 +399,7 @@ describe('home', () => {
 });
 
 describe('link', () => {
-  test('opens send with the request over home', () => {
+  test('opens send with the request over home, never as a scan', () => {
     const next = run(openSettings, { type: 'link', request: REQUEST });
     expect(next.scene).toEqual({
       name: 'send',
@@ -470,12 +470,13 @@ describe('overlay', () => {
 });
 
 describe('scanned', () => {
-  test('a scan from home opens send with the code', () => {
+  test('a scan from home opens send with the code, marked as read by the camera', () => {
     const next = run(scanFrom('home'), { type: 'scanned', value: REQUEST });
     expect(next.overlay).toBeNull();
     expect(next.scene).toEqual({
       name: 'send',
       prefill: REQUEST,
+      scanned: true,
       key: 2,
     });
     expect(names(next)).toEqual(['home']);

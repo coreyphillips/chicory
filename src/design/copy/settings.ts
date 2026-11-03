@@ -1,3 +1,5 @@
+import { sats } from './shared';
+
 /**
  * Settings and the setup surfaces, which may keep short text on screen
  * (REDESIGN.md rule 2): Settings itself, the recovery phrase, the new wallet
@@ -160,6 +162,26 @@ export const settings = {
     lockFailed: 'Could not change the lock.',
     haptics: 'Haptics',
     hapticsFailed: 'Could not save the haptics setting.',
+    /** Settings > Auto-pay (REDESIGN.md rule 5). */
+    autoPay: 'Auto-pay',
+    autoPayLabel: 'Pay scanned Lightning codes without holding',
+    /** The slider under it while it is on. */
+    autoPayLimit: 'Auto-pay limit',
+    autoPayLimitHint:
+      'Scanned codes up to this share of your balance pay without a hold.',
+    autoPayShare: (share: number) => `${share}%`,
+    /** Before the sats the share stands for today. */
+    autoPayUpTo: 'Up to',
+    /** In their place at 0%. */
+    autoPayNothing: 'Every code waits for your hold',
+    autoPayNote:
+      'Scanned Lightning codes up to this share of your balance pay as soon as they are read. Anything more waits for your hold.',
+    /** What a screen reader hears as the slider's value. */
+    autoPaySpoken: (share: number, limitSats: number) =>
+      share === 0
+        ? '0%. Every code waits for your hold.'
+        : `${share}% of your balance, up to ${sats(limitSats)}`,
+    autoPayFailed: 'Could not save the auto-pay setting.',
   },
 
   diagnostics: {

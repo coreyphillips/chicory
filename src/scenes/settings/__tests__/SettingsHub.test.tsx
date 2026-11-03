@@ -178,6 +178,7 @@ describe('the page', () => {
       ['header', s.phone.heading],
       ['switch', s.phone.requireLabel('Face ID')],
       ['switch', s.phone.haptics],
+      ['switch', s.phone.autoPayLabel],
       ['header', s.funds.heading],
       ['button', s.empty.link],
       ['button', s.wallet.lock],

@@ -8,7 +8,13 @@ import React, {
 } from 'react';
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Reanimated from 'react-native-reanimated';
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { DEFAULT_PRIMARY_URI, validatePrimaryUri } from '@beignet/wallet-core';
 import type { Network, WalletSnapshot } from '@beignet/wallet-core';
 import { RecoveryPhraseBody } from '../components/RecoveryPhrase';
@@ -27,17 +33,22 @@ import {
   smooth,
   stagger,
 } from '../motion/presets';
-import { durations } from '../motion/tokens';
+import { durations, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { unlockGlyph } from '../scenes/phases/visual';
 import { EmptyWallet } from '../scenes/settings/EmptyWallet';
 import { DiagnosticsPanel } from '../scenes/settings/Diagnostics';
 import { useFieldScan } from '../scenes/settings/fieldScan';
 import {
+  AutoPayGlyph,
   HapticsGlyph,
   ShackleGlyph,
   useShackle,
 } from '../scenes/settings/glyphMotion';
+import { ShareSlider } from '../scenes/settings/ShareSlider';
+import { autoPayLimit } from '../scenes/send/autoPay';
+import { Odometer } from '../glyphs/Odometer';
+import { steady } from '../motion/steady';
 import {
   ActionRow,
   DISC,
@@ -99,6 +110,10 @@ import {
 import { duringSystemPrompt } from '../stage/systemPrompt';
 import { usePaneActive } from '../stage/panes/Pane';
 import { useHapticsPreference } from '../services/hapticsPreference';
+import {
+  setAutoPayPreference,
+  useAutoPay,
+} from '../services/autoPayPreference';
 import type { WalletAdapter } from '../services/wallet';
 import { NETWORKS, loadNetworkPreferences } from '../services/networks';
 import type { NetworkProfile } from '../services/networks';
@@ -576,6 +591,199 @@ const HapticsRow = memo(function HapticsLine({
 });
 
 /**
+ * Settings > Auto-pay (REDESIGN.md rule 5): a switch, off until it is
+ * turned on, whose limit opens under it while it is on. Its glyph is the
+ * scan frame round a bolt, which closes on the bolt as it turns on. On, the
+ * row grows to show the share of the balance a scanned Lightning code may
+ * spend and still pay itself: the share in large figures, popping at each
+ * detent, the sats it stands for today rolling beside it, the slider in
+ * detents of 5%, and what it does. The share is 50% the first time and kept
+ * while it is off; the thumb grows out to it as the row opens. A save that
+ * fails keeps what was there and says so under the switch.
+ *
+ * Switched on, the row is brought into view as it grows (`useRevealOnOpen`),
+ * so a limit opened at the foot of the page is not opened out of sight; a
+ * Settings opened with Auto-pay already on stays where it is.
+ */
+const AutoPayRow = memo(function AutoPayLine({
+  edge,
+  step,
+  availableSats,
+  unit,
+  symbol,
+  stale,
+}: {
+  edge: HubEdge;
+  step: number;
+  availableSats: number;
+  unit: Unit;
+  symbol: boolean;
+  stale: boolean;
+}) {
+  const { on, share } = useAutoPay();
+  const { accent } = useAccent();
+  const { reduced } = useMotionPrefs();
+  const size = useGlyphSize(ROW_GLYPH);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  // The share under the thumb while it moves, and whether the switch was
+  // turned on here: then the thumb grows out to the share, the readout with
+  // it, and the grown row is brought into view. A Settings opened with
+  // Auto-pay already on is drawn at rest, where it is.
+  const [moving, setMoving] = useState<number | null>(null);
+  const [turned, setTurned] = useState(false);
+  const woke = turned && !reduced;
+  const shown = moving ?? share;
+  const { frame, onLayout } = useRevealOnOpen(on && turned);
+
+  const save = async (next: { on: boolean; share: number }) => {
+    setBusy(true);
+    setError('');
+    try {
+      await setAutoPayPreference(next);
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : words.phone.autoPayFailed);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <HubItem edge={edge} step={step} frame={frame} onLayout={onLayout}>
+      <ToggleLine
+        glyph={<AutoPayGlyph on={on} size={size} color={accent} />}
+        label={words.phone.autoPay}
+        accessibilityLabel={words.phone.autoPayLabel}
+        value={on}
+        disabled={busy}
+        error={error}
+        onValueChange={async next => {
+          // Opened, the thumb grows out from 0 to the share it keeps.
+          setTurned(next);
+          setMoving(next && !reduced ? 0 : null);
+          if (!(await save({ on: next, share }))) setMoving(null);
+        }}
+      />
+      {on ? (
+        <RowContent>
+          <AutoPayLimit
+            shown={shown}
+            share={share}
+            availableSats={availableSats}
+            unit={unit}
+            symbol={symbol}
+            stale={stale}
+            wake={woke}
+            onPreview={setMoving}
+            onChoose={async next => {
+              setMoving(next);
+              await save({ on: true, share: next });
+              setMoving(null);
+            }}
+          />
+        </RowContent>
+      ) : null}
+    </HubItem>
+  );
+});
+
+/** How far the share's figures pop as it lands on a new detent. */
+const SHARE_POP = 1.06;
+
+/**
+ * Auto-pay's limit: the share and the sats it stands for, the slider, and
+ * what it does. The readout is drawn for the eye; a screen reader hears it
+ * all as the slider's value.
+ */
+function AutoPayLimit({
+  shown,
+  share,
+  availableSats,
+  unit,
+  symbol,
+  stale,
+  wake,
+  onPreview,
+  onChoose,
+}: {
+  shown: number;
+  share: number;
+  availableSats: number;
+  unit: Unit;
+  symbol: boolean;
+  stale: boolean;
+  wake: boolean;
+  onPreview: (share: number) => void;
+  onChoose: (share: number) => void;
+}) {
+  const { reduced } = useMotionPrefs();
+  const scale = useSharedValue(1);
+  const seen = useRef(shown);
+  useEffect(() => {
+    if (seen.current === shown) return;
+    seen.current = shown;
+    if (reduced) return;
+    scale.set(
+      steady(
+        withSequence(
+          withTiming(SHARE_POP, { duration: durations.tick }),
+          withSpring(1, springs.snap),
+        ),
+      ),
+    );
+  }, [shown, reduced, scale]);
+  const popping = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.get() }],
+  }));
+  const limit = autoPayLimit(availableSats, shown);
+  const spoken = useCallback(
+    (at: number) =>
+      words.phone.autoPaySpoken(at, autoPayLimit(availableSats, at)),
+    [availableSats],
+  );
+  return (
+    <>
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={styles.limitReadout}
+      >
+        <Reanimated.View style={[styles.limitShare, popping]}>
+          <Text style={styles.limitFigures} maxFontSizeMultiplier={1.6}>
+            {words.phone.autoPayShare(shown)}
+          </Text>
+        </Reanimated.View>
+        {shown === 0 ? (
+          <Text style={styles.limitWords}>{words.phone.autoPayNothing}</Text>
+        ) : (
+          <View style={styles.limitSats}>
+            <Text style={styles.limitWords}>{words.phone.autoPayUpTo}</Text>
+            <Odometer
+              sats={limit}
+              unit={unit}
+              symbol={symbol}
+              stale={stale}
+              variant="row"
+              color={palette.steam}
+            />
+          </View>
+        )}
+      </View>
+      <ShareSlider
+        share={share}
+        spoken={spoken}
+        wake={wake}
+        onPreview={onPreview}
+        onChoose={onChoose}
+      />
+      <Text style={styles.limitNote}>{words.phone.autoPayNote}</Text>
+    </>
+  );
+}
+
+/**
  * Lock device wallet: it acts at once, whatever is open, since it is a way
  * out. Its lock's shackle closes as the finger lands and lifts back if the
  * finger slides away (`useShackle`).
@@ -868,9 +1076,9 @@ function About({ engine, step }: { engine: string | null; step: number }) {
  * Settings, the one scene that keeps words (REDESIGN.md rule 2), as a
  * grouped hub (REDESIGN.md 6, Settings): the wallet's card on top, then
  * its rows in four groups, Wallet (the recovery phrase, the primary node,
- * the network and its servers), This phone (the app lock and haptics),
- * Funds and exits (emptying the wallet, locking it and erasing it) and Help
- * (diagnostics), and the versions at the foot. Every safety line stays,
+ * the network and its servers), This phone (the app lock, haptics and
+ * auto-pay), Funds and exits (emptying the wallet, locking it and erasing
+ * it) and Help (diagnostics), and the versions at the foot. Every safety line stays,
  * inside the row it belongs to.
  *
  * A row opens in place, one at a time (`nextOpen`), and what it opens is
@@ -1141,6 +1349,17 @@ export function SettingsScreen({
         return <AppLockRow key="applock" {...at} />;
       case 'haptics':
         return <HapticsRow key="haptics" {...at} />;
+      case 'autopay':
+        return (
+          <AutoPayRow
+            key="autopay"
+            {...at}
+            availableSats={snapshot.balance.availableSats}
+            unit={unit}
+            symbol={symbol}
+            stale={stale}
+          />
+        );
       case 'empty':
         return (
           <DisclosureRow
@@ -1258,6 +1477,28 @@ export function SettingsScreen({
 
 const styles = StyleSheet.create({
   stack: { gap: space.md },
+  // Auto-pay's limit: the share and its sats on one line that wraps at
+  // large text, the share's figures large and tabular.
+  limitReadout: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    columnGap: space.sm,
+  },
+  limitShare: { transformOrigin: '0% 50%' },
+  limitFigures: {
+    ...type.title,
+    color: palette.cream,
+    fontVariant: ['tabular-nums'],
+  },
+  limitSats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xxs,
+  },
+  limitWords: { ...type.body, color: palette.steam },
+  limitNote: { ...type.caption, color: palette.steam },
   // The recovery phrase to save sits apart from the card above it; as a
   // row it joins its group.
   lead: { marginTop: space.md },

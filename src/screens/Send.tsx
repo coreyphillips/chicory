@@ -47,6 +47,7 @@ import { AmountReadout } from '../scenes/keypad/AmountReadout';
 import { digitsOnly, grouped } from '../scenes/keypad/keys';
 import type { AmountTone } from '../scenes/keypad/keys';
 import { Amount } from '../scenes/send/Amount';
+import { autoPayCandidate, autoPays } from '../scenes/send/autoPay';
 import { ARRIVE_MS, watchCentre } from '../scenes/send/arrival';
 import type { Arrival, Origin as Centre } from '../scenes/send/arrival';
 import { Commit } from '../scenes/send/Commit';
@@ -90,6 +91,7 @@ import { untilInFront } from '../scenes/send/untilInFront';
 import { useScreenReader } from '../scenes/send/useScreenReader';
 import { TestNetwork } from '../scenes/send/tone';
 import type { Landing } from '../scenes/send/useLanding';
+import { autoPayNow } from '../services/autoPayPreference';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { errorMessage } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
@@ -113,8 +115,11 @@ import type { Unit } from '../theme';
 export interface SendHandle {
   /** Android back: a step back inside Send, or false for the stage's own. */
   back: () => boolean;
-  /** A code the scan overlay read for this Send. */
-  receive: (code: string) => void;
+  /**
+   * A code the scan overlay read for this Send. `scanned` says the camera
+   * read it, which is the only way a request may pay itself (Auto-pay).
+   */
+  receive: (code: string, scanned?: boolean) => void;
 }
 
 /**
@@ -222,6 +227,7 @@ function quoteExpired(): () => void {
 export function SendScreen({
   client,
   initialRequest = '',
+  scanned = false,
   disabled = false,
   opening = false,
   primaryConnected = false,
@@ -243,8 +249,14 @@ export function SendScreen({
   ref,
 }: {
   client: WalletAdapter;
-  /** Prefilled by a scanned code or a bitcoin:/lightning: link. Never auto-sent. */
+  /**
+   * Prefilled by a scanned code or a bitcoin:/lightning: link. Never sent
+   * without a review, and only ever sent without a hold when the camera read
+   * it (`scanned`) and Settings > Auto-pay allows it (`autoPays`).
+   */
   initialRequest?: string;
+  /** `initialRequest` was read by the camera, not brought by a link. */
+  scanned?: boolean;
   /** Set when the wallet's balance is too old to spend against. */
   disabled?: boolean;
   /**
@@ -356,6 +368,17 @@ export function SendScreen({
   // no timer should take it away.
   const [stayed, setStayed] = useState(false);
   const reader = useScreenReader();
+  // Settings > Auto-pay (REDESIGN.md rule 5): the request a camera scan
+  // brought while it was on, which is reviewed on its own and pays as its
+  // review lands, when the review is within the share of the balance it
+  // allows (`autoPays`). It is used once, and anything that changes the
+  // request, takes the step elsewhere or refuses it lets it go.
+  const autoFor = useRef<string | null>(null);
+  // Whether that review asked to be reviewed already.
+  const autoAsked = useRef(false);
+  // The payment going out was committed by Auto-pay, so the hold plays its
+  // complete for the payer.
+  const [autoPaid, setAutoPaid] = useState(false);
   // A request that names its amount sets it and locks it, so the amount
   // cannot be changed by accident. What was typed stays for a request that
   // names none.
@@ -501,8 +524,8 @@ export function SendScreen({
     entered.current = accept;
   });
   useEffect(() => {
-    if (initialRequest) entered.current(initialRequest);
-  }, [initialRequest]);
+    if (initialRequest) entered.current(initialRequest, scanned);
+  }, [initialRequest, scanned]);
   // The stage is told busy by the handlers that send, as a request goes out
   // (`goingOut` below), and let go as its answer comes back or its grace
   // runs out, whichever is first, and as Send goes, whatever is still in
@@ -603,6 +626,69 @@ export function SendScreen({
     // Runs as the wallet opens, with that render's prepare and gate.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queued, opening]);
+
+  // Auto-pay (REDESIGN.md rule 5) reviews the scanned request on its own,
+  // once, as soon as nothing else is under way. While the wallet is opening
+  // the review queues for its first live read, as a tapped one does, and a
+  // request held or paid lands on its ring or its mark. A balance too old to
+  // spend against lets it go, so nothing pays itself later on figures that
+  // were not shown when it was read.
+  useEffect(() => {
+    if (autoFor.current === null) return;
+    if (autoFor.current !== request || disabled || leaving || held) {
+      letAutoGo();
+      return;
+    }
+    if (autoAsked.current || !collapsed || review || result) return;
+    if (composeBusy || failure || waitingFor.current) return;
+    autoAsked.current = true;
+    prepare();
+  });
+
+  // The review Auto-pay asked for pays as it lands, before it is drawn
+  // waiting for a hold, once Send is in front (the scan overlay gone), if it
+  // is within the share of what can be sent (`autoPays`). Otherwise it waits
+  // for the hold, as every other review does. `pay` keeps every guard it
+  // has: the quote's clock, the stale gate and the held set.
+  const payNow = useRef(pay);
+  useLayoutEffect(() => {
+    payNow.current = pay;
+  });
+  const availableSats = balance?.availableSats ?? 0;
+  useLayoutEffect(() => {
+    const armed = autoFor.current;
+    if (armed === null || !review || spent) return;
+    if (armed !== request || expired || disabled || opening || leaving) {
+      letAutoGo();
+      return;
+    }
+    if (!live || waitingFor.current || preview !== null || quoting.current) {
+      return;
+    }
+    letAutoGo();
+    const { on, share } = autoPayNow();
+    if (!on || !autoPays({ review, request, availableSats, share })) {
+      return;
+    }
+    setAutoPaid(true);
+    say(copy.send.autoPaying(review.amountSats));
+    payNow.current();
+  }, [
+    review,
+    request,
+    spent,
+    expired,
+    disabled,
+    opening,
+    leaving,
+    live,
+    preview,
+    availableSats,
+    say,
+  ]);
+  useEffect(() => {
+    if (!spent) setAutoPaid(false);
+  }, [spent]);
 
   // Landing on the held ring is felt, said and logged, once for each time.
   // It is said once a screen reader has landed on the ring's mark and
@@ -854,9 +940,15 @@ export function SendScreen({
    * keyed for it: it stays in the well with a cross (REDESIGN.md 6, Engine
    * errors). Returns whether it was taken.
    */
-  function accept(code: string): boolean {
+  function accept(code: string, byCamera = false): boolean {
     queuedFor.current = null;
     setQueued(false);
+    // Only a Lightning code the camera read, naming its amount, is reviewed
+    // on its own; a paste, a link or typing never is.
+    letAutoGo();
+    if (byCamera && autoPayNow().on && autoPayCandidate(code)) {
+      autoFor.current = code;
+    }
     if (code !== request) {
       setMaxFor(null);
       setFeeRate(null);
@@ -872,6 +964,12 @@ export function SendScreen({
     setCollapsed(true);
     setFailure(null);
     return true;
+  }
+
+  /** Auto-pay lets go of the request it was armed for, if it was. */
+  function letAutoGo() {
+    autoFor.current = null;
+    autoAsked.current = false;
   }
 
   /** Typing is done: a request is taken as a chip, or refused in the well. */
@@ -894,6 +992,7 @@ export function SendScreen({
     next: Failure,
     landing?: (next: Failure) => Landing | null,
   ): Failure {
+    letAutoGo();
     haptics[next.haptic]();
     const target = landing?.(next);
     if (target) land(target);
@@ -937,6 +1036,7 @@ export function SendScreen({
    * step it was on.
    */
   function toHeld() {
+    letAutoGo();
     dropQuote();
     setFeeRate(null);
     setReview(null);
@@ -948,6 +1048,7 @@ export function SendScreen({
 
   /** Shows how a payment came out, grown out of the hold that sent it. */
   function show(outcome: SendResult) {
+    letAutoGo();
     const from = arrivalFrom((review?.warnings.length ?? 0) > 0);
     taken.set(from !== null);
     setArrival(from);
@@ -1288,6 +1389,7 @@ export function SendScreen({
    * the rate chosen, so the payment reviewed again is priced as it was.
    */
   function edit() {
+    letAutoGo();
     dropQuote();
     setReview(null);
     setExpired(false);
@@ -1303,6 +1405,7 @@ export function SendScreen({
 
   /** A failed payment tapped: back to compose with the request kept. */
   function retry() {
+    letAutoGo();
     setArrival(null);
     setResult(null);
     setFollowed(null);
@@ -1356,13 +1459,15 @@ export function SendScreen({
       }
       return false;
     },
-    receive: accept,
+    receive: (code: string, byCamera?: boolean) => {
+      accept(code, byCamera);
+    },
   }));
 
   if (scanning) {
     return (
       <Scanner
-        onDetected={accept}
+        onDetected={(code: string) => accept(code, true)}
         onCancel={() => setScanning(false)}
         test={test}
       />
@@ -1370,6 +1475,7 @@ export function SendScreen({
   }
 
   function typed(text: string) {
+    letAutoGo();
     queuedFor.current = null;
     setQueued(false);
     setMaxFor(null);
@@ -1670,6 +1776,7 @@ export function SendScreen({
               stale={disabled}
               busy={busy || quoteSlow}
               spent={spent}
+              auto={autoPaid}
               comet={comet}
               onCommit={pay}
               onRefreshQuote={live && !busy ? refreshQuote : undefined}

@@ -19,13 +19,18 @@ import type { WalletAdapter } from '../../../services/wallet';
 import { snapshotOf } from '../../../../test-support/fixtures';
 import { mount } from '../../../../test-support/guard';
 import {
+  AutoPayGlyph,
   BARS_OFF_OPACITY,
   BARS_OFF_SCALE,
+  BOLT_OFF_OPACITY,
+  BOLT_OFF_SCALE,
   BUZZ,
+  FRAME_REACH,
   HapticsGlyph,
   SHACKLE_DROP,
   SHACKLE_LIFT_MS,
   barsPose,
+  boltPose,
   shackleDrop,
 } from '../glyphMotion';
 import { DrawnGlyph } from '../ui';
@@ -81,6 +86,15 @@ async function settings(onDisconnect = jest.fn()) {
 async function glyph(on: boolean) {
   const tree = await mount(
     <HapticsGlyph on={on} size={18} color={palette.bloom} />,
+  );
+  trees.push(tree);
+  await act(async () => {});
+  return tree;
+}
+
+async function autoPayGlyph(on: boolean) {
+  const tree = await mount(
+    <AutoPayGlyph on={on} size={18} color={palette.bloom} />,
   );
   trees.push(tree);
   await act(async () => {});
@@ -149,6 +163,24 @@ describe('the numbers', () => {
       const pose = barsPose(at, reduced, on);
       expect(pose.opacity).toBeCloseTo(opacity);
       expect(pose.scaleY).toBeCloseTo(scale);
+    },
+  );
+});
+
+describe('the bolt', () => {
+  it.each([
+    [0, false, false, BOLT_OFF_OPACITY, BOLT_OFF_SCALE],
+    [1, false, true, 1, 1],
+    [0.5, false, true, 0.675, 0.85],
+    // Reduced, the bolt only crossfades: its size is set at once.
+    [0.5, true, true, 0.675, 1],
+    [0.5, true, false, 0.675, BOLT_OFF_SCALE],
+  ])(
+    'at %f, reduced %s and on %s: opacity %f, scale %f',
+    (at, reduced, on, opacity, scale) => {
+      const pose = boltPose(at, reduced, on);
+      expect(pose.opacity).toBeCloseTo(opacity);
+      expect(pose.scale).toBeCloseTo(scale);
     },
   );
 });
@@ -252,6 +284,40 @@ describe('the glyphs as they move', () => {
     expect(drawn(tree)).toEqual([left.d, right.d, body.d]);
   });
 
+  test('the frame closes on its bolt and the bolt pops as Auto-pay comes on, and the bolt rests as it goes off', async () => {
+    const tree = await autoPayGlyph(false);
+    const sequence = jest.spyOn(Reanimated, 'withSequence');
+    const springing = jest.spyOn(Reanimated, 'withSpring');
+    const timing = jest.spyOn(Reanimated, 'withTiming');
+    await act(async () =>
+      tree.update(<AutoPayGlyph on size={18} color={palette.bloom} />),
+    );
+    expect(sequence).toHaveBeenCalledTimes(1);
+    expect(timed(timing, FRAME_REACH, durations.tick)).toHaveLength(1);
+    expect(
+      springing.mock.calls.filter(
+        ([to, config]) => to === 1 && config === springs.reveal,
+      ),
+    ).toHaveLength(2);
+    timing.mockClear();
+    await act(async () =>
+      tree.update(<AutoPayGlyph on={false} size={18} color={palette.bloom} />),
+    );
+    expect(timed(timing, 0, durations.exit)).toHaveLength(1);
+    expect(sequence).toHaveBeenCalledTimes(1);
+  });
+
+  test('the auto-pay glyph rests where it is first drawn, its frame and bolt apart', async () => {
+    const sequence = jest.spyOn(Reanimated, 'withSequence');
+    const springing = jest.spyOn(Reanimated, 'withSpring');
+    const tree = await autoPayGlyph(true);
+    await autoPayGlyph(false);
+    expect(sequence).not.toHaveBeenCalled();
+    expect(springing).not.toHaveBeenCalled();
+    const [frame, bolt] = GLYPHS.autoPay;
+    expect(drawn(tree)).toEqual([frame.d, bolt.d]);
+  });
+
   test('the app lock’s glyph draws itself in as the lock turns on', async () => {
     const tree = await settings();
     expect(tree.root.findAllByType(DrawnGlyph)).toHaveLength(0);
@@ -292,6 +358,19 @@ describe('under Reduce Motion', () => {
     const timing = jest.spyOn(Reanimated, 'withTiming');
     await act(async () =>
       tree.update(<HapticsGlyph on size={18} color={palette.bloom} />),
+    );
+    expect(sequence).not.toHaveBeenCalled();
+    expect(springing).not.toHaveBeenCalled();
+    expect(timed(timing, 1, durations.crossfade)).toHaveLength(1);
+  });
+
+  test('the auto-pay frame holds still and its bolt only crossfades', async () => {
+    const tree = await autoPayGlyph(false);
+    const sequence = jest.spyOn(Reanimated, 'withSequence');
+    const springing = jest.spyOn(Reanimated, 'withSpring');
+    const timing = jest.spyOn(Reanimated, 'withTiming');
+    await act(async () =>
+      tree.update(<AutoPayGlyph on size={18} color={palette.bloom} />),
     );
     expect(sequence).not.toHaveBeenCalled();
     expect(springing).not.toHaveBeenCalled();

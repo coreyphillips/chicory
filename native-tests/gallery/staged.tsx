@@ -11,7 +11,9 @@ import type { Phase } from '../../src/stage/phase';
 import type { StageAction } from '../../src/stage/scene';
 import { Stage } from '../../src/stage/Stage';
 import { StageProvider, useStageStore } from '../../src/stage/StageContext';
+import type { AutoPay } from '../../src/services/autoPayPreference';
 import { clientOf, onMainnet, sessionOf } from './fakes';
+import { setAutoPay } from './sealed';
 import type { Session } from './fakes';
 import { counter, useCount } from './shots';
 import type { Counter, Shot, Step, Take } from './shots';
@@ -100,6 +102,11 @@ export const open = {
     type: 'open',
     scene: { name: 'send', prefill },
   }),
+  /** Send with a code the camera read from home, as the scan overlay opens it. */
+  scanned: (prefill: string): StageAction => ({
+    type: 'open',
+    scene: { name: 'send', prefill, scanned: true },
+  }),
   detail: (item: Activity): StageAction => ({
     type: 'open',
     scene: { name: 'detail', item, from: null },
@@ -117,6 +124,8 @@ export interface OnWallet {
   client?: Partial<WalletAdapter>;
   open?: StageAction[];
   steps?: Step[];
+  /** Settings > Auto-pay in this state; off if unset. */
+  autoPay?: AutoPay;
 }
 
 export function wallet(
@@ -129,6 +138,7 @@ export function wallet(
     hold,
     make: () => {
       const state = make();
+      setAutoPay(state.autoPay);
       const snapshot = state.snapshot ?? onMainnet();
       const session = sessionOf(snapshot, {
         client: clientOf(state.client),

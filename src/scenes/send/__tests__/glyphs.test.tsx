@@ -157,6 +157,51 @@ describe('HoldButton', () => {
     await act(async () => tree.unmount());
   });
 
+  test('sent by Auto-pay, it plays the complete a hold ends in once its step has risen in, and commits nothing itself', async () => {
+    const onCommit = jest.fn();
+    const tree = await onCanvas(
+      <HoldButton accessibilityLabel={LABEL} onCommit={onCommit} />,
+    );
+    await act(async () =>
+      tree.update(
+        <GestureHandlerRootView>
+          <HoldButton
+            accessibilityLabel={LABEL}
+            onCommit={onCommit}
+            busy
+            auto
+          />
+        </GestureHandlerRootView>,
+      ),
+    );
+    expect(felt()).toEqual([]);
+    await act(async () => jest.advanceTimersByTime(400));
+    // The thud the hold's complete lands with, felt once.
+    expect(felt()).toEqual(['impactMedium']);
+    await act(async () => jest.advanceTimersByTime(2_000));
+    expect(felt()).toEqual(['impactMedium']);
+    expect(onCommit).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('a payment Auto-pay sent that is answered before its step has risen leaves nothing to play', async () => {
+    const tree = await onCanvas(
+      <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} busy auto />,
+    );
+    await act(async () => tree.unmount());
+    await act(async () => jest.advanceTimersByTime(400));
+    expect(felt()).toEqual([]);
+  });
+
+  test('busy without Auto-pay, as a quote is priced, plays nothing', async () => {
+    const tree = await onCanvas(
+      <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} busy />,
+    );
+    await act(async () => jest.advanceTimersByTime(400));
+    expect(felt()).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+
   test('complete, its arrow launches up and to the right', async () => {
     const tree = await onCanvas(
       <HoldButton accessibilityLabel={LABEL} onCommit={jest.fn()} />,

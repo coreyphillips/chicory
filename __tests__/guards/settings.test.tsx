@@ -14,6 +14,10 @@ import {
   recordDiagnostic,
 } from '../../src/services/diagnosticLog';
 import { defaultProfile } from '../../src/services/networks';
+import {
+  AUTO_PAY_OFF,
+  setAutoPayPreference,
+} from '../../src/services/autoPayPreference';
 import type { WalletAdapter } from '../../src/services/wallet';
 import type { Backup, CanvasSession, CanvasView } from '../../src/stage/Canvas';
 import { CreateSheet } from '../../src/stage/layers/CreateSheet';
@@ -362,6 +366,22 @@ const GUARDED: GuardedState[] = [
     data: guardData(snapshot),
   },
   {
+    name: 'settings with auto-pay on and its limit open',
+    render: async () => {
+      await setAutoPayPreference({ on: true, share: 50 });
+      return settings(snapshot);
+    },
+    data: guardData(snapshot),
+  },
+  {
+    name: 'settings with auto-pay at 0%',
+    render: async () => {
+      await setAutoPayPreference({ on: true, share: 0 });
+      return settings(snapshot);
+    },
+    data: guardData(snapshot),
+  },
+  {
     name: 'settings with diagnostics open',
     render: async () => {
       clearDiagnostics();
@@ -585,5 +605,9 @@ const GUARDED: GuardedState[] = [
     data: [],
   },
 ];
+
+// Auto-pay is one value the whole app shares, so a state that turns it on
+// leaves it off for the next.
+afterEach(() => setAutoPayPreference(AUTO_PAY_OFF));
 
 guard('settings', GUARDED);

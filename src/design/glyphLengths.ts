@@ -64,4 +64,5 @@ export const GLYPH_LENGTHS: Record<GlyphName, number[]> = {
   orbit: [37.71],
   unlock: [42, 11.35],
   haptics: [46.57, 6, 6],
+  autoPay: [28.57, 32.01],
 };

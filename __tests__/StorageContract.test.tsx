@@ -30,6 +30,7 @@ const PROFILES = 'com.beignet.wallet.network-profiles';
 const ADDED_BY_REDESIGN = [
   'com.beignet.wallet.haptics',
   'com.beignet.wallet.balance-face',
+  'com.beignet.wallet.auto-pay',
 ];
 
 type Write = string;

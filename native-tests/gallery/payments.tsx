@@ -11,6 +11,7 @@ import type {
 } from '@beignet/wallet-core';
 import { copy } from '../../src/design/copy';
 import type { WalletAdapter } from '../../src/services/wallet';
+import type { AutoPay } from '../../src/services/autoPayPreference';
 import { holdRequest } from '../../src/stage/heldRequests';
 import { activityOf, hex, receiptOf } from '../../test-support/fixtures';
 import {
@@ -57,6 +58,10 @@ const COMMIT: Step = drive => drive.activate(SEND);
 
 interface Paying {
   request?: string;
+  /** The camera read `request` from home, as the scan overlay opens Send. */
+  scanned?: boolean;
+  /** Settings > Auto-pay; off if unset. */
+  autoPay?: AutoPay;
   snapshot?: WalletSnapshot;
   /** Later reads of the wallet, one after each step, as polls bring them. */
   later?: WalletSnapshot[];
@@ -72,8 +77,23 @@ export function send(
   return wallet(
     `send, ${name}`,
     () => {
-      const { request = ADDRESS, snapshot, later, client, steps } = make();
-      return { snapshot, later, client, open: [open.send(request)], steps };
+      const {
+        request = ADDRESS,
+        scanned = false,
+        autoPay,
+        snapshot,
+        later,
+        client,
+        steps,
+      } = make();
+      return {
+        snapshot,
+        later,
+        client,
+        autoPay,
+        open: [scanned ? open.scanned(request) : open.send(request)],
+        steps,
+      };
     },
     hold,
   );
@@ -258,6 +278,24 @@ const sends: Shot[] = [
   })),
   sent('sending', never),
   sent('sent', async () => resultOf('completed')),
+  // A scanned invoice within Settings > Auto-pay's share: reviewed on its
+  // own and gone with no hold, the complete played for the payer, the comet
+  // running, and the result growing out of the hold once it answers.
+  send(
+    'sent by Auto-pay',
+    () => ({
+      request: INVOICE,
+      scanned: true,
+      autoPay: { on: true, share: 50 },
+      client: {
+        prepareSend: async () =>
+          reviewOf({ amountSats: 24_425, feeSats: 20, totalSats: 24_445 }),
+        send: answered('completed', { amountSats: 24_425 }),
+      },
+      steps: landed,
+    }),
+    SEEN_THROUGH,
+  ),
   sent('sent, with amounts hidden', async () => resultOf('completed'), [
     hideBalance,
   ]),

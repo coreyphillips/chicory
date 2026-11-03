@@ -28,6 +28,7 @@ export type HubRow =
   | 'network'
   | 'applock'
   | 'haptics'
+  | 'autopay'
   | 'empty'
   | 'leave'
   | 'erase'
@@ -99,7 +100,7 @@ export function rowsOf(group: HubGroup, shape: HubShape): HubRow[] {
         ? ['primary', 'network']
         : ['recovery', 'primary', 'network'];
     case 'phone':
-      return ['applock', 'haptics'];
+      return ['applock', 'haptics', 'autopay'];
     case 'funds':
       return [
         ...(shape.drain ? (['empty'] as const) : []),

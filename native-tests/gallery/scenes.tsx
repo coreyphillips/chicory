@@ -6,6 +6,7 @@
  */
 import type { WalletSnapshot } from '@beignet/wallet-core';
 import type { WalletAdapter } from '../../src/services/wallet';
+import type { AutoPay } from '../../src/services/autoPayPreference';
 import { copy } from '../../src/design/copy';
 import type { Phase } from '../../src/stage/phase';
 import type { StageAction } from '../../src/stage/scene';
@@ -28,7 +29,7 @@ import {
 } from './fakes';
 import type { Session } from './fakes';
 import { setBiometry } from './sealed';
-import { press } from './shots';
+import { press, wait } from './shots';
 import type { Shot, Step } from './shots';
 import {
   hideBalance,
@@ -226,6 +227,8 @@ const settings = (
     /** Calls the wallet answers its own way in this state. */
     client?: Partial<WalletAdapter>;
     steps?: Step[];
+    /** Settings > Auto-pay; off if unset. */
+    autoPay?: AutoPay;
   } = () => ({}),
 ) =>
   wallet(`settings${name ? `, ${name}` : ''}`, () => ({
@@ -361,6 +364,22 @@ const settingsShots: Shot[] = [
   }),
   settings('with diagnostics open', () => ({
     steps: [press(words.diagnostics.heading)],
+  })),
+  // Auto-pay: off, as it starts; switched on, the limit opening with the
+  // thumb growing out to 50%; and switched on again where it was left, at
+  // 80%, once the thumb has landed.
+  settings('auto-pay off'),
+  settings('auto-pay switched on', () => ({
+    steps: [
+      drive => drive.fire(words.phone.autoPayLabel, 'onValueChange', true),
+    ],
+  })),
+  settings('auto-pay limit at 80%', () => ({
+    autoPay: { on: false, share: 80 },
+    steps: [
+      drive => drive.fire(words.phone.autoPayLabel, 'onValueChange', true),
+      wait(1_200),
+    ],
   })),
   settings('confirming an erase', () => ({
     steps: [press(words.erase.link)],

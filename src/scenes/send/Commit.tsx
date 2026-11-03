@@ -76,6 +76,7 @@ export function Commit({
   stale,
   busy,
   spent = false,
+  auto = false,
   comet,
   onCommit,
   onRefreshQuote,
@@ -92,6 +93,11 @@ export function Commit({
   busy: boolean;
   /** The hold has committed: the payment is going out on this quote. */
   spent?: boolean;
+  /**
+   * Settings > Auto-pay committed it, with no hold: the hold plays its
+   * complete for the payer as the payment goes out.
+   */
+  auto?: boolean;
   /** The clock the hold's comet turns on, where the screen keeps one. */
   comet?: SharedValue<number>;
   onCommit: () => void;
@@ -152,6 +158,7 @@ export function Commit({
             onCommit={onCommit}
             warning={warning}
             busy={busy || spent}
+            auto={auto}
             test={test}
             commit={commit}
             comet={comet}
