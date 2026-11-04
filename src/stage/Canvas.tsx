@@ -94,7 +94,6 @@ export type CanvasSession = Pick<
   | 'connecting'
   | 'refresh'
   | 'manualRefresh'
-  | 'disconnect'
   | 'switchNetwork'
   | 'eraseDevice'
 >;

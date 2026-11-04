@@ -71,7 +71,6 @@ function session(over: Partial<CanvasSession> = {}): CanvasSession {
     connecting: false,
     refresh: jest.fn(),
     manualRefresh: jest.fn(),
-    disconnect: jest.fn(),
     switchNetwork: jest.fn().mockResolvedValue(undefined),
     eraseDevice: jest.fn().mockResolvedValue(undefined),
     ...over,

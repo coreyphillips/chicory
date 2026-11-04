@@ -75,7 +75,6 @@ const session: React.ComponentProps<typeof Canvas>['session'] = {
   connecting: false,
   refresh: jest.fn(),
   manualRefresh: jest.fn(),
-  disconnect: jest.fn(),
   switchNetwork: jest.fn(),
   eraseDevice: jest.fn(),
 };
@@ -457,7 +456,6 @@ describe('the picker', () => {
             setNetworkEditor={jest.fn()}
             selectWallet={jest.fn(async () => {})}
             createDefaultWallet={jest.fn(async () => {})}
-            disconnect={jest.fn(async () => {})}
             onCreateWallet={jest.fn()}
           />
         </Phased>
@@ -471,7 +469,6 @@ describe('the picker', () => {
       copy.phase.createWallet,
       copy.phase.restore,
       copy.phase.networkSettings,
-      copy.phase.lockDevice,
     ]);
     // The rows fill the middle of the page, so the tools sit at its foot.
     const root = host(tree.root.findByType(Picker));
@@ -482,7 +479,7 @@ describe('the picker', () => {
       tools.findAll(
         node =>
           typeof node.props.onPress === 'function' &&
-          node.props.accessibilityLabel === copy.phase.lockDevice,
+          node.props.accessibilityLabel === copy.phase.networkSettings,
       ).length,
     ).toBeGreaterThan(0);
     await act(async () => tree.unmount());
@@ -510,11 +507,7 @@ describe('the loading page', () => {
     const page = await mount(
       inset(
         <WhisperProvider>
-          <OpeningWallet
-            name="Everyday"
-            network="regtest"
-            onDisconnect={jest.fn()}
-          />
+          <OpeningWallet name="Everyday" network="regtest" />
         </WhisperProvider>,
       ),
     );
@@ -567,7 +560,6 @@ describe('the loading page', () => {
           <OpeningWallet
             name="Everyday"
             network="regtest"
-            onDisconnect={jest.fn()}
             tile={<Text testID="tile">tile</Text>}
           />
         </WhisperProvider>,

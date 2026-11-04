@@ -236,7 +236,6 @@ export function Stage({
           setNetworkEditor={session.setNetworkEditor}
           selectWallet={session.selectWallet}
           createDefaultWallet={session.createDefaultWallet}
-          disconnect={session.disconnect}
           onCreateWallet={actions.openCreate}
         />
       );
@@ -248,7 +247,6 @@ export function Stage({
         <OpeningWallet
           name={savedWallet?.name}
           network={savedWallet?.network || activeProfile.network}
-          onDisconnect={session.disconnect}
           tile={
             pending ? (
               <BackupTile
@@ -276,7 +274,6 @@ export function Stage({
           onRetrySetup={session.retrySetup}
           onToggleNetwork={() => session.setNetworkEditor(!networkEditor)}
           onApplyNetwork={session.switchNetwork}
-          onDisconnect={session.disconnect}
           loadPhrase={() => client.getRecoveryPhrase()}
         />
       ) : null;

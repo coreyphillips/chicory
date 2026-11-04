@@ -181,8 +181,9 @@ export interface WelcomeVisual {
 }
 
 /**
- * The first-run screen. `returning` is a wallet this phone remembers, which a
- * lock closed on purpose: opening it again is the way back, not a new wallet.
+ * The first-run screen. `returning` is a vault this phone remembers that
+ * holds no wallet yet (`prepared`), or one an older build's lock closed:
+ * opening it again is the way back, not a new wallet.
  */
 export function welcomeVisual({
   error,
@@ -212,6 +213,32 @@ export function welcomeVisual({
       ? { glyph: 'unlock', label: copy.phase.tryAgain }
       : { glyph: 'sprout', label: copy.phase.createWallet },
   };
+}
+
+export interface SavedVisual {
+  /** How far the bloom is open. */
+  open: number;
+  /** The open failed, so the bloom half wilts, as Welcome's does. */
+  wilted: boolean;
+}
+
+/**
+ * The wallet saved on this phone, not open. Most often its open failed, at
+ * launch or on a switch, and the bloom half wilts as Welcome's does, with
+ * the reason in its pip; a retry under way lifts the wilt. Without a
+ * failure (a session an older build's lock left, an erase that did not
+ * finish, an install from before saved sessions) it rests, dormant: here,
+ * and only waiting to be opened.
+ */
+export function savedVisual({
+  error,
+  opening,
+}: {
+  error: string;
+  opening: boolean;
+}): SavedVisual {
+  if (error && !opening) return { open: 0.5, wilted: true };
+  return { open: DORMANT_OPEN, wilted: false };
 }
 
 export interface Point {

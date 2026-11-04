@@ -266,7 +266,6 @@ describe('inside Send', () => {
               connecting: false,
               refresh: jest.fn(),
               manualRefresh: jest.fn(),
-              disconnect: jest.fn(),
               switchNetwork: jest.fn(),
               eraseDevice: jest.fn(),
             }}

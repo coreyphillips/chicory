@@ -70,7 +70,6 @@ async function render(
         snapshot={snapshot}
         client={adapter}
         switchError=""
-        onDisconnect={jest.fn()}
         onRefresh={jest.fn()}
         onNetwork={jest.fn()}
         onErase={jest.fn().mockResolvedValue(undefined)}

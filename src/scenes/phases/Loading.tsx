@@ -44,11 +44,10 @@ import {
   heroBox,
   stops,
 } from '../../stage/layout';
-import { CORNER_REACH, CORNER_TARGET } from '../../stage/panes/CornerControl';
 import type { Rect } from '../../stage/scene';
 import { radius, space, type as typography } from '../../theme';
 import { takeHandOff } from './handoff';
-import { GlyphButton, useRunning } from './parts';
+import { useRunning } from './parts';
 import { bloomTone, flightFrom, SIZES, WAVE } from './visual';
 
 /**
@@ -59,11 +58,11 @@ import { bloomTone, flightFrom, SIZES, WAVE } from './visual';
  * outlines that cannot be used yet, and skeleton rows in the sheet. Every
  * part sits where the canvas draws its own, from the same measures
  * (`HOME`, `stops`, `STATUS_ROW`), so the live canvas that replaces it
- * builds in over it without anything jumping (R-3). The lock stands where
- * the canvas's corner control will, since a wallet that never answers must
- * still be closable, so nothing the wallet is still doing disables it. A
- * recovery phrase still to save puts its `tile` beside the mark, where the
- * canvas puts it.
+ * builds in over it without anything jumping (R-3). It holds no controls:
+ * a start that has not answered within a minute gives way to the offline
+ * page, whose network settings are the way out (`startDeadline` in
+ * `useWalletSession`). A recovery phrase still to save puts its `tile`
+ * beside the mark, where the canvas puts it.
  *
  * Like the canvas it runs edge to edge, under the system bars, and keeps its
  * content clear of them itself.
@@ -75,12 +74,10 @@ import { bloomTone, flightFrom, SIZES, WAVE } from './visual';
 export function OpeningWallet({
   name,
   network,
-  onDisconnect,
   tile,
 }: {
   name?: string;
   network: Network;
-  onDisconnect: () => void;
   /** The shield tile of a recovery phrase still to save, if one is. */
   tile?: ReactNode;
 }) {
@@ -138,14 +135,6 @@ export function OpeningWallet({
           ) : null}
           {tile}
         </View>
-      </View>
-      <View style={[styles.corner, { top: insets.top }]}>
-        <GlyphButton
-          glyph="lock"
-          size={SIZES.cog}
-          label={copy.phase.lockDevice}
-          onPress={onDisconnect}
-        />
       </View>
       <View
         style={[
@@ -379,13 +368,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   name: { ...typography.micro, color: palette.steam, flexShrink: 1 },
-  // Where the canvas's corner control stands, its glyph on the same spot.
-  corner: {
-    position: 'absolute',
-    right: space.xl - CORNER_REACH + (CORNER_TARGET - SIZES.cog) / 2,
-    height: STATUS_ROW,
-    justifyContent: 'center',
-  },
   // Home's pane, laid out as Home lays it out.
   home: {
     position: 'absolute',

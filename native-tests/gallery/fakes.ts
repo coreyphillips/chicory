@@ -470,7 +470,6 @@ export function sessionOf(
     openWallet: done,
     createDefaultWallet: done,
     switchNetwork: done,
-    disconnect: done,
     eraseDevice: done,
     acknowledgeBackup: idle,
     ...over,

@@ -119,7 +119,7 @@ async function twoWallets() {
   };
 }
 
-test('a pending wallet start refuses a second selection, and keeps its lock live', async () => {
+test('a pending wallet start refuses a second selection', async () => {
   const { engine, selected, started, snapshot, restore } = await twoWallets();
   let tree!: ReactTestRenderer;
   try {
@@ -138,11 +138,6 @@ test('a pending wallet start refuses a second selection, and keeps its lock live
     expect(
       tree.root.findAllByProps({ accessibilityLabel: 'Open Second wallet' }),
     ).toHaveLength(0);
-    // A wallet that never answers must still be closable.
-    expect(label(tree, 'Lock device wallet').props.accessibilityState).toEqual({
-      disabled: false,
-      busy: false,
-    });
     // Also exercise an already-captured handler: a second selection is
     // refused while the first one's wallet starts.
     await act(async () => {
@@ -163,7 +158,8 @@ test('a pending wallet start refuses a second selection, and keeps its lock live
   }
 });
 
-test('a wallet chosen in the picker locks while its engine starts', async () => {
+test('a wallet chosen in the picker whose engine does not answer gives way to the offline page after a minute, and opens once it does', async () => {
+  jest.useFakeTimers();
   const { engine, snapshot, restore } = await twoWallets();
   let tree!: ReactTestRenderer;
   try {
@@ -173,39 +169,43 @@ test('a wallet chosen in the picker locks while its engine starts', async () => 
     await act(async () => {
       label(tree, 'Open First wallet').props.onPress();
     });
+    // Nothing is cached for it, so the opening page waits on the start.
     expect(activePhase(tree)).toBe('loading');
     await act(async () => {
-      await label(tree, 'Lock device wallet').props.onPress();
+      jest.advanceTimersByTime(59_999);
     });
-    expect(activePhase(tree)).toBe('saved');
-    const sessions = jest
-      .mocked(Keychain.setGenericPassword)
-      .mock.calls.filter(
-        ([, , options]) =>
-          options?.service === 'com.beignet.wallet.last-session',
-      )
-      .map(([, value]) => JSON.parse(value));
-    expect(sessions[sessions.length - 1]).toEqual({
-      mode: 'device',
-      network: 'regtest',
-      walletId: 'a',
-      locked: true,
+    expect(activePhase(tree)).toBe('loading');
+    await act(async () => {
+      jest.advanceTimersByTime(1);
     });
-    expect(label(tree, 'Open device wallet').props.accessibilityState).toEqual({
-      disabled: false,
-      busy: false,
+    // Past the deadline the offline page says why, and its network
+    // settings are the way past a server that never answers.
+    expect(activePhase(tree)).toBe('offline');
+    expect(
+      tree.root.findAllByProps({
+        accessibilityLabel:
+          'The wallet did not finish starting within 60 seconds.',
+      }).length,
+    ).toBeGreaterThan(0);
+    await act(async () => {
+      label(tree, 'Settings').props.onPress();
     });
-    // The start the lock replaced ends, and its reading goes nowhere.
+    expect(
+      label(tree, 'Change network or Bitcoin server').props.accessibilityState,
+    ).toEqual({ disabled: false });
+    // The start was never stopped: when it ends, its reading opens the
+    // wallet and clears the reason.
     await act(async () => {
       engine.finish();
     });
     expect(snapshot).toHaveBeenCalledTimes(1);
-    expect(activePhase(tree)).toBe('saved');
+    expect(activePhase(tree)).toBe('wallet');
   } finally {
     await act(async () => {
       tree?.unmount();
     });
     restore();
+    jest.useRealTimers();
   }
 });
 

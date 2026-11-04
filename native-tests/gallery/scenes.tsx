@@ -494,6 +494,10 @@ const phases: Shot[] = [
     phase: SAVED,
     session: { ...noClient, connecting: true },
   })),
+  shell('saved, switch failed', () => ({
+    phase: { ...SAVED, error: DOWN },
+    session: { ...noClient, switchError: DOWN },
+  })),
   shell('saved, network editor', () => ({
     phase: SAVED,
     session: { ...noClient, networkEditor: true },
@@ -502,11 +506,12 @@ const phases: Shot[] = [
     phase: WELCOME,
     session: { ...noClient, deviceHint: false, rememberedSession: null },
   })),
-  shell('welcome, after a lock', () => ({
+  shell('welcome, a prepared vault', () => ({
     phase: WELCOME,
     session: {
       ...noClient,
-      rememberedSession: remembered('regtest', { locked: true }),
+      deviceHint: false,
+      rememberedSession: remembered('regtest', { prepared: true }),
     },
   })),
   shell('welcome, opening', () => ({

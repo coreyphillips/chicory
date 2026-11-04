@@ -37,8 +37,8 @@ type Session = ReturnType<typeof useWalletSession>;
  * The device is open and no wallet is chosen yet: the saved ones, and how to
  * add one (REDESIGN.md 6, picker). Each wallet is a row of its mark, in its
  * network's tone, and its name, with a flask on a test network. A sprout row
- * under them always makes another. Restore, the network settings and the
- * lock sit along the bottom, under the rows. Choosing a wallet starts the
+ * under them always makes another. Restore and the network settings sit
+ * along the bottom, under the rows. Choosing a wallet starts the
  * chase on its mark and dims the other rows while it opens, and the wallet's
  * page takes that mark from the row as it arrives (R-2).
  */
@@ -53,7 +53,6 @@ export function Picker({
   setNetworkEditor,
   selectWallet,
   createDefaultWallet,
-  disconnect,
   onCreateWallet,
 }: Pick<
   Session,
@@ -66,7 +65,6 @@ export function Picker({
   | 'setNetworkEditor'
   | 'selectWallet'
   | 'createDefaultWallet'
-  | 'disconnect'
 > & {
   /** The saved wallets on the open network. */
   wallets: WalletRecord[];
@@ -182,15 +180,6 @@ export function Picker({
           }
           disabled={selecting}
           onPress={() => setNetworkEditor(!networkEditor)}
-        />
-        <GlyphButton
-          glyph="lock"
-          size={SIZES.cog}
-          label={copy.phase.lockDevice}
-          disabled={selecting}
-          onPress={() => {
-            disconnect();
-          }}
         />
       </View>
     </PhaseRoot>

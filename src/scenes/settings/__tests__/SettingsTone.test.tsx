@@ -61,7 +61,6 @@ const session = {
   connecting: false,
   refresh: jest.fn(),
   manualRefresh: jest.fn(),
-  disconnect: jest.fn(),
   switchNetwork: jest.fn().mockResolvedValue(undefined),
   eraseDevice: jest.fn().mockResolvedValue(undefined),
 } as unknown as CanvasSession;
@@ -175,7 +174,6 @@ describe('a test network', () => {
         chain: accent,
         faceScan: accent,
         haptics: accent,
-        lock: accent,
         gauge: accent,
         shieldAlert: palette.honey,
         alert: palette.radish,
@@ -278,7 +276,6 @@ describe('a test network', () => {
           onRetrySetup={jest.fn()}
           onToggleNetwork={jest.fn()}
           onApplyNetwork={jest.fn(async () => {})}
-          onDisconnect={jest.fn()}
           loadPhrase={jest.fn(async () => PHRASE)}
         />
       </OnStage>,
@@ -308,7 +305,6 @@ describe('a test network', () => {
             setNetworkEditor={jest.fn()}
             selectWallet={jest.fn(async () => {})}
             createDefaultWallet={jest.fn(async () => {})}
-            disconnect={jest.fn(async () => {})}
             onCreateWallet={jest.fn()}
           />
         </OnStage>,

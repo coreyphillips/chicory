@@ -469,7 +469,6 @@ describe('money arriving with Receive open on the canvas', () => {
             activity: read(),
           })),
         manualRefresh: jest.fn(),
-        disconnect: jest.fn(),
         switchNetwork: jest.fn(),
         eraseDevice: jest.fn(),
       }),

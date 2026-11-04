@@ -48,8 +48,8 @@ import {
  * only that action lets it go. An open or a selection lets go of its latch as
  * it commits, when the wallet page is drawn and Settings can be used, not
  * when the engine has finished starting, which over Tor takes tens of seconds
- * and has no limit. The start holds `runtimeStarting` on its own. A lock, an
- * erase or a network switch made while it runs takes over: it moves the
+ * and has no limit. The start holds `runtimeStarting` on its own. An erase
+ * or a network switch made while it runs takes over: it moves the
  * generation, so the start can no longer write, and stands the start's busy
  * flags down itself (`standDown`), since the start's own clean-up now skips
  * them. A start that ends late finds its latches gone or taken by a newer
@@ -75,7 +75,7 @@ let detachedDevice: EmbeddedWalletClient | null = null;
  * storage (`openDeviceWallet`), but the engine keeps its claim on the JS realm
  * until the start it was waiting on settles, and an open made before then is
  * refused with "Only one portable wallet runtime may own this JS realm". A
- * lock pressed during a cold Tor start is exactly that case. So a client
+ * switch made during a cold Tor start is exactly that case. So a client
  * whose close failed is kept in `detachedDevice`, where the next open waits
  * on it, and the failure still throws for the action to report.
  */
@@ -96,7 +96,9 @@ export const STALE_AFTER_MS = 45000;
 
 /**
  * How long the app waits on a recovery, five polls, before it writes down
- * the step it is stuck in and polls on without it.
+ * the step it is stuck in and polls on without it; and on a wallet's first
+ * start with nothing cached, before the opening page gives way to the
+ * offline one (`startDeadline`).
  */
 export const RECOVERY_DEADLINE_MS = 60000;
 
@@ -302,8 +304,8 @@ export function useWalletSession(view: WalletSessionView) {
     generation.current += 1;
   }, []);
   /**
-   * The busy flags of an open, selection or retry that a lock, an erase or a
-   * switch has just taken over from. That action's own clean-up clears them
+   * The busy flags of an open, selection or retry that an erase or a switch
+   * has just taken over from. That action's own clean-up clears them
    * only while its generation is current, which it no longer is, so without
    * this the opening wait or a turning retry would stay up for good.
    */
@@ -366,6 +368,37 @@ export function useWalletSession(view: WalletSessionView) {
     known.current = { walletId: id, snapshot: next };
     setSnapshot(next);
     return true;
+  }, []);
+
+  /**
+   * Bound the wait on a first start that has nothing cached to show. The
+   * start has no deadline of its own, and over Tor it can take minutes, so
+   * the opening page could otherwise hold for good with no way to reach the
+   * network settings. Past RECOVERY_DEADLINE_MS the session error is set and
+   * written down, and the opening page gives way to the offline one, whose
+   * network settings can switch away from a server that never answers (a
+   * switch takes over a running start). The start runs on: one that ends
+   * later opens the wallet, since its read clears the error. It answers the
+   * clean-up, called as the start ends.
+   */
+  const startDeadline = useCallback((current: number) => {
+    const begun = Date.now();
+    const timer = setTimeout(() => {
+      if (generation.current !== current || snapshotRef.current) return;
+      recordDiagnostic({
+        phase: 'startup',
+        message: `startWallet still running after ${(
+          (Date.now() - begun) /
+          1000
+        ).toFixed(1)}s`,
+      });
+      setError(
+        `The wallet did not finish starting within ${
+          RECOVERY_DEADLINE_MS / 1000
+        } seconds.`,
+      );
+    }, RECOVERY_DEADLINE_MS);
+    return () => clearTimeout(timer);
   }, []);
 
   /**
@@ -694,11 +727,13 @@ export function useWalletSession(view: WalletSessionView) {
             ? previous
             : [...previous, wallet],
         );
-        // Committed: the wallet's page is up, and the lock on it works from
-        // here on. The start below holds `runtimeStarting` instead.
+        // Committed: the wallet's page is up, and an erase or a switch made
+        // from here on is heard. The start below holds `runtimeStarting`
+        // instead.
         if (selectionInFlight.current === token)
           selectionInFlight.current = null;
-        await hydrate(wallet.id, current);
+        const cached = await hydrate(wallet.id, current);
+        const settled = cached ? null : startDeadline(current);
         try {
           if (wallet.status !== 'running') await client.startWallet();
           const value = await timeRead(client.snapshot(), readsOut);
@@ -706,6 +741,7 @@ export function useWalletSession(view: WalletSessionView) {
         } catch (e) {
           if (generation.current === current) setError(errorMessage(e));
         } finally {
+          settled?.();
           if (runtimeStarting.current === token) runtimeStarting.current = null;
         }
       } catch (e) {
@@ -718,7 +754,15 @@ export function useWalletSession(view: WalletSessionView) {
         if (generation.current === current) setSelecting(false);
       }
     },
-    [client, rememberedSession, onCloseSheet, onTab, hydrate, land],
+    [
+      client,
+      rememberedSession,
+      onCloseSheet,
+      onTab,
+      hydrate,
+      land,
+      startDeadline,
+    ],
   );
 
   const openDevice = useCallback(
@@ -839,11 +883,12 @@ export function useWalletSession(view: WalletSessionView) {
           mode: 'device',
           network: settings.network,
           walletId: selected?.id,
-          // `locked` means the owner locked it, and it is what stops the next
-          // launch from reopening. Opening a vault that simply had no wallet to
-          // select is not a lock: recording it as one made the app come back to
-          // the welcome screen instead of the wallet. An empty vault is already
-          // described by `prepared`.
+          // `locked` is what stops the next launch from reopening: an erase
+          // that has not finished sets it, as the lock older builds offered
+          // did. Opening a vault that simply had no wallet to select is not a
+          // lock: recording it as one made the app come back to the welcome
+          // screen instead of the wallet. An empty vault is already described
+          // by `prepared`.
           locked: false,
           ...(records.length === 0 ? { prepared: true } : {}),
           ...(selected &&
@@ -872,19 +917,20 @@ export function useWalletSession(view: WalletSessionView) {
         setNetworkEditor(false);
         committed = true;
         ownedDevice.current = next;
-        // Committed: the page is drawn and Settings works, so the lock, the
-        // erase and a switch made from them must be heard now, not after a
-        // start that may take minutes. The start is held by
-        // `runtimeStarting` instead.
+        // Committed: the page is drawn and Settings works, so an erase or a
+        // switch made from them must be heard now, not after a start that
+        // may take minutes. The start is held by `runtimeStarting` instead.
         if (connectInFlight.current === token) connectInFlight.current = null;
         setInitializing(false);
         options?.onCommitted?.();
         if (selected) {
           // The wallet page opens now, on the last state this wallet was seen
           // in, and the live figures replace it when the engine is up. Each
-          // step is a mark in the boot report (services/perf).
+          // step is a mark in the boot report (services/perf). With nothing
+          // cached the opening page waits on the start, for a while.
           const cached = await hydrate(selected.id, current);
           markBoot('page-hydrated', cached ? undefined : 'nothing cached');
+          const settled = cached ? null : startDeadline(current);
           try {
             await next.startWallet();
             markBoot('engine-started');
@@ -896,6 +942,7 @@ export function useWalletSession(view: WalletSessionView) {
           } catch (e) {
             if (generation.current === current) setError(errorMessage(e));
           } finally {
+            settled?.();
             if (runtimeStarting.current === token)
               runtimeStarting.current = null;
           }
@@ -917,7 +964,7 @@ export function useWalletSession(view: WalletSessionView) {
         if (generation.current === current) setConnecting(false);
       }
     },
-    [onTab, hydrate, land, onDeviceDiagnostic],
+    [onTab, hydrate, land, startDeadline, onDeviceDiagnostic],
   );
 
   // The owned runtime must be closed when the app goes away, whether or not a
@@ -1049,7 +1096,7 @@ export function useWalletSession(view: WalletSessionView) {
     async (profile: NetworkProfile, returnTo?: Tab) => {
       // A switch opens a wallet, so it waits for another open to commit. A
       // start still running after its commit does not hold it: this takes
-      // over from it, as a lock does.
+      // over from it, as an erase does.
       if (
         selectionInFlight.current ||
         connectInFlight.current ||
@@ -1128,66 +1175,6 @@ export function useWalletSession(view: WalletSessionView) {
     [client, switching, activeProfile, openDevice, onCloseSheet, standDown],
   );
 
-  const disconnect = useCallback(async () => {
-    // An open or a selection lets go of its latch as it commits, and a switch
-    // of its own once its old wallet is closed, so these refuse only an
-    // action still on its way to a page. There is no page to lock until then,
-    // and taking over a half-made open would leave its latch held and the
-    // next open refused. A wallet that is starting is locked at once.
-    if (
-      selectionInFlight.current ||
-      connectInFlight.current ||
-      closingInFlight.current
-    )
-      return;
-    closingInFlight.current = true;
-    setClosing(true);
-    const current = ++generation.current;
-    standDown();
-    try {
-      if (client instanceof EmbeddedWalletClient) {
-        const session: WalletSession = {
-          mode: 'device',
-          network: activeProfile.network,
-          walletId: walletId || rememberedSession?.walletId,
-          locked: true,
-          ...(wallets.length === 0 ? { prepared: true } : {}),
-          ...(rememberedSession?.backupPending ? { backupPending: true } : {}),
-        };
-        await saveWalletSession(session);
-        // During a start this waits for the engine to stop, up to the close
-        // deadline (`openDeviceWallet`), on the closing page.
-        await closeDevice(client);
-        ownedDevice.current = null;
-        setRememberedSession(session);
-        setDeviceHint(!session.prepared);
-      }
-      if (generation.current !== current) return;
-      setClient(null);
-      setWalletId('');
-      setWallets([]);
-      setSnapshot(null);
-      known.current = null;
-      onCloseSheet();
-      setError('');
-      setDeviceVisible(false);
-      setNetworkEditor(false);
-    } catch (e) {
-      setError(`Could not close the wallet: ${errorMessage(e)}`);
-    } finally {
-      closingInFlight.current = false;
-      setClosing(false);
-    }
-  }, [
-    client,
-    activeProfile,
-    walletId,
-    rememberedSession,
-    wallets,
-    onCloseSheet,
-    standDown,
-  ]);
-
   /**
    * Remove the device wallet from this phone so a new one can be created or
    * an existing one restored from its phrase. The engine is closed first, the
@@ -1195,8 +1182,8 @@ export function useWalletSession(view: WalletSessionView) {
    * nothing happened, and only a complete erase forgets the wallet.
    */
   const eraseDevice = useCallback(async () => {
-    // Refused, as the lock is, only while an action is still on its way to a
-    // page; a wallet that is starting is erased at once.
+    // Refused only while an action is still on its way to a page; a wallet
+    // that is starting is erased at once.
     if (
       selectionInFlight.current ||
       connectInFlight.current ||
@@ -1293,7 +1280,6 @@ export function useWalletSession(view: WalletSessionView) {
     openWallet,
     createDefaultWallet,
     switchNetwork,
-    disconnect,
     eraseDevice,
     acknowledgeBackup,
   };

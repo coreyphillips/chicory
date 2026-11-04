@@ -136,7 +136,6 @@ const session = {
   connecting: false,
   refresh: jest.fn(),
   manualRefresh: jest.fn(),
-  disconnect: jest.fn(),
   switchNetwork: jest.fn().mockResolvedValue(undefined),
   eraseDevice: jest.fn().mockResolvedValue(undefined),
 } as unknown as CanvasSession;

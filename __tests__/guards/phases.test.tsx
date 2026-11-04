@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import type { PropsWithChildren, ReactElement } from 'react';
-import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, StyleSheet, View } from 'react-native';
 import { act } from 'react-test-renderer';
-import type { ReactTestRenderer } from 'react-test-renderer';
+import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Keychain from 'react-native-keychain';
 import * as Reanimated from 'react-native-reanimated';
@@ -22,11 +22,13 @@ import { Saved } from '../../src/scenes/phases/Saved';
 import { Transit } from '../../src/scenes/phases/Transit';
 import {
   bloomTone,
+  DORMANT_OPEN,
   flightFrom,
   lockVisual,
   markFlight,
   markPoint,
   QUIET_MS,
+  savedVisual,
   SIZES,
   transitVisual,
   unlockGlyph,
@@ -187,7 +189,6 @@ const picker = (props: Partial<React.ComponentProps<typeof Picker>> = {}) =>
       setNetworkEditor={jest.fn()}
       selectWallet={jest.fn(async () => {})}
       createDefaultWallet={jest.fn(async () => {})}
-      disconnect={jest.fn(async () => {})}
       onCreateWallet={jest.fn()}
       {...props}
     />,
@@ -196,14 +197,7 @@ const picker = (props: Partial<React.ComponentProps<typeof Picker>> = {}) =>
 const loading = (
   props: Partial<React.ComponentProps<typeof OpeningWallet>> = {},
 ) =>
-  staged(
-    <OpeningWallet
-      name={everyday.name}
-      network="regtest"
-      onDisconnect={jest.fn()}
-      {...props}
-    />,
-  );
+  staged(<OpeningWallet name={everyday.name} network="regtest" {...props} />);
 
 const offlineWallet = (
   props: Partial<React.ComponentProps<typeof OfflineWallet>> = {},
@@ -219,7 +213,6 @@ const offlineWallet = (
       onRetrySetup={jest.fn()}
       onToggleNetwork={jest.fn()}
       onApplyNetwork={jest.fn(async () => {})}
-      onDisconnect={jest.fn()}
       loadPhrase={jest.fn(async () => 'never shown')}
       {...props}
     />
@@ -585,6 +578,22 @@ describe('phase visuals', () => {
     });
   });
 
+  test('a saved wallet wilts when its open failed, and rests otherwise', () => {
+    expect(savedVisual({ error: 'Refused.', opening: false })).toEqual({
+      open: 0.5,
+      wilted: true,
+    });
+    // A retry under way lifts the wilt, as Welcome's chase does.
+    expect(savedVisual({ error: 'Refused.', opening: true })).toEqual({
+      open: DORMANT_OPEN,
+      wilted: false,
+    });
+    expect(savedVisual({ error: '', opening: false })).toEqual({
+      open: DORMANT_OPEN,
+      wilted: false,
+    });
+  });
+
   test('the mark sits in the status row, and a flight lands a bloom on it', () => {
     const mark = markPoint({ top: 47, left: 0 });
     expect(mark).toEqual({ x: 24 + SIZES.mark / 2, y: 47 + STATUS_ROW / 2 });
@@ -847,7 +856,6 @@ describe('phase behaviour', () => {
             setNetworkEditor={jest.fn()}
             selectWallet={selectWallet}
             createDefaultWallet={jest.fn(async () => {})}
-            disconnect={jest.fn(async () => {})}
             onCreateWallet={jest.fn()}
           />
         </Staged>,
@@ -881,12 +889,12 @@ describe('phase behaviour', () => {
     const tree = await offline({ onToggleNetwork });
     expect(meaning(tree)).toContain(copy.phase.offline);
     expect(meaning(tree)).toContain('Electrum is offline.');
-    expect(find(tree, copy.phase.lockDevice)).toBeUndefined();
+    expect(find(tree, copy.phase.changeNetwork)).toBeUndefined();
     await press(tree, copy.phase.settings);
-    expect(find(tree, copy.phase.lockDevice)).toBeDefined();
+    expect(find(tree, copy.phase.changeNetwork)).toBeDefined();
     expect(find(tree, 'Reveal recovery phrase')).toBeDefined();
     await press(tree, copy.phase.close);
-    expect(find(tree, copy.phase.lockDevice)).toBeUndefined();
+    expect(find(tree, copy.phase.changeNetwork)).toBeUndefined();
     expect(onToggleNetwork).not.toHaveBeenCalled();
     await act(async () => tree.unmount());
   });
@@ -902,37 +910,28 @@ describe('phase behaviour', () => {
       return took;
     };
     // An editor already open brings its panel with it.
-    expect(find(tree, copy.phase.lockDevice)).toBeDefined();
+    expect(find(tree, 'Reveal recovery phrase')).toBeDefined();
     expect(await back()).toBe(true);
     expect(onToggleNetwork).toHaveBeenCalledTimes(1);
     await act(async () =>
       tree.update(offlineWallet({ networkEditor: false, onToggleNetwork })),
     );
     expect(await back()).toBe(true);
-    expect(find(tree, copy.phase.lockDevice)).toBeUndefined();
+    expect(find(tree, 'Reveal recovery phrase')).toBeUndefined();
     expect(await back()).toBe(false);
     expect(onToggleNetwork).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
   });
 
-  test('offline locks its wallet by a glyph, outside the setup panel', async () => {
-    const onDisconnect = jest.fn();
-    const tree = await offline({ onDisconnect });
+  test('offline keeps only its retries and the cog outside the setup panel', async () => {
+    const tree = await offline();
     await press(tree, copy.phase.settings);
     const [panel] = tree.root.findAll(
       node =>
         typeof node.type === 'string' && node.props.testID === SETTINGS_MARKER,
     );
-    const control = find(tree, copy.phase.lockDevice)!;
-    expect(control).toBeDefined();
-    // Not setup, so not under the marker that lets setup keep its words,
-    // and drawn as a glyph alone.
-    expect({
-      inPanel: panel.findAll(node => node === control).length,
-      words: control.findAllByType(Text).length,
-    }).toEqual({ inPanel: 0, words: 0 });
-    // Leaving is the lock alone: Chicory keeps one wallet per network, so
-    // there is no other wallet here to go to.
+    // Nothing leaves the wallet from here: the network editor in the panel
+    // is the way past a server that never answers.
     const outside = tree.root
       .findAll(
         node =>
@@ -946,23 +945,20 @@ describe('phase behaviour', () => {
         copy.phase.retrySetup,
         copy.phase.retryConnection,
         copy.phase.close,
-        copy.phase.lockDevice,
       ]),
     );
-    await press(tree, copy.phase.lockDevice);
-    expect(onDisconnect).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
   });
 
-  test('a retry running on offline leaves its lock live', async () => {
-    const onDisconnect = jest.fn();
-    const tree = await offline({ busy: true, onDisconnect });
+  test('a retry running on offline leaves its network settings live', async () => {
+    const onToggleNetwork = jest.fn();
+    const tree = await offline({ busy: true, onToggleNetwork });
     await press(tree, copy.phase.settings);
-    expect(find(tree, copy.phase.lockDevice)?.props.accessibilityState).toEqual(
-      { disabled: false, busy: false },
-    );
-    await press(tree, copy.phase.lockDevice);
-    expect(onDisconnect).toHaveBeenCalledTimes(1);
+    expect(
+      find(tree, copy.phase.changeNetwork)?.props.accessibilityState,
+    ).toEqual({ disabled: false });
+    await press(tree, copy.phase.changeNetwork);
+    expect(onToggleNetwork).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
   });
 
@@ -985,7 +981,6 @@ describe('phase behaviour', () => {
             setNetworkEditor={setEditor}
             selectWallet={jest.fn(async () => {})}
             createDefaultWallet={jest.fn(async () => {})}
-            disconnect={jest.fn(async () => {})}
             onCreateWallet={actions.openCreate}
           />
           {state.overlay?.name === 'create' ? <SettingsSurface /> : null}
@@ -1060,6 +1055,49 @@ describe('phase behaviour', () => {
     await act(async () => tree.unmount());
   });
 
+  test('a saved wallet that failed to open wilts, and a retry lifts the wilt', async () => {
+    const tree = await saved({ error: 'Electrum is offline.' });
+    const bloom = () => tree.root.findByType(Bloom).props;
+    expect(bloom().open).toBe(0.5);
+    expect(bloom().event).toEqual({ kind: 'wilt', key: 1 });
+    const props = tree.root.findByType(Saved).props as React.ComponentProps<
+      typeof Saved
+    >;
+    await act(async () =>
+      tree.update(
+        <Staged>
+          <Saved {...props} connecting error="" />
+        </Staged>,
+      ),
+    );
+    expect(bloom().open).toBe(DORMANT_OPEN);
+    expect(bloom().event).toBeUndefined();
+    await act(async () => tree.unmount());
+  });
+
+  test("a saved wallet's refresh stands centred, with the cog to its right", async () => {
+    const tree = await saved();
+    const open = find(tree, copy.phase.openDevice)!;
+    const cog = find(tree, copy.phase.changeNetwork)!;
+    // The row is the nearest host both controls sit in.
+    const row = tree.root.find(
+      node =>
+        typeof node.type === 'string' &&
+        StyleSheet.flatten(node.props.style)?.flexDirection === 'row' &&
+        node.findAll(inner => inner === open).length > 0 &&
+        node.findAll(inner => inner === cog).length > 0,
+    );
+    const [balance, ...rest] = row.children as ReactTestInstance[];
+    // The cog's place, mirrored on the left and holding nothing.
+    expect(StyleSheet.flatten(balance.props.style)).toEqual({
+      width: SIZES.cog,
+      height: SIZES.cog,
+    });
+    expect(balance.findAll(node => node.props.onPress).length).toBe(0);
+    expect(rest).toHaveLength(2);
+    await act(async () => tree.unmount());
+  });
+
   test('a wallet that would not open from the picker is felt', async () => {
     const tree = await picker({
       selectWallet: jest.fn(async () => {
@@ -1103,7 +1141,9 @@ describe('phase behaviour', () => {
       )
       .map(node => node.props.name);
     expect([...new Set(actions)]).toEqual(['send', 'scan', 'receive']);
-    expect([...pressableLabels(tree)]).toEqual([copy.phase.lockDevice]);
+    // Nor anything else: a start that never answers gives way to the
+    // offline page, which holds the way out.
+    expect([...pressableLabels(tree)]).toEqual([]);
     await act(async () => tree.unmount());
   });
 

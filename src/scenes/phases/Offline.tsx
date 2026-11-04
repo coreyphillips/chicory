@@ -24,7 +24,6 @@ import { palette } from '../../design/palette';
 import { Bloom } from '../../glyphs/Bloom';
 import { Whisper } from '../../glyphs/Whisper';
 import { useFocus } from '../../motion/focus';
-import { riseIn, sceneOut } from '../../motion/presets';
 import { curves, durations, springs } from '../../motion/tokens';
 import { NetworkSettings } from '../../screens/NetworkSettings';
 import { motionReduced } from '../../services/motion';
@@ -51,9 +50,12 @@ import { bloomTone, DORMANT_OPEN, SIZES, UNPLUG_DRIFT } from './visual';
  * honey pip when that setup has failed before.
  *
  * The cog opens a setup panel in the Settings language, holding the network
- * editor and the recovery phrase, and under it the lock, the glyph that
- * leaves this wallet. All stay reachable, because this is exactly the screen
- * where someone needs them.
+ * editor and the recovery phrase. Both stay reachable, because this is
+ * exactly the screen where someone needs them. The network editor stays live
+ * through a retry, and through a first start that is still running past its
+ * deadline (`startDeadline` in `useWalletSession`): a server that never
+ * answers would otherwise hold the wallet for good, and a switch takes over
+ * from whatever the wallet is still doing.
  */
 export function OfflineWallet({
   name,
@@ -66,7 +68,6 @@ export function OfflineWallet({
   onRetrySetup,
   onToggleNetwork,
   onApplyNetwork,
-  onDisconnect,
   loadPhrase,
 }: {
   name?: string;
@@ -79,7 +80,6 @@ export function OfflineWallet({
   onRetrySetup: () => void;
   onToggleNetwork: () => void;
   onApplyNetwork: (profile: NetworkProfile) => Promise<void>;
-  onDisconnect: () => void;
   loadPhrase: () => Promise<string>;
 }) {
   // An editor left open elsewhere opens the panel it lives in.
@@ -176,7 +176,6 @@ export function OfflineWallet({
             label={
               networkEditor ? copy.phase.hideNetwork : copy.phase.changeNetwork
             }
-            disabled={busy}
             onPress={onToggleNetwork}
           />
           {networkEditor ? (
@@ -187,24 +186,6 @@ export function OfflineWallet({
           ) : null}
           <RecoveryPhrase loadPhrase={loadPhrase} />
         </SetupPanel>
-      ) : null}
-      {/* Leaving the wallet is not setup, so it keeps to a glyph, outside
-          the panel's settings-class marker (REDESIGN.md 10.1). A retry is
-          never a reason to keep the wallet open: one the network never
-          answers would hold it for good, so the lock stays live through it. */}
-      {panel ? (
-        <Reanimated.View
-          entering={riseIn()}
-          exiting={sceneOut()}
-          style={styles.leave}
-        >
-          <GlyphButton
-            glyph="lock"
-            size={SIZES.cog}
-            label={copy.phase.lockDevice}
-            onPress={onDisconnect}
-          />
-        </Reanimated.View>
       ) : null}
     </PhaseRoot>
   );
@@ -352,5 +333,4 @@ const styles = StyleSheet.create({
   unplug: { width: UNPLUG_SIZE, height: UNPLUG_SIZE },
   part: StyleSheet.absoluteFill,
   controls: { flexDirection: 'row', alignItems: 'center', gap: space.xl },
-  leave: { flexDirection: 'row', justifyContent: 'center', gap: space.xxl },
 });
