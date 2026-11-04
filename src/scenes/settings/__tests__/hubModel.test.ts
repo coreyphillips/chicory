@@ -55,10 +55,12 @@ describe('the page', () => {
       const headers = items
         .filter(item => item.kind === 'header')
         .map(item => item.key);
+      // Funds and exits holds only rows the page may not offer, and a
+      // group with none draws no header.
       expect(headers).toEqual([
         'header:wallet',
         'header:phone',
-        'header:funds',
+        ...(shape.drain || shape.erase ? ['header:funds'] : []),
         'header:help',
       ]);
       // Every key is its own, so each item moves as itself.
@@ -87,7 +89,6 @@ describe('the page', () => {
       'autopay',
       'header:funds',
       'empty',
-      'leave',
       'erase',
       'header:help',
       'diagnostics',
@@ -131,7 +132,6 @@ describe('the page', () => {
       haptics: 'phone middle',
       autopay: 'phone last',
       empty: 'funds first',
-      leave: 'funds middle',
       erase: 'funds last',
       diagnostics: 'help only',
     });
@@ -143,7 +143,6 @@ describe('the page', () => {
       applock: 'phone first',
       haptics: 'phone middle',
       autopay: 'phone last',
-      leave: 'funds only',
       diagnostics: 'help only',
     });
   });
@@ -221,7 +220,7 @@ describe('the arrival', () => {
       'header:wallet': 2,
       primary: 2,
       network: 2,
-      leave: 2,
+      diagnostics: 2,
       about: 2,
     });
   });

@@ -230,7 +230,6 @@ async function hub(client: WalletAdapter, snapshot = onMainnet()) {
           snapshot={snapshot}
           client={client}
           switchError=""
-          onDisconnect={jest.fn()}
           onRefresh={jest.fn()}
           onNetwork={jest.fn()}
         />
@@ -258,7 +257,7 @@ test('Settings offers draining only when the engine supports it, in Funds and ex
       const at = (label: string) => labels.indexOf(label);
       expect(at(copy.settings.primary.heading)).toBeGreaterThanOrEqual(0);
       expect(at(w.link)).toBeGreaterThan(at(copy.settings.primary.heading));
-      expect(at(copy.settings.wallet.lock)).toBeGreaterThan(at(w.link));
+      expect(at(copy.settings.diagnostics.heading)).toBeGreaterThan(at(w.link));
     }
   }
 });

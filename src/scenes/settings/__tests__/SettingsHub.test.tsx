@@ -1,5 +1,5 @@
 import React from 'react';
-import { AccessibilityInfo, StyleSheet, Text } from 'react-native';
+import { AccessibilityInfo, StyleSheet, Switch, Text } from 'react-native';
 import * as Reanimated from 'react-native-reanimated';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -58,7 +58,6 @@ function element(over: Props = {}) {
       snapshot={snapshotOf()}
       client={client()}
       switchError=""
-      onDisconnect={jest.fn()}
       onRefresh={jest.fn()}
       onNetwork={jest.fn()}
       onErase={jest.fn().mockResolvedValue(undefined)}
@@ -181,7 +180,6 @@ describe('the page', () => {
       ['switch', s.phone.autoPayLabel],
       ['header', s.funds.heading],
       ['button', s.empty.link],
-      ['button', s.wallet.lock],
       ['button', s.erase.link],
       ['header', s.help.heading],
       ['button', s.diagnostics.heading],
@@ -199,13 +197,10 @@ describe('the page', () => {
       accessibilityValue: { text: 'regtest' },
       accessibilityState: { expanded: false },
     });
-    // Diagnostics keeps its hint; Lock acts at once and opens nothing.
+    // Diagnostics keeps its hint.
     expect(host(tree, s.diagnostics.heading).props.accessibilityHint).toBe(
       s.diagnostics.hint,
     );
-    expect(
-      host(tree, s.wallet.lock).props.accessibilityState?.expanded,
-    ).toBeUndefined();
   });
 
   test('a group is a header a screen reader hears in sentence case, drawn in small capitals', async () => {
@@ -297,12 +292,15 @@ describe('one row open at a time', () => {
     expect(adapter.diagnostics).toHaveBeenCalledTimes(2);
   });
 
-  test('a switch and Lock act at once and leave the open row open', async () => {
-    const onDisconnect = jest.fn();
-    const tree = await render({ onDisconnect });
+  test('a switch acts at once and leaves the open row open', async () => {
+    const tree = await render();
     await press(tree, s.primary.heading);
-    await press(tree, s.wallet.lock);
-    expect(onDisconnect).toHaveBeenCalledTimes(1);
+    const haptics = tree.root.find(
+      node =>
+        node.type === Switch &&
+        node.props.accessibilityLabel === s.phone.haptics,
+    );
+    await act(async () => haptics.props.onValueChange(!haptics.props.value));
     expect(find(tree, s.primary.change)).toBeDefined();
   });
 
