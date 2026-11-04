@@ -1425,58 +1425,6 @@ function startingWallet() {
   return { client, close, engine };
 }
 
-test('the wallet locks while its engine is still starting, and the start that ends later changes nothing', async () => {
-  const { client, close, engine } = startingWallet();
-  jest.spyOn(DeviceWallet, 'openDeviceWallet').mockResolvedValue(client);
-  let tree!: ReactTestRenderer;
-  await act(async () => {
-    tree = create(<App />);
-  });
-  // The page is up on the cached figures while the engine starts.
-  expect(activePhase(tree)).toBe('wallet');
-  expect(client.startWallet).toHaveBeenCalledTimes(1);
-  await act(async () => {
-    label(tree, 'Settings').props.onPress();
-  });
-  await act(async () => {
-    label(tree, 'Lock device wallet').props.onPress();
-  });
-  expect(activePhase(tree)).toBe('transit');
-  expect(meaning(tree)).toContain('Closing your wallet');
-  expect(close).toHaveBeenCalledTimes(1);
-  await act(async () => {
-    engine.finishClose();
-  });
-  expect(activePhase(tree)).toBe('saved');
-  expect(JSON.parse(records.get(SESSION)!)).toEqual({
-    mode: 'device',
-    network: 'regtest',
-    walletId: 'saved-regtest',
-    locked: true,
-  });
-  // The open the lock replaced can no longer stand its own wait down; the
-  // lock did, so the way back in is not left turning.
-  expect(label(tree, 'Open device wallet').props.accessibilityState).toEqual({
-    disabled: false,
-    busy: false,
-  });
-  const writes = secureWrites();
-  await act(async () => {
-    engine.finishStart();
-  });
-  await drain();
-  // It read the wallet, and the reading went nowhere: not to the page, the
-  // cache or the session, and no error or wait came back with it.
-  expect(client.snapshot).toHaveBeenCalledTimes(1);
-  expect(secureWrites()).toBe(writes);
-  expect(phaseOf(tree)).toEqual({ kind: 'saved', error: '' });
-  expect(label(tree, 'Open device wallet').props.accessibilityState).toEqual({
-    disabled: false,
-    busy: false,
-  });
-  await act(async () => tree.unmount());
-});
-
 test('the wallet can be erased while its engine is still starting, and the start that ends later writes nothing', async () => {
   const { client, close, engine } = startingWallet();
   jest.spyOn(DeviceWallet, 'openDeviceWallet').mockResolvedValue(client);

@@ -397,10 +397,6 @@ describe('at the largest text size', () => {
       numberOfLines: 1,
       adjustsFontSizeToFit: true,
     });
-    expect(label(copy.settings.wallet.lock).props).toMatchObject({
-      numberOfLines: 3,
-      adjustsFontSizeToFit: true,
-    });
     expect(label(copy.settings.phone.haptics).props.numberOfLines).toBe(1);
     await unmount(tree);
   });
@@ -489,7 +485,6 @@ describe("a row's frame and a group's header", () => {
     const tree = await settings(regtest);
     for (const label of [
       copy.settings.primary.heading,
-      copy.settings.wallet.lock,
       copy.settings.diagnostics.heading,
     ]) {
       expect(flat(host(tree, label)).minHeight).toBeGreaterThanOrEqual(56);

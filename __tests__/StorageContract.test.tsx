@@ -226,7 +226,6 @@ async function returning() {
   });
   await settle();
   await press(tree, 'Settings');
-  await press(tree, 'Lock device wallet');
   await settle();
   await act(async () => {
     tree.unmount();

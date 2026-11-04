@@ -103,7 +103,6 @@ async function render(
         snapshot={snapshot}
         client={adapter}
         switchError=""
-        onDisconnect={jest.fn()}
         onRefresh={jest.fn()}
         onNetwork={jest.fn()}
         {...backup}
@@ -219,7 +218,6 @@ test('the node field follows the wallet it describes', async () => {
         snapshot={{ ...base, primary: { ...base.primary, uri: 'new@host:1' } }}
         client={adapter}
         switchError=""
-        onDisconnect={jest.fn()}
         onRefresh={jest.fn()}
         onNetwork={jest.fn()}
       />,
@@ -265,7 +263,6 @@ test('erasing is offered only in device mode, behind a second explicit step', as
         snapshot={base}
         client={adapter}
         switchError=""
-        onDisconnect={jest.fn()}
         onRefresh={jest.fn()}
         onNetwork={jest.fn()}
         onErase={onErase}
@@ -343,7 +340,6 @@ describe('the recovery phrase still to be saved', () => {
           snapshot={base}
           client={client()}
           switchError=""
-          onDisconnect={jest.fn()}
           onRefresh={jest.fn()}
           onNetwork={jest.fn()}
           onBackupSaved={onBackupSaved}
@@ -581,7 +577,6 @@ describe('auto-pay', () => {
               snapshot={snapshot}
               client={adapter}
               switchError=""
-              onDisconnect={jest.fn()}
               onRefresh={jest.fn()}
               onNetwork={jest.fn()}
             />
@@ -774,7 +769,6 @@ describe('a screen reader follows each change', () => {
           snapshot={base}
           client={adapter}
           switchError=""
-          onDisconnect={jest.fn()}
           onRefresh={jest.fn()}
           onNetwork={jest.fn()}
           {...extra}
@@ -839,7 +833,6 @@ describe('a screen reader follows each change', () => {
           snapshot={base}
           client={adapter}
           switchError=""
-          onDisconnect={jest.fn()}
           onRefresh={jest.fn()}
           onNetwork={jest.fn()}
           onBackupSaved={onBackupSaved}

@@ -175,7 +175,6 @@ describe('a test network', () => {
         chain: accent,
         faceScan: accent,
         haptics: accent,
-        lock: accent,
         gauge: accent,
         shieldAlert: palette.honey,
         alert: palette.radish,
