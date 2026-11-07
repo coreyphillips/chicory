@@ -48,10 +48,15 @@ import {
 import type { Launch } from '../../src/scenes/home/motion';
 import { StatusRow } from '../../src/scenes/home/StatusRow';
 import {
+  anyPrimaryConnected,
   backdropVisual,
   healthText,
   isTestNetwork,
   markVisual,
+  primariesConnected,
+  primaryPubkeys,
+  receiveTargetOf,
+  receiveTargetOfflineAvailable,
   setupOf,
 } from '../../src/scenes/home/visual';
 import type { HealthInput } from '../../src/scenes/home/visual';
@@ -1770,3 +1775,60 @@ describe('money arriving', () => {
     await act(async () => tree.unmount());
   });
 });
+
+describe('several ranked primaries (coreyphillips/beignet#1924)', () => {
+  const { primaryOf } = require('../../test-support/fixtures');
+  const input = (over: Partial<HealthInput> = {}): HealthInput => ({
+    snapshot: snapshotOf({ wallet: { network: 'mainnet' } }),
+    stale: false,
+    refreshing: false,
+    connecting: false,
+    error: '',
+    backupPending: false,
+    ...over,
+  });
+  const ranked = snapshotOf({
+    primary: { connected: false },
+    primaries: [
+      primaryOf(1, { connected: false, isReceiveTarget: false }),
+      primaryOf(2, { isReceiveTarget: true, offlineReceiveAvailable: false }),
+      primaryOf(3, { isReceiveTarget: false }),
+    ],
+  });
+
+  test('the mark and the health read the receive target, and count how many answer', () => {
+    expect(receiveTargetOf(ranked).connected).toBe(true);
+    expect(markVisual(input({ snapshot: ranked })).pulse).toBe('live');
+    const text = healthText(input({ snapshot: ranked }));
+    expect(text).toContain(copy.health.fresh);
+    expect(text).toContain(copy.health.primariesCount(2, 3));
+    expect(healthText(input())).not.toContain('primaries connected');
+    expect(primariesConnected(ranked)).toEqual({ connected: 2, total: 3 });
+    expect(primariesConnected(snapshotOf())).toEqual({ connected: 0, total: 0 });
+    expect(receiveTargetOfflineAvailable(ranked)).toBe(false);
+  });
+
+  test('any primary connected is enough to send; with one primary the rule is unchanged', () => {
+    expect(anyPrimaryConnected(ranked)).toBe(true);
+    const away = snapshotOf({
+      primary: { connected: false },
+      primaries: [
+        primaryOf(1, { connected: false }),
+        primaryOf(2, { connected: false, isReceiveTarget: false }),
+      ],
+    });
+    expect(anyPrimaryConnected(away)).toBe(false);
+    expect(receiveTargetOf(away).connected).toBe(false);
+    expect(anyPrimaryConnected(snapshotOf({ primary: { connected: false } }))).toBe(false);
+    expect(anyPrimaryConnected(snapshotOf())).toBe(true);
+    expect(receiveTargetOf(snapshotOf())).toEqual(snapshotOf().primary);
+  });
+
+  test('the primaries\' keys are every ranked node\'s, else the one primary\'s', () => {
+    expect([...primaryPubkeys(ranked)]).toEqual(ranked.primaries!.map(p => p.pubkey));
+    expect([...primaryPubkeys(snapshotOf())]).toEqual([snapshotOf().primary.uri.split('@')[0]]);
+    expect(primaryPubkeys(snapshotOf({ primary: { uri: '' } })).size).toBe(0);
+    expect(primaryPubkeys(null).size).toBe(0);
+  });
+});
+

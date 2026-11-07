@@ -634,3 +634,115 @@ describe('under Reduce Motion', () => {
     );
   });
 });
+
+describe('several ranked primaries (coreyphillips/beignet#1924)', () => {
+  const { primaryOf } = require('../../../../test-support/fixtures');
+  const ranked = () =>
+    snapshotOf({
+      primary: { connected: false },
+      primaries: [
+        primaryOf(1, { connected: false, isReceiveTarget: false }),
+        primaryOf(2, { isReceiveTarget: true }),
+        primaryOf(3, { isReceiveTarget: false, channelCount: 0, balanceSat: 0 }),
+      ],
+      primariesThresholdSat: 250_000,
+    });
+  const policy = () => ({
+    thresholdSat: 250_000,
+    receiveTarget: primaryOf(2).pubkey,
+    primaries: ranked().primaries,
+  });
+  const rankedClient = (over: Partial<WalletAdapter> = {}) =>
+    client({
+      getConfig: jest.fn().mockResolvedValue({
+        engineVersion: '0.38.0-portable',
+        drainAvailable: true,
+        primariesAvailable: true,
+      }),
+      snapshot: jest.fn().mockResolvedValue(ranked()),
+      addPrimary: jest.fn().mockResolvedValue(policy()),
+      removePrimary: jest.fn().mockResolvedValue(policy()),
+      reorderPrimaries: jest.fn().mockResolvedValue(policy()),
+      setPrimariesThreshold: jest.fn().mockResolvedValue(policy()),
+      ...over,
+    });
+
+  test('the row counts the nodes, lists them in rank order with the receive target named, and keeps the one-primary panel when the engine ranks none', async () => {
+    const tree = await render({ snapshot: ranked(), client: rankedClient() });
+    expect(find(tree, s.primaries.heading)).toBeDefined();
+    expect(find(tree, s.primary.heading)).toBeUndefined();
+    expect(texts(tree)).toContain(s.primaries.count(2, 3));
+    await press(tree, s.primaries.heading);
+    const shown = texts(tree);
+    expect(shown).toContain(s.primaries.rank(1));
+    expect(shown).toContain(s.primaries.rank(3));
+    expect(shown.some(text => text.includes(s.primaries.receiveTarget))).toBe(true);
+    expect(find(tree, s.primaries.add)).toBeDefined();
+    expect(find(tree, s.primaries.retryAll)).toBeDefined();
+    // The engine ranks none: the row is the one-primary row, unchanged.
+    const one = await render({ client: client() });
+    expect(find(one, s.primary.heading)).toBeDefined();
+    expect(find(one, s.primaries.heading)).toBeUndefined();
+    await press(one, s.primary.heading);
+    expect(find(one, s.primary.change)).toBeDefined();
+    expect(find(one, s.primaries.add)).toBeUndefined();
+  });
+
+  test('moving, removing in two presses and saving the fill target call the client, and an empty target turns it off', async () => {
+    const adapter = rankedClient();
+    const tree = await render({ snapshot: ranked(), client: adapter });
+    await press(tree, s.primaries.heading);
+    await press(tree, s.primaries.moveUp(2));
+    expect(adapter.reorderPrimaries).toHaveBeenCalledWith([
+      primaryOf(2).pubkey,
+      primaryOf(1).pubkey,
+      primaryOf(3).pubkey,
+    ]);
+    await press(tree, s.primaries.moveDown(1));
+    expect(adapter.reorderPrimaries).toHaveBeenLastCalledWith([
+      primaryOf(2).pubkey,
+      primaryOf(1).pubkey,
+      primaryOf(3).pubkey,
+    ]);
+    expect(host(tree, s.primaries.moveUp(1)).props.accessibilityState).toMatchObject({ disabled: true });
+    expect(host(tree, s.primaries.moveDown(3)).props.accessibilityState).toMatchObject({ disabled: true });
+    await press(tree, s.primaries.remove(3));
+    expect(adapter.removePrimary).not.toHaveBeenCalled();
+    expect(texts(tree)).toContain(s.primaries.removeKeeps);
+    await press(tree, s.primaries.confirmRemove);
+    expect(adapter.removePrimary).toHaveBeenCalledWith(primaryOf(3).pubkey);
+    await act(async () => {
+      tree.root
+        .findAll(node => node.props.accessibilityLabel === s.primaries.threshold && typeof node.props.onChangeText === 'function')[0]
+        .props.onChangeText('');
+    });
+    await press(tree, s.primaries.saveThreshold);
+    expect(adapter.setPrimariesThreshold).toHaveBeenCalledWith(null);
+  });
+
+  test('adding a node names it to the client, and Empty wallet waits only while no primary answers', async () => {
+    const adapter = rankedClient();
+    const tree = await render({ snapshot: ranked(), client: adapter });
+    await press(tree, s.primaries.heading);
+    await press(tree, s.primaries.add);
+    const uri = `03${'f'.repeat(64)}@fourth.example:9735`;
+    await act(async () => {
+      tree.root
+        .findAll(node => node.props.accessibilityLabel === s.primary.address && typeof node.props.onChangeText === 'function')[0]
+        .props.onChangeText(uri);
+    });
+    await press(tree, s.primary.save);
+    expect(adapter.addPrimary).toHaveBeenCalledWith({ uri });
+    // Rank 1 is away, rank 2 answers: emptying is offered.
+    expect(host(tree, s.empty.link).props.accessibilityState).not.toMatchObject({ disabled: true });
+    const none = await render({
+      snapshot: snapshotOf({
+        primary: { connected: false },
+        primaries: [primaryOf(1, { connected: false }), primaryOf(2, { connected: false, isReceiveTarget: false })],
+      }),
+      client: rankedClient(),
+    });
+    expect(host(none, s.empty.link).props.accessibilityState).toMatchObject({ disabled: true });
+  });
+});
+

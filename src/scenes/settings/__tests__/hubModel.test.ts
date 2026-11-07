@@ -19,9 +19,11 @@ import {
   joinedBelow,
   networkWords,
   nextOpen,
+  primariesWords,
   primaryWords,
   rowsOf,
 } from '../hubModel';
+import { primaryOf } from '../../../../test-support/fixtures';
 import type { HubEdge, HubRow, HubShape } from '../hubModel';
 
 /**
@@ -476,3 +478,57 @@ describe('a drain shown in the history', () => {
     expect(drainWords(null)).toBeNull();
   });
 });
+
+describe('several ranked primaries (coreyphillips/beignet#1924)', () => {
+  const ranked = (over: Parameters<typeof snapshotOf>[0] = {}) =>
+    snapshotOf({
+      primaries: [
+        primaryOf(1),
+        primaryOf(2, { connected: false, isReceiveTarget: false }),
+        primaryOf(3, { isReceiveTarget: false }),
+      ],
+      ...over,
+    });
+
+  test('the card and the row count how many answer, with the mark on the receive target', () => {
+    expect(cardStatus(ranked(), true)).toMatchObject({
+      words: s.card.count(2, 3),
+      look: 'live',
+      attention: false,
+    });
+    expect(cardStatus(ranked(), false)).toMatchObject({
+      words: s.card.count(2, 3),
+      look: 'seeking',
+    });
+    expect(primariesWords(ranked(), true)).toEqual({
+      words: s.primaries.count(2, 3),
+      look: 'live',
+      attention: false,
+      said: s.primaries.count(2, 3),
+    });
+    expect(cardWords({ snapshot: ranked({ wallet: { network: 'mainnet' } }), live: true })).toBe(
+      `Everyday, mainnet. ${s.card.count(2, 3)}`,
+    );
+  });
+
+  test('every node failed is Setup failed in honey; one or none falls back to the one-primary words', () => {
+    const failed = snapshotOf({
+      primaries: [
+        primaryOf(1, { setup: 'failed', connected: false }),
+        primaryOf(2, { setup: 'failed', connected: false, isReceiveTarget: false }),
+      ],
+      primary: { setup: 'failed', connected: false },
+    });
+    expect(primariesWords(failed, false)).toEqual({
+      words: s.primary.setupFailedValue,
+      look: 'stopped',
+      attention: true,
+      said: `${s.primaries.count(0, 2)}. ${s.primary.setupFailedValue}`,
+    });
+    const one = snapshotOf({ primaries: [primaryOf(1)] });
+    expect(primariesWords(one, true)).toEqual(primaryWords(one, true));
+    expect(primariesWords(snapshotOf(), true)).toEqual(primaryWords(snapshotOf(), true));
+    expect(cardStatus(one, true)).toEqual(cardStatus(snapshotOf(), true));
+  });
+});
+

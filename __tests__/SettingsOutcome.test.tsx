@@ -1014,3 +1014,76 @@ test('the primary QR scanner accepts an Iroh address and saves its optional onio
   expect(adapter.updatePrimary).toHaveBeenCalledWith(uri, fallback);
   await act(async () => tree.unmount());
 });
+
+describe('adding a ranked primary (coreyphillips/beignet#1924)', () => {
+  const PK2 = `03${'7'.repeat(64)}`;
+  const ranked: WalletSnapshot = {
+    ...base,
+    primaries: [
+      {
+        pubkey: `02${'1'.repeat(64)}`,
+        rank: 1,
+        uri: `02${'1'.repeat(64)}@host:9735`,
+        connected: true,
+        setup: 'ready',
+        balanceSat: 1000,
+        channelCount: 1,
+        isReceiveTarget: true,
+        selectionOrder: 1,
+      },
+    ],
+    primariesThresholdSat: null,
+    primariesReceiveTarget: `02${'1'.repeat(64)}`,
+  };
+  const policy = (connected: boolean) => ({
+    thresholdSat: null,
+    receiveTarget: ranked.primaries![0].pubkey,
+    primaries: [
+      ranked.primaries![0],
+      { ...ranked.primaries![0], pubkey: PK2, rank: 2, uri: `${PK2}@other:9735`, connected, isReceiveTarget: false, selectionOrder: 2 },
+    ],
+  });
+  const rankedClient = (connected: boolean) =>
+    client({
+      getConfig: jest.fn().mockResolvedValue({ engineVersion: '0.38.0-portable', primariesAvailable: true }),
+      snapshot: jest.fn().mockResolvedValue(ranked),
+      addPrimary: jest.fn().mockResolvedValue(policy(connected)),
+    } as Partial<WalletAdapter>);
+  const addNode = async (tree: ReactTestRenderer) => {
+    await openRow(tree, 'Primary nodes');
+    await act(async () => press(tree, 'Add a primary node').props.onPress());
+    await act(async () => {
+      field(tree, 'Node address').props.onChangeText(`${PK2}@other:9735`);
+    });
+    await act(async () => press(tree, 'Save primary node').props.onPress());
+  };
+
+  test('a node that connected reports added', async () => {
+    const adapter = rankedClient(true);
+    const tree = await render(ranked, adapter);
+    await addNode(tree);
+    expect(adapter.addPrimary).toHaveBeenCalledWith({ uri: `${PK2}@other:9735` });
+    expect(text(tree)).toContain('Primary node added.');
+    await act(async () => tree.unmount());
+  });
+
+  test('a node that has not connected yet says so, as a warning rather than a failure', async () => {
+    const adapter = rankedClient(false);
+    const tree = await render(ranked, adapter);
+    await addNode(tree);
+    expect(text(tree)).toContain('has not connected to it yet');
+    await act(async () => tree.unmount());
+  });
+
+  test("the engine's refusal is the outcome, in its words", async () => {
+    const adapter = rankedClient(true);
+    (adapter.addPrimary as jest.Mock).mockRejectedValue(
+      Object.assign(new Error('The relay reaches one primary node. Switch to Native networking to add another.'), { code: 'TRANSPORT_SINGLE_PEER' }),
+    );
+    const tree = await render(ranked, adapter);
+    await addNode(tree);
+    expect(text(tree)).toContain('The relay reaches one primary node');
+    await act(async () => tree.unmount());
+  });
+});
+
