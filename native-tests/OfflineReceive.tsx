@@ -28,6 +28,15 @@ async function run(report: (message: string) => void) {
     'refreshWallet',
     'quoteReceive',
     'receive',
+    // Ranked primaries (coreyphillips/beignet#1924): the driver ranks a
+    // second regtest primary and reads the policy and diagnostics.
+    'getConfig',
+    'listPrimaries',
+    'addPrimary',
+    'removePrimary',
+    'reorderPrimaries',
+    'setPrimariesThreshold',
+    'diagnostics',
   ];
   report(
     `Ready: ${Platform.OS}, Hermes ${!!(globalThis as any)

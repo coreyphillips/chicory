@@ -14,6 +14,7 @@ import {
 } from '../embedded/client';
 import type { DeviceSettings } from '../embedded/client';
 import { recordDiagnostic } from './diagnosticLog';
+import { primariesConnected, primaryPubkeys } from '../scenes/home/visual';
 import { mergeSnapshot } from './activityMerge';
 import { markBoot, markEngine, noteRead } from './perf';
 import {
@@ -227,13 +228,14 @@ export function useWalletSession(view: WalletSessionView) {
         markEngine(event.message);
         return;
       }
-      // Only the primary's connection changes what can be spent. A peer
-      // connect names the peer by its public key; while the primary's is
-      // not known yet, as before a wallet's first read, any connect counts.
-      const primary = primaryPubkey(known.current?.snapshot);
+      // Only a primary's connection changes what can be spent. A peer
+      // connect names the peer by its public key; while no primary's is
+      // known yet, as before a wallet's first read, any connect counts.
+      const primaries = primaryPubkeys(known.current?.snapshot);
       const connected =
         (event.phase === 'peer:connect' &&
-          (!primary || String(event.message).toLowerCase() === primary)) ||
+          (primaries.size === 0 ||
+            primaries.has(String(event.message).toLowerCase()))) ||
         (event.phase === 'primary-redial' && event.message === 'reconnected');
       if (!connected) return;
       markBoot('primary-connected');
@@ -392,10 +394,12 @@ export function useWalletSession(view: WalletSessionView) {
       if (generation.current === current) {
         pollFailures.current = 0;
         const before = snapshotRef.current;
+        const ranked = primariesConnected(next);
         if (
           !before ||
           before.balance.availableSats !== next.balance.availableSats ||
-          before.primary.connected !== next.primary.connected
+          before.primary.connected !== next.primary.connected ||
+          primariesConnected(before).connected !== ranked.connected
         )
           recordDiagnostic({
             phase: 'balance',
@@ -403,6 +407,10 @@ export function useWalletSession(view: WalletSessionView) {
               next.balance.pendingSats
             }, primary ${
               next.primary.connected ? 'connected' : 'not connected'
+            }${
+              ranked.total > 1
+                ? `, primaries ${ranked.connected}/${ranked.total}`
+                : ''
             }`,
           });
         land(walletId, next, recovering.current);

@@ -24,6 +24,12 @@ Exact pins, package and Hermes bundle hashes, process identities and checkpoint 
 
 All 107 Jest suites passed across the broad run and focused reruns. One existing Send announcement timing test failed under native build load and passed in isolation. Public types and lint passed (four warnings). The normal application entry is also packaged separately on both platforms. These are simulator and emulator results; physical devices and app-store distribution are outside this run.
 
+## Two ranked primaries
+
+Beignet 0.37.0 and later rank several primaries (coreyphillips/beignet#1922); the portable engine honours the list from its 2026-11-07 runtime and the shared client lists, edits and is steered by it (coreyphillips/beignet#1924). The qualification driver (`native-tests/OfflineReceive.tsx`) allows `getConfig`, `listPrimaries`, `addPrimary`, `removePrimary`, `reorderPrimaries`, `setPrimariesThreshold` and `diagnostics` beside the receive operations, so the portable engine's regtest can rank a second regtest primary on a device and watch the steering.
+
+The sequence to record: the wallet is created from the profile's primary (rank 1); `getConfig().primariesAvailable` is true across the Hermes boundary; `addPrimary` ranks the second regtest primary and `listPrimaries` lists both connected, in rank order; an offline quote that names no peer is quoted at the receive target and its `peer` recorded; the first primary is stopped and the next quote goes to the second, its `skipped[0]` naming the first at the connect stage; a saved offline draft resumes at the node it was quoted at; `diagnostics().primaries` reports each node's connection. Write the two primaries' public keys and the balances into `BEIGNET_EVIDENCE_FILE`. Record physical-device coverage separately from simulator and emulator runs, as section 8 of the tracker asks.
+
 ## Historical baseline evidence
 
 The following results cover an earlier release. Its dedicated-channel and default-offline assumptions are superseded by the explicit concurrent receive behavior above.

@@ -23,6 +23,8 @@ import type { WalletAdapter } from '../../src/services/wallet';
 import {
   NOW,
   hex,
+  policyOf,
+  primaryOf,
   receiptOf,
   requestOf,
   snapshotOf,
@@ -413,6 +415,13 @@ export function clientOf(over: Partial<WalletAdapter> = {}): WalletAdapter {
     getReceiveStatus: async () => receiptOf('waiting'),
     importReceiveRequest: async () => requestFor(quoteOf()),
     updatePrimary: async () => wallet,
+    // Ranked primaries (coreyphillips/beignet#1924): the preview answers the
+    // same policy to every edit; a state sets `snapshot.primaries` itself.
+    listPrimaries: async () => policyOf([primaryOf(1), primaryOf(2)]),
+    addPrimary: async () => policyOf([primaryOf(1), primaryOf(2), primaryOf(3)]),
+    removePrimary: async () => policyOf([primaryOf(1)]),
+    reorderPrimaries: async () => policyOf([primaryOf(1), primaryOf(2)]),
+    setPrimariesThreshold: async () => policyOf([primaryOf(1), primaryOf(2)]),
     startWallet: async () => {},
     refreshWallet: async () => {},
     retrySetup: async () => {},

@@ -177,3 +177,19 @@ test('an entry reads back as the whole entry, whatever its wallet id or time', (
     JSON.parse(cacheEntry('w1', timeless as WalletSnapshot).stored),
   ).toEqual({ version: 1, walletId: 'w1', snapshot: timeless });
 });
+
+test('ranked primaries come back with none of them connected either', async () => {
+  const { primaryOf } = require('../test-support/fixtures');
+  const ranked = {
+    ...snapshot,
+    primaries: [primaryOf(1), primaryOf(2, { isReceiveTarget: false })],
+    primariesThresholdSat: null,
+    primariesReceiveTarget: primaryOf(1).pubkey,
+  };
+  await saveCachedSnapshot('w1', ranked);
+  const cached = await loadCachedSnapshot('w1');
+  expect(cached?.primaries?.map(entry => entry.connected)).toEqual([false, false]);
+  expect(cached?.primaries?.map(entry => entry.pubkey)).toEqual(ranked.primaries.map(entry => entry.pubkey));
+  expect(cached?.primariesReceiveTarget).toBe(primaryOf(1).pubkey);
+});
+

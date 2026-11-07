@@ -143,6 +143,27 @@ export function validateDeviceSettings(value: DeviceSettings) {
   }
 }
 
+/**
+ * The hosts a stored wallet's primaries live at, with their onion fallbacks:
+ * every ranked primary's (coreyphillips/beignet#1924), else the one scalar
+ * primary's, as a record from before the list names it.
+ */
+function hostsOf(lfbw: unknown): string[] {
+  const block = lfbw as
+    | {
+        primaries?: Array<{ uri?: unknown; fallbackUri?: unknown }>;
+        primaryUri?: unknown;
+        primaryFallbackUri?: unknown;
+      }
+    | undefined;
+  const entries = Array.isArray(block?.primaries) ? block.primaries : [];
+  const hosts =
+    entries.length > 0
+      ? entries.flatMap(entry => [uriHost(entry.uri), uriHost(entry.fallbackUri)])
+      : [uriHost(block?.primaryUri), uriHost(block?.primaryFallbackUri)];
+  return hosts.filter(Boolean);
+}
+
 /** The host of a `pubkey@host:port` node URI, or an empty string. */
 function uriHost(uri: unknown): string {
   if (typeof uri !== 'string') return '';
@@ -207,21 +228,20 @@ export async function openDeviceWallet(
   let committed = false;
   try {
     const registryBytes = storage.volume.read('/wallet/registry.json');
-    let storedPrimaryHost = '';
-    let storedFallbackHost = '';
+    // Every stored primary's host and onion fallback (one or several).
+    let storedHosts: string[] = [];
     if (registryBytes) {
       try {
         const record = JSON.parse(decoder().decode(registryBytes)).record;
         assertWalletNetwork([record], settings.network);
-        storedPrimaryHost = uriHost(record?.lfbw?.primaryUri);
-        storedFallbackHost = uriHost(record?.lfbw?.primaryFallbackUri);
+        storedHosts = hostsOf(record?.lfbw);
       } finally {
         registryBytes.fill(0);
       }
     }
     if (
       settings.transport === 'relay' &&
-      (storedPrimaryHost || uriHost(settings.primaryUri)) === 'iroh'
+      (storedHosts.includes('iroh') || uriHost(settings.primaryUri) === 'iroh')
     ) {
       throw new Error(
         'Iroh requires Native networking. Select Native in Network settings before opening this wallet.',
@@ -257,8 +277,8 @@ export async function openDeviceWallet(
     // an onion fallback warms it too, but its start does not wait.
     if (
       settings.transport === 'native' &&
-      (isOnionHost(storedPrimaryHost || uriHost(settings.primaryUri)) ||
-        isOnionHost(storedFallbackHost))
+      (storedHosts.some(isOnionHost) ||
+        (storedHosts.length === 0 && isOnionHost(uriHost(settings.primaryUri))))
     ) {
       void ensureTorReady().catch(() => {});
     }
@@ -269,9 +289,9 @@ export async function openDeviceWallet(
     // Tor error.
     const primaryIsOnion = (requested: unknown) =>
       settings.transport === 'native' &&
-      isOnionHost(
-        uriHost(requested) || storedPrimaryHost || uriHost(settings.primaryUri),
-      );
+      (isOnionHost(uriHost(requested)) ||
+        storedHosts.some(isOnionHost) ||
+        (storedHosts.length === 0 && isOnionHost(uriHost(settings.primaryUri))));
     let closing = false;
     engine = await createPortableRuntime({
       ...storage,

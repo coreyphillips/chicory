@@ -316,6 +316,76 @@ describe('what a screen reader hears', () => {
   });
 });
 
+describe('several ranked primaries (coreyphillips/beignet#1924)', () => {
+  const { primaryOf } = require('../../../../test-support/fixtures');
+  const ranked = [primaryOf(1), primaryOf(2, { isReceiveTarget: false })];
+  const second = ranked[1].pubkey;
+
+  test('a quote says which primary takes it, never on screen, and the request is created from that quote', async () => {
+    const quoteReceive = jest.fn().mockResolvedValue(quoteOf({ peer: second, feeSats: 12, netSats: 988 }));
+    const tree = await screen(clientOf({ quoteReceive }), { primaries: ranked, receivableSats: 0 });
+    await toQuote(tree);
+    const through = copy.receive.through(copy.settings.primaries.rank(2));
+    const spoken = tree.root.findAll(
+      node => typeof node.props.accessibilityLabel === 'string' && node.props.accessibilityLabel.includes(through),
+    );
+    expect(spoken.length).toBeGreaterThan(0);
+    expect(visibleText(tree).join(' ')).not.toContain(through);
+    await act(async () => tree.unmount());
+    // One primary: nothing is said of it.
+    const one = await screen(clientOf({ quoteReceive: jest.fn().mockResolvedValue(quoteOf({ peer: ranked[0].pubkey, feeSats: 12, netSats: 988 })) }), { primaries: [ranked[0]], receivableSats: 0 });
+    await toQuote(one);
+    expect(
+      one.root.findAll(node => typeof node.props.accessibilityLabel === 'string' && node.props.accessibilityLabel.includes('Through')),
+    ).toHaveLength(0);
+    await act(async () => one.unmount());
+  });
+
+  test('a saved offline request is quoted at the node it was quoted at, and refused once that node is no longer a primary', async () => {
+    const store = new Map<string, string>();
+    jest.mocked(Keychain.getGenericPassword).mockImplementation(async options =>
+      store.has(options!.service!) ? ({ password: store.get(options!.service!) } as never) : false,
+    );
+    store.set(
+      'com.beignet.wallet.offline-request.w1',
+      JSON.stringify({ id: 'saved-request-00001', amountSats: 1000, description: '', mode: 'offline', peer: second }),
+    );
+    const quoteReceive = jest.fn().mockResolvedValue(quoteOf({ mode: 'offline', peer: second }));
+    const tree = await screen(clientOf({ quoteReceive, getConfig: jest.fn().mockResolvedValue({ offlineReceiveAvailable: true }) }), {
+      primaries: ranked,
+      walletId: 'w1',
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(0);
+    });
+    await tap(tree, copy.receive.continue);
+    expect(quoteReceive).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'offline', requestId: 'saved-request-00001', peer: second }),
+    );
+    await act(async () => tree.unmount());
+    const gone = await screen(clientOf({ quoteReceive: jest.fn(), getConfig: jest.fn().mockResolvedValue({ offlineReceiveAvailable: true }) }), {
+      primaries: [ranked[0]],
+      walletId: 'w1',
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(0);
+    });
+    await tap(gone, copy.receive.continue);
+    expect(alerts(gone).join(' ')).toContain(copy.receive.draftPeerGone);
+    expect(find(gone, copy.receive.dismissRetry)).toBeDefined();
+    await act(async () => gone.unmount());
+  });
+
+  test('none of the primaries able to take it is a honey unplug felt as a warning, like the one primary away', () => {
+    const { refusalLook } = require('../model');
+    expect(refusalLook('NO_PRIMARY_AVAILABLE')).toEqual(refusalLook('PRIMARY_DOWN'));
+    expect(receiveRefusal('1 not connected; 2 declined', 'NO_PRIMARY_AVAILABLE')).toEqual({
+      said: `${copy.receive.noPrimary} 1 not connected; 2 declined`,
+      amount: false,
+    });
+  });
+});
+
 describe('the primary node away', () => {
   const DOWN =
     'Your primary node needs to reconnect before creating this request.';

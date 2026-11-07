@@ -247,6 +247,48 @@ describe('reads after a connection', () => {
     await act(async () => tree.unmount());
   });
 
+  test('with several ranked primaries, any of them connecting brings the reads forward (coreyphillips/beignet#1924)', async () => {
+    const client = device();
+    const SECOND = `02${'c'.repeat(64)}`;
+    client.snapshot = jest.fn(async () =>
+      reading({
+        primaries: [
+          {
+            pubkey: PRIMARY,
+            rank: 1,
+            uri: `${PRIMARY}@127.0.0.1:9735`,
+            connected: true,
+            setup: 'ready',
+            balanceSat: 0,
+            channelCount: 0,
+            isReceiveTarget: true,
+            selectionOrder: 1,
+          },
+          {
+            pubkey: SECOND,
+            rank: 2,
+            uri: `${SECOND}@127.0.0.1:9736`,
+            connected: false,
+            setup: 'ready',
+            balanceSat: 0,
+            channelCount: 0,
+            isReceiveTarget: false,
+            selectionOrder: 2,
+          },
+        ],
+      }),
+    );
+    const { tree, report } = await open(client);
+    const opened = reads(client);
+    await report('peer:connect', STRANGER);
+    await act(async () => jest.advanceTimersByTime(6000));
+    expect(reads(client)).toBe(opened);
+    await report('peer:connect', SECOND);
+    await act(async () => jest.advanceTimersByTime(1500));
+    expect(reads(client)).toBe(opened + 1);
+    await act(async () => tree.unmount());
+  });
+
   test('a redial that reconnected the primary brings them forward too', async () => {
     const client = device();
     const { tree, report } = await open(client);

@@ -535,6 +535,81 @@ describe('opening a device wallet', () => {
     },
   );
 
+  const rankedRegistry = (
+    entries: Array<{ uri: string; fallbackUri?: string }>,
+  ) =>
+    Buffer.from(
+      JSON.stringify({
+        record: {
+          network: 'regtest',
+          lfbw: {
+            enabled: true,
+            primaryUri: entries[0]?.uri,
+            primaryFallbackUri: entries[0]?.fallbackUri,
+            primaries: entries.map((entry, index) => ({
+              pubkey: entry.uri.split('@')[0],
+              uri: entry.uri,
+              fallbackUri: entry.fallbackUri,
+              trusted: true,
+              setup: 'ready',
+              rank: index + 1,
+            })),
+          },
+        },
+      }),
+    );
+  const tcpPrimary = `${'ab'.repeat(33)}@127.0.0.1:9735`;
+  const irohPrimary = `${'cd'.repeat(33)}@iroh:${'ef'.repeat(32)}`;
+
+  // Tor starts at most once per module, and the module is loaded afresh per
+  // test, so each shape of list is its own test.
+  test.each([
+    ['a TCP primary ranked above an onion one', [{ uri: tcpPrimary }, { uri: onionPrimary }], 1, false],
+    ['an Iroh primary with an onion fallback ranked second', [{ uri: tcpPrimary }, { uri: irohPrimary, fallbackUri: `${'cd'.repeat(33)}@${ONION}:9735` }], 1, true],
+    ['two clearnet primaries', [{ uri: tcpPrimary }, { uri: `${'cd'.repeat(33)}@10.0.0.2:9735` }], 0, false],
+  ] as const)(
+    'with several primaries Tor warms when any of them, or any fallback, is an onion: %s (coreyphillips/beignet#1924)',
+    async (_name, entries, starts, iroh) => {
+      const read = mockStorage.volume.read;
+      mockStorage.volume.read = (() =>
+        rankedRegistry([...entries])) as unknown as typeof read;
+      try {
+        await openDeviceWallet(
+          profile({ host: '127.0.0.1', port: 60001, tls: false }),
+        );
+        expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(starts);
+        if (iroh)
+          expect(
+            require('@beignet/portable-engine').createPortableRuntime,
+          ).toHaveBeenCalledWith(
+            expect.objectContaining({
+              iroh: { factory: expect.any(Function), discovery: false },
+            }),
+          );
+      } finally {
+        mockStorage.volume.read = read;
+      }
+    },
+  );
+
+  test('an Iroh primary at any rank refuses Relay networking', async () => {
+    const read = mockStorage.volume.read;
+    mockStorage.volume.read = (() =>
+      rankedRegistry([{ uri: tcpPrimary }, { uri: irohPrimary }])) as unknown as typeof read;
+    try {
+      await expect(
+        openDeviceWallet({
+          ...profile({ host: '127.0.0.1', port: 60001, tls: false }, 'relay'),
+          relayUrl: 'wss://relay.example',
+          relayToken: 'x'.repeat(32),
+        }),
+      ).rejects.toThrow('Select Native in Network settings');
+      expect(mockStorage.close).toHaveBeenCalled();
+    } finally {
+      mockStorage.volume.read = read;
+    }
+  });
+
   test('a stored Iroh primary explains how to recover from Relay networking and releases storage', async () => {
     const read = mockStorage.volume.read;
     mockStorage.volume.read = (() =>
