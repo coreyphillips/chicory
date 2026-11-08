@@ -765,6 +765,93 @@ describe('opening a device wallet', () => {
       expect(engineRequests()).toEqual([]);
     });
 
+    // Ranking another node (coreyphillips/beignet#1924) dials it at once
+    // under the same budget, so an onion node waits for Tor as a start does.
+    describe('adding a primary node', () => {
+      const ADD = '/wallets/w1/api/primaries/add';
+      // Node keys the client validates: compressed, so 02 or 03 first.
+      const onionNode = `02${'ab'.repeat(32)}@${ONION}:9735`;
+      const clearnetNode = `03${'cd'.repeat(32)}@127.0.0.1:9736`;
+      const irohNode = `03${'cd'.repeat(32)}@iroh:${'ef'.repeat(32)}`;
+      const irohFallback = `03${'cd'.repeat(32)}@${ONION}:9735`;
+      const answering = () =>
+        mockRuntime.request.mockImplementation(
+          async ({ path }: { path: string }) =>
+            path === '/api/config'
+              ? { engineVersion: '0.38.0-portable', primariesAvailable: true }
+              : path === '/api/wallets/w1'
+              ? { id: 'w1', lfbw: { enabled: true, primaries: [] } }
+              : {},
+        );
+      afterEach(() => {
+        mockRuntime.request.mockReset();
+      });
+
+      test('an onion node is added only once Tor is ready', async () => {
+        answering();
+        const client = await openDeviceWallet({
+          ...profile({ host: '127.0.0.1', port: 60001, tls: false }),
+          primaryUri: `${'ab'.repeat(33)}@127.0.0.1:9735`,
+        });
+        client.selectWallet('w1');
+        const added = client.addPrimary({ uri: onionNode }).catch(() => {});
+        await jest.advanceTimersByTimeAsync(BOOTSTRAP_MS - 1);
+        expect(engineRequests()).not.toContain(ADD);
+        await jest.advanceTimersByTimeAsync(1);
+        await added;
+        expect(engineRequests()).toContain(ADD);
+        expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
+      });
+
+      test('a clearnet node is added at once, without starting Tor', async () => {
+        answering();
+        const client = await openDeviceWallet({
+          ...profile({ host: '127.0.0.1', port: 60001, tls: false }),
+          primaryUri: `${'ab'.repeat(33)}@127.0.0.1:9735`,
+        });
+        client.selectWallet('w1');
+        await client
+          .addPrimary({ uri: clearnetNode })
+          .catch(() => {});
+        expect(engineRequests()).toContain(ADD);
+        expect(RnTor.startTorIfNotRunning).not.toHaveBeenCalled();
+      });
+
+      test('an Iroh node with an onion fallback is added at once and warms Tor', async () => {
+        answering();
+        const client = await openDeviceWallet({
+          ...profile({ host: '127.0.0.1', port: 60001, tls: false }),
+          primaryUri: `${'ab'.repeat(33)}@127.0.0.1:9735`,
+        });
+        client.selectWallet('w1');
+        await client
+          .addPrimary({ uri: irohNode, fallbackUri: irohFallback })
+          .catch(() => {});
+        expect(engineRequests()).toContain(ADD);
+        expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
+      });
+
+      test('closing while the add waits for Tor never reaches the engine', async () => {
+        answering();
+        const client = await openDeviceWallet({
+          ...profile({ host: '127.0.0.1', port: 60001, tls: false }),
+          primaryUri: `${'ab'.repeat(33)}@127.0.0.1:9735`,
+        });
+        client.selectWallet('w1');
+        const added = client.addPrimary({ uri: onionNode }).then(
+          () => 'added',
+          (error: Error) => error.message,
+        );
+        // The config and the record are read, and the add is waiting on Tor.
+        await jest.advanceTimersByTimeAsync(1);
+        expect(engineRequests()).not.toContain(ADD);
+        await client.close();
+        await jest.advanceTimersByTimeAsync(BOOTSTRAP_MS);
+        expect(await added).toBe('The wallet closed before the node was added.');
+        expect(engineRequests()).not.toContain(ADD);
+      });
+    });
+
     test.each([
       ['a clearnet primary', `${'ab'.repeat(33)}@127.0.0.1:9735`],
       ['an Iroh primary', `${'ab'.repeat(33)}@iroh:${'cd'.repeat(32)}`],
