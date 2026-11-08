@@ -182,6 +182,20 @@ function uriHost(uri: unknown): string {
 const STARTS_ENGINE =
   /^\/api\/wallets(?:\/import|\/[^/]+\/(?:start|lfbw\/retry|lfbw\/setup))?$/;
 
+/**
+ * The request that ranks another primary node (coreyphillips/beignet#1924).
+ * The engine dials the new node at once, under the same fixed budget as a
+ * start's dial.
+ */
+const ADDS_PRIMARY = /^\/wallets\/[^/]+\/api\/primaries\/add$/;
+
+/** The host an add names: a clearnet or onion `host`, else the host of its `uri`. */
+function addedHost(body: unknown): string {
+  const named = body as { host?: unknown; uri?: unknown } | undefined;
+  if (typeof named?.host === 'string') return named.host.trim();
+  return uriHost(named?.uri);
+}
+
 /** Open a real in-process Beignet node. No host API or wallet secrets cross the transport. */
 export async function openDeviceWallet(
   settings: DeviceSettings,
@@ -339,6 +353,25 @@ export async function openDeviceWallet(
               // A close during the wait has already stopped the engine.
               if (closing)
                 throw new Error('The wallet closed before it started.');
+            }
+          }
+          // Adding a primary dials it at once, inside the engine's 15 second
+          // budget. An onion node waits for Tor first, as a start does, so a
+          // cold bootstrap does not fail the dial and leave the node marked
+          // failed until a redial; an Iroh node's onion fallback warms Tor
+          // without waiting, as it does at open.
+          if (
+            request.method === 'POST' &&
+            settings.transport === 'native' &&
+            ADDS_PRIMARY.test(request.path)
+          ) {
+            const body = request.body as { fallbackUri?: unknown } | undefined;
+            if (isOnionHost(addedHost(body))) {
+              await ensureTorReady().catch(() => {});
+              if (closing)
+                throw new Error('The wallet closed before the node was added.');
+            } else if (isOnionHost(uriHost(body?.fallbackUri))) {
+              void ensureTorReady().catch(() => {});
             }
           }
           return runtime.request(request);
