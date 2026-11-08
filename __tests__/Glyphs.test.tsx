@@ -48,6 +48,7 @@ test('the set is the one REDESIGN.md section 4 names', () => {
     'chevron',
     'chevronDown',
     'wallet',
+    'grip',
   ];
   const added = [
     'cog',
