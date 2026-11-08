@@ -91,6 +91,18 @@ function client(over: Partial<WalletAdapter> = {}) {
   } as unknown as WalletAdapter;
 }
 
+/**
+ * The screen under the gesture root the app gives it: the ranked primary
+ * nodes' grips are gesture detectors, which need one.
+ */
+function Screen(props: Parameters<typeof SettingsScreen>[0]) {
+  return (
+    <GestureHandlerRootView>
+      <SettingsScreen {...props} />
+    </GestureHandlerRootView>
+  );
+}
+
 async function render(
   snapshot: WalletSnapshot,
   adapter: WalletAdapter,
@@ -99,7 +111,7 @@ async function render(
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(
-      <SettingsScreen
+      <Screen
         snapshot={snapshot}
         client={adapter}
         switchError=""
@@ -214,7 +226,7 @@ test('the node field follows the wallet it describes', async () => {
   expect(field(tree, 'Node address').props.value).not.toBe('');
   await act(async () => {
     tree.update(
-      <SettingsScreen
+      <Screen
         snapshot={{ ...base, primary: { ...base.primary, uri: 'new@host:1' } }}
         client={adapter}
         switchError=""
@@ -259,7 +271,7 @@ test('erasing is offered only in device mode, behind a second explicit step', as
   const onErase = jest.fn().mockResolvedValue(undefined);
   await act(async () => {
     tree = create(
-      <SettingsScreen
+      <Screen
         snapshot={base}
         client={adapter}
         switchError=""
@@ -336,7 +348,7 @@ describe('the recovery phrase still to be saved', () => {
     expect(press(tree, SAVED)).toBeUndefined();
     await act(async () => {
       tree.update(
-        <SettingsScreen
+        <Screen
           snapshot={base}
           client={client()}
           switchError=""
@@ -573,7 +585,7 @@ describe('auto-pay', () => {
       tree = create(
         <GestureHandlerRootView>
           <SettingsHostContext.Provider value={{ useBack: () => {}, reveal }}>
-            <SettingsScreen
+            <Screen
               snapshot={snapshot}
               client={adapter}
               switchError=""
@@ -765,7 +777,7 @@ describe('a screen reader follows each change', () => {
     let tree!: ReactTestRenderer;
     await act(async () => {
       tree = create(
-        <SettingsScreen
+        <Screen
           snapshot={base}
           client={adapter}
           switchError=""
@@ -829,7 +841,7 @@ describe('a screen reader follows each change', () => {
     // The stage hears it saved, and Settings is drawn without the backup.
     await act(async () => {
       tree.update(
-        <SettingsScreen
+        <Screen
           snapshot={base}
           client={adapter}
           switchError=""
@@ -1048,6 +1060,7 @@ describe('adding a ranked primary (coreyphillips/beignet#1924)', () => {
       getConfig: jest.fn().mockResolvedValue({ engineVersion: '0.38.0-portable', primariesAvailable: true }),
       snapshot: jest.fn().mockResolvedValue(ranked),
       addPrimary: jest.fn().mockResolvedValue(policy(connected)),
+      setPrimariesThreshold: jest.fn().mockResolvedValue(policy(connected)),
     } as Partial<WalletAdapter>);
   const addNode = async (tree: ReactTestRenderer) => {
     await openRow(tree, 'Primary nodes');
@@ -1063,6 +1076,8 @@ describe('adding a ranked primary (coreyphillips/beignet#1924)', () => {
     const tree = await render(ranked, adapter);
     await addNode(tree);
     expect(adapter.addPrimary).toHaveBeenCalledWith({ uri: `${PK2}@other:9735` });
+    // A second node with no fill target saved brings the default one.
+    expect(adapter.setPrimariesThreshold).toHaveBeenCalledWith(1_000_000);
     expect(text(tree)).toContain('Primary node added.');
     await act(async () => tree.unmount());
   });

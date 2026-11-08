@@ -1,5 +1,6 @@
 import React from 'react';
 import { AccessibilityInfo, StyleSheet, Switch, Text } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Reanimated from 'react-native-reanimated';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -54,15 +55,17 @@ const trees: ReactTestRenderer[] = [];
 
 function element(over: Props = {}) {
   return (
-    <SettingsScreen
-      snapshot={snapshotOf()}
-      client={client()}
-      switchError=""
-      onRefresh={jest.fn()}
-      onNetwork={jest.fn()}
-      onErase={jest.fn().mockResolvedValue(undefined)}
-      {...over}
-    />
+    <GestureHandlerRootView>
+      <SettingsScreen
+        snapshot={snapshotOf()}
+        client={client()}
+        switchError=""
+        onRefresh={jest.fn()}
+        onNetwork={jest.fn()}
+        onErase={jest.fn().mockResolvedValue(undefined)}
+        {...over}
+      />
+    </GestureHandlerRootView>
   );
 }
 
@@ -637,7 +640,7 @@ describe('under Reduce Motion', () => {
 
 describe('several ranked primaries (coreyphillips/beignet#1924)', () => {
   const { primaryOf } = require('../../../../test-support/fixtures');
-  const ranked = () =>
+  const ranked = (thresholdSat: number | null = 250_000) =>
     snapshotOf({
       primary: { connected: false },
       primaries: [
@@ -645,7 +648,7 @@ describe('several ranked primaries (coreyphillips/beignet#1924)', () => {
         primaryOf(2, { isReceiveTarget: true }),
         primaryOf(3, { isReceiveTarget: false, channelCount: 0, balanceSat: 0 }),
       ],
-      primariesThresholdSat: 250_000,
+      primariesThresholdSat: thresholdSat,
     });
   const policy = () => ({
     thresholdSat: 250_000,
@@ -666,17 +669,40 @@ describe('several ranked primaries (coreyphillips/beignet#1924)', () => {
       setPrimariesThreshold: jest.fn().mockResolvedValue(policy()),
       ...over,
     });
+  /** The row a screen reader reaches for the node at `rank`. */
+  const rowOf = (tree: ReactTestRenderer, rank: number) =>
+    tree.root.findAll(
+      node =>
+        typeof node.props.accessibilityLabel === 'string' &&
+        node.props.accessibilityLabel.startsWith(`${s.primaries.rank(rank)},`) &&
+        typeof node.props.onPress === 'function',
+    )[0];
+  const move = (tree: ReactTestRenderer, rank: number, actionName: string) =>
+    act(async () => {
+      rowOf(tree, rank).props.onAccessibilityAction({ nativeEvent: { actionName } });
+    });
+  const thresholdField = (tree: ReactTestRenderer) =>
+    tree.root.findAll(
+      node =>
+        node.props.accessibilityLabel === s.primaries.threshold &&
+        typeof node.props.onChangeText === 'function',
+    )[0];
 
-  test('the row counts the nodes, lists them in rank order with the receive target named, and keeps the one-primary panel when the engine ranks none', async () => {
+  test('the row counts the nodes and lists them in rank order, each read as one line with the receive target named, and keeps the one-primary panel when the engine ranks none', async () => {
     const tree = await render({ snapshot: ranked(), client: rankedClient() });
     expect(find(tree, s.primaries.heading)).toBeDefined();
     expect(find(tree, s.primary.heading)).toBeUndefined();
     expect(texts(tree)).toContain(s.primaries.count(2, 3));
     await press(tree, s.primaries.heading);
-    const shown = texts(tree);
-    expect(shown).toContain(s.primaries.rank(1));
-    expect(shown).toContain(s.primaries.rank(3));
-    expect(shown.some(text => text.includes(s.primaries.receiveTarget))).toBe(true);
+    const labels = [1, 2, 3].map(rank => rowOf(tree, rank).props.accessibilityLabel);
+    expect(labels[0]).toContain('127.0.0.1:19846');
+    expect(labels[0]).toContain(s.primary.connecting);
+    expect(labels[1]).toContain(s.primaries.receiveTarget);
+    expect(labels[0]).not.toContain(s.primaries.receiveTarget);
+    expect(labels[2]).toContain(s.primaries.of(copy.amount.spoken(250_000)));
+    // Each row's figures: the balance and what a full bar stands for.
+    expect(texts(tree)).toContain('100,000 sats');
+    expect(texts(tree)).toContain(s.primaries.of('250,000 sats'));
     expect(find(tree, s.primaries.add)).toBeDefined();
     expect(find(tree, s.primaries.retryAll)).toBeDefined();
     // The engine ranks none: the row is the one-primary row, unchanged.
@@ -688,36 +714,93 @@ describe('several ranked primaries (coreyphillips/beignet#1924)', () => {
     expect(find(one, s.primaries.add)).toBeUndefined();
   });
 
-  test('moving, removing in two presses and saving the fill target call the client, and an empty target turns it off', async () => {
+  test("a screen reader's move asks the engine for the whole order, the ends offer no move past them, and a refusal brings the engine's order back", async () => {
     const adapter = rankedClient();
     const tree = await render({ snapshot: ranked(), client: adapter });
     await press(tree, s.primaries.heading);
-    await press(tree, s.primaries.moveUp(2));
+    expect(rowOf(tree, 1).props.accessibilityActions).toEqual([
+      { name: 'moveDown', label: s.primaries.moveDown },
+    ]);
+    expect(rowOf(tree, 3).props.accessibilityActions).toEqual([
+      { name: 'moveUp', label: s.primaries.moveUp },
+    ]);
+    await move(tree, 2, 'moveUp');
     expect(adapter.reorderPrimaries).toHaveBeenCalledWith([
       primaryOf(2).pubkey,
       primaryOf(1).pubkey,
       primaryOf(3).pubkey,
     ]);
-    await press(tree, s.primaries.moveDown(1));
-    expect(adapter.reorderPrimaries).toHaveBeenLastCalledWith([
-      primaryOf(2).pubkey,
-      primaryOf(1).pubkey,
-      primaryOf(3).pubkey,
-    ]);
-    expect(host(tree, s.primaries.moveUp(1)).props.accessibilityState).toMatchObject({ disabled: true });
-    expect(host(tree, s.primaries.moveDown(3)).props.accessibilityState).toMatchObject({ disabled: true });
-    await press(tree, s.primaries.remove(3));
+    // Drawn in the order asked for until the engine answers.
+    const drawn = () => [
+      ...new Set(
+        tree.root
+          .findAll(
+            node =>
+              typeof node.props.accessibilityLabel === 'string' &&
+              /^Rank \d,/.test(node.props.accessibilityLabel) &&
+              typeof node.props.onPress === 'function',
+          )
+          .map(node => node.props.accessibilityLabel.slice(0, 6) as string),
+      ),
+    ];
+    expect(drawn()).toEqual(['Rank 2', 'Rank 1', 'Rank 3']);
+    (adapter.reorderPrimaries as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('Order refused.'), { code: 'INVALID_PARAMS' }),
+    );
+    await move(tree, 3, 'moveUp');
+    await settle();
+    expect(texts(tree)).toContain('Order refused.');
+    // The engine's order, as the wallet last reported it.
+    expect(drawn()).toEqual(['Rank 1', 'Rank 2', 'Rank 3']);
+  });
+
+  test('a node opens for its address, its channels and a two-press remove', async () => {
+    const adapter = rankedClient();
+    const tree = await render({ snapshot: ranked(), client: adapter });
+    await press(tree, s.primaries.heading);
+    expect(find(tree, s.primary.copy)).toBeUndefined();
+    await act(async () => rowOf(tree, 3).props.onPress());
+    expect(find(tree, s.primary.copy)).toBeDefined();
+    expect(texts(tree)).toContain(s.primaries.noChannel);
+    await press(tree, s.primaries.remove);
     expect(adapter.removePrimary).not.toHaveBeenCalled();
     expect(texts(tree)).toContain(s.primaries.removeKeeps);
     await press(tree, s.primaries.confirmRemove);
     expect(adapter.removePrimary).toHaveBeenCalledWith(primaryOf(3).pubkey);
-    await act(async () => {
-      tree.root
-        .findAll(node => node.props.accessibilityLabel === s.primaries.threshold && typeof node.props.onChangeText === 'function')[0]
-        .props.onChangeText('');
-    });
+  });
+
+  test('the fill target shows the saved amount, saves a changed one, offers no save for a blank, and is prefilled with the default when none was saved', async () => {
+    const adapter = rankedClient();
+    const tree = await render({ snapshot: ranked(), client: adapter });
+    await press(tree, s.primaries.heading);
+    expect(thresholdField(tree).props.value).toBe('250000');
+    expect(find(tree, s.primaries.saveThreshold)).toBeUndefined();
+    await act(async () => thresholdField(tree).props.onChangeText(''));
+    expect(find(tree, s.primaries.saveThreshold)).toBeUndefined();
+    await act(async () => thresholdField(tree).props.onChangeText('300000'));
     await press(tree, s.primaries.saveThreshold);
-    expect(adapter.setPrimariesThreshold).toHaveBeenCalledWith(null);
+    expect(adapter.setPrimariesThreshold).toHaveBeenCalledWith(300_000);
+    const unsaved = await render({
+      snapshot: ranked(null),
+      client: rankedClient({ snapshot: jest.fn().mockResolvedValue(ranked(null)) }),
+    });
+    await press(unsaved, s.primaries.heading);
+    expect(thresholdField(unsaved).props.value).toBe('1000000');
+    expect(find(unsaved, s.primaries.saveThreshold)).toBeDefined();
+  });
+
+  test('with one ranked node there is no fill target, and its bar is the channel as the wallet knows it', async () => {
+    const one = snapshotOf({ primaries: [primaryOf(1)] });
+    const tree = await render({
+      snapshot: one,
+      client: rankedClient({ snapshot: jest.fn().mockResolvedValue(one) }),
+    });
+    await press(tree, s.primaries.heading);
+    expect(thresholdField(tree)).toBeUndefined();
+    expect(rowOf(tree, 1).props.accessibilityLabel).not.toContain(s.primaries.receiveTarget);
+    // 100,000 held with it, 100,000 of room to receive.
+    expect(texts(tree)).toContain(s.primaries.of('200,000 sats'));
+    expect(rowOf(tree, 1).props.accessibilityActions).toEqual([]);
   });
 
   test('adding a node names it to the client, and Empty wallet waits only while no primary answers', async () => {
@@ -733,6 +816,8 @@ describe('several ranked primaries (coreyphillips/beignet#1924)', () => {
     });
     await press(tree, s.primary.save);
     expect(adapter.addPrimary).toHaveBeenCalledWith({ uri });
+    // The policy already has a target, so none is set for it.
+    expect(adapter.setPrimariesThreshold).not.toHaveBeenCalled();
     // Rank 1 is away, rank 2 answers: emptying is offered.
     expect(host(tree, s.empty.link).props.accessibilityState).not.toMatchObject({ disabled: true });
     const none = await render({
@@ -745,4 +830,3 @@ describe('several ranked primaries (coreyphillips/beignet#1924)', () => {
     expect(host(none, s.empty.link).props.accessibilityState).toMatchObject({ disabled: true });
   });
 });
-
