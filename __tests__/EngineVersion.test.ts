@@ -24,6 +24,9 @@ test('the installed engine reports the verified upstream release', async () => {
     expect(config.engineVersion).toBe('0.38.1-portable');
     expect(config.offlineReceiveAvailable).toBe(true);
     expect(config.concurrentOfflineReceiveAvailable).toBe(true);
+    // Ranked primaries and the channel send (coreyphillips/beignet#1924).
+    expect(config.primariesAvailable).toBe(true);
+    expect(config.channelSendAvailable).toBe(true);
   } finally {
     await runtime.close();
   }
