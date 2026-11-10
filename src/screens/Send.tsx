@@ -1040,7 +1040,7 @@ export function SendScreen({
    * Looks up where the pubky `key`, entered as `text`, is paid. It pays
    * nothing, so the stage is not held and Close works throughout. Found, the
    * first endpoint this wallet can pay becomes the request; the review may
-   * still move on to an address when Lightning cannot carry the amount
+   * still move on to a later one when Lightning cannot carry the amount
    * (`prepare`). Nothing published, nothing payable and a lookup that failed
    * or ran out of time each end in their own refusal. An answer for a
    * request since changed, or for a Send that has gone, is dropped.
@@ -1408,8 +1408,9 @@ export function SendScreen({
         next = await client.prepareSend(input);
       } catch (e) {
         // A pubky's Lightning endpoint that cannot carry the amount gives
-        // way to an address it lists, at the same amount. With none that
-        // can be reviewed, the Lightning refusal is the one shown.
+        // way to the next it lists, another invoice before an address, at
+        // the same amount. With none that can be reviewed, the first
+        // refusal is the one shown.
         const keyed = Number(input.amountSats ?? 0);
         const sats = fixedSats ?? (keyed > 0 ? keyed : null);
         const others =
@@ -1430,8 +1431,8 @@ export function SendScreen({
               });
             } catch (again) {
               if (!alreadySubmitted(again)) continue;
-              // The engine has a payment to the address out: it is held,
-              // and the ring that says so is the address's.
+              // The engine has a payment to this endpoint out: it is held,
+              // and the ring that says so is its own.
               if (mounted.current) {
                 setVia({ ...route!, at });
                 setRequest(option.request);
@@ -1451,7 +1452,7 @@ export function SendScreen({
             code: 'PUBKY_FELL_BACK',
             message: option.endpoint.identifier,
           });
-          // Rule 6 holds for the address too.
+          // Rule 6 holds for the endpoint moved to as well.
           if (heldAlready) {
             toHeld();
             return;

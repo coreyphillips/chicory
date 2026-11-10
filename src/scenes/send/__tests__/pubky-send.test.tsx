@@ -253,6 +253,24 @@ describe('a pubky that publishes something to pay', () => {
     await act(async () => tree.unmount());
   });
 
+  test('a second invoice is tried before the address when the first has no route', async () => {
+    answers([LIGHTNING, ONCHAIN, OPEN]);
+    const prepareSend = jest
+      .fn()
+      .mockRejectedValueOnce(coded('NO_ROUTE'))
+      .mockResolvedValueOnce(quote());
+    const tree = await draw({ prepareSend }, { initialRequest: KEY });
+    await press(tree, copy.send.review);
+    expect(prepareSend).toHaveBeenCalledTimes(2);
+    expect(prepareSend).toHaveBeenLastCalledWith({
+      request: OPEN_INVOICE,
+      amountSats: 24_425,
+    });
+    expect(holds(tree, copy.send.sendSats(24_425))).toHaveLength(1);
+    expect(chipSays(tree)).toContain('Lightning');
+    await act(async () => tree.unmount());
+  });
+
   test('an expired invoice beside an address resolves to the address', async () => {
     now.mockReturnValue(1_700_000_000_000);
     answers([endpoint('btc-lightning-bolt11', EXPIRED), ONCHAIN]);

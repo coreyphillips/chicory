@@ -136,9 +136,9 @@ export function payableEndpoints(
 }
 
 /**
- * Engine refusals of a Lightning review that an address may still be paid
- * past: no route or balance to carry the amount, or an invoice that ran out
- * between the lookup and the review.
+ * Engine refusals of a Lightning review that a later endpoint may still be
+ * paid past: no route or balance to carry the amount, or an invoice that ran
+ * out between the lookup and the review.
  */
 const CANNOT_CARRY = new Set([
   'NO_ROUTE',
@@ -147,9 +147,10 @@ const CANNOT_CARRY = new Set([
 ]);
 
 /**
- * The on-chain endpoints to fall back on, as indexes into `options`, once
- * the Lightning one at `at` was refused with `code`: those after it that
- * name no amount, or the same one as `sats`. None for any other refusal.
+ * The endpoints to fall back on, as indexes into `options`, once the
+ * Lightning one at `at` was refused with `code`: those after it, the other
+ * invoices before the addresses, that name no amount or the same one as
+ * `sats`. None for any other refusal.
  */
 export function fallbacks(
   options: readonly Payable[],
@@ -163,7 +164,6 @@ export function fallbacks(
     .filter(
       ({ option, index }) =>
         index > at &&
-        option.rail === 'chain' &&
         (option.amountSats === null || option.amountSats === sats),
     )
     .map(({ index }) => index);

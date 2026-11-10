@@ -164,21 +164,30 @@ describe('selection', () => {
     ).toEqual([]);
   });
 
-  test('an address is fallen back on only when Lightning could not carry the amount', () => {
+  test('later endpoints are fallen back on only when Lightning could not carry the amount', () => {
     const options = payableEndpoints(
       [
         endpoint('btc-lightning-bolt11', DONATION),
         endpoint('btc-bitcoin-p2wpkh', `bitcoin:${ADDRESS}?amount=0.00001`),
         endpoint('btc-bitcoin-p2tr', ADDRESS),
+        endpoint('btc-lightning-bolt11', COFFEE),
       ],
       'mainnet',
-      STAMP_MS,
+      STAMP_MS - 1,
     );
-    expect(fallbacks(options, 0, 'NO_ROUTE', 5_000)).toEqual([2]);
-    expect(fallbacks(options, 0, 'INSUFFICIENT_FUNDS', 1_000)).toEqual([1, 2]);
-    expect(fallbacks(options, 0, 'INVOICE_EXPIRED', 5_000)).toEqual([2]);
+    expect(options.map(option => option.rail)).toEqual([
+      'bolt',
+      'bolt',
+      'chain',
+      'chain',
+    ]);
+    expect(fallbacks(options, 0, 'NO_ROUTE', 5_000)).toEqual([3]);
+    // The other invoice comes before the addresses.
+    expect(fallbacks(options, 0, 'NO_ROUTE', 250_000)).toEqual([1, 3]);
+    expect(fallbacks(options, 0, 'INSUFFICIENT_FUNDS', 1_000)).toEqual([2, 3]);
+    expect(fallbacks(options, 0, 'INVOICE_EXPIRED', 5_000)).toEqual([3]);
     expect(fallbacks(options, 0, 'PRIMARY_DOWN', 5_000)).toEqual([]);
-    expect(fallbacks(options, 2, 'NO_ROUTE', 5_000)).toEqual([]);
+    expect(fallbacks(options, 3, 'NO_ROUTE', 5_000)).toEqual([]);
   });
 });
 
