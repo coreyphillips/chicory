@@ -50,6 +50,7 @@ import { steady } from '../motion/steady';
 import { curves, durations, overlap, shake, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
 import { normalizePaymentLink } from '../services/links';
+import { pubkyOf } from '../scenes/send/pubky';
 import { STATUS_ROW } from '../stage/layout';
 import type { ScanPurpose } from '../stage/scene';
 import { duringSystemPrompt } from '../stage/systemPrompt';
@@ -177,6 +178,8 @@ export function refusal(value: string): string | null {
   const parsed = parsePayment(value);
   if (parsed.kind === 'empty') return copy.scan.invalid;
   if (parsed.kind === 'invalid') {
+    // A pubky is taken on a payment scan: Send looks up where it is paid.
+    if (pubkyOf(value)) return null;
     return [copy.scan.invalid, parsed.message].filter(Boolean).join(' ');
   }
   return null;
@@ -1001,7 +1004,9 @@ export function Scanner({
     sage.set(withTiming(1, { ...FADE, duration: durations.tick }));
     if (!reduced) pinch.set(withSpring(CAUGHT_SCALE, springs.snap));
     haptics.thud();
-    announce(words.detected);
+    announce(
+      !validate && pubkyOf(value) ? copy.scan.pubkyDetected : words.detected,
+    );
     onDetected(
       validate ? validate(value) : normalizePaymentLink(value) || value,
     );

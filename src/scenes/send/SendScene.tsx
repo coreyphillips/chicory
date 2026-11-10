@@ -131,6 +131,7 @@ export function SendScene({
               unit={view.unit}
               symbol={view.symbol}
               test={isTestNetwork(snapshot.wallet.network)}
+              network={snapshot.wallet.network}
               leaving={!current}
             />
           </View>

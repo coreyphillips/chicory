@@ -92,3 +92,7 @@ android/app/debug/
 ios/.xcode.env.local
 android/keystore.properties
 *.jks
+
+# The Rust lookup library, rebuilt by scripts/build-paykit-ios.sh and scripts/build-paykit-android.sh
+ios/PaykitLookup.xcframework/
+android/app/src/main/jniLibs/*/libpaykit_lookup.so

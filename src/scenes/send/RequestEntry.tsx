@@ -7,6 +7,7 @@ import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
+import { chipText } from '../../glyphs/chipText';
 import { dissolve, popIn, useShake } from '../../motion/effects';
 import { useLoop, wave } from '../../motion/loops';
 import { durations, overlap } from '../../motion/tokens';
@@ -46,6 +47,14 @@ export interface RequestEntryProps {
   /** The engine would not pay the request: a cross sits in the well. */
   refused?: Failure | null;
   busy?: boolean;
+  /**
+   * The pubky `value` was looked up from: the chip shows the key above what
+   * is paid, and says both (`viaWords`).
+   */
+  via?: string;
+  viaWords?: string;
+  /** `value` is a pubky whose lookup is still out. */
+  looking?: boolean;
   /** Pastes a request, resolving false when there was none to paste. */
   onPaste?: () => Promise<boolean>;
   onScan?: (origin: Origin | null) => void;
@@ -81,6 +90,9 @@ export function RequestEntry({
   fixed,
   refused = null,
   busy = false,
+  via,
+  viaWords,
+  looking = false,
   onPaste,
   onScan,
 }: RequestEntryProps) {
@@ -96,26 +108,8 @@ export function RequestEntry({
   if (collapsed && value.trim()) {
     const rail = requestRail(value);
     const shown = shortRequest(value);
-    return (
-      <AnimatedPressable
-        entering={popIn()}
-        exiting={dissolve()}
-        accessibilityRole={onExpand ? 'button' : 'none'}
-        accessibilityLabel={accessibilityLabel}
-        accessibilityValue={{ text: shown }}
-        accessibilityHint={onExpand ? copy.send.requestHint : undefined}
-        accessibilityState={{ disabled: !onExpand || busy }}
-        hitSlop={HIT_SLOP}
-        onPress={
-          live && onExpand
-            ? () => {
-                haptics.tick();
-                onExpand();
-              }
-            : undefined
-        }
-        style={styles.chip}
-      >
+    const paid = (
+      <>
         {rail ? <Glyph name={rail} size={16} color={bloom.tone} /> : null}
         <Text
           style={styles.chipText}
@@ -125,6 +119,61 @@ export function RequestEntry({
           {shown}
         </Text>
         {fixed ? <Glyph name="lock" size={14} color={palette.steam} /> : null}
+      </>
+    );
+    return (
+      <AnimatedPressable
+        entering={popIn()}
+        exiting={dissolve()}
+        accessibilityRole={onExpand ? 'button' : 'none'}
+        accessibilityLabel={accessibilityLabel}
+        accessibilityValue={{
+          text: viaWords ?? (looking ? copy.send.pubkyLooking : shown),
+        }}
+        accessibilityHint={onExpand ? copy.send.requestHint : undefined}
+        accessibilityState={{ disabled: !onExpand || busy, busy: looking }}
+        hitSlop={HIT_SLOP}
+        onPress={
+          live && onExpand
+            ? () => {
+                haptics.tick();
+                onExpand();
+              }
+            : undefined
+        }
+        style={[styles.chip, via ? styles.chipVia : null]}
+      >
+        {via ? (
+          // A pubky that resolved: the key it came from, over what is paid.
+          <>
+            <View style={styles.chipLine}>
+              <Glyph name="key" size={14} color={palette.steam} />
+              <Text
+                style={[styles.chipText, styles.chipFrom]}
+                numberOfLines={1}
+                maxFontSizeMultiplier={REQUEST_SCALE}
+              >
+                {chipText(via)}
+              </Text>
+            </View>
+            <View style={styles.chipLine}>{paid}</View>
+          </>
+        ) : looking ? (
+          // A pubky still being looked up: its key, and a search under way.
+          <>
+            <Glyph name="key" size={16} color={palette.steam} />
+            <Text
+              style={styles.chipText}
+              numberOfLines={1}
+              maxFontSizeMultiplier={REQUEST_SCALE}
+            >
+              {shown}
+            </Text>
+            <Searching />
+          </>
+        ) : (
+          paid
+        )}
       </AnimatedPressable>
     );
   }
@@ -146,6 +195,19 @@ export function RequestEntry({
 }
 
 const AnimatedPressable = Reanimated.createAnimatedComponent(Pressable);
+
+/** The lookup's mark: a search glyph that breathes for as long as it runs. */
+function Searching() {
+  const breath = useLoop(durations.breathe, true, true);
+  const style = useAnimatedStyle(() => ({
+    opacity: 0.45 + 0.55 * wave(breath.get()),
+  }));
+  return (
+    <Reanimated.View style={style}>
+      <Glyph name="search" size={16} color={palette.honey} />
+    </Reanimated.View>
+  );
+}
 
 function Well({
   entering,
@@ -294,6 +356,14 @@ const styles = StyleSheet.create({
     backgroundColor: palette.mocha,
   },
   chipText: { ...typography.mono, color: palette.cream, flexShrink: 1 },
+  chipVia: {
+    flexDirection: 'column',
+    gap: 0,
+    paddingVertical: space.xs,
+    borderRadius: radius.lg,
+  },
+  chipLine: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  chipFrom: { color: palette.steam },
   well: {
     flexDirection: 'row',
     alignItems: 'center',

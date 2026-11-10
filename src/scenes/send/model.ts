@@ -11,6 +11,7 @@ import { chipText } from '../../glyphs/chipText';
 import type { GlyphName } from '../../design/glyphs';
 import type { Held } from '../../stage/heldRequests';
 import type { AmountTone } from '../keypad/keys';
+import { pubkyOf } from './pubky';
 
 /**
  * Send's states as data (REDESIGN.md 6, Send and Engine errors): what a
@@ -286,7 +287,8 @@ export function shortRequest(request: string): string {
       ? payment.invoice
       : payment?.kind === 'bolt12'
       ? payment.offer
-      : request.trim().replace(/^(lightning|bitcoin):/i, '');
+      : pubkyOf(request) ??
+        request.trim().replace(/^(lightning|bitcoin):/i, '');
   return chipText(destination);
 }
 
@@ -424,14 +426,46 @@ function failureOf(
  * with, or null when it reads as a payment or is empty. A refused request
  * never takes the accepted look: it stays in the well with a cross
  * (REDESIGN.md 6, Engine errors). The engine still has the last word at
- * review, for what only it can know, such as the wallet's network.
+ * review, for what only it can know, such as the wallet's network. A pubky
+ * is not refused: it is taken, and looked up (`lookupFailure`).
  */
 export function requestRefusal(request: string): Failure | null {
   const payment = parsed(request);
-  if (payment?.kind !== 'invalid') return null;
+  if (payment?.kind !== 'invalid' || pubkyOf(request)) return null;
   return failureOf(payment.code, payment.message, 'request', 'radish', [
     'cross',
   ]);
+}
+
+/**
+ * How a pubky's lookup ended without anything to review (REDESIGN.md 6,
+ * Send). Each is its own mark beside the key, so none reads as another, and
+ * an outage, which trying again may mend, is honey and never the radish of a
+ * pubky that publishes nothing.
+ */
+export type LookupEnd =
+  | 'PUBKY_NO_ENDPOINTS'
+  | 'PUBKY_NOT_PAYABLE'
+  | 'PUBKY_LOOKUP_FAILED';
+
+export function lookupFailure(end: LookupEnd): Failure {
+  switch (end) {
+    case 'PUBKY_NO_ENDPOINTS':
+      return failureOf(end, copy.send.pubkyEmpty, 'request', 'radish', [
+        'key',
+        'question',
+      ]);
+    case 'PUBKY_NOT_PAYABLE':
+      return failureOf(end, copy.send.pubkyNotPayable, 'request', 'radish', [
+        'key',
+        'cross',
+      ]);
+    case 'PUBKY_LOOKUP_FAILED':
+      return failureOf(end, copy.send.pubkyLookupFailed, 'request', 'honey', [
+        'key',
+        'unplug',
+      ]);
+  }
 }
 
 /**

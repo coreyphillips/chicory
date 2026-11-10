@@ -24,6 +24,19 @@ export const send = {
   reviewWaits: 'Paste or scan a payment request first.',
   reviewRefused: 'This request cannot be paid. Paste or scan another.',
   amountWaits: 'Enter an amount first.',
+  // A pubky entered in place of a request: its public Payment List is
+  // looked up, and one endpoint from it is paid. The list is not signed, so
+  // nothing here says the destination was verified as the person's.
+  pubkyLooking: 'Looking up where this pubky is paid.',
+  pubkyWaits: 'Still looking up where this pubky is paid.',
+  pubkyEmpty: 'This pubky publishes no payment details.',
+  pubkyNotPayable:
+    'This pubky publishes payment details, but none this wallet can pay.',
+  pubkyLookupFailed:
+    'The lookup did not finish, so what this pubky publishes is not known. Leave the field to try again.',
+  /** The chip of a resolved pubky, and the review's hold, say what is paid. */
+  pubkyPays: (pubky: string, rail: string, destination: string) =>
+    `Pubky ${pubky}. Pays the ${rail} destination its homeserver lists: ${destination}. Chicory cannot verify it is theirs.`,
   preparing: 'Preparing the payment.',
   /** Settings > Auto-pay sent a scanned code without a hold. */
   autoPaying: (value: number) => `Paying ${sats(value)} automatically.`,
