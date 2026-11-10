@@ -1,7 +1,9 @@
-import { AppState, NativeModules, Platform } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 import { Buffer } from 'buffer';
 import { IrohTransport } from '@beignet/portable-engine';
 import { fromBase64 } from './base64';
+import { onLongResume } from './resume';
+import { recordDiagnostic } from '../services/diagnosticLog';
 import type {
   IrohEndpointFactory,
   IrohDiagnostics,
@@ -91,17 +93,16 @@ export const createNativeIrohEndpoint: IrohEndpointFactory = async options => {
     return binding;
   };
   const endpointId = await bind();
-  let backgroundSince =
-    AppState.currentState === 'background' ? Date.now() : null;
-  const lifecycle = AppState.addEventListener('change', state => {
-    if (state === 'background' && backgroundSince === null)
-      backgroundSince = Date.now();
-    if (state !== 'active' || backgroundSince === null || closed) return;
-    const elapsed = Date.now() - backgroundSince;
-    backgroundSince = null;
-    if (Platform.OS !== 'ios' || elapsed < 30000) return;
+  const lifecycle = onLongResume(away => {
+    if (closed || Platform.OS !== 'ios') return;
     // iOS can suspend sockets without a close event. Rebind the same identity
     // after a prolonged background stay and let the engine reconnect durable peers.
+    recordDiagnostic({
+      phase: 'resume',
+      message: `rebinding the Iroh endpoint after ${Math.round(
+        away / 1000,
+      )}s in the background`,
+    });
     const previous = owner;
     owner = handle();
     binding = null;

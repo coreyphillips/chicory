@@ -8,6 +8,8 @@ import {
   TOR_SOCKS_HOST,
   TOR_SOCKS_PORT,
 } from '../services/tor';
+import { recordDiagnostic } from '../services/diagnosticLog';
+import { onLongResume } from './resume';
 
 type NativeSocket = ReturnType<typeof TcpSocket.createConnection>;
 type WriteCallback = (error?: Error) => void;
@@ -18,6 +20,42 @@ const CONNECT_TIMEOUT_MS = 20000;
  * deadline is the usual bound. This only catches a daemon that answers nothing.
  */
 const TOR_HANDSHAKE_TIMEOUT_MS = 180000;
+
+/** Every wallet connection that has not closed, for `resetWalletSockets`. */
+const live = new Set<NativeWalletSocket>();
+let watching = false;
+
+/**
+ * Close every open wallet connection when the app comes back after a long
+ * stay in the background (`onLongResume`), on both platforms. A suspended or
+ * frozen app's sockets can go silent without a close, and the engine only
+ * notices a dead peer through the socket, so it kept a primary it could no
+ * longer reach listed as connected: no redial, a status that stayed amber or
+ * red, and a relaunch as the quickest way back. Closed here, the peer
+ * manager dials the primary again within a second, through a fresh Tor
+ * stream, and Electrum reconnects on its next check.
+ */
+function watchForResume() {
+  if (watching) return;
+  watching = true;
+  onLongResume(away => {
+    const count = resetWalletSockets();
+    if (count === 0) return;
+    recordDiagnostic({
+      phase: 'resume',
+      message: `closed ${count} wallet connection${
+        count === 1 ? '' : 's'
+      } after ${Math.round(away / 1000)}s in the background`,
+    });
+  });
+}
+
+/** Close every open wallet connection now (`reset`). Answers how many. */
+function resetWalletSockets(): number {
+  const open = [...live];
+  for (const socket of open) socket.reset();
+  return open.length;
+}
 
 /** Adapt native TCP/TLS to the byte-stream surface used by Beignet's Noise layer. */
 export class NativeWalletSocket extends EventEmitter {
@@ -50,6 +88,8 @@ export class NativeWalletSocket extends EventEmitter {
     if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
       throw new Error('Invalid wallet connection endpoint.');
     }
+    live.add(this);
+    watchForResume();
     const onion = isOnionHost(host);
     if (onion && tls) {
       // The onion address is itself the server's key, and the circuit is already
@@ -115,6 +155,7 @@ export class NativeWalletSocket extends EventEmitter {
       }
       this.ended = true;
       this.destroyed = true;
+      live.delete(this);
       this.queuedBytes = 0;
       this.clearHandshakeTimer();
       this.emit('close', hadError);
@@ -349,10 +390,56 @@ export class NativeWalletSocket extends EventEmitter {
     // close here so a caller waiting on the connection is not left hanging.
     if (!this.ended) {
       this.ended = true;
+      live.delete(this);
       this.queuedBytes = 0;
       this.emit('close', !!error);
     }
     return this;
+  }
+
+  /**
+   * Close the connection at once, as if the far end had, for a return from a
+   * long stay in the background (`watchForResume`). The close is reported
+   * here, synchronously, rather than when the native socket's own arrives:
+   * the peer is marked disconnected before anything can read the wallet
+   * after the return, so no read shows a dead primary as connected. The
+   * native close that follows finds the socket ended and is dropped.
+   *
+   * A connection that has opened gets only the close, which is how a peer
+   * and Electrum hear that the far end went away. One still dialling is
+   * waiting on an error, not a close, so it gets one first; the engine's
+   * socket throws an error nobody listens for, so that one is caught.
+   */
+  reset() {
+    if (this.ended) {
+      return;
+    }
+    const opened = this.connected;
+    this.ended = true;
+    this.destroyed = true;
+    live.delete(this);
+    this.tunnel = null;
+    this.pending = [];
+    this.queuedBytes = 0;
+    this.clearHandshakeTimer();
+    if (this.dialed) {
+      try {
+        this.socket.destroy();
+      } catch {
+        // Already gone on the native side.
+      }
+    }
+    if (!opened) {
+      try {
+        this.emit(
+          'error',
+          new Error('The connection was reset when the app came back.'),
+        );
+      } catch {
+        // Nothing was listening for it.
+      }
+    }
+    this.emit('close', !opened);
   }
   ref() {
     return this;

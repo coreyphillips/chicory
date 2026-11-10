@@ -444,6 +444,163 @@ test('a proxy that accepts the connection but never answers gives up instead of 
   }
 });
 
+describe('a return from a long stay in the background', () => {
+  /**
+   * The watcher the transport registers with its first connection, and a
+   * clock to move between the trip away and the return. Both come from the
+   * modules this test's `beforeEach` loaded.
+   */
+  function lifecycle() {
+    const { AppState } = require('react-native');
+    AppState.currentState = 'active';
+    const add = jest.mocked(AppState.addEventListener);
+    const before = add.mock.calls.length;
+    return {
+      /** Call once the first connection exists. */
+      listener: () => add.mock.calls[before][1] as (state: string) => void,
+      calls: () => add.mock.calls.length - before,
+    };
+  }
+  const away = (listener: (state: string) => void, ms: number) => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1000);
+    listener('background');
+    now.mockReturnValue(1000 + ms);
+    listener('active');
+    now.mockRestore();
+  };
+  const watch = (socket: InstanceType<typeof NativeWalletSocket>) => {
+    const events: string[] = [];
+    socket.on('error', (error: Error) => events.push(`error:${error.message}`));
+    socket.on('close', (hadError: boolean) => events.push(`close:${hadError}`));
+    return events;
+  };
+  const resumeLines = () =>
+    recentDiagnostics().filter(entry => entry.phase === 'resume');
+
+  test.each(['ios', 'android'] as const)(
+    'on %s, closes every open connection at once, as if the far end had, and writes it down',
+    async os => {
+      require('react-native').Platform.OS = os;
+      const app = lifecycle();
+      const electrum = new NativeWalletSocket({
+        host: 'bitkit.to',
+        port: 9999,
+        tls: true,
+      });
+      const primary = new NativeWalletSocket({
+        host: '127.0.0.1',
+        port: 9735,
+        tls: false,
+      });
+      await settle();
+      const [electrumNative, primaryNative] = sockets();
+      electrumNative.emit('secureConnect');
+      primaryNative.emit('connect');
+      const electrumEvents = watch(electrum);
+      const primaryEvents = watch(primary);
+      // One watcher for every connection, registered with the first.
+      expect(app.calls()).toBe(1);
+
+      away(app.listener(), 412_000);
+
+      // Heard before the listener returns: nothing can read the wallet in
+      // between and see the dead primary as connected.
+      expect(electrumEvents).toEqual(['close:false']);
+      expect(primaryEvents).toEqual(['close:false']);
+      expect(electrumNative.destroyed).toBe(true);
+      expect(primaryNative.destroyed).toBe(true);
+      expect(electrum.destroyed).toBe(true);
+      expect(primary.readyState).toBe('closed');
+      expect(resumeLines().map(entry => entry.message)).toEqual([
+        'closed 2 wallet connections after 412s in the background',
+      ]);
+      // The native close that follows is the same close, not a second one.
+      primaryNative.emit('close', false);
+      expect(primaryEvents).toEqual(['close:false']);
+      expect(() => primary.write(Buffer.from('ping'))).toThrow('closed');
+    },
+  );
+
+  test('a stay under 30s closes nothing', async () => {
+    const app = lifecycle();
+    const primary = new NativeWalletSocket({
+      host: '127.0.0.1',
+      port: 9735,
+      tls: false,
+    });
+    await settle();
+    sockets()[0].emit('connect');
+    const events = watch(primary);
+    away(app.listener(), 29_999);
+    expect(events).toEqual([]);
+    expect(sockets()[0].destroyed).toBe(false);
+    expect(resumeLines()).toEqual([]);
+  });
+
+  test('a connection that already closed is not closed again, and a return with nothing open writes nothing', async () => {
+    const app = lifecycle();
+    const primary = new NativeWalletSocket({
+      host: '127.0.0.1',
+      port: 9735,
+      tls: false,
+    });
+    await settle();
+    sockets()[0].emit('connect');
+    const events = watch(primary);
+    sockets()[0].emit('close', true);
+    expect(events).toEqual(['close:true']);
+    away(app.listener(), 60_000);
+    expect(events).toEqual(['close:true']);
+    expect(resumeLines()).toEqual([]);
+  });
+
+  test('a dial still waiting on Tor fails as a dial does, and never reaches the proxy', async () => {
+    const app = lifecycle();
+    const socket = new NativeWalletSocket({
+      host: ONION,
+      port: 9735,
+      tls: false,
+    });
+    const events = watch(socket);
+    away(app.listener(), 60_000);
+    expect(events).toEqual([
+      'error:The connection was reset when the app came back.',
+      'close:true',
+    ]);
+    await settle();
+    expect(sockets()[0].connectOptions).toBeNull();
+    expect(resumeLines()).toHaveLength(1);
+  });
+
+  test('a dial with nobody listening for its error still closes, and the return goes on', async () => {
+    const app = lifecycle();
+    const dialling = new NativeWalletSocket({
+      host: '127.0.0.1',
+      port: 9735,
+      tls: false,
+    });
+    const open = new NativeWalletSocket({
+      host: '127.0.0.1',
+      port: 9736,
+      tls: false,
+    });
+    await settle();
+    sockets()[1].emit('connect');
+    // The engine's socket is a Node emitter, which throws an error it has no
+    // listener for.
+    dialling.on('error', (error: Error) => {
+      throw error;
+    });
+    const closes: boolean[] = [];
+    dialling.on('close', (hadError: boolean) => closes.push(hadError));
+    const openEvents = watch(open);
+    expect(() => away(app.listener(), 60_000)).not.toThrow();
+    expect(closes).toEqual([true]);
+    expect(openEvents).toEqual(['close:false']);
+    expect(sockets()[0].destroyed).toBe(true);
+  });
+});
+
 const mockRuntime = { request: jest.fn(), close: jest.fn() };
 const mockStorage = {
   volume: { read: () => null },

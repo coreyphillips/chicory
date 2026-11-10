@@ -97,7 +97,9 @@ export type CanvasSession = Pick<
   | 'disconnect'
   | 'switchNetwork'
   | 'eraseDevice'
->;
+> &
+  // Back in front on figures that went old while away; absent, it is false.
+  Partial<Pick<Session, 'resuming'>>;
 
 /**
  * A recovery phrase backup, as data, for each region to draw its own way.
@@ -174,11 +176,11 @@ export interface RegionProps {
   /** The balance is too old to spend against. */
   stale: boolean;
   /**
-   * The wallet is opening on the figures it last saw (a cached launch) and
-   * its first live read is not yet overdue (LIVE_OVERDUE_MS). Send and
-   * Receive open and wait for that read rather than refuse, and nothing
-   * warns about the old balance yet. Only ever true while `stale` is.
-   * Absent, it is false.
+   * The wallet is opening on the figures it last saw (a cached launch, or a
+   * return to figures that went old while the app was away) and its first
+   * live read is not yet overdue (LIVE_OVERDUE_MS). Send and Receive open
+   * and wait for that read rather than refuse, and nothing warns about the
+   * old balance yet. Only ever true while `stale` is. Absent, it is false.
    */
   opening?: boolean;
   backup: Backup | null;
@@ -266,8 +268,9 @@ export function Canvas({
   usePrimaryFocus(primaries, scene, overlay);
   const arrived = useIncoming(snapshot);
   // Counted once for the whole canvas, so every region agrees on when a
-  // cached launch's first read is overdue.
-  const opening = useOpening(stale, session.connecting);
+  // cached launch's first read is overdue. A return on figures that went
+  // old while the app was away waits for its first read the same way.
+  const opening = useOpening(stale, session.connecting || !!session.resuming);
   const region: RegionProps = {
     snapshot,
     client,

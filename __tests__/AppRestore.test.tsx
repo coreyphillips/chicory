@@ -2087,6 +2087,139 @@ describe('a recovery the engine does not answer', () => {
   });
 });
 
+/**
+ * The app moving to `state` as the system moves it: the state is set and
+ * every AppState listener still subscribed hears the one event, together,
+ * as they do on a phone.
+ */
+async function appGoes(state: 'background' | 'active') {
+  Object.defineProperty(AppState, 'currentState', {
+    value: state,
+    configurable: true,
+  });
+  const add = jest.mocked(AppState.addEventListener);
+  await act(async () => {
+    add.mock.calls.forEach(([event, listener], at) => {
+      const subscription = add.mock.results[at]?.value;
+      if (
+        event === 'change' &&
+        !jest.mocked(subscription.remove).mock.calls.length
+      )
+        (listener as (next: string) => void)(state);
+    });
+  });
+}
+
+/**
+ * Ten minutes away. The phone suspends the app, so no timer runs while it is
+ * gone; the ones that came due fire on its return, as here.
+ */
+async function longStayAway() {
+  await appGoes('background');
+  jest.setSystemTime(Date.now() + 10 * 60_000);
+  await appGoes('active');
+  await act(async () => {
+    jest.advanceTimersByTime(0);
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
+describe('a return from a long stay in the background', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    clearDiagnostics();
+    Object.defineProperty(AppState, 'currentState', {
+      value: 'active',
+      configurable: true,
+    });
+  });
+  const staleFelt = () =>
+    recentDiagnostics().filter(entry => entry.code === 'STALE');
+
+  test('reads the wallet at once rather than resyncing it, and a fresh read means nothing is warned about', async () => {
+    const engine = agedWallet();
+    engine.answer = 'fresh';
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<App />);
+    });
+    expect(gated(tree)).toBe(false);
+    const before = readCount(engine.client);
+    await longStayAway();
+    // The figures on the page went old while the app was away. The return
+    // asks the engine for new ones, and does not start a resync that never
+    // redials the primary and fails on the connections the phone let go.
+    expect(readCount(engine.client)).toBeGreaterThan(before);
+    expect(engine.client.refreshWallet).not.toHaveBeenCalled();
+    expect(staleWords(tree)).toBe('');
+    expect(gated(tree)).toBe(false);
+    // Like a cached launch, it waited for that read rather than warning.
+    expect(staleFelt()).toEqual([]);
+    await poll();
+    await poll();
+    expect(staleFelt()).toEqual([]);
+    expect(engine.client.refreshWallet).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('warns once the first read is 15s overdue, and resyncs only once the figures stay old for 45s in front', async () => {
+    const engine = agedWallet();
+    engine.answer = 'fresh';
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<App />);
+    });
+    expect(gated(tree)).toBe(false);
+    // From here the engine answers, but only with figures already old.
+    engine.answer = 'old';
+    await longStayAway();
+    expect(staleFelt()).toEqual([]);
+    expect(engine.client.refreshWallet).not.toHaveBeenCalled();
+    // The launch's grace runs out at 15s: the old balance is felt, once.
+    await poll();
+    expect(staleFelt()).toEqual([]);
+    await poll();
+    expect(staleFelt()).toHaveLength(1);
+    expect(gated(tree)).toBe(true);
+    // Still asking only the plain question at 36s in front.
+    await poll();
+    expect(engine.client.refreshWallet).not.toHaveBeenCalled();
+    // Past 45s of old figures in front, the app resyncs on its own, as it
+    // does for figures that stop arriving while it is open.
+    await poll();
+    await poll();
+    expect(engine.client.refreshWallet).toHaveBeenCalled();
+    expect(staleFelt()).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('a short trip away is no return on old figures: nothing waits and nothing resyncs', async () => {
+    const engine = agedWallet();
+    engine.answer = 'fresh';
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<App />);
+    });
+    const before = readCount(engine.client);
+    await appGoes('background');
+    jest.setSystemTime(Date.now() + 5_000);
+    await appGoes('active');
+    await act(async () => {
+      jest.advanceTimersByTime(0);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(readCount(engine.client)).toBe(before + 1);
+    expect(engine.client.refreshWallet).not.toHaveBeenCalled();
+    expect(gated(tree)).toBe(false);
+    expect(staleFelt()).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+});
+
 test('a read that answers with fewer rows shrinks neither the page nor the cache, and a relaunch opens on every row', async () => {
   jest.useFakeTimers();
   Object.defineProperty(AppState, 'currentState', {
