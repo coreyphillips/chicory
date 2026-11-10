@@ -1,0 +1,8 @@
+module PaykitLookup {
+    header "paykit_lookup.h"
+    // What the static library needs from the system, so importing the module is enough to link it.
+    link framework "Security"
+    link framework "CoreFoundation"
+    link "iconv"
+    export *
+}

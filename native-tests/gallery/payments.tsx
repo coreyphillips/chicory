@@ -10,6 +10,8 @@ import type {
   WalletSnapshot,
 } from '@beignet/wallet-core';
 import { copy } from '../../src/design/copy';
+import { LookupError, setPaymentListLookup } from '../../src/services/paykit';
+import type { PaymentListLookup } from '../../src/services/paykit';
 import type { WalletAdapter } from '../../src/services/wallet';
 import type { AutoPay } from '../../src/services/autoPayPreference';
 import { holdRequest } from '../../src/stage/heldRequests';
@@ -54,7 +56,24 @@ export const AMOUNT_4200 = keyed('4200');
 /** A request the parser refuses as it is entered: an LNURL. */
 const LNURL =
   'LNURL1DP68GURN8GHJ7UM9WFMXJCM99E3K7MF0V9CXJ0M385EKVCENXC6R2C35XVUKXEFCV5MKVV34X5EKZD3EV56NYD3HXQURZEPEXEJXXEPNXSCRVWFNV9NXZCN9XQ6XYEFHVGCXXCMYXYMNSERXFQ5FNS';
+const P2WPKH = 'btc-bitcoin-p2wpkh';
 const COMMIT: Step = drive => drive.activate(SEND);
+
+/** The owner in paykit-discovery's fixtures, standing in for a payee. */
+const PUBKY = 'pubky://5jsjx1o6fzu6aeeo697r3i5rx15zq41kikcye8wtwdqm4nb4tryo';
+
+/**
+ * A pubky entered in Send, with its lookup answered as `lookup` says: the
+ * gallery reaches no relay or homeserver.
+ */
+const pubky = (name: string, lookup: PaymentListLookup, steps?: Step[]) =>
+  send(name, () => {
+    setPaymentListLookup(lookup);
+    return { request: PUBKY, steps };
+  });
+const published = (identifier: string, payload: string) => async () =>
+  [{ appId: 'bitkit', identifier, payload }];
+
 
 interface Paying {
   request?: string;
@@ -205,6 +224,20 @@ const sends: Shot[] = [
     snapshot: stale(onMainnet()),
   })),
   send('a request that cannot be paid', () => ({ request: LNURL })),
+  pubky('a pubky being looked up', () => never()),
+  pubky('a pubky resolved to an address', published(P2WPKH, ADDRESS)),
+  pubky('a pubky, reviewed', published(P2WPKH, ADDRESS), [
+    ...AMOUNT_4200,
+    REVIEW,
+  ]),
+  pubky('a pubky that publishes nothing', async () => []),
+  pubky(
+    'a pubky with nothing this wallet can pay',
+    published('btc-lightning-bolt12', 'lno1qcp4256ypq'),
+  ),
+  pubky('a pubky whose lookup failed', async () => {
+    throw new LookupError('LOOKUP_FAILED', 'unreachable');
+  }),
   send('on a test network', () => ({
     snapshot: fresh(),
     steps: [...AMOUNT_4200, REVIEW],

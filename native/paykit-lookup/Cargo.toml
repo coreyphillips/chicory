@@ -1,0 +1,29 @@
+[package]
+name = "paykit-lookup"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91.1"
+description = "Native entry points for public Paykit Payment List lookups"
+publish = false
+
+[lib]
+name = "paykit_lookup"
+crate-type = ["staticlib", "cdylib"]
+
+[workspace]
+
+[dependencies]
+paykit-discovery = { git = "https://github.com/coreyphillips/paykit-discovery", rev = "16ee1577ed6468b26ad8f511238da8a43d43a18a" }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.21", default-features = false }
+# The lookup's TLS stack verifies certificates through Android's own verifier,
+# which has to be handed the app's context first. It speaks jni 0.22.
+jni22 = { package = "jni", version = "0.22" }
+rustls-platform-verifier = "0.7"
+
+[profile.release]
+opt-level = "s"
+strip = "debuginfo"

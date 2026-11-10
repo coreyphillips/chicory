@@ -8,3 +8,6 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# Called from native/paykit-lookup over JNI, by name.
+-keep class org.rustls.platformverifier.** { *; }

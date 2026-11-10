@@ -29,6 +29,8 @@ export const scan = {
   starting: 'Getting the camera ready…',
   invalid: 'That code is not a payment request.',
   detected: 'Payment request found.',
+  /** A pubky read on a payment scan, which Send then looks up. */
+  pubkyDetected: 'Pubky found.',
   denied: 'Camera access is off.',
   noCamera:
     'Chicory needs the camera only to read a payment request. Turn it on in your device settings, or paste the request instead.',

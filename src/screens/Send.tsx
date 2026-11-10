@@ -28,6 +28,7 @@ import { Glyph, HISTORY_GLYPH } from '../design/glyphs';
 import type { GlyphName } from '../design/glyphs';
 import { haptics } from '../design/haptics';
 import { palette } from '../design/palette';
+import { chipText } from '../glyphs/chipText';
 import { CopyChip } from '../glyphs/CopyChip';
 import { Whisper } from '../glyphs/Whisper';
 import { inlineAmount } from '../glyphs/InlineAmount';
@@ -72,16 +73,20 @@ import {
   isUncertain,
   isPayAllReview,
   isRatedReview,
+  lookupFailure,
   previewReview,
   rateRefusal,
   resultVisual,
   reviewRail,
   requestRefusal,
+  shortRequest,
   reviewWaiting,
   reviewWords,
   sendFailure,
 } from '../scenes/send/model';
 import type { Failure } from '../scenes/send/model';
+import { fallbacks, payableEndpoints, pubkyOf } from '../scenes/send/pubky';
+import type { Payable } from '../scenes/send/pubky';
 import { RequestEntry } from '../scenes/send/RequestEntry';
 import type { Origin } from '../scenes/send/RequestEntry';
 import { ResultMark } from '../scenes/send/ResultMark';
@@ -93,6 +98,7 @@ import { TestNetwork } from '../scenes/send/tone';
 import type { Landing } from '../scenes/send/useLanding';
 import { autoPayNow } from '../services/autoPayPreference';
 import { recordDiagnostic } from '../services/diagnosticLog';
+import { lookupPaymentList } from '../services/paykit';
 import { errorMessage } from '../services/useWalletSession';
 import type { WalletAdapter } from '../services/wallet';
 import {
@@ -162,6 +168,30 @@ const ACTIVITY_GLYPH: GlyphName = HISTORY_GLYPH;
  * that keeps the chip's line, and draws nothing.
  */
 const NOTHING_YET = '\u00a0';
+
+/**
+ * A pubky whose lookup found something to pay: the key, the text it was
+ * entered as, which the well shows again when the chip is opened, the
+ * endpoints this wallet can pay in the order they are tried, and the one
+ * the request now is.
+ */
+interface Via {
+  pubky: string;
+  entered: string;
+  options: Payable[];
+  at: number;
+}
+
+/**
+ * What a resolved pubky pays, as a screen reader hears it on the chip and
+ * on the hold: the pubky, the rail and the destination its homeserver lists.
+ */
+const pubkyWords = (pubky: string, option: Payable) =>
+  copy.send.pubkyPays(
+    chipText(pubky),
+    option.rail === 'bolt' ? copy.send.lightning : copy.send.bitcoin,
+    shortRequest(option.request),
+  );
 
 /** A quote this close to running out is said aloud once. */
 const LATE_MS = 10_000;
@@ -245,6 +275,7 @@ export function SendScreen({
   unit = 'sats',
   symbol = false,
   test = false,
+  network = 'mainnet',
   leaving = false,
   ref,
 }: {
@@ -290,6 +321,8 @@ export function SendScreen({
   symbol?: boolean;
   /** A test network, where slate stands in for bloom throughout. */
   test?: boolean;
+  /** The wallet's network, which a pubky's endpoints are chosen for. */
+  network?: string;
   /**
    * Send is no longer the stage's scene and only fades out where it was.
    * An answer arriving now is recorded, as for a Send that has gone, and
@@ -311,6 +344,19 @@ export function SendScreen({
   // request or amount survives a scan that is cancelled or replaces it.
   const [scanning, setScanning] = useState(initialScanning);
   const [amount, setAmount] = useState('');
+  // A pubky in place of a request (REDESIGN.md 6, Send). While `request` is
+  // still the pubky it is being looked up, or its lookup ended in a failure;
+  // once an endpoint is chosen `request` is that endpoint's own request, so
+  // the amount lock, the held set, the review and the payment all read what
+  // is actually paid, and `via` keeps where it came from. Lookups are
+  // numbered, so an answer for a request since changed is dropped.
+  const [via, setVia] = useState<Via | null>(null);
+  const [looking, setLooking] = useState(false);
+  const lookups = useRef(0);
+  // The lookup still current was answered while Send was away.
+  const missed = useRef(false);
+  const unresolved = useMemo(() => pubkyOf(request) !== null, [request]);
+  const route = via && via.options[via.at]?.request === request ? via : null;
   const [maximum, setMaximum] = useState<
     (MaxQuote & { request: string; client: WalletAdapter }) | null
   >(null);
@@ -420,6 +466,7 @@ export function SendScreen({
     !composeBusy &&
     live &&
     !leaving &&
+    !unresolved &&
     failure?.target !== 'request';
   useEffect(() => {
     // Keep the last usable amount visible while refreshing this same wallet
@@ -542,6 +589,16 @@ export function SendScreen({
   useLayoutEffect(() => {
     mounted.current = !leaving;
     if (leaving) queuedFor.current = null;
+  }, [leaving]);
+  // A lookup answered while Send was leaving was dropped. A Send the stage
+  // returns to looks the pubky up again, rather than waiting on that answer.
+  useEffect(() => {
+    if (leaving || !missed.current) return;
+    missed.current = false;
+    const key = pubkyOf(request);
+    if (key && looking) lookUp(request, key);
+    // Runs as Send comes back, with that render's request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leaving]);
   useEffect(() => () => onBusy(false), [onBusy]);
   // Calls to the engine are numbered, so an answer only lets go of what its
@@ -946,6 +1003,9 @@ export function SendScreen({
     // Only a Lightning code the camera read, naming its amount, is reviewed
     // on its own; a paste, a link or typing never is.
     letAutoGo();
+    dropLookup();
+    // A pubky is never a candidate: the parser refuses it, and the request
+    // its lookup resolves to is set here, not read by the camera.
     if (byCamera && autoPayNow().on && autoPayCandidate(code)) {
       autoFor.current = code;
     }
@@ -963,7 +1023,87 @@ export function SendScreen({
     }
     setCollapsed(true);
     setFailure(null);
+    const key = pubkyOf(code);
+    if (key) lookUp(code, key);
     return true;
+  }
+
+  /** Lets go of a lookup still out, and of what the last one found. */
+  function dropLookup() {
+    lookups.current += 1;
+    missed.current = false;
+    setLooking(false);
+    setVia(null);
+  }
+
+  /**
+   * Looks up where the pubky `key`, entered as `text`, is paid. It pays
+   * nothing, so the stage is not held and Close works throughout. Found, the
+   * first endpoint this wallet can pay becomes the request; the review may
+   * still move on to an address when Lightning cannot carry the amount
+   * (`prepare`). Nothing published, nothing payable and a lookup that failed
+   * or ran out of time each end in their own refusal. An answer for a
+   * request since changed, or for a Send that has gone, is dropped.
+   */
+  function lookUp(text: string, key: string) {
+    const call = (lookups.current += 1);
+    missed.current = false;
+    setVia(null);
+    setLooking(true);
+    say(copy.send.pubkyLooking);
+    recordDiagnostic({
+      phase: 'ui',
+      code: 'PUBKY_LOOKUP',
+      message: copy.send.pubkyLooking,
+    });
+    lookupPaymentList(key)
+      .then(
+        endpoints => ({ endpoints, code: '' }),
+        (error: unknown) => ({
+          endpoints: null,
+          code: errorCode(error) || 'LOOKUP_FAILED',
+        }),
+      )
+      .then(answer => {
+        if (lookups.current !== call) return;
+        if (!mounted.current) {
+          missed.current = true;
+          return;
+        }
+        setLooking(false);
+        if (!answer.endpoints) {
+          // Why it failed, as a code; the refusal's own entry follows.
+          recordDiagnostic({
+            phase: 'ui',
+            code: answer.code,
+            message: copy.send.pubkyLookupFailed,
+          });
+          refuse(lookupFailure('PUBKY_LOOKUP_FAILED'));
+          return;
+        }
+        const options = payableEndpoints(answer.endpoints, network);
+        if (!options.length) {
+          refuse(
+            lookupFailure(
+              answer.endpoints.length
+                ? 'PUBKY_NOT_PAYABLE'
+                : 'PUBKY_NO_ENDPOINTS',
+            ),
+          );
+          return;
+        }
+        const [first] = options;
+        setVia({ pubky: key, entered: text, options, at: 0 });
+        setRequest(first.request);
+        haptics.soft();
+        say(pubkyWords(key, first));
+        // The identifier names the rail; the payload is never logged.
+        recordDiagnostic({
+          phase: 'ui',
+          code: 'PUBKY_RESOLVED',
+          message: first.endpoint.identifier,
+        });
+      });
   }
 
   /** Auto-pay lets go of the request it was armed for, if it was. */
@@ -978,10 +1118,36 @@ export function SendScreen({
       setCollapsed(false);
       return;
     }
-    if (failure?.target === 'request') return;
+    const key = pubkyOf(request);
+    // A lookup that failed is tried again as the well is left; any other
+    // refusal stands until the request changes.
+    const again = key !== null && failure?.code === 'PUBKY_LOOKUP_FAILED';
+    if (failure?.target === 'request' && !again) return;
     const refused = requestRefusal(request);
-    if (refused) refuse(refused);
-    else setCollapsed(true);
+    if (refused) {
+      refuse(refused);
+      return;
+    }
+    setCollapsed(true);
+    if (key) {
+      setFailure(null);
+      lookUp(request, key);
+    }
+  }
+
+  /**
+   * The chip was tapped in compose, to change the request. A resolved pubky
+   * opens as the pubky that was entered, and a lookup still out is let go;
+   * leaving the well looks it up afresh.
+   */
+  function reopen() {
+    if (route) {
+      setRequest(route.entered);
+      setMaxFor(null);
+      setFeeRate(null);
+    }
+    dropLookup();
+    setCollapsed(false);
   }
 
   /**
@@ -1214,7 +1380,7 @@ export function SendScreen({
   }
 
   async function prepare() {
-    if (waitingFor.current) return;
+    if (waitingFor.current || unresolved) return;
     if (opening) {
       queuedFor.current = request;
       setQueued(true);
@@ -1230,13 +1396,73 @@ export function SendScreen({
     dropQuote();
     // A refresh is asked for from a review whose quote ran out.
     const fromReview = review !== null;
-    const asking = request;
+    let asking = request;
     const call = goingOut();
     // Preparing pays nothing, so a Send left while it waits loses nothing.
     const cancelGrace = grace(call);
     setFailure(null);
     try {
-      const next = await client.prepareSend(sendInput());
+      const input = sendInput();
+      let next: SendReview | null = null;
+      try {
+        next = await client.prepareSend(input);
+      } catch (e) {
+        // A pubky's Lightning endpoint that cannot carry the amount gives
+        // way to an address it lists, at the same amount. With none that
+        // can be reviewed, the Lightning refusal is the one shown.
+        const keyed = Number(input.amountSats ?? 0);
+        const sats = fixedSats ?? (keyed > 0 ? keyed : null);
+        const others =
+          route && !maxSelected
+            ? fallbacks(route.options, route.at, errorCode(e), sats)
+            : [];
+        for (const at of others) {
+          const option = route!.options[at];
+          asking = option.request;
+          const heldAlready = heldRequest(option.request, activity) !== null;
+          if (!heldAlready) {
+            try {
+              next = await client.prepareSend({
+                request: option.request,
+                ...(option.amountSats === null && sats !== null
+                  ? { amountSats: sats }
+                  : {}),
+              });
+            } catch (again) {
+              if (!alreadySubmitted(again)) continue;
+              // The engine has a payment to the address out: it is held,
+              // and the ring that says so is the address's.
+              if (mounted.current) {
+                setVia({ ...route!, at });
+                setRequest(option.request);
+              }
+              throw again;
+            }
+          }
+          if (!mounted.current) return;
+          setVia({ ...route!, at });
+          setRequest(option.request);
+          setFeeRate(null);
+          if (option.amountSats === null && sats !== null) {
+            setAmount(String(sats));
+          }
+          recordDiagnostic({
+            phase: 'ui',
+            code: 'PUBKY_FELL_BACK',
+            message: option.endpoint.identifier,
+          });
+          // Rule 6 holds for the address too.
+          if (heldAlready) {
+            toHeld();
+            return;
+          }
+          break;
+        }
+        if (!next) {
+          asking = request;
+          throw e;
+        }
+      }
       if (!mounted.current) return;
       adopt(next);
     } catch (e) {
@@ -1476,6 +1702,7 @@ export function SendScreen({
 
   function typed(text: string) {
     letAutoGo();
+    dropLookup();
     queuedFor.current = null;
     setQueued(false);
     setMaxFor(null);
@@ -1768,7 +1995,12 @@ export function SendScreen({
                   ? copy.send.sendMax
                   : copy.send.sendSats(shown.amountSats)
               }
-              summary={reviewWords(shown)}
+              summary={[
+                route ? pubkyWords(route.pubky, route.options[route.at]) : null,
+                reviewWords(shown),
+              ]
+                .filter(Boolean)
+                .join(' ')}
               expiresAt={review.expiresAt}
               createdAt={reviewedAt}
               warning={review.warnings.length > 0}
@@ -1806,11 +2038,15 @@ export function SendScreen({
       : amountTone(Number(shownAmount) || 0, balance);
     // What the review waits for, if anything: a request, one that can be
     // paid, and an amount. Until then it is drawn and told as disabled.
-    const waiting = reviewWaiting(
-      request,
-      failure?.target === 'request',
-      Number(shownAmount) || 0,
-    );
+    const waiting = looking
+      ? copy.send.pubkyWaits
+      : unresolved
+      ? copy.send.reviewRefused
+      : reviewWaiting(
+          request,
+          failure?.target === 'request',
+          Number(shownAmount) || 0,
+        );
     const hint = [
       fixedSats === null ? null : copy.amount.fixed,
       amountWords(tone, Number(shownAmount) || 0, balance),
@@ -1918,19 +2154,20 @@ export function SendScreen({
             value={request}
             onChangeText={composing && live ? typed : undefined}
             collapsed={!composing || collapsed}
-            onExpand={
-              composeBusy
-                ? undefined
-                : review
-                ? edit
-                : () => setCollapsed(false)
-            }
+            onExpand={composeBusy ? undefined : review ? edit : reopen}
             onCollapse={collapse}
             fixed={fixedSats !== null}
             refused={
               composing && failure?.target === 'request' ? failure : null
             }
             busy={composeBusy}
+            via={route?.pubky}
+            viaWords={
+              route
+                ? pubkyWords(route.pubky, route.options[route.at])
+                : undefined
+            }
+            looking={looking && unresolved}
             onPaste={composing ? paste : undefined}
             onScan={composing ? scan : undefined}
           />

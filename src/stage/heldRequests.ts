@@ -207,6 +207,35 @@ export function paymentHashOf(request: string): string | null {
   return null;
 }
 
+/** The `x` field: how long the invoice runs, in seconds. */
+const EXPIRY_TAG = 6;
+const DEFAULT_EXPIRY_S = 3600;
+
+const numberOf = (words: number[]) =>
+  words.reduce((sum, word) => sum * 32 + word, 0);
+
+/**
+ * When the bolt11 `invoice` runs out, in milliseconds: its timestamp and the
+ * expiry it names, or the hour BOLT 11 gives one that names none. Null when
+ * it does not read as an invoice.
+ */
+export function invoiceExpiry(invoice: string): number | null {
+  const words = invoiceWords(invoice.trim().toLowerCase());
+  if (!words || words.length < TIMESTAMP_WORDS + SIGNATURE_WORDS) return null;
+  const end = words.length - SIGNATURE_WORDS;
+  let expiry = DEFAULT_EXPIRY_S;
+  for (let at = TIMESTAMP_WORDS; at + 3 <= end; ) {
+    const start = at + 3;
+    const length = words[at + 1] * 32 + words[at + 2];
+    if (words[at] === EXPIRY_TAG && start + length <= end) {
+      expiry = numberOf(words.slice(start, start + length));
+      break;
+    }
+    at = start + length;
+  }
+  return (numberOf(words.slice(0, TIMESTAMP_WORDS)) + expiry) * 1000;
+}
+
 /**
  * The key a request is held under: the Lightning invoice it is or carries,
  * or else its address and the amount it names, in sats so that 0.001 and
