@@ -20,6 +20,10 @@ test('the installed engine reports the verified upstream release', async () => {
     },
   });
   try {
+    // This fork shares #122's version string. Exercise the installed lifecycle
+    // API that Android uses, including transitions before the node starts.
+    runtime.setAppBackgrounded(true);
+    runtime.setAppBackgrounded(false);
     const config = await runtime.request({ path: '/api/config' });
     expect(config.engineVersion).toBe('0.38.4-portable');
     expect(config.offlineReceiveAvailable).toBe(true);

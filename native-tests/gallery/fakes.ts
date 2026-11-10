@@ -463,6 +463,7 @@ export function sessionOf(
     snapshot,
     initializing: false,
     connecting: false,
+    resuming: false,
     selecting: false,
     refreshing: false,
     deviceVisible: false,

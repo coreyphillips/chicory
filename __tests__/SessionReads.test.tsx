@@ -1,4 +1,5 @@
 import React from 'react';
+import { AppState } from 'react-native';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import * as Keychain from 'react-native-keychain';
@@ -230,6 +231,24 @@ describe('reads that overlap', () => {
 });
 
 describe('reads after a connection', () => {
+  test('a confirmed primary disconnect is visible while the replacement handshake is pending', async () => {
+    const client = device();
+    const { tree, report } = await open(client);
+    const previous = AppState.currentState;
+    AppState.currentState = 'active';
+    const primary = { ...reading().primary!, connected: false };
+    client.snapshot = jest.fn(async () => reading({ primary }));
+    await report('peer:disconnect', STRANGER);
+    await act(async () => jest.advanceTimersByTime(0));
+    expect(client.snapshot).not.toHaveBeenCalled();
+    await report('peer:disconnect', PRIMARY + ' closed by us: Pong timeout');
+    await act(async () => jest.advanceTimersByTime(0));
+    expect(session.snapshot?.primary?.connected).toBe(false);
+    expect(client.snapshot).toHaveBeenCalledTimes(1);
+    AppState.currentState = previous;
+    await act(async () => tree.unmount());
+  });
+
   test('only the primary connecting brings the reads forward', async () => {
     const client = device();
     const { tree, report } = await open(client);

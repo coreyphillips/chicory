@@ -217,6 +217,9 @@ export function withDeviceSeedSource(
     }
   }
   return {
+    setAppBackgrounded(backgrounded) {
+      if (!closed) runtime.setAppBackgrounded(backgrounded);
+    },
     request(request) {
       assertOpen();
       if (

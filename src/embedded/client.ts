@@ -1,3 +1,4 @@
+import { AppState, Platform } from 'react-native';
 import * as Keychain from 'react-native-keychain';
 import { EmbeddedWalletClient } from '@beignet/wallet-core';
 import { installNativeCrypto } from './random';
@@ -143,12 +144,8 @@ export function validateDeviceSettings(value: DeviceSettings) {
   }
 }
 
-/**
- * The hosts a stored wallet's primaries live at, with their onion fallbacks:
- * every ranked primary's (coreyphillips/beignet#1924), else the one scalar
- * primary's, as a record from before the list names it.
- */
-function hostsOf(lfbw: unknown): string[] {
+/** A pre-ranking wallet stores its single primary and fallback directly. */
+function primaryHosts(lfbw: unknown) {
   const block = lfbw as
     | {
         primaries?: Array<{ uri?: unknown; fallbackUri?: unknown }>;
@@ -156,12 +153,16 @@ function hostsOf(lfbw: unknown): string[] {
         primaryFallbackUri?: unknown;
       }
     | undefined;
-  const entries = Array.isArray(block?.primaries) ? block.primaries : [];
-  const hosts =
-    entries.length > 0
-      ? entries.flatMap(entry => [uriHost(entry.uri), uriHost(entry.fallbackUri)])
-      : [uriHost(block?.primaryUri), uriHost(block?.primaryFallbackUri)];
-  return hosts.filter(Boolean);
+  const entries =
+    Array.isArray(block?.primaries) && block.primaries.length
+      ? block.primaries
+      : [{ uri: block?.primaryUri, fallbackUri: block?.primaryFallbackUri }];
+  return entries
+    .map(entry => ({
+      host: uriHost(entry.uri),
+      fallback: uriHost(entry.fallbackUri),
+    }))
+    .filter(entry => entry.host || entry.fallback);
 }
 
 /** The host of a `pubkey@host:port` node URI, or an empty string. */
@@ -239,23 +240,26 @@ export async function openDeviceWallet(
         >
       >
     | undefined;
+  let lifecycle: ReturnType<typeof AppState.addEventListener> | undefined;
   let committed = false;
   try {
     const registryBytes = storage.volume.read('/wallet/registry.json');
-    // Every stored primary's host and onion fallback (one or several).
-    let storedHosts: string[] = [];
+    let primaries: ReturnType<typeof primaryHosts> = [];
     if (registryBytes) {
       try {
         const record = JSON.parse(decoder().decode(registryBytes)).record;
         assertWalletNetwork([record], settings.network);
-        storedHosts = hostsOf(record?.lfbw);
+        primaries = primaryHosts(record?.lfbw);
       } finally {
         registryBytes.fill(0);
       }
     }
+    const profileHost = uriHost(settings.primaryUri);
+    if (!primaries.length) primaries = [{ host: profileHost, fallback: '' }];
     if (
       settings.transport === 'relay' &&
-      (storedHosts.includes('iroh') || uriHost(settings.primaryUri) === 'iroh')
+      (primaries.some(p => p.host === 'iroh' || p.fallback === 'iroh') ||
+        profileHost === 'iroh')
     ) {
       throw new Error(
         'Iroh requires Native networking. Select Native in Network settings before opening this wallet.',
@@ -291,27 +295,34 @@ export async function openDeviceWallet(
     // an onion fallback warms it too, but its start does not wait.
     if (
       settings.transport === 'native' &&
-      (storedHosts.some(isOnionHost) ||
-        (storedHosts.length === 0 && isOnionHost(uriHost(settings.primaryUri))))
+      primaries.some(p => isOnionHost(p.host) || isOnionHost(p.fallback))
     ) {
       void ensureTorReady().catch(() => {});
     }
-    // The engine gives the primary dial 15 seconds in all, Tor included, and
-    // no node option raises it: the peer's own socket timer is fixed too. A
-    // cold bootstrap does not fit, so a start waits for Tor first. If Tor
-    // fails, the start still runs so the chain syncs and the dial names the
-    // Tor error.
-    const primaryIsOnion = (requested: unknown) =>
-      settings.transport === 'native' &&
-      (isOnionHost(uriHost(requested)) ||
-        storedHosts.some(isOnionHost) ||
-        (storedHosts.length === 0 && isOnionHost(uriHost(settings.primaryUri))));
+    // A wallet with only onion primaries waits for Tor before start, including
+    // its restored-channel dials. A mixed list can start over its direct peers.
+    const needsTorBeforeStart = (requested: unknown) => {
+      const host = uriHost(requested);
+      return (
+        settings.transport === 'native' &&
+        (host
+          ? isOnionHost(host)
+          : primaries.every(primary => isOnionHost(primary.host)))
+      );
+    };
     let closing = false;
     engine = await createPortableRuntime({
       ...storage,
       socketFactory,
       ...(settings.transport === 'native'
-        ? { iroh: { factory: createNativeIrohEndpoint, discovery: false } }
+        ? {
+            iroh: { factory: createNativeIrohEndpoint, discovery: false },
+            // Give each onion primary its full dial budget after bootstrap.
+            // The dial reports a Tor failure through the native socket.
+            preparePrimaryDial: async (host: string) => {
+              if (isOnionHost(host)) await ensureTorReady().catch(() => {});
+            },
+          }
         : {}),
       electrum: settings.electrum,
       onDiagnostic,
@@ -348,7 +359,7 @@ export async function openDeviceWallet(
               body?.lfbw?.primaryUri ??
               body?.primaryNodeUri ??
               body?.lfbwPrimaryNode;
-            if (primaryIsOnion(requested)) {
+            if (needsTorBeforeStart(requested)) {
               await ensureTorReady().catch(() => {});
               // A close during the wait has already stopped the engine.
               if (closing)
@@ -385,6 +396,11 @@ export async function openDeviceWallet(
           closing = true;
           const failures: unknown[] = [];
           try {
+            lifecycle?.remove();
+          } catch (error) {
+            failures.push(error);
+          }
+          try {
             await withDeadline(
               runtime.close(),
               CLOSE_DEADLINE_MS,
@@ -402,6 +418,15 @@ export async function openDeviceWallet(
         },
       },
     });
+    if (Platform.OS === 'android') {
+      const onAppState = (state: typeof AppState.currentState) => {
+        if (state === 'active' || state === 'background') {
+          runtime.setAppBackgrounded(state === 'background');
+        }
+      };
+      lifecycle = AppState.addEventListener('change', onAppState);
+      onAppState(AppState.currentState);
+    }
     committed = true;
     return client;
   } finally {
@@ -409,6 +434,11 @@ export async function openDeviceWallet(
     // claim. Neither may outlive a failure: an orphaned realm makes every
     // later runtime throw, for the life of the process.
     if (!committed) {
+      try {
+        lifecycle?.remove();
+      } catch {
+        // The engine and its storage still need to close.
+      }
       if (engine) await engine.close().catch(() => {});
       try {
         storage.close();
