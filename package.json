@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@beignet/portable-engine": "github:coreyphillips/beignet-portable-engine#06604483890b538a6462383cc7f171b6a51ac934",
+    "@beignet/portable-engine": "github:coreyphillips/beignet-portable-engine#a8669d80c7212aa27b01aa7b08b2bcaa2b4e54bf",
     "@beignet/wallet-core": "github:coreyphillips/beignet-wallet-core#90273846381bbc6775bc5a9a1d27409a18ee0744",
     "@op-engineering/op-sqlite": "^18.2.0",
     "@react-native-clipboard/clipboard": "^1.16.3",
