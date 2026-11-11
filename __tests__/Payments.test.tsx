@@ -6,6 +6,9 @@ import type { SendReview, ReceiveQuote } from '@beignet/wallet-core';
 import { SendScreen, ReceiveScreen } from '../src/screens/Payments';
 import { Scanner } from '../src/components/Scanner';
 import { forgetSpoken } from '../src/design/announce';
+import { haptics } from '../src/design/haptics';
+import { WhisperProvider } from '../src/glyphs/Whisper';
+import { recentDiagnostics } from '../src/services/diagnosticLog';
 import { copy } from '../src/design/copy';
 import { FOCUS_SETTLE_MS, forgetSafety } from '../src/motion/speech';
 import * as tokens from '../src/motion/tokens';
@@ -23,6 +26,7 @@ import {
   meaning,
   press,
   pressableLabels,
+  visibleText,
   whispers,
 } from '../test-support/query';
 
@@ -733,14 +737,16 @@ describe('what the engine says no with', () => {
     amount = '',
   ) {
     const tree = await renderSend(
-      <SendScreen
-        client={adapter(client)}
-        initialRequest={request}
-        onActivity={jest.fn()}
-        onRefresh={jest.fn()}
-        onBusy={onBusy}
-        {...props}
-      />,
+      <WhisperProvider>
+        <SendScreen
+          client={adapter(client)}
+          initialRequest={request}
+          onActivity={jest.fn()}
+          onRefresh={jest.fn()}
+          onBusy={onBusy}
+          {...props}
+        />
+      </WhisperProvider>,
     );
     if (amount) await enterAmount(tree, amount);
     await act(async () => {
@@ -748,6 +754,72 @@ describe('what the engine says no with', () => {
     });
     return tree;
   }
+
+  test('a tap or a hold explains a refused request once without acting on it again', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    const tick = jest.spyOn(haptics, 'tick');
+    try {
+      const why = 'Request expired at the encoded timestamp.';
+      const prepareSend = jest
+        .fn()
+        .mockRejectedValue(refusal('INVOICE_EXPIRED', why));
+      const send = jest.fn();
+      const onRefresh = jest.fn();
+      const tree = await review(
+        priced('expired'),
+        { prepareSend, send },
+        { onRefresh },
+      );
+      const explanation = copy.send.invoiceExpired;
+      const diagnostics = recentDiagnostics();
+      expect(diagnostics).toContainEqual(
+        expect.objectContaining({ code: 'INVOICE_EXPIRED', message: why }),
+      );
+      const spoken =
+        AccessibilityInfo.announceForAccessibilityWithOptions as jest.Mock;
+      const alertsBefore = spoken.mock.calls.length;
+      const mark = element(tree, explanation);
+      expect(mark.props.accessibilityRole).toBe('alert');
+      const touch = {
+        persist: jest.fn(),
+        currentTarget: 1,
+        nativeEvent: { pageX: 160, pageY: 300 },
+      };
+      for (const duration of [0, 400]) {
+        tick.mockClear();
+        await act(async () => mark.props.onResponderGrant(touch));
+        await act(async () => jest.advanceTimersByTime(duration));
+        if (duration) expect(visibleText(tree)).toContain(explanation);
+        await act(async () => mark.props.onResponderRelease(touch));
+        expect(tick).toHaveBeenCalledTimes(1);
+        expect(
+          visibleText(tree).filter(text => text === explanation),
+        ).toHaveLength(1);
+        await act(async () => jest.advanceTimersByTime(2400));
+        expect(visibleText(tree)).not.toContain(explanation);
+      }
+      expect(alerts(tree)).toEqual([explanation]);
+      expect(field(tree, copy.send.request).props.value).toBe(
+        priced('expired'),
+      );
+      expect(prepareSend).toHaveBeenCalledTimes(1);
+      expect(send).not.toHaveBeenCalled();
+      expect(onRefresh).not.toHaveBeenCalled();
+      expect(spoken.mock.calls).toHaveLength(alertsBefore);
+      expect(recentDiagnostics()).toEqual(diagnostics);
+      await act(async () => mark.props.onResponderGrant(touch));
+      await act(async () => mark.props.onResponderRelease(touch));
+      await act(async () =>
+        field(tree, copy.send.request).props.onChangeText(priced('another')),
+      );
+      expect(visibleText(tree)).not.toContain(explanation);
+      expect(alerts(tree)).toEqual([]);
+      await act(async () => tree.unmount());
+    } finally {
+      tick.mockRestore();
+      jest.useRealTimers();
+    }
+  });
 
   test('a request it will not pay dissolves back into the well, kept to fix', async () => {
     const message = 'This invoice is damaged. Ask for a new one.';
@@ -847,7 +919,13 @@ describe('what the engine says no with', () => {
       send,
     });
     await activate(tree, 'Send 4,200 sats');
-    expect(alerts(tree)).toEqual([message]);
+    expect(alerts(tree)).toEqual([copy.send.quoteExpired]);
+    await act(async () =>
+      label(tree, copy.send.quoteExpired).props.onPress({
+        nativeEvent: { pageX: 10, pageY: 10 },
+      }),
+    );
+    expect(visibleText(tree)).toContain(copy.send.quoteExpired);
     expect(find(tree, 'Refresh quote')).toBeDefined();
     expect(holds(tree, 'Send 4,200 sats')).toEqual([]);
     expect(send).toHaveBeenCalledTimes(1);
