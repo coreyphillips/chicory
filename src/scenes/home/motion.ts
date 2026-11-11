@@ -218,16 +218,20 @@ export function landedAt(away: number, distance: number): boolean {
 }
 
 /**
- * The scale the tapped circle's glyph is drawn at inside the circle, `m` of
- * the way to the control. The glyph is drawn once, at the size it lands at:
- * the control's `to` points, the control drawn at `scale`, with the
- * control's stroke. The circle grows from `size` into the control, drawn at
- * `scale`, and carries the glyph with it, so the glyph is shrunk against
- * that growth, and on screen it grows from `glyph` points at home to the
- * control's glyph, in step with the circle. Its whole scale on screen is
- * never above 1: a drawing is only ever shrunk, never a bitmap enlarged
- * into a soft, heavy line, and its line keeps the control's weight for its
- * size all the way, the control's own once it lands.
+ * The scale a glyph drawn at `drawn` points is shown at inside the tapped
+ * circle, `m` of the way to the control. On screen the glyph grows from
+ * `glyph` points at home to the control's, its `to` points on the control
+ * drawn at `scale`, in step with the circle, which grows from `size` into
+ * the control and carries the glyph with it, so the glyph is shrunk against
+ * that growth.
+ *
+ * By default the drawing is the control's own, made at the size it lands
+ * at, with the control's stroke: its whole scale on screen is never above
+ * 1, so it is only ever shrunk, never a bitmap enlarged into a soft, heavy
+ * line, and its line keeps the control's weight for its size all the way.
+ * The circle's own glyph, drawn at `glyph` points, follows the same size on
+ * screen, so the two always line up while one hands over to the other
+ * (`glyphHandoff`).
  */
 export function glyphScale(
   m: number,
@@ -235,13 +239,42 @@ export function glyphScale(
   size: number,
   to: number,
   scale: number,
+  drawn?: number,
 ): number {
   'worklet';
   const t = clamp01(m);
   const landed = to * scale;
   const shown = glyph + (landed - glyph) * t;
   const grown = 1 + ((PRIMARY_CONTROL * scale) / size - 1) * t;
-  return shown / (landed * grown);
+  // Read in the body, where the worklet captures it (see tintTiming).
+  return shown / ((drawn ?? landed) * grown);
+}
+
+/**
+ * How much of the way to the control each step of the glyph's hand-over
+ * takes: the control's glyph comes in over the circle's own across the
+ * first HANDOFF, and the circle's own goes out under it across the next.
+ */
+export const HANDOFF = 0.2;
+
+/**
+ * How much the tapped circle's two glyphs show, `m` of the way to the
+ * control: `home`, its own, drawn at its size with its stroke, and
+ * `travel`, the control's, drawn over it. The two are the same size on
+ * screen at every step (`glyphScale`), so only the line changes between
+ * them. Setting out, the control's comes in over the circle's own, then the
+ * circle's own goes out under it; coming home, the circle's own comes back
+ * under the control's, then the control's goes. One of the two is always
+ * whole, so the glyph never dims, and its line eases from one weight to the
+ * other rather than snapping as the circle lands.
+ */
+export function glyphHandoff(m: number): { home: number; travel: number } {
+  'worklet';
+  const t = clamp01(m);
+  return {
+    home: clamp01(2 - t / HANDOFF),
+    travel: clamp01(t / HANDOFF),
+  };
 }
 
 /** One frame at 60fps, in ms. */

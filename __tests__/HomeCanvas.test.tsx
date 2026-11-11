@@ -17,10 +17,12 @@ import { BackupTile } from '../src/scenes/home/BackupTile';
 import { HomePane } from '../src/scenes/home/HomePane';
 import { StatusRow } from '../src/scenes/home/StatusRow';
 import {
+  HANDOFF,
   LANDED_PT,
   MINI_IN_BAND,
   MINI_IN_ROW,
   figureShown,
+  glyphHandoff,
   glyphScale,
   landedAt,
   launchPose,
@@ -83,6 +85,14 @@ const flatStyle = (style: unknown) =>
   (StyleSheet.flatten(style as never) ?? {}) as Record<string, unknown>;
 const transformOf = (node: ReactTestInstance, key: string) =>
   flat(node).transform?.find(step => key in step)?.[key];
+/** The nearest view around `node` that sets its opacity, or its scale. */
+const shownAt = (node: ReactTestInstance, key: 'opacity' | 'scale') => {
+  const read = (view: ReactTestInstance) =>
+    key === 'scale' ? transformOf(view, 'scale') : flat(view).opacity;
+  let view: ReactTestInstance | null = node;
+  while (view && read(view) === undefined) view = view.parent;
+  return view ? (read(view) as number) : undefined;
+};
 /** The first host view a component draws, where its style lands. */
 const host = (node: ReactTestInstance) =>
   node.findAll(inner => typeof inner.type === 'string')[0];
@@ -704,7 +714,45 @@ describe('the circle becomes the control it lands on', () => {
     }
   });
 
-  test('the travelling circle draws the control’s glyph and shrinks it, its stroke fixed', async () => {
+  test('its two glyphs hand over with one always whole, the same size on screen', () => {
+    expect(glyphHandoff(0)).toEqual({ home: 1, travel: 0 });
+    expect(glyphHandoff(1)).toEqual({ home: 0, travel: 1 });
+    // The control's is whole once it has come in over the circle's own,
+    // and the circle's own is gone by twice that.
+    expect(glyphHandoff(HANDOFF)).toEqual({ home: 1, travel: 1 });
+    expect(glyphHandoff(2 * HANDOFF).home).toBeCloseTo(0);
+    let before = glyphHandoff(0);
+    for (let m = 0; m <= 1.0001; m += 0.02) {
+      const now = glyphHandoff(m);
+      // Never dimmed, and each goes one way only.
+      expect(Math.max(now.home, now.travel)).toBe(1);
+      expect(now.home).toBeLessThanOrEqual(before.home);
+      expect(now.travel).toBeGreaterThanOrEqual(before.travel);
+      before = now;
+    }
+    for (const look of [
+      launchLook('send', { live: true, test: false }),
+      launchLook('receive', { live: false, test: false }),
+    ]) {
+      const landed = look.glyph * look.scale;
+      for (let m = 0; m <= 1.0001; m += 0.05) {
+        // The circle's own, drawn at 24, lines up with the control's at
+        // every step, so only the line changes between them.
+        const own = 24 * glyphScale(m, 24, 56, look.glyph, look.scale, 24);
+        const theirs = landed * glyphScale(m, 24, 56, look.glyph, look.scale);
+        expect(own).toBeCloseTo(theirs);
+        // While its own is the one seen whole, it is barely enlarged, and
+        // at home it is drawn at its own size exactly.
+        const grown = 1 + m * ((88 * look.scale) / 56 - 1);
+        if (glyphHandoff(m).travel < 1) {
+          expect((own * grown) / 24).toBeLessThan(1.125);
+        }
+      }
+      expect(glyphScale(0, 24, 56, look.glyph, look.scale, 24)).toBe(1);
+    }
+  });
+
+  test('the travelling circle draws its own glyph and the control’s, and shrinks them, their strokes fixed', async () => {
     const look = launchLook('send', { live: true, test: false });
     function Travelling({ m }: { m: number }) {
       const toward = Reanimated.useSharedValue(m);
@@ -719,35 +767,41 @@ describe('the circle becomes the control it lands on', () => {
         />
       );
     }
-    for (const m of [0, 0.5, 1]) {
+    for (const m of [0, 0.1, 0.3, 0.5, 1]) {
       const tree = await mount(<Travelling m={m} />);
-      // Its own glyph and the control's over it, each drawn at the size it
-      // lands at with the control's stroke, not the grid's glyph scaled up
-      // with the circle, and no stroke animated.
+      // Its own glyph, then the control's with its twin over it. Its own
+      // is the grid's; the control's are drawn at the size they land at
+      // with the control's stroke, not the grid's glyph scaled up with the
+      // circle. No stroke is animated.
       const drawings = tree.root.findAllByType(Svg);
       const send = GLYPHS.send.map(part => part.d);
       expect(
         drawings.map(svg => svg.findAllByType(Path).map(path => path.props.d)),
-      ).toEqual([send, send]);
-      for (const svg of drawings) {
+      ).toEqual([send, send, send]);
+      const [own, control, twin] = drawings;
+      expect(own.props.width).toBe(24);
+      expect(own.props.strokeWidth).toBe(strokeFor(24));
+      for (const svg of [control, twin]) {
         expect(svg.props.width).toBe(look.glyph);
         expect(svg.props.strokeWidth).toBe(strokeFor(look.glyph));
+      }
+      for (const svg of drawings) {
         for (const path of svg.findAllByType(Path)) {
           expect(path.props.animatedProps).toBeUndefined();
         }
       }
-      // The view it is drawn in shrinks it, never enlarges it.
-      const grows = drawings[0].parent!;
-      let view: ReactTestInstance | null = grows;
-      while (view && transformOf(view, 'scale') === undefined) {
-        view = view.parent;
-      }
-      const shrunk = transformOf(view!, 'scale') as number;
+      // The control's is shrunk inside the circle, never enlarged, and its
+      // own is the same size on screen.
+      const shrunk = shownAt(control, 'scale')!;
       expect(shrunk).toBeCloseTo(glyphScale(m, 24, 56, look.glyph, look.scale));
       expect(shrunk).toBeLessThan(1);
+      expect(24 * shownAt(own, 'scale')!).toBeCloseTo(look.glyph * shrunk);
+      // And the two hand over as far as the circle has gone.
+      expect(shownAt(own, 'opacity')).toBeCloseTo(glyphHandoff(m).home);
+      expect(shownAt(control, 'opacity')).toBeCloseTo(glyphHandoff(m).travel);
       await act(async () => tree.unmount());
     }
-    // At rest, with nowhere to go, it is the grid's glyph.
+    // At rest, with nowhere to go, it is the grid's glyph, whole.
     const resting = await mount(
       <ActionCircle
         glyph="send"
@@ -757,10 +811,52 @@ describe('the circle becomes the control it lands on', () => {
         stale={false}
       />,
     );
-    const [still] = resting.root.findAllByType(Svg);
+    const [still, ...more] = resting.root.findAllByType(Svg);
+    expect(more).toEqual([]);
     expect(still.props.width).toBe(24);
     expect(still.props.strokeWidth).toBe(strokeFor(24));
+    expect(shownAt(still, 'scale')).toBe(1);
+    expect(shownAt(still, 'opacity')).toBe(1);
     await act(async () => resting.unmount());
+  });
+
+  test('nothing in the circle is taken down or drawn anew as it comes home', async () => {
+    // The device pass: the circle swapped its travelling glyph for its own
+    // as it landed, and the shrink the travelling glyph had been drawn at
+    // stayed on the view, so the arrow jumped as it landed and rested at
+    // three quarters of its size, two thirds after Receive.
+    const look = launchLook('receive', { live: true, test: false });
+    function Circle({ travelling }: { travelling: boolean }) {
+      const toward = Reanimated.useSharedValue(0);
+      return (
+        <ActionCircle
+          glyph="receive"
+          size={56}
+          label="Receive"
+          hint=""
+          stale={false}
+          morph={travelling ? { look, toward } : undefined}
+        />
+      );
+    }
+    const drawn = (tree: ReactTestRenderer) =>
+      tree.root.findAllByType(Svg).map(svg => ({
+        width: svg.props.width,
+        stroke: svg.props.stroke,
+        strokeWidth: svg.props.strokeWidth,
+        scale: shownAt(svg, 'scale'),
+        opacity: shownAt(svg, 'opacity'),
+      }));
+    const tree = await mount(<Circle travelling />);
+    const landing = drawn(tree);
+    await act(async () => tree.update(<Circle travelling={false} />));
+    const home = drawn(tree);
+    // The same drawings, posed as they were: its own whole at its own
+    // size, and the control's still there, unseen.
+    expect(home).toEqual(landing);
+    expect(home[0]).toMatchObject({ width: 24, scale: 1, opacity: 1 });
+    expect(home[1]).toMatchObject({ width: look.glyph, opacity: 0 });
+    await act(async () => tree.unmount());
   });
 
   test("the look is the one Send's and Receive's controls draw", async () => {
@@ -868,7 +964,9 @@ describe('the circle becomes the control it lands on', () => {
     const landed = await at(1);
     expect(landed.disc.opacity).toBe(1);
     expect(landed.disc.borderColor).toBe(look.ring);
-    expect(landed.inks).toEqual([palette.cream, look.ink]);
+    // Its own glyph, unseen by then, and the control's in the circle's ink
+    // with its twin in the control's over it.
+    expect(landed.inks).toEqual([palette.cream, palette.cream, look.ink]);
   });
 
   test('a scene can hold its control unseen until the circle hands over', async () => {
