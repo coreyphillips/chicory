@@ -471,7 +471,11 @@ describe('overlay', () => {
 
 describe('scanned', () => {
   test('a scan from home opens send with the code, marked as read by the camera', () => {
-    const next = run(scanFrom('home'), { type: 'scanned', value: REQUEST });
+    const next = run(scanFrom('home'), {
+      type: 'scanned',
+      value: REQUEST,
+      source: 'camera',
+    });
     expect(next.overlay).toBeNull();
     expect(next.scene).toEqual({
       name: 'send',
@@ -484,7 +488,11 @@ describe('scanned', () => {
 
   test('a scan from send only closes the overlay', () => {
     const scanning = run(openSend(), scanFrom('send'));
-    const next = stageReducer(scanning, { type: 'scanned', value: REQUEST });
+    const next = stageReducer(scanning, {
+      type: 'scanned',
+      value: REQUEST,
+      source: 'camera',
+    });
     expect(next.overlay).toBeNull();
     expect(next.scene).toBe(scanning.scene);
     expect(next.scene).toMatchObject({ prefill: '' });
@@ -493,7 +501,11 @@ describe('scanned', () => {
 
   test('a scan from Settings only closes the overlay, over the same Settings', () => {
     const scanning = run(openSettings, fieldScan);
-    const next = stageReducer(scanning, { type: 'scanned', value: REQUEST });
+    const next = stageReducer(scanning, {
+      type: 'scanned',
+      value: REQUEST,
+      source: 'camera',
+    });
     expect(next.overlay).toBeNull();
     expect(next.scene).toBe(scanning.scene);
     expect(next.stack).toBe(scanning.stack);
@@ -510,11 +522,17 @@ describe('scanned', () => {
 
   test('without a scan open it changes nothing', () => {
     const creating = run(create);
-    expect(stageReducer(creating, { type: 'scanned', value: REQUEST })).toBe(
-      creating,
-    );
+    expect(
+      stageReducer(creating, {
+        type: 'scanned',
+        value: REQUEST,
+        source: 'camera',
+      }),
+    ).toBe(creating);
     const root = initialStage();
-    expect(stageReducer(root, { type: 'scanned', value: REQUEST })).toBe(root);
+    expect(
+      stageReducer(root, { type: 'scanned', value: REQUEST, source: 'camera' }),
+    ).toBe(root);
   });
 });
 
@@ -561,7 +579,7 @@ test('every stack rests on home', () => {
     { type: 'back' },
     { type: 'tab', tab: 'Settings' },
     fieldScan,
-    { type: 'scanned', value: REQUEST },
+    { type: 'scanned', value: REQUEST, source: 'camera' },
     fieldScan,
     { type: 'back' },
     fieldScan,
@@ -569,14 +587,14 @@ test('every stack rests on home', () => {
     { type: 'back' },
     openSend(REQUEST),
     scanFrom('send'),
-    { type: 'scanned', value: REQUEST },
+    { type: 'scanned', value: REQUEST, source: 'camera' },
     openActivity,
     openDetail,
     { type: 'link', request: REQUEST },
     { type: 'tab', tab: 'Activity' },
     { type: 'home' },
     scanFrom('home'),
-    { type: 'scanned', value: REQUEST },
+    { type: 'scanned', value: REQUEST, source: 'camera' },
     { type: 'reset' },
   ];
   let state = initialStage();

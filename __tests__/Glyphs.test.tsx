@@ -60,6 +60,7 @@ test('the set is the one REDESIGN.md section 4 names', () => {
     'unplug',
     'infinity',
     'clipboard',
+    'photo',
     'backspace',
     'qr',
     'sprout',

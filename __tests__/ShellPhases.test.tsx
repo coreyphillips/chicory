@@ -6,6 +6,7 @@ import {
   Platform,
   StyleSheet,
   Text,
+  TurboModuleRegistry,
 } from 'react-native';
 import type { AppStateStatus } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -39,7 +40,7 @@ import { StageProvider, useStageStore } from '../src/stage/StageContext';
 import type { StageStore } from '../src/stage/StageContext';
 import { snapshotOf, walletOf } from '../test-support/fixtures';
 import { mount } from '../test-support/guard';
-import { pressableLabels } from '../test-support/query';
+import { find, pressableLabels } from '../test-support/query';
 
 /**
  * The stage and the shell phases as a device showed them (the P7 walk on the
@@ -161,6 +162,65 @@ function Staged({ phase, live }: { phase: Phase; live: Session }) {
     </SafeAreaProvider>
   );
 }
+
+describe('an image picker result belongs to the wallet that opened it', () => {
+  test.each(['lock', 'wallet switch', 'network switch'])(
+    'drops a result after %s',
+    async change => {
+      const read = snapshotOf();
+      const live = sessionOf({ snapshot: read });
+      const walletPhase = { kind: 'wallet', error: '' } as const;
+      const tree = await mount(<Staged phase={walletPhase} live={live} />);
+      await act(async () => stage.actions.openScan());
+      let finish!: (codes: string[]) => void;
+      const pick = jest.fn(
+        () =>
+          new Promise<string[]>(resolve => {
+            finish = resolve;
+          }),
+      );
+      jest
+        .spyOn(TurboModuleRegistry, 'getEnforcing')
+        .mockReturnValue({ pick } as never);
+      await act(async () => {
+        find(tree, copy.scan.chooseImage)!.props.onPress();
+      });
+      expect(pick).toHaveBeenCalledTimes(1);
+      if (change === 'lock') {
+        await act(async () =>
+          tree.update(
+            <Staged
+              phase={{ kind: 'locked', prompting: false, error: '' }}
+              live={live}
+            />,
+          ),
+        );
+      } else {
+        const next = sessionOf({
+          snapshot: {
+            ...read,
+            wallet:
+              change === 'wallet switch'
+                ? { ...read.wallet, id: 'other-wallet' }
+                : {
+                    ...read.wallet,
+                    network:
+                      read.wallet.network === 'mainnet' ? 'regtest' : 'mainnet',
+                  },
+          },
+        });
+        await act(async () =>
+          tree.update(<Staged phase={walletPhase} live={next} />),
+        );
+      }
+      await act(async () =>
+        finish(['bitcoin:1BoatSLRHtKNngkdXEeobR76b53LETtpyT']),
+      );
+      expect(stage.state.scene.name).toBe('home');
+      await act(async () => tree.unmount());
+    },
+  );
+});
 
 describe('a wallet read that keeps failing', () => {
   // The canvas keeps the last figures and only draws them as old, so the

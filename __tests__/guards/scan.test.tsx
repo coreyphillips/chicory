@@ -6,6 +6,7 @@ import {
   PermissionsAndroid,
   Platform,
   StyleSheet,
+  TurboModuleRegistry,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stop } from 'react-native-svg';
@@ -65,6 +66,7 @@ import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
 import {
   componentName,
+  find,
   pressableLabels,
   press,
   visibleText,
@@ -868,7 +870,7 @@ describe('reading a code', () => {
     const [camera] = cameras(tree);
     act(() => {
       camera.props.onReadCode({ nativeEvent: { codeStringValue: PAYABLE } });
-      expect(onDetected).toHaveBeenCalledWith(PAYABLE);
+      expect(onDetected).toHaveBeenCalledWith(PAYABLE, 'camera');
     });
     expect(thud).toHaveBeenCalledTimes(1);
     expect(said).toHaveBeenCalledWith(copy.scan.detected);
@@ -881,7 +883,7 @@ describe('reading a code', () => {
     await readCode(tree, ` lightning:${INVOICE} `);
     await readCode(tree, PAYABLE);
     expect(onDetected).toHaveBeenCalledTimes(1);
-    expect(onDetected).toHaveBeenCalledWith(INVOICE);
+    expect(onDetected).toHaveBeenCalledWith(INVOICE, 'camera');
     await act(async () => tree.unmount());
   });
 
@@ -896,7 +898,7 @@ describe('reading a code', () => {
     expect(said).toHaveBeenCalledWith(refusal(LNURL));
     expect(cameras(tree)).toHaveLength(1);
     await readCode(tree, PAYABLE);
-    expect(onDetected).toHaveBeenCalledWith(PAYABLE);
+    expect(onDetected).toHaveBeenCalledWith(PAYABLE, 'camera');
     await act(async () => tree.unmount());
   });
 
@@ -918,11 +920,73 @@ describe('reading a code', () => {
     await act(async () => tree.unmount());
   });
 
+  test.each([
+    [[PAYABLE, PAYABLE], PAYABLE, null],
+    [[UNPAYABLE, INVOICE], INVOICE, null],
+    [[], null, copy.scan.noImageCode],
+    [[PAYABLE, INVOICE], null, copy.scan.severalImageCodes],
+    [[LNURL], null, refusal(LNURL)],
+    [null, null, null],
+  ] as const)(
+    'chooses only an unambiguous payable image code (%#)',
+    async (codes, expected, reason) => {
+      const onDetected = jest.fn();
+      const pick = jest.fn().mockResolvedValue(codes);
+      jest
+        .spyOn(TurboModuleRegistry, 'getEnforcing')
+        .mockReturnValue({ pick } as never);
+      const tree = await mount(scanner({ onDetected }));
+      await press(tree, copy.scan.chooseImage);
+      expect(pick).toHaveBeenCalledTimes(1);
+      if (expected) {
+        expect(onDetected).toHaveBeenCalledTimes(1);
+        expect(onDetected).toHaveBeenCalledWith(expected, 'photo');
+      } else {
+        expect(onDetected).not.toHaveBeenCalled();
+        expect(cameras(tree)).toHaveLength(1);
+        const [button] = labelled(tree, copy.scan.chooseImage);
+        expect(button.props.accessibilityValue?.text).toBe(reason ?? undefined);
+        if (reason)
+          expect(whispers(tree)).toContainEqual({ label: reason, on: true });
+        await readCode(tree, PAYABLE);
+        expect(onDetected).toHaveBeenCalledWith(PAYABLE, 'camera');
+      }
+      await act(async () => tree.unmount());
+    },
+  );
+
+  test('a pending picker owns detection and drops its result when the scan closes', async () => {
+    let finish!: (codes: string[]) => void;
+    const pick = jest.fn(
+      () =>
+        new Promise<string[]>(resolve => {
+          finish = resolve;
+        }),
+    );
+    jest
+      .spyOn(TurboModuleRegistry, 'getEnforcing')
+      .mockReturnValue({ pick } as never);
+    const onDetected = jest.fn();
+    const tree = await mount(scanner({ onDetected }));
+    const read = cameras(tree)[0].props.onReadCode;
+    await act(async () => {
+      find(tree, copy.scan.chooseImage)!.props.onPress();
+      find(tree, copy.scan.chooseImage)!.props.onPress();
+      read({ nativeEvent: { codeStringValue: INVOICE } });
+    });
+    expect(cameras(tree)).toHaveLength(0);
+    expect(onDetected).not.toHaveBeenCalled();
+    expect(pick).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+    await act(async () => finish([PAYABLE]));
+    expect(onDetected).not.toHaveBeenCalled();
+  });
+
   test('a pasted code that can be paid goes to Send', async () => {
     const onDetected = jest.fn();
     const tree = await mount(scanner({ onDetected }));
     await pasting(async () => ` ${PAYABLE}\n`)(tree);
-    expect(onDetected).toHaveBeenCalledWith(PAYABLE);
+    expect(onDetected).toHaveBeenCalledWith(PAYABLE, 'clipboard');
     await act(async () => tree.unmount());
   });
 
@@ -998,7 +1062,7 @@ describe('reading a code', () => {
       'header',
     );
     expect(pressableLabels(tree)).toEqual(
-      new Set([copy.scan.paste, copy.scan.close]),
+      new Set([copy.scan.paste, copy.scan.chooseImage, copy.scan.close]),
     );
     await act(async () => tree.unmount());
   });
@@ -1011,6 +1075,7 @@ describe('what each scan is for', () => {
       title: copy.scan.title,
       privacy: copy.scan.privacy,
       noCamera: copy.scan.noCamera,
+      missingHint: copy.scan.missingHint,
       detected: copy.scan.detected,
       invalid: copy.scan.invalid,
     });
@@ -1018,6 +1083,7 @@ describe('what each scan is for', () => {
       title: copy.scan.primaryTitle,
       privacy: copy.scan.primaryPrivacy,
       noCamera: copy.scan.primaryNoCamera,
+      missingHint: copy.scan.missingFieldHint,
       detected: copy.scan.primaryDetected,
       invalid: copy.scan.primaryInvalid,
     });
@@ -1025,6 +1091,7 @@ describe('what each scan is for', () => {
       title: copy.scan.addressTitle,
       privacy: copy.scan.addressPrivacy,
       noCamera: copy.scan.addressNoCamera,
+      missingHint: copy.scan.missingFieldHint,
       detected: copy.scan.addressDetected,
       invalid: copy.scan.addressInvalid,
     });
@@ -1042,7 +1109,7 @@ describe('what each scan is for', () => {
     );
     await readCode(tree, `bitcoin:${ADDRESS}`);
     // The field's own check gives what is filled in: the bare address.
-    expect(onDetected).toHaveBeenCalledWith(ADDRESS);
+    expect(onDetected).toHaveBeenCalledWith(ADDRESS, 'camera');
     expect(said).toHaveBeenCalledWith(copy.scan.addressDetected);
     await act(async () => tree.unmount());
   });
@@ -1121,12 +1188,16 @@ describe('the camera', () => {
 
   test('held, the reticle whispers what it asks, and that it is starting', async () => {
     const live = await mount(scanner());
-    expect(whispers(live)).toEqual([{ label: copy.scan.aim, on: true }]);
+    expect(whispers(live)).toEqual([
+      { label: copy.scan.aim, on: true },
+      { label: copy.scan.chooseImage, on: false },
+    ]);
     await act(async () => live.unmount());
     asking();
     const tree = await mount(scanner());
     expect(whispers(tree)).toEqual([
       { label: `${copy.scan.aim} ${copy.scan.starting}`, on: true },
+      { label: copy.scan.chooseImage, on: false },
     ]);
     await act(async () => tree.unmount());
   });
@@ -1152,7 +1223,12 @@ describe('the camera', () => {
     expect(off.props.accessibilityHint).toBe(copy.scan.noCamera);
     expect(labelled(tree, copy.scan.camera)).toHaveLength(1);
     expect(pressableLabels(tree)).toEqual(
-      new Set([copy.scan.paste, copy.scan.openSettings, copy.scan.close]),
+      new Set([
+        copy.scan.paste,
+        copy.scan.chooseImage,
+        copy.scan.openSettings,
+        copy.scan.close,
+      ]),
     );
     expect(onAccess).toHaveBeenLastCalledWith('denied');
     await press(tree, copy.scan.openSettings);
@@ -1165,7 +1241,9 @@ describe('the camera', () => {
     const said = jest.spyOn(Announce, 'announce');
     const tree = await mount(scanner());
     expect(said).toHaveBeenCalledWith(copy.scan.denied);
-    expect(tree.root.findByType(Whisper).props.label).toBe(copy.scan.denied);
+    expect(tree.root.findAllByType(Whisper).map(w => w.props.label)).toContain(
+      copy.scan.denied,
+    );
     await act(async () => tree.unmount());
   });
 
@@ -1193,10 +1271,12 @@ describe('the camera', () => {
     const [missing] = labelled(tree, copy.scan.missing);
     expect(missing.props.accessibilityHint).toBe(copy.scan.missingHint);
     expect(pressableLabels(tree)).toEqual(
-      new Set([copy.scan.paste, copy.scan.close]),
+      new Set([copy.scan.paste, copy.scan.chooseImage, copy.scan.close]),
     );
     expect(onAccess).toHaveBeenLastCalledWith('missing');
-    expect(tree.root.findByType(Whisper).props.label).toBe(copy.scan.missing);
+    expect(tree.root.findAllByType(Whisper).map(w => w.props.label)).toContain(
+      copy.scan.missing,
+    );
     await act(async () => tree.unmount());
   });
 });
@@ -1251,7 +1331,7 @@ describe('the overlay', () => {
     const [camera] = cameras(tree);
     act(() => {
       camera.props.onReadCode({ nativeEvent: { codeStringValue: PAYABLE } });
-      expect(onDetected).toHaveBeenCalledWith(PAYABLE);
+      expect(onDetected).toHaveBeenCalledWith(PAYABLE, 'camera');
     });
     await act(async () => tree.unmount());
   });

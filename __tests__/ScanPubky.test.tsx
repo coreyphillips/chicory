@@ -64,7 +64,7 @@ test.each([KEY, `pubky${KEY}`, `pubky://${KEY}`])(
   'a payment scan takes %s as it is, and says a pubky was found',
   async text => {
     const onDetected = await pasted(text);
-    expect(onDetected).toHaveBeenCalledWith(text);
+    expect(onDetected).toHaveBeenCalledWith(text, 'clipboard');
     expect(announce).toHaveBeenCalledWith(copy.scan.pubkyDetected);
   },
 );
