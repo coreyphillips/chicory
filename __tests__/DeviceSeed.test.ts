@@ -92,6 +92,7 @@ function open(namespace: StorageNamespace, network: Network) {
     }),
   };
   const engine: PortableRuntime = {
+    setAppBackgrounded: jest.fn(),
     request: jest.fn(async request => {
       if (request.method === 'POST' && request.path === '/api/wallets') {
         if (registry(namespace)) throw new Error('Wallet already exists');

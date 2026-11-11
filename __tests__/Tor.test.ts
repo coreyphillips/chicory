@@ -444,9 +444,13 @@ test('a proxy that accepts the connection but never answers gives up instead of 
   }
 });
 
-const mockRuntime = { request: jest.fn(), close: jest.fn() };
+const mockRuntime = {
+  request: jest.fn(),
+  close: jest.fn(),
+  setAppBackgrounded: jest.fn(),
+};
 const mockStorage = {
-  volume: { read: () => null },
+  volume: { read: (): Buffer | null => null },
   databaseFactory: jest.fn(),
   close: jest.fn(),
 };
@@ -473,6 +477,38 @@ describe('opening a device wallet', () => {
     transport,
     relayUrl: '',
     relayToken: '',
+  });
+
+  test('the open Android wallet receives background and foreground state until it closes', async () => {
+    const { AppState, Platform } = require('react-native');
+    const originalOs = Platform.OS;
+    const originalState = AppState.currentState;
+    Platform.OS = 'android';
+    AppState.currentState = 'background';
+    const remove = jest.fn();
+    const subscribe = jest
+      .spyOn(AppState, 'addEventListener')
+      .mockReturnValue({ remove });
+    try {
+      const client = await openDeviceWallet(
+        profile({ host: '127.0.0.1', port: 60001, tls: false }),
+      );
+      const change = subscribe.mock.calls.at(-1)![1] as (state: string) => void;
+      change('inactive');
+      change('active');
+      change('background');
+      expect(mockRuntime.setAppBackgrounded.mock.calls).toEqual([
+        [true],
+        [false],
+        [true],
+      ]);
+      await client.close();
+      expect(remove).toHaveBeenCalledTimes(1);
+    } finally {
+      subscribe.mockRestore();
+      Platform.OS = originalOs;
+      AppState.currentState = originalState;
+    }
   });
 
   test('an onion Electrum server waits for Tor before the chain check runs', async () => {
@@ -711,6 +747,55 @@ describe('opening a device wallet', () => {
       expect(engineRequests()).toEqual(['/api/wallets']);
       expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
     });
+
+    test.each([
+      [
+        'legacy Iroh with onion fallback',
+        () => registry(irohPrimary, onionPrimary),
+      ],
+      [
+        'ranked Iroh with onion fallback',
+        () => rankedRegistry([{ uri: irohPrimary, fallbackUri: onionPrimary }]),
+      ],
+      [
+        'direct peer first',
+        () => rankedRegistry([{ uri: tcpPrimary }, { uri: onionPrimary }]),
+      ],
+      [
+        'onion peer first',
+        () => rankedRegistry([{ uri: onionPrimary }, { uri: tcpPrimary }]),
+      ],
+    ] as const)(
+      '%s starts while Tor warms and gates only the onion dial',
+      async (_, saved) => {
+        const read = jest
+          .spyOn(mockStorage.volume, 'read')
+          .mockImplementation(saved);
+        try {
+          const client = await openDeviceWallet(
+            profile({ host: '127.0.0.1', port: 60001, tls: false }),
+          );
+          client.selectWallet('w1');
+          const started = client.startWallet();
+          const [{ preparePrimaryDial }] = require('@beignet/portable-engine')
+            .createPortableRuntime.mock.calls[0];
+          await preparePrimaryDial('127.0.0.1');
+          let onionReady = false;
+          const onion = preparePrimaryDial(ONION).then(() => {
+            onionReady = true;
+          });
+          await jest.advanceTimersByTimeAsync(BOOTSTRAP_MS - 1);
+          expect(engineRequests()).toEqual(['/api/wallets/w1/start']);
+          expect(onionReady).toBe(false);
+          await jest.advanceTimersByTimeAsync(1);
+          await Promise.all([started, onion]);
+          expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
+          await client.close();
+        } finally {
+          read.mockRestore();
+        }
+      },
+    );
 
     test('a stored onion primary holds the start and the setup retry until Tor is ready', async () => {
       const read = mockStorage.volume.read;
