@@ -96,6 +96,7 @@ Screenshot blocking is not claimed: neither platform offers it through React Nat
 ## Develop and build
 
 Use Node.js 22.13 or newer on 22.x, 24.3 or newer on 24.x, or 26 and above.
+
 The engine and the wallet core are ordinary git dependencies, so a fresh clone
 needs nothing beside it:
 

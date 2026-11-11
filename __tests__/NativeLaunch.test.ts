@@ -1,15 +1,3 @@
-import { fs, path, ROOT } from '../test-support/node';
-
-test('the iOS prebuilt React Native core matches the JavaScript runtime', () => {
-  // CocoaPods can keep this binary at its old version even when React-Core
-  // and every JavaScript package resolve to the new release.
-  const { packages } = require('../package-lock.json');
-  const pods = fs.readFileSync(path.join(ROOT, 'ios', 'Podfile.lock'), 'utf8');
-  expect(/^ {2}- React-Core-prebuilt \(([^)]+)\)/m.exec(pods)?.[1]).toBe(
-    packages['node_modules/react-native'].version,
-  );
-});
-
 /**
  * What the native shells do before and around React (REDESIGN.md 3.1, 6).
  *
@@ -19,6 +7,8 @@ test('the iOS prebuilt React Native core matches the JavaScript runtime', () => 
  * phase. And a payment link, whether it starts the app or reaches it while
  * it runs, has to reach React Native's Linking, or nothing happens.
  */
+import { fs, path, ROOT } from '../test-support/node';
+
 const APP_DELEGATE = fs.readFileSync(
   path.join(ROOT, 'ios', 'chicory', 'AppDelegate.swift'),
   'utf8',
@@ -40,6 +30,16 @@ function colourOf(name: string) {
   return match?.slice(1, 4).map(Number);
 }
 
+test('the iOS prebuilt React Native core matches the JavaScript runtime', () => {
+  // CocoaPods can keep this binary at its old version even when React-Core
+  // and every JavaScript package resolve to the new release.
+  const { packages } = require('../package-lock.json');
+  const pods = fs.readFileSync(path.join(ROOT, 'ios', 'Podfile.lock'), 'utf8');
+  expect(/^ {2}- React-Core-prebuilt \(([^)]+)\)/m.exec(pods)?.[1]).toBe(
+    packages['node_modules/react-native'].version,
+  );
+});
+
 describe('the iOS scene delegate', () => {
   test('opens the window from its scene, as the iOS 27 SDK requires', () => {
     // Built with that SDK, an app whose window has no scene exits during
@@ -58,6 +58,10 @@ describe('the iOS scene delegate', () => {
     );
     expect(plist).toMatch(
       /<key>UIApplicationSupportsMultipleScenes<\/key>\s*<false\/>/,
+    );
+    // The iOS 27 SDK requires controller-based appearance for React's StatusBar.
+    expect(plist).toMatch(
+      /<key>UIViewControllerBasedStatusBarAppearance<\/key>\s*<true\/>/,
     );
     expect(plist).toMatch(
       /<key>UISceneConfigurationName<\/key>\s*<string>Wallet<\/string>\s*<key>UISceneDelegateClassName<\/key>\s*<string>\$\(PRODUCT_MODULE_NAME\)\.ChicorySceneDelegate<\/string>/,
