@@ -132,6 +132,7 @@ export function GlyphButton({
   onBlocked,
   size = 56,
   tone = 'raised',
+  align = 'center',
   disabled = false,
   blocked = false,
   busy = false,
@@ -151,6 +152,8 @@ export function GlyphButton({
   onBlocked?: () => void;
   size?: number;
   tone?: 'primary' | 'raised' | 'bare';
+  /** Anchor a bare glyph to the text direction's leading edge of its hit target. */
+  align?: 'center' | 'start';
   disabled?: boolean;
   blocked?: boolean;
   busy?: boolean;
@@ -255,6 +258,7 @@ export function GlyphButton({
             }
             style={[
               styles.control,
+              bare && align === 'start' && styles.leading,
               children ? [styles.pill, pill] : round,
               primary
                 ? { backgroundColor: bloom }
@@ -444,6 +448,7 @@ export function WarningPips({ warnings }: { warnings: string[] }) {
 
 const styles = StyleSheet.create({
   control: { alignItems: 'center', justifyContent: 'center' },
+  leading: { alignItems: 'flex-start' },
   pill: {
     flexDirection: 'row',
     gap: space.xs,

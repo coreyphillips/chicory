@@ -122,17 +122,20 @@ export function PrivateNote({
               </Text>
             </View>
           ) : null}
-          <GlyphButton
-            focusRef={pencil}
-            size={TARGET}
-            tone="bare"
-            glyph="pencil"
-            label={note ? copy.detail.editNote : copy.detail.addNote}
-            onPress={() => {
-              session.current = Symbol();
-              setDraft(note);
-            }}
-          />
+          <View style={!note && styles.leadingPencil}>
+            <GlyphButton
+              focusRef={pencil}
+              align={note ? 'center' : 'start'}
+              size={TARGET}
+              tone="bare"
+              glyph="pencil"
+              label={note ? copy.detail.editNote : copy.detail.addNote}
+              onPress={() => {
+                session.current = Symbol();
+                setDraft(note);
+              }}
+            />
+          </View>
           {!note && <View style={styles.fill}>{memo(false)}</View>}
         </View>
       )}
@@ -142,6 +145,9 @@ export function PrivateNote({
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  // Reserve one detail glyph column. The full button stays above the
+  // beginning of the noninteractive memo and inside the row's bounds.
+  leadingPencil: { marginEnd: 20 - TARGET, zIndex: 1 },
   fill: { flex: 1 },
   note: { ...typography.row, flex: 1, color: palette.steam },
   editor: { gap: space.xs },
