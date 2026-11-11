@@ -102,6 +102,20 @@ describe('the clock', () => {
     expect(seen[seen.length - 1]).toBe(true);
   });
 
+  test.each([-1, 1])(
+    'rests on schedule when the wall clock moves by %i hour',
+    async hours => {
+      const seen: boolean[] = [];
+      await pass(AMBIENT_REST_MS / 2);
+      jest.setSystemTime(Date.now() + hours * 60 * 60 * 1_000);
+      await render(<Probe seen={seen} />);
+      await pass(AMBIENT_REST_MS / 2 - 1);
+      expect(seen[seen.length - 1]).toBe(false);
+      await pass(1);
+      expect(seen[seen.length - 1]).toBe(true);
+    },
+  );
+
   test('a touch wakes it, and each touch starts the quiet over', async () => {
     const seen: boolean[] = [];
     await render(<Probe seen={seen} />);
