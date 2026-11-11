@@ -425,13 +425,17 @@ export function Canvas({
   // A payment's detail follows the live history, so a status that changes
   // while it is open changes on screen too.
   const opened = scene.name === 'detail' ? scene.item : null;
-  const detail = useMemo(
-    () =>
-      opened
-        ? snapshot.activity.find(item => item.id === opened.id) || opened
-        : null,
-    [snapshot.activity, opened],
-  );
+  const detail = useMemo(() => {
+    if (!opened) return null;
+    const current = snapshot.activity.find(item => item.id === opened.id);
+    // Keep a vanished row readable without treating its old request as payable.
+    return (
+      current ??
+      (opened.receiveRequest
+        ? { ...opened, receiveStatusUnavailable: true }
+        : opened)
+    );
+  }, [snapshot.activity, opened]);
 
   // Settings dims and shrinks what it covers, and so, a little less, does
   // the scan overlay. Under Reduce Motion each only dims, since a shrinking

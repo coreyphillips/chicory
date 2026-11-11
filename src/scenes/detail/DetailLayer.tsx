@@ -80,6 +80,7 @@ export function DetailLayer({
             offset={panes.stops.compact - top}
           >
             <DetailScreen
+              key={`${snapshot.wallet.network}:${snapshot.wallet.id}`}
               item={item}
               client={client}
               hidden={view.hidden}

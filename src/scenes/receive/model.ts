@@ -102,6 +102,34 @@ export function requestRails(
   return chain ? ['bolt', 'chain'] : ['bolt'];
 }
 
+export type RequestCopyFormat = 'request' | 'lightning' | 'bitcoin';
+
+const COMPONENTS = ['lightning', 'bitcoin'] as const;
+
+/** The engine's exact payment strings. A field identical to the full request
+ * adds no choice. Never infer a missing component from the URI. */
+export function requestCopyValue(
+  request: ReceiveRequestDetails,
+  format: RequestCopyFormat,
+): string | undefined {
+  if (format === 'request') return request.uri || undefined;
+  if (request.demo || request.bitcoinTracking === 'ambiguous') return;
+  if (
+    format === 'bitcoin' &&
+    (request.legacy ||
+      request.offlineReceive ||
+      request.bitcoinTracking !== 'unique' ||
+      !/^bitcoin:/i.test(request.uri))
+  )
+    return;
+  const value = format === 'lightning' ? request.bolt11 : request.address;
+  return value?.trim() && value !== request.uri ? value : undefined;
+}
+
+export function requestCopyFormats(request: ReceiveRequestDetails) {
+  return COMPONENTS.filter(format => requestCopyValue(request, format));
+}
+
 /** When a request made at `createdAt` starts to count as running out. */
 export function lateAt(createdAt: number, expiresAt: number): number {
   return expiresAt - Math.max(LATE_SHARE * (expiresAt - createdAt), LATE_MS);

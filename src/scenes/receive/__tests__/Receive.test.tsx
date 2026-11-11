@@ -1395,7 +1395,6 @@ describe("the request a payment's detail keeps", () => {
       label: copy.receive.original,
       value: LONG.uri,
       glyph: 'copy',
-      copyable: true,
     });
     expect(leadOf(chipOf(tree))).toBe('qr');
     // Never the whole string at once: the chip's two ends, in fours.
@@ -1414,9 +1413,15 @@ describe("the request a payment's detail keeps", () => {
     expect(copiers.map(node => node.props.accessibilityLabel)).toEqual([label]);
     await act(async () => find(tree, label)!.props.onPress());
     expect(Clipboard.setString).toHaveBeenCalledWith(LONG.uri);
-    // A long press shows it whole.
-    await act(async () => find(tree, label)!.props.onLongPress());
-    expect(visibleText(tree)).toContain(chipText(LONG.uri, true));
+    await act(async () =>
+      find(tree, label)!.props.onLongPress({
+        nativeEvent: { pageX: 80, pageY: 440 },
+      }),
+    );
+    await act(async () =>
+      find(tree, copy.receive.copyLightning)!.props.onPress(),
+    );
+    expect(Clipboard.setString).toHaveBeenLastCalledWith(LONG.bolt11);
     await act(async () => tree.unmount());
   });
 

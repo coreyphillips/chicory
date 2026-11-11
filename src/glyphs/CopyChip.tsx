@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { HostInstance, PressableProps } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Reanimated, {
   ReduceMotion,
@@ -46,6 +47,19 @@ export interface CopyChipProps {
   value: string;
   glyph?: GlyphName | null;
   copyable?: boolean;
+  /** A request's chip can delegate copying to its current payability check. */
+  interaction?: Pick<
+    PressableProps,
+    | 'accessibilityActions'
+    | 'accessibilityHint'
+    | 'onAccessibilityAction'
+    | 'onLongPress'
+    | 'delayLongPress'
+  > & {
+    focusRef: React.RefObject<HostInstance | null>;
+    onPress: () => void;
+    copies: number;
+  };
 }
 
 /** The copied look, in ms: the wash comes in, holds, and goes. */
@@ -166,18 +180,24 @@ export function CopyChip({
   value,
   glyph = 'copy',
   copyable = true,
+  interaction: requestAction,
 }: CopyChipProps) {
+  const interaction = copyable ? requestAction : undefined;
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
   const [expanded, setExpanded] = useState(false);
-  const [copies, setCopies] = useState(0);
+  const [ownCopies, setCopies] = useState(0);
+  const copies = interaction?.copies ?? ownCopies;
 
   // A cream wash sweeps across as the glyph turns to a check. Under Reduce
   // Motion the glyph's crossfade is all there is.
   const wash = useSharedValue(0);
   const sweep = useSharedValue(0);
+  const seen = useRef(copies);
   useEffect(() => {
-    if (!copies || reduced) {
+    const copied = copies > seen.current;
+    seen.current = copies;
+    if (!copied || reduced) {
       wash.set(0);
       return;
     }
@@ -204,20 +224,34 @@ export function CopyChip({
   return (
     <Reanimated.View layout={smooth()} style={styles.hug}>
       <Pressable
+        ref={interaction?.focusRef}
+        accessibilityHint={interaction?.accessibilityHint}
+        accessibilityActions={
+          live ? interaction?.accessibilityActions : undefined
+        }
+        onAccessibilityAction={
+          live ? interaction?.onAccessibilityAction : undefined
+        }
+        delayLongPress={interaction?.delayLongPress}
         accessibilityRole={copyable ? 'button' : 'text'}
         accessibilityLabel={copyable ? copy.receive.copyValue(label) : label}
         accessibilityValue={{ text: value }}
         onPress={
           live && copyable
-            ? () => {
+            ? interaction?.onPress ??
+              (() => {
                 haptics.tick();
                 Clipboard.setString(value);
                 announce(copy.receive.valueCopied(label));
                 setCopies(count => count + 1);
-              }
+              })
             : undefined
         }
-        onLongPress={live ? () => setExpanded(open => !open) : undefined}
+        onLongPress={
+          live
+            ? interaction?.onLongPress ?? (() => setExpanded(open => !open))
+            : undefined
+        }
         style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
       >
         <Reanimated.View

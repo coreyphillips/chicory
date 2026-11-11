@@ -61,7 +61,7 @@ import { radius, space, type as typography } from '../theme';
  * so it is not drawn again as it changes. `style` lays out the wrapper that
  * catches the press, such as filling a badge rather than only its glyph.
  */
-const DELAY_MS = 400;
+export const WHISPER_DELAY = 400;
 const SHOWN_MS = 2400;
 /** Between the pill and what it speaks for. */
 const GAP = space.xs;
@@ -251,15 +251,21 @@ interface WhisperProps {
   style?: StyleProp<ViewStyle>;
 }
 
+interface WhisperSourceOptions {
+  // Consecutive refusals can have identical words.
+  revision?: object;
+  focusRef?: React.RefObject<ViewInstance | null>;
+}
+
 /** A whisper belongs to its source while that source is on the active pane. */
 function useWhisperSource(
   label: string,
   whispers: Whispers | null,
   enabled: boolean,
-  // Consecutive refusals can have identical words.
-  revision?: object,
+  { revision, focusRef }: WhisperSourceOptions = {},
 ) {
-  const source = useRef<ViewInstance>(null);
+  const local = useRef<ViewInstance>(null);
+  const source = focusRef ?? local;
   // This whisper's own identity, kept for its lifetime.
   const [owner] = useState<Owner>(() => ({}));
   const active = usePaneActive() && enabled;
@@ -285,7 +291,7 @@ function Heard({
 }: PropsWithChildren<WhisperProps & { whispers: Whispers }>) {
   const { source, active, reveal } = useWhisperSource(label, whispers, enabled);
   const hold = useLongPressGesture({
-    minDuration: DELAY_MS,
+    minDuration: WHISPER_DELAY,
     runOnJS: true,
     enabled: active,
     onActivate: event => reveal(event.absoluteX || 0, event.absoluteY || 0),
@@ -312,6 +318,27 @@ export function Whisper({
   );
 }
 
+/** For a pressable whose tap acts and whose hold whispers. Using the same
+ * Pressable for both lets the native responder consume the release of a hold. */
+export function useWhisperHold(
+  label: string,
+  options: WhisperSourceOptions = {},
+) {
+  const whispers = useContext(WhisperContext);
+  const { source, active, reveal } = useWhisperSource(
+    label,
+    whispers,
+    true,
+    options,
+  );
+  return {
+    source,
+    enabled: active && Boolean(whispers),
+    explain: (event: GestureResponderEvent) =>
+      reveal(event.nativeEvent.pageX || 0, event.nativeEvent.pageY || 0),
+  };
+}
+
 /** Send refusals also answer a short tap. Pressable consumes the release
  * of a long press, so either gesture opens the pill exactly once. */
 export function WhisperAlert({
@@ -324,15 +351,7 @@ export function WhisperAlert({
   revision: object;
   style?: StyleProp<ViewStyle>;
 }>) {
-  const whispers = useContext(WhisperContext);
-  const { source, active, reveal } = useWhisperSource(
-    label,
-    whispers,
-    true,
-    revision,
-  );
-  const explain = (event: GestureResponderEvent) =>
-    reveal(event.nativeEvent.pageX || 0, event.nativeEvent.pageY || 0);
+  const { source, enabled, explain } = useWhisperHold(label, { revision });
   return (
     <Pressable
       ref={source}
@@ -341,10 +360,10 @@ export function WhisperAlert({
       accessibilityRole="alert"
       accessibilityLabel={label}
       style={style}
-      disabled={!active || !whispers}
+      disabled={!enabled}
       onPress={explain}
       onLongPress={explain}
-      delayLongPress={DELAY_MS}
+      delayLongPress={WHISPER_DELAY}
       android_disableSound
     >
       {children}

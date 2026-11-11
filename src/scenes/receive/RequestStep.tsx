@@ -9,6 +9,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import type { ReceiveRequest, ReceiveStatus } from '@beignet/wallet-core';
 import { RECEIPT_MARK, ReceiveReceipt } from '../../components/ReceiveReceipt';
+import { RequestCopyControl } from '../../components/RequestCopyControl';
 import { copy } from '../../design/copy';
 import { Glyph, HISTORY_GLYPH } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
@@ -40,9 +41,14 @@ import type { Focus } from './focus';
 import { useReceiveHost } from './host';
 import { ListeningPing } from './ListeningPing';
 import { Rock } from './loops';
-import type { Refused, RequestFace } from './model';
+import type { Refused, RequestFace, RequestCopyFormat } from './model';
 import { useBloom, useTestNetwork } from './tone';
-import { lateAt, remainderSats, requestRails } from './model';
+import {
+  lateAt,
+  remainderSats,
+  requestCopyFormats,
+  requestRails,
+} from './model';
 
 /**
  * The glyph of the way to the payment list from a receipt, the one Send's
@@ -121,7 +127,7 @@ export function RequestStep({
   qr: number;
   error: Refused | null;
   onLift: () => void;
-  onCopy: () => void;
+  onCopy: (format?: RequestCopyFormat) => void;
   /** How many times the request has been copied, for the copy control's check. */
   copies: number;
   onShare: () => void;
@@ -209,7 +215,9 @@ export function RequestStep({
                 lands={RECEIPT_MARK}
                 state={face.qr}
                 onPress={face.shareable ? onLift : undefined}
-                onLongPress={face.shareable ? onCopy : undefined}
+                onLongPress={
+                  face.shareable ? () => onCopy('request') : undefined
+                }
                 accessibilityLabel={copy.receive.qr}
               />
               {status ? (
@@ -281,11 +289,12 @@ export function RequestStep({
                 label={copy.receive.share}
                 onPress={onShare}
               />
-              <GlyphButton
-                glyph="copy"
-                label={copy.receive.copy}
-                confirm={copies}
-                onPress={onCopy}
+              <RequestCopyControl
+                key={request.id}
+                formats={requestCopyFormats(request)}
+                copyScope={request.uri}
+                copies={copies}
+                onCopy={onCopy}
               />
             </Reanimated.View>
           ) : null}

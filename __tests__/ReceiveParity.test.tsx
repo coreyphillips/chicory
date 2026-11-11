@@ -1,6 +1,12 @@
 import React from 'react';
 import { EmbeddedWalletClient } from '@beignet/wallet-core';
-import { AccessibilityInfo, AppState, Platform, Text } from 'react-native';
+import {
+  AccessibilityInfo,
+  AppState,
+  Platform,
+  Share,
+  Text,
+} from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import { Path, Rect } from 'react-native-svg';
@@ -43,6 +49,7 @@ import {
   receiptTransactions,
   remainderSats,
   requestFace,
+  requestCopyFormats,
 } from '../src/scenes/receive/model';
 import { ReceiveScreen } from '../src/screens/Payments';
 import { DetailScreen, activityStatus } from '../src/screens/Wallet';
@@ -1246,6 +1253,168 @@ describe('the safety states on a request', () => {
     await act(async () => tree.unmount());
   });
 
+  const holdCopy = (tree: ReactTestRenderer, label = copy.receive.copy) =>
+    act(async () => {
+      press(tree, label).props.onLongPress({
+        nativeEvent: { pageX: 160, pageY: 420 },
+      });
+    });
+
+  test('uses the exact request for Share and tap, and only the selected engine field for each format', async () => {
+    const created = fresh({
+      bolt11: 'LNBCRT1EngineInvoice',
+      uri: `bitcoin:${request.address}?amount=0.00001000&message=Coffee%20beans&lightning=lnbcrt1engineinvoice`,
+    });
+    const { tree, client } = await made(created);
+    const tick = jest.spyOn(haptics, 'tick');
+    const said = spoken();
+    const share = jest
+      .spyOn(Share, 'share')
+      .mockResolvedValue({ action: Share.sharedAction, activityType: undefined });
+    const clipboard = jest.mocked(Clipboard.setString);
+    clipboard.mockClear();
+    await act(async () => press(tree, copy.receive.share).props.onPress());
+    expect(share).toHaveBeenCalledWith({ message: created.uri });
+    await act(async () => press(tree, copy.receive.copy).props.onPress());
+    await holdCopy(tree);
+    // Pressability may deliver a queued release; opening the choice is silent.
+    await act(async () => press(tree, copy.receive.copy).props.onPress());
+    expect(clipboard.mock.calls).toEqual([[created.uri]]);
+    tick.mockClear();
+    await act(async () =>
+      press(tree, copy.receive.copyLightning).props.onPress(),
+    );
+    const trigger = press(tree, copy.receive.copy);
+    expect(trigger.props.accessibilityActions).toEqual([
+      { name: 'lightning', label: copy.receive.copyLightning },
+      { name: 'bitcoin', label: copy.receive.copyBitcoin },
+    ]);
+    await act(async () =>
+      trigger.props.onAccessibilityAction({
+        nativeEvent: { actionName: 'bitcoin' },
+      }),
+    );
+    expect(clipboard.mock.calls).toEqual([
+      [created.uri],
+      [created.bolt11],
+      [created.address],
+    ]);
+    expect(tick).toHaveBeenCalledTimes(2);
+    expect(said.mock.calls.map(call => call[0])).toEqual(
+      expect.arrayContaining([
+        copy.receive.copiedLightning,
+        copy.receive.copiedBitcoin,
+      ]),
+    );
+    expect(client.receive).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('rejects every live copy after expiry between clock ticks', async () => {
+    const created = fresh({ expiresAt: Date.now() + 500 });
+    const { tree } = await made(created);
+    const clipboard = jest.mocked(Clipboard.setString);
+    clipboard.mockClear();
+    await holdCopy(tree);
+    const select = press(tree, copy.receive.copyBitcoin).props.onPress;
+    const { onPress, onAccessibilityAction } = press(
+      tree,
+      copy.receive.copy,
+    ).props;
+    const holdQr = qr(tree).props.onLongPress;
+    jest.setSystemTime(created.expiresAt);
+    await act(async () => {
+      select();
+      onPress();
+      holdQr();
+      onAccessibilityAction({ nativeEvent: { actionName: 'lightning' } });
+    });
+    expect(clipboard).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('locking the wallet invalidates the open choice and its named actions', async () => {
+    const { tree } = await made(fresh());
+    await holdCopy(tree);
+    const select = press(tree, copy.receive.copyBitcoin).props.onPress;
+    const action = press(tree, copy.receive.copy).props.onAccessibilityAction;
+    jest.mocked(Clipboard.setString).mockClear();
+    await act(async () => tree.unmount());
+    await act(async () => {
+      select();
+      action({ nativeEvent: { actionName: 'lightning' } });
+    });
+    expect(Clipboard.setString).not.toHaveBeenCalled();
+  });
+
+  test('a receipt removes an open choice and revokes its pending press', async () => {
+    const poll = jest
+      .fn()
+      .mockResolvedValueOnce(waiting)
+      .mockResolvedValue(partial);
+    const { tree } = await made(fresh(), poll);
+    await holdCopy(tree);
+    const select = press(tree, copy.receive.copyBitcoin).props.onPress;
+    jest.mocked(Clipboard.setString).mockClear();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(press(tree, copy.receive.copyBitcoin)).toBeUndefined();
+    await act(async () => select());
+    expect(Clipboard.setString).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
+  test('Activity revokes old choices on replacement and makes payment fields read-only when tracking is unavailable', async () => {
+    const original = fresh();
+    const row = {
+      ...activity,
+      address: original.address,
+      receiveRequest: original,
+    };
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<DetailScreen item={row} />);
+    });
+    const label = copy.receive.copyValue(copy.receive.original);
+    await holdCopy(tree, label);
+    const old = press(tree, copy.receive.copyBitcoin).props.onPress;
+    const replacement = fresh({
+      id: 'r2',
+      uri: 'bitcoin:bcrt1new?lightning=new',
+      address: 'bcrt1new',
+      bolt11: 'new',
+    });
+    const next = {
+      ...row,
+      receiveRequest: replacement,
+      address: replacement.address,
+      reference: replacement.bolt11,
+    };
+    await act(async () => tree.update(<DetailScreen item={next} />));
+    expect(press(tree, copy.receive.copyBitcoin)).toBeUndefined();
+    const clipboard = jest.mocked(Clipboard.setString);
+    clipboard.mockClear();
+    await act(async () => old());
+    expect(clipboard).not.toHaveBeenCalled();
+    const action = press(tree, label).props.onAccessibilityAction;
+    await act(async () => action({ nativeEvent: { actionName: 'bitcoin' } }));
+    expect(clipboard.mock.calls).toEqual([[replacement.address]]);
+    await holdCopy(tree, label);
+    await act(async () =>
+      tree.update(
+        <DetailScreen item={{ ...next, receiveStatusUnavailable: true }} />,
+      ),
+    );
+    expect(press(tree, label)).toBeUndefined();
+    expect(press(tree, copy.receive.copyBitcoin)).toBeUndefined();
+    expect(press(tree, 'Copy address')).toBeUndefined();
+    expect(press(tree, 'Copy reference')).toBeUndefined();
+    await act(async () => action({ nativeEvent: { actionName: 'lightning' } }));
+    expect(clipboard).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
   test('a stale balance holds a quote back: a tap refreshes the wallet and creates nothing', async () => {
     const receive = jest.fn();
     const onRefresh = jest.fn();
@@ -1683,6 +1852,36 @@ describe('copying, and what a copy says', () => {
 
 describe('the receive model', () => {
   const at = Date.parse('2026-06-06T12:00:00Z');
+  test('offers only distinct engine fields and requires explicit unique tracking for Bitcoin', () => {
+    expect(requestCopyFormats(request)).toEqual(['lightning', 'bitcoin']);
+    expect(requestCopyFormats({ ...request, uri: request.bolt11 })).toEqual([]);
+    for (const missing of [
+      { address: undefined },
+      { bitcoinTracking: undefined },
+      { offlineReceive: true },
+      { legacy: true },
+      { bitcoinTracking: 'lightning-only' as const },
+    ]) {
+      expect(requestCopyFormats({ ...request, ...missing })).toEqual([
+        'lightning',
+      ]);
+    }
+    expect(
+      requestCopyFormats({
+        ...request,
+        uri: request.bolt11,
+        bitcoinTracking: 'lightning-only',
+      }),
+    ).toEqual([]);
+    expect(
+      requestCopyFormats({ ...request, bitcoinTracking: 'ambiguous' }),
+    ).toEqual([]);
+    expect(
+      requestCopyFormats({ ...request, bolt11: '', address: undefined }),
+    ).toEqual([]);
+    expect(requestCopyFormats({ ...request, demo: true })).toEqual([]);
+  });
+
   const made = { createdAt: at, expiresAt: at + 60 * 60000 };
 
   test('a request shows its code only while it can be paid on an address of its own', () => {

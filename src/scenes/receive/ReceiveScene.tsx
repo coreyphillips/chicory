@@ -66,6 +66,7 @@ export function ReceiveScene({
           >
             <View style={[styles.content, { paddingBottom: bottom }]}>
               <ReceiveScreen
+                key={`${snapshot.wallet.network}:${snapshot.wallet.id}`}
                 client={client}
                 receivableSats={snapshot.balance.receivableSats}
                 offlineReceivableSats={snapshot.balance.offlineReceivableSats}

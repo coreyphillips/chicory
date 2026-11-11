@@ -649,14 +649,7 @@ export const QrBloom = memo(function QrCode({
             }
           : undefined
       }
-      onLongPress={
-        live && pressable && onLongPress
-          ? () => {
-              haptics.tick();
-              onLongPress();
-            }
-          : undefined
-      }
+      onLongPress={live && pressable ? onLongPress : undefined}
     >
       <Reanimated.View
         style={[

@@ -18,14 +18,20 @@ import { CopyChip } from '../glyphs/CopyChip';
 import { QrBloom } from '../glyphs/QrBloom';
 import { riseIn, sceneOut } from '../motion/presets';
 import { ErrorPip, GlyphButton } from '../scenes/receive/controls';
-import { detailFace, requestRails } from '../scenes/receive/model';
+import {
+  detailFace,
+  requestCopyFormats,
+  requestRails,
+} from '../scenes/receive/model';
 import { TestNetwork, bloomFor } from '../scenes/receive/tone';
+import { useRequestCopy } from '../scenes/receive/useRequestCopy';
 import { useNow } from '../services/clock';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { usePaneActive } from '../stage/panes/Pane';
 import { duringSystemPrompt } from '../stage/systemPrompt';
 import { radius, space, type as typography } from '../theme';
 import type { WalletAdapter } from '../services/wallet';
+import { RequestCopyControl } from './RequestCopyControl';
 
 /**
  * The request a payment was asked for with, as its detail keeps it
@@ -85,10 +91,16 @@ export function ReceiveRequestDetails({
       : linked || item.receiveRequest;
   // The countdown only runs while there is a request to count down.
   const now = useNow(1000, !!request);
-  if (!request) return null;
-  const legacy = 'legacy' in request && !!request.legacy;
-  const face = detailFace(item, request, now);
-  const { shareable } = face;
+  const face = request ? detailFace(item, request, now) : null;
+  const shareable = !!face?.shareable;
+  const legacy = !!request && 'legacy' in request && !!request.legacy;
+  const label = legacy ? copy.receive.legacyInvoice : copy.receive.original;
+  const { value, onCopy, copies } = useRequestCopy(
+    request,
+    shareable && !busy,
+    copy.receive.valueCopied(label),
+  );
+  if (!request || !face) return null;
   const reused = request.bitcoinTracking === 'ambiguous';
   const how = legacy
     ? copy.receive.legacy
@@ -170,14 +182,23 @@ export function ReceiveRequestDetails({
             />
           </View>
           <View style={styles.chip}>
-            <CopyChip
-              label={
-                legacy ? copy.receive.legacyInvoice : copy.receive.original
-              }
-              value={request.uri}
-              glyph={shareable && !busy ? 'copy' : null}
-              copyable={shareable && !busy}
-            />
+            {shareable && !busy ? (
+              <RequestCopyControl
+                key={request.id}
+                formats={requestCopyFormats(request)}
+                copyScope={request.uri}
+                copies={copies}
+                onCopy={onCopy}
+                chip={{ label, value: request.uri, glyph: 'copy' }}
+              />
+            ) : (
+              <CopyChip
+                label={label}
+                value={request.uri}
+                glyph={null}
+                copyable={false}
+              />
+            )}
           </View>
         </View>
         {/* Words for a screen reader, not a control: drawn as text, so a
@@ -211,8 +232,9 @@ export function ReceiveRequestDetails({
                 size={48}
                 disabled={busy}
                 onPress={() => {
-                  if (!working.current)
-                    Share.share({ message: request.uri }).catch(() =>
+                  const uri = value();
+                  if (uri && !working.current)
+                    Share.share({ message: uri }).catch(() =>
                       fail(copy.receive.shareFailed),
                     );
                 }}

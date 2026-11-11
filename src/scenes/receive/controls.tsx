@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import type { PropsWithChildren } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { PressableProps } from 'react-native';
 import Reanimated, {
   FadeIn,
   FadeOut,
@@ -142,6 +143,8 @@ export function GlyphButton({
   expanded,
   value,
   focusRef,
+  holdActions,
+  haptic = true,
   children,
 }: PropsWithChildren<{
   glyph: GlyphName;
@@ -163,6 +166,15 @@ export function GlyphButton({
   /** What the children show, as a screen reader hears it after the label. */
   value?: string;
   focusRef?: Focus;
+  holdActions?: Pick<
+    PressableProps,
+    | 'onLongPress'
+    | 'delayLongPress'
+    | 'accessibilityActions'
+    | 'onAccessibilityAction'
+  >;
+  /** A guarded action can give its own haptic after it succeeds. */
+  haptic?: boolean;
 }>) {
   const live = usePaneActive();
   const { reduced } = useMotionPrefs();
@@ -232,6 +244,7 @@ export function GlyphButton({
           ) : null}
           <Pressable
             ref={focusRef}
+            {...(live && !quiet && !busy ? holdActions : undefined)}
             accessibilityRole="button"
             accessibilityLabel={label}
             accessibilityHint={hint}
@@ -247,8 +260,10 @@ export function GlyphButton({
                       onBlocked?.();
                       return;
                     }
-                    if (primary) haptics.tap();
-                    else haptics.tick();
+                    if (haptic) {
+                      if (primary) haptics.tap();
+                      else haptics.tick();
+                    }
                     onPress();
                   }
                 : undefined

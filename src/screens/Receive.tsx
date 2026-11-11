@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Share, StyleSheet, View, useWindowDimensions } from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
 import Reanimated from 'react-native-reanimated';
 import { parseSats } from '@beignet/wallet-core';
 import type {
@@ -31,6 +30,7 @@ import type { Refused } from '../scenes/receive/model';
 import { QuoteStep } from '../scenes/receive/QuoteStep';
 import { RequestStep } from '../scenes/receive/RequestStep';
 import { TestNetwork } from '../scenes/receive/tone';
+import { useRequestCopy } from '../scenes/receive/useRequestCopy';
 import { useNow } from '../services/clock';
 import { recordDiagnostic } from '../services/diagnosticLog';
 import { useReceiveStatus } from '../services/useReceiveStatus';
@@ -220,8 +220,6 @@ export function ReceiveScreen({
     };
   }, [walletId]);
   const [lifted, setLifted] = useState(false);
-  // Each copy of the request turns the copy control to a check and back.
-  const [copies, setCopies] = useState(0);
   const amountError = useRef('');
   useEffect(() => {
     if (receivableSats > 0) {
@@ -248,12 +246,14 @@ export function ReceiveScreen({
   // there is something that can expire; a request that has been paid no
   // longer can.
   const now = useNow(1000, (!!request && !receipt) || !!quote);
+  const ambiguous =
+    request?.bitcoinTracking === 'ambiguous' || !!tracking?.ambiguous;
   const face = request
     ? requestFace({
         request,
         now,
         paid: !!receipt,
-        ambiguous: !!tracking?.ambiguous,
+        ambiguous,
         createdAt: request.createdAt ?? createdAt,
       })
     : null;
@@ -264,7 +264,7 @@ export function ReceiveScreen({
   useHoldTint(night ? 'night' : null);
 
   useArrival(receipt, request, completionsFelt);
-  useWarning(!!face?.expired && !receipt && !tracking?.ambiguous, () => {
+  useWarning(!!face?.expired && !receipt && !ambiguous, () => {
     recordDiagnostic({
       phase: 'ui',
       message: copy.receive.expired,
@@ -272,7 +272,7 @@ export function ReceiveScreen({
     });
     return announceSafety(copy.receive.expired, 'expired');
   });
-  useWarning(!!tracking?.ambiguous, () => {
+  useWarning(ambiguous, () => {
     const said = tracking?.error ?? copy.receive.reusedAddress;
     recordDiagnostic({
       phase: 'ui',
@@ -488,19 +488,17 @@ export function ReceiveScreen({
   }
 
   const shareable = !!face?.shareable;
-  const uri = request?.uri;
+  const {
+    value,
+    onCopy: copyRequest,
+    copies,
+  } = useRequestCopy(request, shareable, copy.receive.copied);
   const lift = useCallback(() => {
-    if (shareable) setLifted(true);
-  }, [shareable]);
-  const copyRequest = useCallback(() => {
-    if (!shareable || !uri) return;
-    Clipboard.setString(uri);
-    announce(copy.receive.copied);
-    setCopies(count => count + 1);
-  }, [shareable, uri]);
+    if (value()) setLifted(true);
+  }, [value]);
   function share() {
-    if (!shareable || !uri) return;
-    Share.share({ message: uri }).catch(refuse);
+    const uri = value();
+    if (uri) Share.share({ message: uri }).catch(refuse);
   }
   /**
    * Another request, or the rest of this one: a partly paid request starts

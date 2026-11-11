@@ -129,16 +129,28 @@ export function DetailScreen({
 
   // Each reference once: the engine's reference is usually the txid or the
   // payment hash, which have chips of their own.
-  const chips: { label: string; value: string; glyph: GlyphName }[] = [];
+  const isRequest = item.kind === 'request' || !!item.receiveRequest;
+  const chips: {
+    label: string;
+    value: string;
+    glyph: GlyphName;
+    copyable?: boolean;
+  }[] = [];
   if (
     item.reference &&
     item.reference !== item.txid &&
-    item.reference !== item.paymentHash
+    item.reference !== item.paymentHash &&
+    item.reference !== item.receiveRequest?.uri &&
+    item.reference !== item.receiveRequest?.bolt11 &&
+    item.reference !== item.receiveRequest?.address &&
+    (!isRequest || item.reference !== item.address)
   ) {
     chips.push({
       label: copy.detail.reference,
       value: item.reference,
       glyph: 'hash',
+      // An old request can have only an unclassified reference to its invoice.
+      copyable: !isRequest || !!item.receiveRequest,
     });
   }
   for (const txid of new Set(
@@ -164,6 +176,8 @@ export function DetailScreen({
       label: copy.detail.address,
       value: address,
       glyph: 'pin',
+      // Receive payment formats are copied only through the payable original.
+      copyable: !isRequest,
     });
   }
 
@@ -306,6 +320,7 @@ export function DetailScreen({
       {item.receiveRequest ? (
         <Reanimated.View entering={lineIn(line++)}>
           <ReceiveRequestDetails
+            key={item.id}
             item={item}
             client={client}
             onRefresh={onRefresh}
@@ -322,7 +337,12 @@ export function DetailScreen({
             <View key={`${chip.label}:${chip.value}`} style={styles.line}>
               <Glyph name={chip.glyph} size={20} color={palette.dust} />
               <View style={styles.chip}>
-                <CopyChip label={chip.label} value={chip.value} />
+                <CopyChip
+                  label={chip.label}
+                  value={chip.value}
+                  copyable={chip.copyable}
+                  glyph={chip.copyable === false ? null : 'copy'}
+                />
               </View>
             </View>
           ))}

@@ -9,7 +9,8 @@ import { AccessibilityInfo, Platform } from 'react-native';
  *
  * A message already spoken within REPEAT_MS is dropped, even if others came
  * between. A poll or a re-render can report one state several times, and
- * hearing it again adds nothing.
+ * hearing it again adds nothing. A new user action can request its own
+ * confirmation with `repeat`.
  */
 const REPEAT_MS = 2000;
 
@@ -17,14 +18,17 @@ const recent = new Map<string, number>();
 
 export function announce(
   text: string,
-  { assertive = false }: { assertive?: boolean } = {},
+  {
+    assertive = false,
+    repeat = false,
+  }: { assertive?: boolean; repeat?: boolean } = {},
 ) {
   if (!text) return;
   const now = Date.now();
   for (const [said, at] of recent) {
     if (now - at >= REPEAT_MS) recent.delete(said);
   }
-  if (recent.has(text)) return;
+  if (!repeat && recent.has(text)) return;
   recent.set(text, now);
   if (Platform.OS === 'ios') {
     AccessibilityInfo.announceForAccessibilityWithOptions(text, {
