@@ -207,11 +207,16 @@ export function useWalletSession(view: WalletSessionView) {
   const known = useRef<{ walletId: string; snapshot: WalletSnapshot } | null>(
     null,
   );
+  const restoreActive = useRef(true);
+
   // The engine reports the primary answering through its diagnostic hook.
   // That is the moment the balance changes from "reconnecting" to a figure
   // that can be sent, so it is read then, through a ref because the reader
   // is defined further down and must not rebuild the connect callback.
   const refreshRef = useRef<() => Promise<void>>(async () => {});
+  const disconnectRefreshTimer = useRef<
+    ReturnType<typeof setTimeout> | undefined
+  >(undefined);
   const connectRefreshTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const clearConnectRefresh = () => {
     for (const timer of connectRefreshTimers.current) clearTimeout(timer);
@@ -231,7 +236,22 @@ export function useWalletSession(view: WalletSessionView) {
       // Only a primary's connection changes what can be spent. A peer
       // connect names the peer by its public key; while no primary's is
       // known yet, as before a wallet's first read, any connect counts.
+      if (!restoreActive.current) return;
       const primaries = primaryPubkeys(known.current?.snapshot);
+      if (event.phase === 'peer:disconnect') {
+        // A primary just failed its liveness check. Show the wallet's actual
+        // connectivity while the replacement handshake is still in flight.
+        const pubkey = event.message.split(' ', 1)[0].toLowerCase();
+        if (primaries.has(pubkey) && AppState.currentState === 'active') {
+          // Another ranked primary may still be reestablishing its channels.
+          clearTimeout(disconnectRefreshTimer.current);
+          disconnectRefreshTimer.current = setTimeout(() => {
+            disconnectRefreshTimer.current = undefined;
+            refreshRef.current().catch(() => {});
+          }, 0);
+        }
+        return;
+      }
       const connected =
         (event.phase === 'peer:connect' &&
           (primaries.size === 0 ||
@@ -278,6 +298,20 @@ export function useWalletSession(view: WalletSessionView) {
    * said "not confirmed recently" for half an hour.
    */
   const staleReadNoted = useRef(false);
+  /**
+   * When the app last came to the front, or 0 before it has. The poll
+   * measures how old the figures are from here as well as from the time they
+   * carry (`tick`), so figures that went old while the app was away are read
+   * again before they are taken for a wallet that has stopped answering.
+   */
+  const frontSince = useRef(0);
+  /**
+   * The app is back in front on figures that went old while it was away, and
+   * no fresh read has landed since. It gives the return the grace a cached
+   * launch gets (`useOpening`): the old figures are not warned about while
+   * the first read is on its way, only once it is overdue.
+   */
+  const [resuming, setResuming] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [selecting, setSelecting] = useState(false);
@@ -291,7 +325,6 @@ export function useWalletSession(view: WalletSessionView) {
   const [switchTarget, setSwitchTarget] = useState<Network | null>(null);
   const generation = useRef(0);
   const restoreStarted = useRef(false);
-  const restoreActive = useRef(true);
   /**
    * Held by any action that opens a wallet, so two opens cannot race, until
    * it commits. Each holds the token of the action that took it, and is let
@@ -327,8 +360,10 @@ export function useWalletSession(view: WalletSessionView) {
   const land = useCallback(
     (id: string, read: WalletSnapshot, resyncing = false) => {
       const age = Date.now() - read.updatedAt;
-      if (age <= STALE_AFTER_MS) staleReadNoted.current = false;
-      else if (!staleReadNoted.current) {
+      if (age <= STALE_AFTER_MS) {
+        staleReadNoted.current = false;
+        setResuming(false);
+      } else if (!staleReadNoted.current) {
         staleReadNoted.current = true;
         recordDiagnostic({
           phase: 'balance',
@@ -630,6 +665,11 @@ export function useWalletSession(view: WalletSessionView) {
      * can do that itself, so it does, rather than putting a "pull to refresh"
      * on the page and waiting to be asked.
      *
+     * Figures that went old while the app was away say nothing of the kind:
+     * nobody was asking. So the age that escalates is counted from the later
+     * of their time and the app's return (`frontSince`), and a return starts
+     * with plain reads.
+     *
      * While a recovery is still waiting on the engine, the poll keeps asking
      * the plain question beside it: a read the engine can answer is not held
      * back behind a resync it cannot finish.
@@ -637,19 +677,41 @@ export function useWalletSession(view: WalletSessionView) {
     const tick = () => {
       if (AppState.currentState !== 'active') return;
       const current = snapshotRef.current;
-      const aged = current && Date.now() - current.updatedAt > STALE_AFTER_MS;
+      const aged =
+        current &&
+        Date.now() - Math.max(current.updatedAt, frontSince.current) >
+          STALE_AFTER_MS;
       if (aged && !recovering.current) recover().catch(() => {});
       else refresh().catch(() => {});
     };
     refresh();
     const timer = setInterval(tick, 12000);
+    let returning: ReturnType<typeof setTimeout> | undefined;
+    // Read after the lifecycle listeners have run. The engine probes a primary
+    // that may have gone silent. Its connect event schedules a further read.
     const subscription = AppState.addEventListener('change', state => {
-      if (state === 'active') tick();
+      if (state !== 'active') {
+        clearTimeout(returning);
+        if (state === 'background') setResuming(false);
+        return;
+      }
+      frontSince.current = Date.now();
+      const current = snapshotRef.current;
+      if (current && Date.now() - current.updatedAt > STALE_AFTER_MS)
+        setResuming(true);
+      clearTimeout(returning);
+      returning = setTimeout(() => {
+        refresh().catch(() => {});
+      }, 0);
     });
     return () => {
       clearInterval(timer);
+      clearTimeout(returning);
+      clearTimeout(disconnectRefreshTimer.current);
+      disconnectRefreshTimer.current = undefined;
       clearConnectRefresh();
       subscription.remove();
+      setResuming(false);
     };
   }, [client, walletId, refresh, recover]);
 
@@ -1286,6 +1348,7 @@ export function useWalletSession(view: WalletSessionView) {
     connecting,
     selecting,
     refreshing,
+    resuming,
     deviceVisible,
     error,
     // actions
