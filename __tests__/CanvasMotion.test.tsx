@@ -124,11 +124,12 @@ function OnCanvas({
   arrival,
 }: {
   backup?: Backup | null;
-  read?: WalletSnapshot;
+  read?: WalletSnapshot | null;
   arrival?: Arrival;
 }) {
   stage = useStageStore();
   const view = useCanvasView();
+  if (!read) return null;
   return (
     <GestureHandlerRootView>
       <StageProvider value={stage}>
@@ -700,7 +701,9 @@ describe('the canvas arriving', () => {
     // steady clock, as the fade does.
     const delays = jest.spyOn(Reanimated, 'withDelay');
     const timings = jest.spyOn(Reanimated, 'withTiming');
-    const tree = await render(<OnCanvas arrival="load" />);
+    // The stage loads the display preference while the wallet is opening.
+    const tree = await render(<OnCanvas read={null} />);
+    await act(async () => tree.update(<OnCanvas arrival="load" />));
     const hero = heroFigures(tree);
     expect(hero.props.sats).toBe(261_500);
     expect(hero.props.countUp).toBe(buildBeats('load').hero);
