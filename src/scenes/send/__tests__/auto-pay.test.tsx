@@ -32,6 +32,7 @@ import {
   meaning,
   press,
 } from '../../../../test-support/query';
+import { Scanner } from '../../../components/Scanner';
 import { stepInMs } from '../useLanding';
 
 jest.mock('../../../design/announce', () => ({ announce: jest.fn() }));
@@ -354,6 +355,23 @@ describe('never paid on its own, whatever the share', () => {
     expect(wallet.prepareSend).not.toHaveBeenCalled();
     await act(async () => tree.unmount());
   });
+
+  test.each(['photo', 'clipboard'])(
+    'a standalone scanner %s prefill waits for review and confirmation',
+    async source => {
+      const wallet = client();
+      const tree = await draw(wallet, { initialScanning: true });
+      await act(async () =>
+        tree.root.findByType(Scanner).props.onDetected(INVOICE, source),
+      );
+      expect(wallet.prepareSend).not.toHaveBeenCalled();
+      await press(tree, copy.send.review);
+      expect(wallet.prepareSend).toHaveBeenCalledTimes(1);
+      expect(wallet.send).not.toHaveBeenCalled();
+      expect(holds(tree, HOLD)).toHaveLength(1);
+      await act(async () => tree.unmount());
+    },
+  );
 
   test('an invoice pasted', async () => {
     jest.mocked(Clipboard.getString).mockResolvedValueOnce(INVOICE);

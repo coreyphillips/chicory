@@ -43,9 +43,9 @@ const NODE = `02${'a'.repeat(64)}@127.0.0.1:9735`;
 const ADDRESS = 'bcrt1qpg0xyjz3p06mkjy8mju437lezq57ad90yq0hq3';
 
 const scanner = (tree: ReactTestRenderer) => tree.root.findAllByType(Scanner);
-const detect = (tree: ReactTestRenderer, value: string) =>
+const detect = (tree: ReactTestRenderer, value: string, source = 'camera') =>
   act(async () => {
-    tree.root.findByType(ScanReveal).props.onDetected(value);
+    tree.root.findByType(ScanReveal).props.onDetected(value, source);
   });
 
 describe('from the app', () => {
@@ -138,6 +138,18 @@ describe('from the app', () => {
       scanned: true,
     });
   });
+
+  test.each(['photo', 'clipboard'])(
+    'a %s from Home lands in Send as a manual prefill',
+    async source => {
+      await press(tree, 'Scan a payment request');
+      await detect(tree, SCANNED, source);
+      expect(tree.root.findByType(SendScreen).props).toMatchObject({
+        initialRequest: SCANNED,
+        scanned: false,
+      });
+    },
+  );
 
   test('closing the camera returns to home with nothing opened', async () => {
     await press(tree, 'Scan a payment request');
@@ -307,7 +319,7 @@ describe('inside Send', () => {
     );
     const send = await scanInSend(tree);
     await detect(tree, SCANNED);
-    expect(onCode).toHaveBeenCalledWith(SCANNED);
+    expect(onCode).toHaveBeenCalledWith(SCANNED, 'camera');
     expect(stage.state.overlay).toBeNull();
     expect(stage.state.scene).toMatchObject({ name: 'send', key: send });
     expect(tree.root.findByType(SendScreen).props.initialRequest).toBe('');
@@ -329,7 +341,7 @@ describe('inside Send', () => {
     );
     await scanInSend(tree);
     await detect(tree, SCANNED);
-    expect(last).toHaveBeenCalledWith(SCANNED);
+    expect(last).toHaveBeenCalledWith(SCANNED, 'camera');
     expect(first).not.toHaveBeenCalled();
     expect(idle).not.toHaveBeenCalled();
     await act(async () => tree.unmount());
@@ -369,7 +381,7 @@ describe('inside Send', () => {
       const send = await scanInSend(tree);
       expect(spy.mock.lastCall?.[0].sceneKey).toBe(send);
       await detect(tree, SCANNED);
-      expect(keyed).toHaveBeenCalledWith(SCANNED);
+      expect(keyed).toHaveBeenCalledWith(SCANNED, 'camera');
       expect(paned).not.toHaveBeenCalled();
       expect(stage.state.overlay).toBeNull();
       expect(stage.state.scene).toMatchObject({ name: 'send', key: send });

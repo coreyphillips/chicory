@@ -15,6 +15,10 @@ import { Odometer } from '../../../glyphs/Odometer';
 import { forgetSafety } from '../../../motion/speech';
 import { durations } from '../../../motion/tokens';
 import { SendScreen } from '../../../screens/Send';
+import {
+  AUTO_PAY_OFF,
+  setAutoPayPreference,
+} from '../../../services/autoPayPreference';
 import { FeeSlider } from '../FeeSlider';
 import {
   clearDiagnostics,
@@ -150,6 +154,41 @@ test('a scan Send starts brings its code back to the same Send', async () => {
   await act(async () => tree.unmount());
 });
 
+describe.each(['home', 'send'])('Auto-pay from the %s scanner', origin => {
+  beforeEach(() => setAutoPayPreference({ on: true, share: 100 }));
+  afterEach(() => setAutoPayPreference(AUTO_PAY_OFF));
+
+  test.each(['photo', 'clipboard', 'camera'])(
+    'routes a %s invoice according to its source',
+    async source => {
+      const invoice =
+        'lnbc244250n1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqw53adf';
+      const prepare = jest
+        .spyOn(client, 'prepareSend')
+        .mockResolvedValue({ ...quote, amountSats: 24_425, totalSats: 24_445 });
+      const send = jest
+        .spyOn(client, 'send')
+        .mockReturnValue(new Promise(() => {}));
+      const tree =
+        origin === 'send' ? await openSend() : await mount(<OnCanvas />);
+      if (origin === 'send') await press(tree, copy.send.scan);
+      else await act(async () => stage.actions.openScan());
+      await act(async () =>
+        tree.root.findByType(ScanReveal).props.onDetected(invoice, source),
+      );
+      if (source === 'camera') {
+        expect(prepare).toHaveBeenCalledTimes(1);
+        expect(send).toHaveBeenCalledTimes(1);
+      } else {
+        expect(request(tree)).toBe(invoice);
+        expect(prepare).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalled();
+      }
+      await act(async () => tree.unmount());
+    },
+  );
+});
+
 test("Send's scan grows from its own button, measured as it is pressed", async () => {
   const tree = await openSend();
   const button = find(tree, copy.send.scan)!;
@@ -281,7 +320,9 @@ test('amounts follow the balance, hidden and in its unit, except on a review', a
       .filter(odometer => odometer.props.variant === 'line')
       .map(odometer => odometer.props);
   expect(lines()).toEqual(
-    expect.arrayContaining([expect.objectContaining({ sats: 4220, unit: 'btc' })]),
+    expect.arrayContaining([
+      expect.objectContaining({ sats: 4220, unit: 'btc' }),
+    ]),
   );
   expect(lines().some(line => line.masked)).toBe(false);
   expect(labels()).toContain(copy.amount.spoken(4200));

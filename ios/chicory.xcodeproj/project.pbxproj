@@ -19,6 +19,7 @@
 		A7D3E1F2C4B5A6978D0E1F23 /* ProcessModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5A7C9B1D3F5E7A9C1B3D5F7 /* ProcessModule.swift */; };
 		B6E9072FA594939FD06EC0B2 /* IrohModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64C7E09E09F1162FF3D960F9 /* IrohModule.swift */; };
 		C2E4F6A8B0D1C3E5F7A9B1D3 /* ProcessModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F8B0D2C4E6A8F0B2D4C6E8A0 /* ProcessModule.m */; };
+		EF23ACBD56897123049567A1 /* QrImageModule.m in Sources */ = {isa = PBXBuildFile; fileRef = EF23ACBD56897123049567A2 /* QrImageModule.m */; };
 		D52F95E42868AE9D6E1A6738 /* IrohModule.m in Sources */ = {isa = PBXBuildFile; fileRef = B7CF183814AC886BCAD50B13 /* IrohModule.m */; };
 /* End PBXBuildFile section */
 
@@ -40,6 +41,7 @@
 		E5A7C9B1D3F5E7A9C1B3D5F7 /* ProcessModule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = chicory/ProcessModule.swift; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F8B0D2C4E6A8F0B2D4C6E8A0 /* ProcessModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = chicory/ProcessModule.m; sourceTree = "<group>"; };
+		EF23ACBD56897123049567A2 /* QrImageModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = chicory/QrImageModule.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -68,6 +70,7 @@
 				B7CF183814AC886BCAD50B13 /* IrohModule.m */,
 				E5A7C9B1D3F5E7A9C1B3D5F7 /* ProcessModule.swift */,
 				F8B0D2C4E6A8F0B2D4C6E8A0 /* ProcessModule.m */,
+				EF23ACBD56897123049567A2 /* QrImageModule.m */,
 				3A91C5E27D4F4B0E9A6C1D21 /* PaykitDiscoveryModule.swift */,
 				3A91C5E37D4F4B0E9A6C1D21 /* PaykitDiscoveryModule.m */,
 			);
@@ -281,6 +284,7 @@
 				D52F95E42868AE9D6E1A6738 /* IrohModule.m in Sources */,
 				A7D3E1F2C4B5A6978D0E1F23 /* ProcessModule.swift in Sources */,
 				C2E4F6A8B0D1C3E5F7A9B1D3 /* ProcessModule.m in Sources */,
+				EF23ACBD56897123049567A1 /* QrImageModule.m in Sources */,
 				9C2E7F4A1B8D4E6FA3B5C701 /* PaykitDiscoveryModule.swift in Sources */,
 				9C2E7F4A1B8D4E6FA3B5C702 /* PaykitDiscoveryModule.m in Sources */,
 			);
