@@ -2,7 +2,13 @@ package com.chicory
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
+import android.os.Build
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import com.facebook.react.ReactPackage
@@ -19,9 +25,24 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import java.io.IOException
 import java.util.concurrent.Executors
 
 private const val PICK_IMAGE = 0x43A7
+private const val MAX_SIDE = 4096
+private const val MAX_PIXELS = 4L * 1024 * 1024
+
+/** Bound the bitmap before allocating it, including very long screenshots. */
+private fun sampleSize(width: Int, height: Int): Int {
+    require(width > 0 && height > 0)
+    var sample = 1
+    while (true) {
+        val w = (width.toLong() + sample - 1) / sample
+        val h = (height.toLong() + sample - 1) / sample
+        if (w <= MAX_SIDE && h <= MAX_SIDE && w * h <= MAX_PIXELS) return sample
+        sample *= 2
+    }
+}
 
 class QrImageModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
     override fun getName() = "ChicoryQrImage"
@@ -63,10 +84,53 @@ class QrImageModule(private val context: ReactApplicationContext) : ReactContext
         }
     }
 
+    private fun loadBitmap(uri: Uri): Bitmap {
+        val resolver = context.contentResolver
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            // ImageDecoder applies EXIF rotation and mirroring as it samples.
+            return ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                decoder.setTargetSampleSize(sampleSize(info.size.width, info.size.height))
+            }
+        }
+
+        // On Android 7 and 8, inspect dimensions without loading pixels first.
+        fun input() = resolver.openInputStream(uri) ?: throw IOException()
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        input().use { BitmapFactory.decodeStream(it, null, options) }
+        options.inSampleSize = sampleSize(options.outWidth, options.outHeight)
+        options.inJustDecodeBounds = false
+        val orientation = try {
+            input().use { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, 1) }
+        } catch (_: IOException) {
+            ExifInterface.ORIENTATION_NORMAL
+        }
+        val bitmap = input().use { BitmapFactory.decodeStream(it, null, options) } ?: throw IOException()
+        val transform = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> transform.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> transform.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> transform.setScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                transform.setScale(-1f, 1f)
+                transform.postRotate(270f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_90 -> transform.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                transform.setScale(-1f, 1f)
+                transform.postRotate(90f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> transform.setRotate(270f)
+            else -> return bitmap
+        }
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, transform, true)
+            .also { if (it !== bitmap) bitmap.recycle() }
+    }
+
     private fun decode(uri: Uri, promise: Promise) {
         try {
-            // The bundled decoder runs locally. fromFilePath handles EXIF rotation.
-            val image = InputImage.fromFilePath(context, uri)
+            val bitmap = loadBitmap(uri)
+            val image = InputImage.fromBitmap(bitmap, 0)
             val options = BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
             val scanner = BarcodeScanning.getClient(options)
             scanner.process(image)
@@ -76,7 +140,10 @@ class QrImageModule(private val context: ReactApplicationContext) : ReactContext
                     promise.resolve(values)
                 }
                 .addOnFailureListener { promise.reject("IMAGE_UNREADABLE", "Could not read the QR image.") }
-                .addOnCompleteListener { scanner.close() }
+                .addOnCompleteListener {
+                    scanner.close()
+                    bitmap.recycle()
+                }
         } catch (error: Exception) {
             promise.reject("IMAGE_UNREADABLE", "Could not read the QR image.")
         }

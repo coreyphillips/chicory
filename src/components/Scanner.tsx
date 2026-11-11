@@ -1130,11 +1130,9 @@ export function Scanner({
     manual.current = 'photo';
     setPicking(true);
     try {
-      const codes = await duringSystemPrompt(() =>
-        TurboModuleRegistry.getEnforcing<QrImagePicker>(
-          'ChicoryQrImage',
-        ).pick(),
-      );
+      const codes = await TurboModuleRegistry.getEnforcing<QrImagePicker>(
+        'ChicoryQrImage',
+      ).pick();
       if (mounted.current)
         setImageResult(codes === null ? 'cancelled' : paymentFromImage(codes));
     } catch {

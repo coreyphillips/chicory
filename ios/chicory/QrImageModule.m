@@ -7,7 +7,7 @@
 
 // The picker grants access to the chosen image only. Decode its temporary
 // representation inside the provider callback, while the URL is valid.
-@interface ChicoryQrImage : NSObject <RCTBridgeModule, PHPickerViewControllerDelegate>
+@interface ChicoryQrImage : NSObject <RCTBridgeModule, PHPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate>
 @end
 
 @implementation ChicoryQrImage {
@@ -35,6 +35,16 @@ RCT_EXPORT_METHOD(pick:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectB
   _resolve = resolve;
   _reject = reject;
   [presenter presentViewController:picker animated:YES completion:nil];
+  picker.presentationController.delegate = self;
+}
+
+- (void)presentationControllerDidDismiss:(UIPresentationController *)presentationController
+{
+  // Swiping the sheet away may bypass the picker's Cancel button callback.
+  RCTPromiseResolveBlock resolve = _resolve;
+  _resolve = nil;
+  _reject = nil;
+  if (resolve) resolve(nil);
 }
 
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results
@@ -66,6 +76,8 @@ RCT_EXPORT_METHOD(pick:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectB
           return;
         }
         VNDetectBarcodesRequest *scan = [VNDetectBarcodesRequest new];
+        // This revision reads multiple QR codes without an inference context.
+        scan.revision = VNDetectBarcodesRequestRevision1;
         scan.symbologies = @[VNBarcodeSymbologyQR];
         VNImageRequestHandler *reader = [[VNImageRequestHandler alloc] initWithCGImage:frame options:@{}];
         CGImageRelease(frame);

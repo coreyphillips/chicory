@@ -701,7 +701,7 @@ export function Canvas({
             </View>
             {scanning ? (
               <ScanReveal
-                key={`${snapshot.wallet.id}:${scanning.key}`}
+                key={`${snapshot.wallet.network}:${snapshot.wallet.id}:${scanning.key}`}
                 origin={scanning.origin}
                 target={scanning.target}
                 purpose={scanning.purpose}

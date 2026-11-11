@@ -164,15 +164,7 @@ function Staged({ phase, live }: { phase: Phase; live: Session }) {
 }
 
 describe('an image picker result belongs to the wallet that opened it', () => {
-  beforeEach(() => jest.useFakeTimers());
-  afterEach(async () => {
-    await act(async () => {
-      jest.advanceTimersByTime(systemPrompt.PROMPT_SETTLE_MS);
-    });
-    jest.useRealTimers();
-  });
-
-  test.each(['lock', 'wallet switch'])(
+  test.each(['lock', 'wallet switch', 'network switch'])(
     'drops a result after %s',
     async change => {
       const read = snapshotOf();
@@ -205,7 +197,17 @@ describe('an image picker result belongs to the wallet that opened it', () => {
         );
       } else {
         const next = sessionOf({
-          snapshot: { ...read, wallet: { ...read.wallet, id: 'other-wallet' } },
+          snapshot: {
+            ...read,
+            wallet:
+              change === 'wallet switch'
+                ? { ...read.wallet, id: 'other-wallet' }
+                : {
+                    ...read.wallet,
+                    network:
+                      read.wallet.network === 'mainnet' ? 'regtest' : 'mainnet',
+                  },
+          },
         });
         await act(async () =>
           tree.update(<Staged phase={walletPhase} live={next} />),
