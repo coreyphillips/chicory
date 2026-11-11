@@ -836,6 +836,7 @@ describe('the amount step', () => {
         x: made(201),
         y: made(764),
         handover: made(0),
+        leaving: made(false),
       }))[0];
       return <LaunchProvider value={launch}>{children}</LaunchProvider>;
     }

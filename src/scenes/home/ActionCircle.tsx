@@ -20,7 +20,13 @@ import { shake, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { PRIMARY_CONTROL } from '../../stage/layout';
 import type { ControlLook } from '../../stage/layout';
-import { REFUSED, glyphHandoff, glyphScale, tintTiming } from './motion';
+import {
+  REFUSED,
+  glyphHandoff,
+  glyphScale,
+  ownInk,
+  tintTiming,
+} from './motion';
 
 /** A point in the window, where the scan reveal grows from. */
 export type Point = { x: number; y: number };
@@ -151,6 +157,12 @@ export function ActionCircle({
     () => ({ opacity: toward.get() }),
     [toward],
   );
+  // The circle's own ink under the control's goes over the last of the way
+  // (`ownInk`), so the glyph that lands is the control's alone.
+  const inkUnder = useAnimatedStyle(
+    () => ({ opacity: ownInk(toward.get()) }),
+    [toward],
+  );
 
   // The circle draws two glyphs, one over the other, the same size on
   // screen at every step (`glyphScale`). Its own, drawn at its size with
@@ -246,12 +258,14 @@ export function ActionCircle({
         {look ? (
           <View pointerEvents="none" style={styles.centred}>
             <Reanimated.View collapsable={false} style={travelGlyph}>
-              <Glyph
-                name={glyph}
-                size={landed}
-                color={ink}
-                strokeWidth={line}
-              />
+              <Reanimated.View style={inkUnder}>
+                <Glyph
+                  name={glyph}
+                  size={landed}
+                  color={ink}
+                  strokeWidth={line}
+                />
+              </Reanimated.View>
               <Reanimated.View style={[styles.over, becoming]}>
                 <Glyph
                   name={glyph}

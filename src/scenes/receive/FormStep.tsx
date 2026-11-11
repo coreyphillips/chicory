@@ -5,7 +5,7 @@ import { AmountField } from '../../components/AmountField';
 import { copy } from '../../design/copy';
 import { palette } from '../../design/palette';
 import { riseIn, sceneOut } from '../../motion/presets';
-import { useLaunchLanding } from '../../stage/panes/Launch';
+import { FADES_AS_ONE, useLaunchLanding } from '../../stage/panes/Launch';
 import { usePaneActive } from '../../stage/panes/Pane';
 import { radius, space, type as typography } from '../../theme';
 import { AmountCue, AmountFace } from './AmountCue';
@@ -217,7 +217,7 @@ export function FormStep({
           it is unseen until the circle hands over, so the two are never
           drawn apart. */}
       <View ref={landing.ref} onLayout={landing.onLayout} collapsable={false}>
-        <Reanimated.View style={landing.style}>
+        <Reanimated.View style={landing.style} {...FADES_AS_ONE}>
           <GlyphButton
             glyph="receive"
             label={copy.receive.continue}

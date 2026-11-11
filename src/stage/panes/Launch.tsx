@@ -25,13 +25,29 @@ import { springs } from '../../motion/tokens';
  * own (`useLaunchLanding`). `handover` runs from 0, while the circle is on
  * its way, to 1 once the control has taken over: Home starts it as the
  * circle arrives on the control (`landedAt`), and the canvas only makes
- * sure it comes, and turns it back to 0 as the scene leaves.
+ * sure it comes, and turns it back to 0 as the scene leaves, `leaving`
+ * from then until the next scene opens. Whichever of the two is drawn on
+ * top fades and the other stays whole under it (`handoverOpacity` in
+ * scenes/home/motion): the control coming in over the circle, and the
+ * circle coming back over the control.
  */
 export interface Launch {
   x: SharedValue<number>;
   y: SharedValue<number>;
   handover: SharedValue<number>;
+  leaving: SharedValue<boolean>;
 }
+
+/**
+ * Props for each view that fades through the hand-over, the circle's and
+ * the control's, so it fades as one picture. On Android a view's opacity
+ * otherwise falls on each layer inside it: the disc of the one coming in
+ * covered the glyph of the one under it while it was still faint, and the
+ * circle's own disc and ink showed through the look it had taken on, so
+ * the control and its glyph dimmed for a moment each way. iOS fades a view
+ * as one already.
+ */
+export const FADES_AS_ONE = { needsOffscreenAlphaCompositing: true } as const;
 
 const LaunchContext = createContext<Launch | null>(null);
 
@@ -53,8 +69,10 @@ export const WATCH_FRAMES = 45;
  * holds it, so the circle that opened the scene lands on it exactly rather
  * than on the slot's bottom centre, and a `style` for an animated view
  * around it that holds the control unseen until the circle has landed and
- * hands over, so the two are never drawn apart. Off the canvas the ref and
- * the layout do nothing and the style shows the control.
+ * hands over, so the two are never drawn apart. As the scene leaves, the
+ * control stays whole under the circle coming back over it, and goes with
+ * the scene. Off the canvas the ref and the layout do nothing and the style
+ * shows the control.
  *
  * Where the control is read from the window includes whatever still moves
  * it, such as an entrance of the step it is drawn in, so one reading taken
@@ -66,7 +84,9 @@ export const WATCH_FRAMES = 45;
 export function useLaunchLanding() {
   const launch = useLaunch();
   const style = useAnimatedStyle(
-    () => ({ opacity: launch ? launch.handover.get() : 1 }),
+    () => ({
+      opacity: !launch || launch.leaving.get() ? 1 : launch.handover.get(),
+    }),
     [launch],
   );
   const ref = useRef<HostInstance>(null);

@@ -296,31 +296,73 @@ export const OTHERS_GONE = springStep(
 const HANDOVER = 0.3;
 
 /**
+ * How much of the hand-back the circle takes to come in whole over the
+ * control: the first half, while the scene it leaves has barely begun to
+ * fade on the exit curve.
+ */
+export const HANDBACK = 0.5;
+
+/**
+ * The tapped circle's opacity on the canvas, `handover` running from 0 as
+ * it lands to 1 once the scene's control has taken over, and back to 0 as
+ * the scene goes (`leaving`). Whichever of the two is drawn on top fades,
+ * and the one under it stays whole until it is whole. Going, the control
+ * comes in over the circle, so the circle stays whole under it and goes
+ * only once the control is whole. Coming home, Home is drawn over the
+ * scene, so the circle comes back in over the control, whole by HANDBACK,
+ * while the control stays whole under it (`useLaunchLanding`). Faded
+ * together, as they were, what is behind them showed through: the control
+ * and its glyph dimmed for a moment each way.
+ */
+export function handoverOpacity(handover: number, leaving: boolean): number {
+  'worklet';
+  if (leaving) return clamp01((1 - handover) / HANDBACK);
+  return handover >= 1 ? 0 : 1;
+}
+
+/**
  * One circle's opacity as the row goes away, `away` running from 0 at home
  * to 1 once it has gone. With nothing launching it is the row's own fade,
  * which the sheet's drag shapes (T5). On the way to Send or Receive the
  * circles not tapped are gone before the scene's content enters (T1,
  * `OTHERS_GONE`), and the tapped one stays
  * whole while it travels and grows. On the canvas it stays whole where it
- * lands, standing in for the scene's own control, until `handover` (0 to 1)
- * says the control has come in over it; drawn on its own it hands over
- * across the last 30% of the way. Coming back, each comes in the same way
- * in reverse.
+ * lands, standing in for the scene's own control, as `handover` (0 to 1)
+ * brings the control in over it, and goes only once the control is whole
+ * (`handoverOpacity`); drawn on its own it hands over across the last 30%
+ * of the way. Coming back, each comes in the same way in reverse.
  */
 export function circleOpacity(
   away: number,
   tapped: boolean,
   launch: Launch,
   handover?: number,
+  leaving?: boolean,
 ): number {
   'worklet';
   if (launch === 'none') return clamp01(1 - away);
   if (tapped) {
     return handover === undefined
       ? clamp01((1 - away) / HANDOVER)
-      : clamp01(1 - handover);
+      : handoverOpacity(handover, leaving === true);
   }
   return clamp01(1 - away / OTHERS_GONE);
+}
+
+/**
+ * How far the tapped circle's own ink stays under the control's as it
+ * takes on the control's look: whole, until the last INK_TAIL of the way,
+ * over which it goes, so once the circle has landed its glyph is the
+ * control's alone. Left under it, its soft edge showed past the control's,
+ * so the glyph read a little lighter than the control's own and stepped
+ * down as one handed over to the other.
+ */
+export const INK_TAIL = 0.1;
+
+/** The tapped circle's own ink under the control's, `m` of the way. */
+export function ownInk(m: number): number {
+  'worklet';
+  return clamp01((1 - m) / INK_TAIL);
 }
 
 /**

@@ -17,13 +17,18 @@ import { BackupTile } from '../src/scenes/home/BackupTile';
 import { HomePane } from '../src/scenes/home/HomePane';
 import { StatusRow } from '../src/scenes/home/StatusRow';
 import {
+  HANDBACK,
   HANDOFF,
+  INK_TAIL,
   LANDED_PT,
   MINI_IN_BAND,
   MINI_IN_ROW,
+  circleOpacity,
   figureShown,
   glyphHandoff,
   glyphScale,
+  handoverOpacity,
+  ownInk,
   landedAt,
   launchPose,
   launchTravel,
@@ -92,6 +97,17 @@ const shownAt = (node: ReactTestInstance, key: 'opacity' | 'scale') => {
   let view: ReactTestInstance | null = node;
   while (view && read(view) === undefined) view = view.parent;
   return view ? (read(view) as number) : undefined;
+};
+/** The opacities of the host views around `node`, nearest first. */
+const opacitiesAround = (node: ReactTestInstance) => {
+  const found: number[] = [];
+  for (let view = node.parent; view; view = view.parent) {
+    const opacity = flat(view).opacity;
+    if (typeof view.type === 'string' && typeof opacity === 'number') {
+      found.push(opacity);
+    }
+  }
+  return found;
 };
 /** The first host view a component draws, where its style lands. */
 const host = (node: ReactTestInstance) =>
@@ -430,6 +446,7 @@ describe('Send and Receive open from their circle', () => {
         x: Reanimated.useSharedValue(201),
         y: Reanimated.useSharedValue(764),
         handover: Reanimated.useSharedValue(handover),
+        leaving: Reanimated.useSharedValue(false),
       };
       landing.handover.set(handover);
       return <HomeAt hero={0} bar={0} launching="send" landing={landing} />;
@@ -466,6 +483,7 @@ describe('Send and Receive open from their circle', () => {
         x: made(201),
         y: made(764),
         handover: made(0),
+        leaving: made(false),
       }))[0];
       return <LaunchProvider value={launch}>{children}</LaunchProvider>;
     }
@@ -545,6 +563,7 @@ describe('Send and Receive open from their circle', () => {
         x: made(201),
         y: made(764),
         handover: made(0),
+        leaving: made(false),
       }))[0];
       return (
         <LaunchProvider value={launch}>
@@ -796,9 +815,16 @@ describe('the circle becomes the control it lands on', () => {
       expect(shrunk).toBeCloseTo(glyphScale(m, 24, 56, look.glyph, look.scale));
       expect(shrunk).toBeLessThan(1);
       expect(24 * shownAt(own, 'scale')!).toBeCloseTo(look.glyph * shrunk);
-      // And the two hand over as far as the circle has gone.
+      // And the two hand over as far as the circle has gone; under the
+      // control's, the circle's own ink goes over the last of the way.
       expect(shownAt(own, 'opacity')).toBeCloseTo(glyphHandoff(m).home);
-      expect(shownAt(control, 'opacity')).toBeCloseTo(glyphHandoff(m).travel);
+      const [ink, travel] = opacitiesAround(control);
+      expect(ink).toBeCloseTo(ownInk(m));
+      expect(travel).toBeCloseTo(glyphHandoff(m).travel);
+      expect(opacitiesAround(twin)).toEqual([
+        expect.closeTo(m),
+        expect.closeTo(glyphHandoff(m).travel),
+      ]);
       await act(async () => tree.unmount());
     }
     // At rest, with nowhere to go, it is the grid's glyph, whole.
@@ -845,7 +871,7 @@ describe('the circle becomes the control it lands on', () => {
         stroke: svg.props.stroke,
         strokeWidth: svg.props.strokeWidth,
         scale: shownAt(svg, 'scale'),
-        opacity: shownAt(svg, 'opacity'),
+        opacities: opacitiesAround(svg),
       }));
     const tree = await mount(<Circle travelling />);
     const landing = drawn(tree);
@@ -854,8 +880,9 @@ describe('the circle becomes the control it lands on', () => {
     // The same drawings, posed as they were: its own whole at its own
     // size, and the control's still there, unseen.
     expect(home).toEqual(landing);
-    expect(home[0]).toMatchObject({ width: 24, scale: 1, opacity: 1 });
-    expect(home[1]).toMatchObject({ width: look.glyph, opacity: 0 });
+    expect(home[0]).toMatchObject({ width: 24, scale: 1, opacities: [1] });
+    // Its own ink is still whole under the control's, and the two unseen.
+    expect(home[1]).toMatchObject({ width: look.glyph, opacities: [1, 0] });
     await act(async () => tree.unmount());
   });
 
@@ -976,11 +1003,18 @@ describe('the circle becomes the control it lands on', () => {
       seen.push(flatStyle(useLaunchLanding().style).opacity);
       return null;
     }
-    function Launching({ handover }: { handover: number }) {
+    function Launching({
+      handover,
+      leaving = false,
+    }: {
+      handover: number;
+      leaving?: boolean;
+    }) {
       const launch = React.useState<Launch>(() => ({
         x: made(201),
         y: made(764),
         handover: made(handover),
+        leaving: made(leaving),
       }))[0];
       return (
         <LaunchProvider value={launch}>
@@ -990,14 +1024,59 @@ describe('the circle becomes the control it lands on', () => {
     }
     for (const element of [
       <Launching handover={0} />,
+      <Launching handover={0.5} />,
       <Launching handover={1} />,
+      <Launching handover={0.5} leaving />,
+      <Launching handover={0} leaving />,
       <Control />,
     ]) {
       const tree = await mount(element);
       await act(async () => tree.unmount());
     }
-    // On its way, handed over, and off the canvas.
-    expect(seen).toEqual([0, 1, 1]);
+    // On its way, coming in over the circle, handed over; whole under the
+    // circle coming back over it as the scene goes, which fades it itself;
+    // and off the canvas.
+    expect(seen).toEqual([0, 0.5, 1, 1, 1, 1]);
+  });
+
+  test('whichever of the circle and the control is on top fades, the other whole under it', () => {
+    // Going, the control comes in over the circle: the circle stays whole
+    // under it, and goes only once the control is whole.
+    for (const h of [0, 0.25, 0.5, 0.75, 0.999]) {
+      expect(handoverOpacity(h, false)).toBe(1);
+      expect(circleOpacity(1, true, 'send', h, false)).toBe(1);
+    }
+    expect(handoverOpacity(1, false)).toBe(0);
+    // Coming home, Home is drawn over the scene, and the circle comes back
+    // in over the control, whole by HANDBACK of the way.
+    expect(handoverOpacity(1, true)).toBe(0);
+    expect(handoverOpacity(1 - HANDBACK / 2, true)).toBeCloseTo(0.5);
+    expect(handoverOpacity(1 - HANDBACK, true)).toBe(1);
+    expect(handoverOpacity(0, true)).toBe(1);
+    let before = 0;
+    for (let h = 1; h >= -0.0001; h -= 0.05) {
+      const now = handoverOpacity(Math.max(0, h), true);
+      expect(now).toBeGreaterThanOrEqual(before);
+      before = now;
+    }
+    // Drawn on its own, with no control to hand over to, it fades with the
+    // last of its way, as it did.
+    expect(circleOpacity(0.85, true, 'send')).toBeCloseTo(0.5);
+  });
+
+  test('the glyph that lands is the control’s alone', () => {
+    // The circle's own ink stays under the control's until the last of the
+    // way, then goes, so its soft edge never shows past the control's.
+    expect(ownInk(0)).toBe(1);
+    expect(ownInk(1 - INK_TAIL)).toBeCloseTo(1);
+    expect(ownInk(1 - INK_TAIL / 2)).toBeCloseTo(0.5);
+    expect(ownInk(1)).toBe(0);
+    let before = 1;
+    for (let m = 0; m <= 1.0001; m += 0.02) {
+      const now = ownInk(m);
+      expect(now).toBeLessThanOrEqual(before);
+      before = now;
+    }
   });
 
   test("Send's review and Receive's Continue stay unseen until the circle hands over", async () => {
@@ -1033,6 +1112,7 @@ describe('the circle becomes the control it lands on', () => {
         x: made(201),
         y: made(764),
         handover: made(handover ?? 0),
+        leaving: made(false),
       }))[0];
       return handover === undefined ? (
         <>{children}</>
