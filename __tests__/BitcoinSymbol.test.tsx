@@ -256,6 +256,7 @@ describe('the tap on the balance', () => {
 
   describe('across launches', () => {
     const FACE = 'com.beignet.wallet.balance-face';
+    const VISIBILITY = 'com.beignet.wallet.balance-visibility';
     let saved: Map<string, string>;
     beforeEach(() => {
       saved = new Map();
@@ -303,14 +304,17 @@ describe('the tap on the balance', () => {
       await act(async () => tree.unmount());
     });
 
-    test('nothing saved, or something unreadable, opens in ₿', async () => {
+    test('a missing or unreadable face opens in ₿', async () => {
       saved.set(FACE, 'nonsense');
       const tree = await mount(<Stage home />);
       expect(total(tree)).toBe('₿261,500');
       await act(async () => tree.unmount());
       jest
         .mocked(Keychain.getGenericPassword)
-        .mockRejectedValue(new Error('locked'));
+        .mockImplementation(async options => {
+          if (options?.service === FACE) throw new Error('locked');
+          return false;
+        });
       const locked = await mount(<Stage home />);
       expect(total(locked)).toBe('₿261,500');
       await act(async () => locked.unmount());
@@ -319,11 +323,12 @@ describe('the tap on the balance', () => {
     test('a tap before the saved face is read wins over it', async () => {
       saved.set(FACE, 'sats');
       let answer!: () => void;
-      jest.mocked(Keychain.getGenericPassword).mockImplementation(
-        () =>
-          new Promise(resolve => {
-            answer = () => resolve({ password: 'sats' } as never);
-          }),
+      jest.mocked(Keychain.getGenericPassword).mockImplementation(options =>
+        options?.service === FACE
+          ? new Promise(resolve => {
+              answer = () => resolve({ password: 'sats' } as never);
+            })
+          : Promise.resolve(false),
       );
       const tree = await mount(<Stage home />);
       expect(total(tree)).toBe('₿261,500');
@@ -332,6 +337,113 @@ describe('the tap on the balance', () => {
       await act(async () => answer());
       expect(total(tree)).toBe('0.00261500BTC');
       expect(saved.get(FACE)).toBe('btc');
+      await act(async () => tree.unmount());
+    });
+
+    test('the mask and unit survive independent changes and cold launches', async () => {
+      const tree = await mount(<Stage home />);
+      await tap(tree);
+      await act(async () => balance(tree).props.onLongPress());
+      expect(saved.get(VISIBILITY)).toBe('hidden');
+      await act(async () => tree.unmount());
+
+      const hidden = await mount(<Stage home />);
+      expect(balance(hidden).props.accessibilityLabel).toBe(
+        copy.home.balanceHidden,
+      );
+      expect(total(hidden)).not.toContain('2615');
+      await act(async () => hidden.update(<Stage home={false} />));
+      await act(async () => hidden.update(<Stage home />));
+      expect(balance(hidden).props.accessibilityLabel).toBe(
+        copy.home.balanceHidden,
+      );
+      await act(async () =>
+        balance(hidden).props.onAccessibilityAction({
+          nativeEvent: { actionName: 'mask' },
+        }),
+      );
+      expect(balance(hidden).props.accessibilityLabel).toBe(btc);
+      await act(async () => hidden.unmount());
+
+      const visible = await mount(<Stage home />);
+      expect(total(visible)).toBe('0.00261500BTC');
+      await act(async () => visible.unmount());
+    });
+
+    test('masks a cached balance during a slow read and honors a deliberate reveal', async () => {
+      let finish!: () => void;
+      jest.mocked(Keychain.getGenericPassword).mockImplementation(options =>
+        options?.service === VISIBILITY
+          ? new Promise(resolve => {
+              finish = () => resolve({ password: 'hidden' } as never);
+            })
+          : Promise.resolve(false),
+      );
+      const tree = await mount(<Stage home />);
+      expect(balance(tree).props.accessibilityLabel).toBe(
+        copy.home.balanceHidden,
+      );
+      expect(drawnIn(tree.root)).not.toContain('261,500');
+      await act(async () => balance(tree).props.onLongPress());
+      await act(async () => finish());
+      expect(balance(tree).props.accessibilityLabel).toBe(sats);
+      expect(saved.get(VISIBILITY)).toBe('visible');
+      await act(async () => tree.unmount());
+    });
+
+    test('an invalid or inaccessible mask stays private until deliberately revealed', async () => {
+      saved.set(VISIBILITY, 'damaged');
+      const tree = await mount(<Stage home />);
+      expect(balance(tree).props.accessibilityLabel).toBe(
+        copy.home.balanceHidden,
+      );
+      await act(async () => tree.unmount());
+
+      jest
+        .mocked(Keychain.getGenericPassword)
+        .mockRejectedValue(new Error('locked'));
+      jest
+        .mocked(Keychain.setGenericPassword)
+        .mockRejectedValue(new Error('locked'));
+      const locked = await mount(<Stage home />);
+      expect(balance(locked).props.accessibilityLabel).toBe(
+        copy.home.balanceHidden,
+      );
+      await act(async () => balance(locked).props.onLongPress());
+      expect(balance(locked).props.accessibilityLabel).toBe(sats);
+      await act(async () => locked.unmount());
+    });
+
+    test('orders successive mask writes even if the first write is slow', async () => {
+      const write = jest.mocked(Keychain.setGenericPassword);
+      let finish!: () => void;
+      write.mockClear().mockImplementationOnce(
+        (_name, value) =>
+          new Promise(resolve => {
+            finish = () => {
+              saved.set(VISIBILITY, value);
+              resolve({ service: VISIBILITY } as never);
+            };
+          }),
+      );
+      const tree = await mount(<Stage home />);
+      await act(async () => {
+        const toggle = balance(tree).props.onLongPress;
+        toggle();
+        toggle();
+        toggle();
+      });
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(balance(tree).props.accessibilityLabel).toBe(
+        copy.home.balanceHidden,
+      );
+      await act(async () => finish());
+      expect(write.mock.calls.map(([, value]) => value)).toEqual([
+        'hidden',
+        'visible',
+        'hidden',
+      ]);
+      expect(saved.get(VISIBILITY)).toBe('hidden');
       await act(async () => tree.unmount());
     });
 
