@@ -1,6 +1,6 @@
 # Chicory
 
-A Lightning-first wallet for iOS and Android, running the Beignet engine on the phone itself, built on React Native 0.87.1. One balance, Send, Receive, Activity with details, and Settings. Payment requests and Bitcoin addresses share one send flow with an explicit amount and fee review. Receive produces a unified request QR after showing the receive fee.
+A Lightning-first wallet for iOS and Android, running the Beignet engine on the phone itself, built on React Native 0.88.1. One balance, Send, Receive, Activity with details, and Settings. Payment requests and Bitcoin addresses share one send flow with an explicit amount and fee review. Receive produces a unified request QR after showing the receive fee.
 
 <p align="center">
   <img src="docs/screenshots/chicory-ios.png" width="100%" alt="Chicory on iOS: the balance with a payment just received, the activity history, a payment checked before it is held to send, and a receive request's code">
@@ -94,6 +94,8 @@ Sending to a Bitcoin address splices the channel, which spends the channel's own
 Screenshot blocking is not claimed: neither platform offers it through React Native core, and a partial version would be worse than none. The recovery phrase is still cleared whenever the app stops being active, is never copied to the clipboard, and can be put behind the biometric lock. There is also no fiat display, no LNURL or Lightning address, no BOLT12 payment, and no background or push-woken receiving. Restoring from a recovery phrase exists (Settings), but it does not yet offer peer-storage channel recovery (#4).
 
 ## Develop and build
+
+Use Node.js 22.13 or newer on 22.x, 24.3 or newer on 24.x, or 26 and above.
 
 The engine and the wallet core are ordinary git dependencies, so a fresh clone
 needs nothing beside it:
@@ -219,6 +221,8 @@ Recorded result for app version 0.7.15 (November 7, 2026), on the Beignet 0.38.1
 Chicory 0.7.16 (build 29) uses Beignet 0.38.4, portable engine commit `5c42817`, and wallet-core commit `9027384`. The [GitHub release](https://github.com/coreyphillips/chicory/releases/tag/v0.7.16) includes the signed arm64 Android APK and its SHA-256 checksum.
 
 Chicory 0.7.17 (build 30) matches the desktop launcher icon and aligns the private note pencil in payment details. The [GitHub release](https://github.com/coreyphillips/chicory/releases/tag/v0.7.17) includes the signed arm64 Android APK and its SHA-256 checksum.
+
+The React Native 0.87.1 to 0.88.1 upgrade was tested on November 11, 2026. On Android 17 (API 37), installing the arm64 release over the published 0.7.16 APK preserved the existing wallet and its hidden-balance setting. Both warm and cold Bitcoin links opened with the requested amount. On an iOS 27.0 simulator, an in-place upgrade reopened an encrypted regtest wallet and its existing invoice history, and delivered cold Bitcoin and warm Lightning links to JavaScript. The unsigned arm64 iPhone release also built with its iOS 17.5 minimum unchanged. All 3,995 Jest tests and TypeScript passed. No physical phone was used.
 
 With the 0.19.5 engine the phone keeps one home channel however money arrives: a Bitcoin deposit is spliced in once it confirms, a Lightning payment that needs room has the primary splice the channel bigger, and another Beignet wallet paying by direct funding splices it too, paired or not; a stranger's splice locks after three confirmations, and the wallet says so while it does.
 

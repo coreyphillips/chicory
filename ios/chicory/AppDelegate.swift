@@ -130,28 +130,14 @@ class ChicorySceneDelegate: UIResponder, UIWindowSceneDelegate {
   // which only hears about it through these. A cold start's link comes in
   // the scene's connection options instead, read into the launch options above.
   func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
+    // React Native's scene handler forwards the first context in each set.
     for context in contexts {
-      var options: [UIApplication.OpenURLOptionsKey: Any] = [
-        .openInPlace: context.options.openInPlace,
-      ]
-      if let source = context.options.sourceApplication {
-        options[.sourceApplication] = source
-      }
-      if let annotation = context.options.annotation {
-        options[.annotation] = annotation
-      }
-      _ = RCTLinkingManager.application(
-        UIApplication.shared, open: context.url, options: options
-      )
+      RCTLinkingManager.scene(scene, openURLContexts: [context])
     }
   }
 
   func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
-    _ = RCTLinkingManager.application(
-      UIApplication.shared,
-      continue: userActivity,
-      restorationHandler: { _ in }
-    )
+    RCTLinkingManager.scene(scene, continue: userActivity)
   }
 }
 
