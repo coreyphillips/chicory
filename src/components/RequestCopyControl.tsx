@@ -27,7 +27,7 @@ import {
   useWhisperHold,
 } from '../glyphs/Whisper';
 import type { Anchor } from '../glyphs/Whisper';
-import { focusAfterTransition, focusOn } from '../motion/focus';
+import { focusAfterTransition } from '../motion/focus';
 import { riseIn, sceneOut } from '../motion/presets';
 import { durations } from '../motion/tokens';
 import { useAppActive } from '../scenes/home/useAppActive';
@@ -37,6 +37,9 @@ import { usePaneActive } from '../stage/panes/Pane';
 import { radius, space } from '../theme';
 
 type Rail = Exclude<RequestCopyFormat, 'request'>;
+
+// VoiceOver processes UIKit's own screen change when a modal appears or closes.
+const MODAL_FOCUS = { delay: Platform.OS === 'ios' ? 300 : 0 };
 
 // A full-screen iOS modal needs a keyboard responder for hardware Escape.
 const EscapeKey =
@@ -63,10 +66,12 @@ function CopyOption({
   format,
   focusRef,
   onCopy,
+  onClose,
 }: {
   format: Rail;
   focusRef?: React.RefObject<HostInstance | null>;
   onCopy: () => void;
+  onClose: () => void;
 }) {
   const label = labels[format];
   const { source, explain } = useWhisperHold(label, { focusRef });
@@ -76,6 +81,14 @@ function CopyOption({
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onCopy}
+      onAccessibilityTap={onCopy}
+      onAccessibilityEscape={onClose}
+      accessibilityActions={[
+        { name: 'dismiss', label: copy.receive.closeCopyChoices },
+      ]}
+      onAccessibilityAction={event => {
+        if (event.nativeEvent.actionName === 'dismiss') onClose();
+      }}
       delayLongPress={WHISPER_DELAY}
       onLongPress={explain}
       style={({ pressed }) => [styles.option, pressed && styles.pressed]}
@@ -132,12 +145,16 @@ function Control({
   const restoreFocus = useCallback(() => {
     if (!open.current && trigger.current) {
       cancelFocus.current?.();
-      cancelFocus.current = focusAfterTransition(() => trigger.current);
+      cancelFocus.current = focusAfterTransition(
+        () => trigger.current,
+        MODAL_FOCUS,
+      );
     }
   }, []);
   const close = useCallback(() => {
     if (!open.current) return;
     open.current = false;
+    cancelFocus.current?.();
     setClosing(true);
     // Keep the transparent window until its capsule has faded away.
     removal.current = setTimeout(() => {
@@ -158,13 +175,16 @@ function Control({
     if (!live || closing || open.current || !formats.length) return;
     cancelFocus.current?.();
     open.current = true;
+    const rect = trigger.current?.getBoundingClientRect?.();
     setAnchor(
-      trigger.current?.getBoundingClientRect?.() ?? {
-        x: event.nativeEvent.pageX,
-        y: event.nativeEvent.pageY,
-        width: 0,
-        height: 0,
-      },
+      rect && rect.width > 0 && rect.height > 0
+        ? rect
+        : {
+            x: event.nativeEvent.pageX - TARGET / 2,
+            y: event.nativeEvent.pageY - TARGET / 2,
+            width: TARGET,
+            height: TARGET,
+          },
     );
   };
   const choose = (format: Rail) => {
@@ -210,6 +230,7 @@ function Control({
             ...holdActions,
             focusRef: trigger,
             onPress: tap,
+            onAccessibilityTap: tap,
             accessibilityHint: hint,
             copies,
           }}
@@ -221,7 +242,7 @@ function Control({
           hint={hint}
           confirm={copies}
           focusRef={trigger}
-          holdActions={holdActions}
+          holdActions={{ ...holdActions, onAccessibilityTap: tap }}
           haptic={false}
           onPress={tap}
         />
@@ -232,7 +253,15 @@ function Control({
         animationType="none"
         statusBarTranslucent
         navigationBarTranslucent
-        onShow={() => focusOn(first.current)}
+        onShow={() => {
+          if (open.current) {
+            cancelFocus.current?.();
+            cancelFocus.current = focusAfterTransition(
+              () => first.current,
+              MODAL_FOCUS,
+            );
+          }
+        }}
         onRequestClose={close}
         onDismiss={restoreFocus}
       >
@@ -245,8 +274,8 @@ function Control({
             >
               {EscapeKey && <EscapeKey onEscape={close} />}
               <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={copy.receive.closeCopyChoices}
+                accessible={false}
+                importantForAccessibility="no-hide-descendants"
                 onPress={close}
                 style={StyleSheet.absoluteFill}
               />
@@ -262,6 +291,7 @@ function Control({
                       format={format}
                       focusRef={i === 0 ? first : undefined}
                       onCopy={() => choose(format)}
+                      onClose={close}
                     />
                   ))}
                 </Reanimated.View>

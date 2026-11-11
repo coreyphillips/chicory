@@ -53,6 +53,7 @@ export interface CopyChipProps {
     | 'accessibilityActions'
     | 'accessibilityHint'
     | 'onAccessibilityAction'
+    | 'onAccessibilityTap'
     | 'onLongPress'
     | 'delayLongPress'
   > & {
@@ -229,6 +230,7 @@ export function CopyChip({
         accessibilityActions={
           live ? interaction?.accessibilityActions : undefined
         }
+        onAccessibilityTap={live ? interaction?.onAccessibilityTap : undefined}
         onAccessibilityAction={
           live ? interaction?.onAccessibilityAction : undefined
         }

@@ -93,7 +93,7 @@ test('holding the trigger opens two finger-sized glyphs, and holding a glyph onl
   await act(async () => tree.unmount());
 });
 
-test.each(['outside', 'back', 'accessibility escape'])(
+test.each(['outside', 'named close', 'back', 'accessibility escape'])(
   '%s dismisses without copying and restores focus to the trigger',
   async way => {
     const tree = await mount(<RequestCopyControl {...props} />);
@@ -101,6 +101,7 @@ test.each(['outside', 'back', 'accessibility escape'])(
     await longPress(tree);
     const modal = tree.root.findByType(Modal);
     await act(async () => modal.props.onShow());
+    await act(async () => jest.advanceTimersByTime(500));
     expect(focus).toHaveBeenLastCalledWith(
       expect.objectContaining({
         props: expect.objectContaining({
@@ -110,7 +111,29 @@ test.each(['outside', 'back', 'accessibility escape'])(
       'focus',
     );
     if (way === 'outside') {
-      await press(tree, copy.receive.closeCopyChoices);
+      const [backdrop] = modal.findAll(
+        node =>
+          node.props.accessible === false &&
+          typeof node.props.onPress === 'function',
+      );
+      expect(backdrop.props.importantForAccessibility).toBe(
+        'no-hide-descendants',
+      );
+      await act(async () => backdrop.props.onPress());
+    } else if (way === 'named close') {
+      for (const label of [
+        copy.receive.copyLightning,
+        copy.receive.copyBitcoin,
+      ]) {
+        expect(find(tree, label)!.props.accessibilityActions).toEqual([
+          { name: 'dismiss', label: copy.receive.closeCopyChoices },
+        ]);
+      }
+      await act(async () =>
+        find(tree, copy.receive.copyBitcoin)!.props.onAccessibilityAction({
+          nativeEvent: { actionName: 'dismiss' },
+        }),
+      );
     } else if (way === 'back') {
       await act(async () => modal.props.onRequestClose());
     } else {
@@ -124,7 +147,7 @@ test.each(['outside', 'back', 'accessibility escape'])(
     expect(modal.props.visible).toBe(false);
     focus.mockClear();
     await act(async () => modal.props.onDismiss());
-    await act(async () => jest.runOnlyPendingTimers());
+    await act(async () => jest.advanceTimersByTime(500));
     expect(focus).toHaveBeenLastCalledWith(
       expect.objectContaining({
         props: expect.objectContaining({ accessibilityLabel: copyLabel }),
@@ -135,6 +158,19 @@ test.each(['outside', 'back', 'accessibility escape'])(
     await act(async () => tree.unmount());
   },
 );
+
+test('VoiceOver can activate a focused format and then the returning Copy button', async () => {
+  const tree = await mount(<RequestCopyControl {...props} />);
+  await longPress(tree);
+  await act(async () =>
+    find(tree, copy.receive.copyLightning)!.props.onAccessibilityTap(),
+  );
+  await act(async () => jest.advanceTimersByTime(durations.exit + 1));
+  expect(tree.root.findByType(Modal).props.visible).toBe(false);
+  await act(async () => find(tree, copyLabel)!.props.onAccessibilityTap());
+  expect(props.onCopy.mock.calls).toEqual([['lightning'], ['request']]);
+  await act(async () => tree.unmount());
+});
 
 test('the open chooser cannot survive a change of request or pane', async () => {
   const control = (scope: string, active: boolean) => (

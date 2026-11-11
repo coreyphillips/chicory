@@ -172,6 +172,7 @@ export function GlyphButton({
     | 'delayLongPress'
     | 'accessibilityActions'
     | 'onAccessibilityAction'
+    | 'onAccessibilityTap'
   >;
   /** A guarded action can give its own haptic after it succeeds. */
   haptic?: boolean;
