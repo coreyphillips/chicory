@@ -1,7 +1,7 @@
 import { fs, path, ROOT } from '../test-support/node';
 
 /**
- * The app icon, the open bloom on roast, as scripts/app-icon.mjs writes it
+ * The app icon, the open bloom on indigo, as scripts/app-icon.mjs writes it
  * (REDESIGN.md 3.1). Every size each platform asks for is there, at its
  * size, and iOS's are opaque, as the App Store requires.
  */
