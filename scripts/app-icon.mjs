@@ -1,10 +1,10 @@
 /**
- * Draws the app icon, the open bloom on roast (REDESIGN.md 3.1), and writes
+ * Draws the app icon, the open bloom on desktop's indigo tile, and writes
  * every size iOS and Android ask for:
  *
  * - iOS: ios/chicory/Images.xcassets/AppIcon.appiconset, one opaque PNG per
  *   entry in its Contents.json, which this names.
- * - Android: an adaptive icon (a roast background with the bloom's glow, the
+ * - Android: an adaptive icon (an indigo background, the
  *   bloom as the foreground inside the 66dp safe circle, and a one-colour
  *   bloom for themed icons) in mipmap-anydpi-v26, and the square and round
  *   icons older launchers use, in each mipmap density.
@@ -59,7 +59,6 @@ if (!Array.isArray(LENGTHS) || LENGTHS.length !== 12) {
 }
 
 const palette = {
-  roast: colour('roast'),
   bloomHi: colour('bloomHi'),
   bloomDeep: colour('bloomDeep'),
   bloomNight: colour('bloomNight'),
@@ -120,45 +119,52 @@ const PETAL_GRADIENT =
   `<stop offset="1" stop-color="${palette.bloomHi}"/>` +
   '</linearGradient>';
 
-/** The top pane's glow (palette `gradients.G1`), centred, over roast. */
-const GLOW =
-  '<radialGradient id="glow" cx="0.5" cy="0.5" r="0.62">' +
-  `<stop offset="0" stop-color="${palette.bloomNight}" stop-opacity="0.34"/>` +
-  '<stop offset="0.6" stop-color="#2A2A45" stop-opacity="0.12"/>' +
-  '<stop offset="1" stop-color="#2A2A45" stop-opacity="0"/>' +
-  '</radialGradient>';
-
-/** The flower reaches 46 units from its centre: 92 across. */
-const REACH = 92;
-
 /**
- * A square drawing `size` units across: an optional ground, and the flower
- * `across` units wide at its centre.
+ * Match the visible tile in chicory-desktop/build/icon.png. The flower
+ * spans about 79% of the tile. Its longest petal reaches 46 units above
+ * the eye, so placing the eye slightly low centres the asymmetric bloom.
+ * Android adaptive layers extend past the visible tile on all sides.
  */
 function drawing({
   size = 1024,
-  across = 0,
+  tile = size,
+  showFlower = true,
   ground = true,
   mono = null,
   clip = null,
-}) {
-  const scale = across / REACH;
-  const defs = `<defs>${PETAL_GRADIENT}${GLOW}${
+} = {}) {
+  const inset = (size - tile) / 2;
+  const eyeY = size / 2 + 0.009 * tile;
+  const flowerScale = (0.816 * tile) / 92;
+  const gradient =
+    `<linearGradient id="indigo" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="${inset}" y2="${
+      inset + tile
+    }">` +
+    '<stop offset="0" stop-color="#2B3972"/><stop offset="1" stop-color="#141B3D"/>' +
+    '</linearGradient>';
+  const glow =
+    `<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="${
+      size / 2
+    }" cy="${size / 2}" r="${tile / 2}">` +
+    `<stop offset="0" stop-color="${palette.bloomDeep}" stop-opacity="0.1"/>` +
+    `<stop offset="1" stop-color="${palette.bloomDeep}" stop-opacity="0"/>` +
+    '</radialGradient>';
+  const defs = `<defs>${PETAL_GRADIENT}${gradient}${glow}${
     clip ? `<clipPath id="shape">${clip}</clipPath>` : ''
   }</defs>`;
   const clipAttr = clip ? ' clip-path="url(#shape)"' : '';
   const grounds = ground
-    ? `<rect width="${size}" height="${size}" fill="${palette.roast}"/>` +
+    ? `<rect width="${size}" height="${size}" fill="url(#indigo)"/>` +
       `<rect width="${size}" height="${size}" fill="url(#glow)"/>`
     : '';
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">` +
     defs +
     `<g${clipAttr}>${grounds}` +
-    (across > 0
-      ? `<g transform="translate(${size / 2} ${
+    (showFlower
+      ? `<g transform="translate(${
           size / 2
-        }) scale(${scale})">${flower({ mono })}</g>`
+        } ${eyeY}) scale(${flowerScale})">${flower({ mono })}</g>`
       : '') +
     '</g></svg>'
   );
@@ -184,10 +190,6 @@ function render(svg, px, out, flatten = false) {
     // App Store icons may not carry an alpha channel.
     execFileSync('magick', [
       out,
-      '-background',
-      palette.roast,
-      '-alpha',
-      'remove',
       '-alpha',
       'off',
       // No timestamps, so drawing the same icon again changes no file.
@@ -198,11 +200,10 @@ function render(svg, px, out, flatten = false) {
   }
 }
 
-// iOS: full bleed, the system rounds the corners. The flower keeps about a
-// fifth of the icon clear on every side.
+// iOS draws the full tile and applies its own corner mask.
 const IOS_SET = 'ios/chicory/Images.xcassets/AppIcon.appiconset';
 const contents = JSON.parse(read(`${IOS_SET}/Contents.json`));
-const iosSvg = drawing({ across: 640 });
+const iosSvg = drawing();
 for (const image of contents.images) {
   const points = Number(image.size.split('x')[0]);
   const scale = Number(image.scale.replace('x', ''));
@@ -217,45 +218,43 @@ writeFileSync(
 );
 
 // Android. The adaptive icon's layers are 108dp, of which launchers show
-// the middle 72dp and promise only a 66dp circle: the flower stays within
-// 60dp of it.
+// the middle 72dp. The bloom fits inside the guaranteed 66dp safe circle.
 const DENSITIES = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
 const RES = 'android/app/src/main/res';
-const layer = 108;
-const foreground = drawing({ size: layer, across: 60, ground: false });
-const background = drawing({ size: layer });
+const adaptiveTile = { size: 108, tile: 72 };
+const foreground = drawing({ ...adaptiveTile, ground: false });
+const background = drawing({ ...adaptiveTile, showFlower: false });
 const monochrome = drawing({
-  size: layer,
-  across: 60,
+  ...adaptiveTile,
   ground: false,
   mono: '#FFFFFF',
 });
 // The icons older launchers take whole: a rounded square, and a circle.
 const legacy = drawing({
   size: 48,
-  across: 34,
+  tile: 46,
   clip: '<rect x="1" y="1" width="46" height="46" rx="9"/>',
 });
 const legacyRound = drawing({
   size: 48,
-  across: 34,
+  tile: 46,
   clip: '<circle cx="24" cy="24" r="23"/>',
 });
 for (const [density, factor] of Object.entries(DENSITIES)) {
   const dir = path.join(ROOT, RES, `mipmap-${density}`);
   render(
     foreground,
-    layer * factor,
+    adaptiveTile.size * factor,
     path.join(dir, 'ic_launcher_foreground.png'),
   );
   render(
     background,
-    layer * factor,
+    adaptiveTile.size * factor,
     path.join(dir, 'ic_launcher_background.png'),
   );
   render(
     monochrome,
-    layer * factor,
+    adaptiveTile.size * factor,
     path.join(dir, 'ic_launcher_monochrome.png'),
   );
   render(legacy, 48 * factor, path.join(dir, 'ic_launcher.png'));
@@ -263,7 +262,7 @@ for (const [density, factor] of Object.entries(DENSITIES)) {
 }
 const adaptive =
   '<?xml version="1.0" encoding="utf-8"?>\n' +
-  '<!-- Written by scripts/app-icon.mjs: the open bloom on roast. -->\n' +
+  '<!-- Written by scripts/app-icon.mjs: the open bloom on indigo. -->\n' +
   '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n' +
   '    <background android:drawable="@mipmap/ic_launcher_background" />\n' +
   '    <foreground android:drawable="@mipmap/ic_launcher_foreground" />\n' +
