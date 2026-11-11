@@ -30,6 +30,7 @@ jest.mock('../src/embedded/storage', () => ({
 const SESSION = 'com.beignet.wallet.last-session';
 const PROFILES = 'com.beignet.wallet.network-profiles';
 const PRIMARY = `03${'a'.repeat(64)}`;
+const SECOND = `02${'c'.repeat(64)}`;
 const STRANGER = `02${'b'.repeat(64)}`;
 
 let records: Map<string, string>;
@@ -230,6 +231,39 @@ describe('reads that overlap', () => {
   });
 });
 
+function rankedDevice() {
+  const client = device();
+  client.snapshot = jest.fn(async () =>
+    reading({
+      primaries: [
+        {
+          pubkey: PRIMARY,
+          rank: 1,
+          uri: `${PRIMARY}@127.0.0.1:9735`,
+          connected: true,
+          setup: 'ready',
+          balanceSat: 0,
+          channelCount: 0,
+          isReceiveTarget: true,
+          selectionOrder: 1,
+        },
+        {
+          pubkey: SECOND,
+          rank: 2,
+          uri: `${SECOND}@127.0.0.1:9736`,
+          connected: false,
+          setup: 'ready',
+          balanceSat: 0,
+          channelCount: 0,
+          isReceiveTarget: false,
+          selectionOrder: 2,
+        },
+      ],
+    }),
+  );
+  return client;
+}
+
 describe('reads after a connection', () => {
   test('a confirmed primary disconnect is visible while the replacement handshake is pending', async () => {
     const client = device();
@@ -267,36 +301,7 @@ describe('reads after a connection', () => {
   });
 
   test('with several ranked primaries, any of them connecting brings the reads forward (coreyphillips/beignet#1924)', async () => {
-    const client = device();
-    const SECOND = `02${'c'.repeat(64)}`;
-    client.snapshot = jest.fn(async () =>
-      reading({
-        primaries: [
-          {
-            pubkey: PRIMARY,
-            rank: 1,
-            uri: `${PRIMARY}@127.0.0.1:9735`,
-            connected: true,
-            setup: 'ready',
-            balanceSat: 0,
-            channelCount: 0,
-            isReceiveTarget: true,
-            selectionOrder: 1,
-          },
-          {
-            pubkey: SECOND,
-            rank: 2,
-            uri: `${SECOND}@127.0.0.1:9736`,
-            connected: false,
-            setup: 'ready',
-            balanceSat: 0,
-            channelCount: 0,
-            isReceiveTarget: false,
-            selectionOrder: 2,
-          },
-        ],
-      }),
-    );
+    const client = rankedDevice();
     const { tree, report } = await open(client);
     const opened = reads(client);
     await report('peer:connect', STRANGER);
@@ -306,6 +311,56 @@ describe('reads after a connection', () => {
     await act(async () => jest.advanceTimersByTime(1500));
     expect(reads(client)).toBe(opened + 1);
     await act(async () => tree.unmount());
+  });
+
+  test.each(['connect first', 'disconnect first'])(
+    'reads a ranked primary disconnect immediately and follows the other primary through reestablishment (%s)',
+    async order => {
+      const client = rankedDevice();
+      const { tree, report } = await open(client);
+      const opened = reads(client);
+      const previous = AppState.currentState;
+      AppState.currentState = 'active';
+      try {
+        const connect = () => report('peer:connect', SECOND);
+        const disconnect = () => report('peer:disconnect', PRIMARY);
+        if (order === 'connect first') {
+          await connect();
+          await disconnect();
+        } else {
+          await disconnect();
+          await connect();
+        }
+        await act(async () => jest.advanceTimersByTime(0));
+        expect(reads(client)).toBe(opened + 1);
+        await act(async () => jest.advanceTimersByTime(1500));
+        expect(reads(client)).toBe(opened + 2);
+        await act(async () => jest.advanceTimersByTime(4500));
+        expect(reads(client)).toBe(opened + 3);
+      } finally {
+        AppState.currentState = previous;
+        await act(async () => tree.unmount());
+      }
+    },
+  );
+
+  test('closing the session cancels both peer reads and ignores later peer events', async () => {
+    const client = rankedDevice();
+    const { tree, report } = await open(client);
+    const opened = reads(client);
+    const previous = AppState.currentState;
+    AppState.currentState = 'active';
+    try {
+      await report('peer:disconnect', PRIMARY);
+      await report('peer:connect', SECOND);
+      await act(async () => tree.unmount());
+      await report('peer:connect', SECOND);
+      await report('peer:disconnect', PRIMARY);
+      await act(async () => jest.advanceTimersByTime(6000));
+      expect(reads(client)).toBe(opened);
+    } finally {
+      AppState.currentState = previous;
+    }
   });
 
   test('a redial that reconnected the primary brings them forward too', async () => {

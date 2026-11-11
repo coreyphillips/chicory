@@ -207,11 +207,16 @@ export function useWalletSession(view: WalletSessionView) {
   const known = useRef<{ walletId: string; snapshot: WalletSnapshot } | null>(
     null,
   );
+  const restoreActive = useRef(true);
+
   // The engine reports the primary answering through its diagnostic hook.
   // That is the moment the balance changes from "reconnecting" to a figure
   // that can be sent, so it is read then, through a ref because the reader
   // is defined further down and must not rebuild the connect callback.
   const refreshRef = useRef<() => Promise<void>>(async () => {});
+  const disconnectRefreshTimer = useRef<
+    ReturnType<typeof setTimeout> | undefined
+  >(undefined);
   const connectRefreshTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const clearConnectRefresh = () => {
     for (const timer of connectRefreshTimers.current) clearTimeout(timer);
@@ -231,16 +236,19 @@ export function useWalletSession(view: WalletSessionView) {
       // Only a primary's connection changes what can be spent. A peer
       // connect names the peer by its public key; while no primary's is
       // known yet, as before a wallet's first read, any connect counts.
+      if (!restoreActive.current) return;
       const primaries = primaryPubkeys(known.current?.snapshot);
       if (event.phase === 'peer:disconnect') {
         // A primary just failed its liveness check. Show the wallet's actual
         // connectivity while the replacement handshake is still in flight.
         const pubkey = event.message.split(' ', 1)[0].toLowerCase();
         if (primaries.has(pubkey) && AppState.currentState === 'active') {
-          clearConnectRefresh();
-          connectRefreshTimers.current = [
-            setTimeout(() => refreshRef.current().catch(() => {}), 0),
-          ];
+          // Another ranked primary may still be reestablishing its channels.
+          clearTimeout(disconnectRefreshTimer.current);
+          disconnectRefreshTimer.current = setTimeout(() => {
+            disconnectRefreshTimer.current = undefined;
+            refreshRef.current().catch(() => {});
+          }, 0);
         }
         return;
       }
@@ -317,7 +325,6 @@ export function useWalletSession(view: WalletSessionView) {
   const [switchTarget, setSwitchTarget] = useState<Network | null>(null);
   const generation = useRef(0);
   const restoreStarted = useRef(false);
-  const restoreActive = useRef(true);
   /**
    * Held by any action that opens a wallet, so two opens cannot race, until
    * it commits. Each holds the token of the action that took it, and is let
@@ -700,6 +707,8 @@ export function useWalletSession(view: WalletSessionView) {
     return () => {
       clearInterval(timer);
       clearTimeout(returning);
+      clearTimeout(disconnectRefreshTimer.current);
+      disconnectRefreshTimer.current = undefined;
       clearConnectRefresh();
       subscription.remove();
       setResuming(false);
