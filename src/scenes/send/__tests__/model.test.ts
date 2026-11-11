@@ -3,6 +3,7 @@ import { copy } from '../../../design/copy';
 import { snapshotOf } from '../../../../test-support/fixtures';
 import {
   alreadySubmitted,
+  failureExplanation,
   amountTone,
   amountWords,
   chainStage,
@@ -230,6 +231,7 @@ describe('an engine error', () => {
   test.each([
     ['BOLT11_CHECKSUM', 'request', 'radish', ['cross']],
     ['ADDR_V0_LENGTH', 'request', 'radish', ['cross']],
+    ['WRONG_NETWORK', 'request', 'radish', ['cross']],
     ['LNURL_UNSUPPORTED', 'request', 'radish', ['cross']],
     ['OFFER_NOT_QUOTABLE', 'request', 'radish', ['cross']],
     ['PRIMARY_DOWN', 'control', 'honey', ['unplug']],
@@ -247,6 +249,21 @@ describe('an engine error', () => {
       shake: tone === 'radish',
     });
   });
+
+  test.each([
+    ['INVOICE_EXPIRED', copy.send.invoiceExpired],
+    ['QUOTE_EXPIRED', copy.send.quoteExpired],
+    ['WRONG_NETWORK', copy.send.wrongNetwork],
+    ['INSUFFICIENT_FUNDS', 'said'],
+    ['UNKNOWN_CODE', 'said'],
+  ])(
+    '%s offers the applicable explanation and preserves the diagnostic detail',
+    (code, explanation) => {
+      const refused = failure(code);
+      expect(failureExplanation(refused)).toBe(explanation);
+      expect(refused.message).toBe('said');
+    },
+  );
 
   test('short of funds is honey within what the wallet holds, radish past it', () => {
     expect(shape('INSUFFICIENT_FUNDS', balance.totalSats)).toMatchObject({
