@@ -692,6 +692,7 @@ Home's safety states, an old balance, a backup to save and a test network, are e
 - **Filters.** Glyph chips: send, receive, qr, orbit. Tapping the active chip again clears it. `search` expands into a field.
 - **Empty.** A dormant bud outline that breathes.
 - **A payment's detail.** One focal point: the 96pt ring and the 40pt amount in the header. Under them, lines led by a glyph in a 20pt column, each read as text: the date, the fee (money sent or moved always has one; money that came in only when the engine says it cost something), the note. A paid request's receipt adds only what the header cannot say, as lines (`ReceiveReceipt` `bare`): what arrived over what was asked while part of it has, and each Bitcoin transaction with its own ring in the glyph column. The request itself follows as a line (its code above it while it can still be paid), then how it could be paid, a line of rail glyphs, then the reference chips.
+- **Private payment notes.** A settled sent or received payment offers a small pencil in Detail. It opens an inline note with a check to save and a cross to cancel. A saved private note has a lock beside it. The original payment memo remains separately readable. In Activity the note uses the existing single-line memo slot, and search finds both. Notes live only in the device wallet's encrypted volume.
 
 ### Send
 

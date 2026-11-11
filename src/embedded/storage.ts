@@ -1,6 +1,7 @@
 import { open, isSQLCipher } from '@op-engineering/op-sqlite';
 import * as Keychain from 'react-native-keychain';
 import { Buffer } from 'buffer';
+import { openPaymentNotes } from './paymentNotes';
 import { NativeSqliteDatabase } from './sqlite';
 import { secureRandomBytes } from './random';
 import { markBoot } from '../services/perf';
@@ -309,6 +310,7 @@ async function initializeStorage(
   return {
     databaseFactory,
     volume,
+    openPaymentNotes: () => openPaymentNotes(files),
     async existingRegistryNamespaces(): Promise<StorageNamespace[]> {
       if (!leaseOpen) throw new Error('The device wallet storage is closed.');
       const namespaces: StorageNamespace[] = [
