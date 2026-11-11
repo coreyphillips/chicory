@@ -15,6 +15,7 @@ import type { NetworkProfile, NetworkPreferences } from '../services/networks';
 import { withDeviceSeedSource } from './seed';
 import { ensureTorReady, isOnionHost } from '../services/tor';
 import { markBoot } from '../services/perf';
+import type { WalletAdapter } from '../services/wallet';
 
 export type DeviceSettings = NetworkProfile;
 const LEGACY_SERVICE = 'com.beignet.wallet.embedded.settings';
@@ -206,7 +207,7 @@ export async function openDeviceWallet(
     stack?: string;
   }) => void,
   options?: { existingOnly?: boolean; allowEmpty?: boolean },
-) {
+): Promise<EmbeddedWalletClient & Pick<WalletAdapter, 'openPaymentNotes'>> {
   validateDeviceSettings(settings);
   installNativeCrypto();
   // Keep engine evaluation after the native CSPRNG is installed. Loading native
@@ -311,8 +312,9 @@ export async function openDeviceWallet(
       );
     };
     let closing = false;
+    const { openPaymentNotes, ...runtimeStorage } = storage;
     engine = await createPortableRuntime({
-      ...storage,
+      ...runtimeStorage,
       socketFactory,
       ...(settings.transport === 'native'
         ? {
@@ -428,7 +430,7 @@ export async function openDeviceWallet(
       onAppState(AppState.currentState);
     }
     committed = true;
-    return client;
+    return Object.assign(client, { openPaymentNotes });
   } finally {
     // This call owns both the storage lease and the engine's one-per-realm
     // claim. Neither may outlive a failure: an orphaned realm makes every

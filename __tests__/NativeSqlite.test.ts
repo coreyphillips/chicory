@@ -1,3 +1,4 @@
+import { openPaymentNotes } from '../src/embedded/paymentNotes';
 import {
   NativeSqliteDatabase,
   SynchronousDatabase,
@@ -272,4 +273,43 @@ describe('gossip batching', () => {
     ).toThrow('database is closed');
     expect(operations).toEqual([]);
   });
+});
+
+test('private payment notes reopen in their wallet scope and a closed vault cannot recreate erased data', () => {
+  const path = `/tmp/chicory-private-notes-${Date.now()}.sqlite`;
+  const first = '["regtest","wallet-a"]';
+  const second = '["regtest","wallet-b"]';
+  const main = '["mainnet","wallet-a"]';
+  let db = new NativeSqliteDatabase(nativeDatabase(path));
+  try {
+    let store = openPaymentNotes(db);
+    store.save(first, 'raw', { text: 'Dinner with Sam' });
+    store.save(second, 'raw', { text: 'Travel' });
+    expect(store.read(main).size).toBe(0);
+    db.close();
+    db = new NativeSqliteDatabase(nativeDatabase(path));
+    store = openPaymentNotes(db);
+    expect(store.read(first)).toEqual(
+      new Map([['raw', { text: 'Dinner with Sam' }]]),
+    );
+    store.move(first, new Map([['raw', 'request']]));
+    expect(store.read(first)).toEqual(
+      new Map([['request', { text: 'Dinner with Sam' }]]),
+    );
+    store.save(first, 'request', { text: 'Lunch' });
+    expect(store.read(first).get('request')?.text).toBe('Lunch');
+    store.save(first, 'request', { text: '' });
+    expect(store.read(first).size).toBe(0);
+    expect(store.read(second).get('raw')?.text).toBe('Travel');
+    db.close();
+    rmSync(path, { force: true });
+    expect(() => store.save(second, 'raw', { text: 'Late edit' })).toThrow(
+      'closed',
+    );
+    db = new NativeSqliteDatabase(nativeDatabase(path));
+    expect(openPaymentNotes(db).read(second).size).toBe(0);
+  } finally {
+    db.close();
+    rmSync(path, { force: true });
+  }
 });

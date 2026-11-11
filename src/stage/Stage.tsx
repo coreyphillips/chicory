@@ -31,6 +31,7 @@ import type { useWalletSession } from '../services/useWalletSession';
 import { LockScreen } from '../scenes/phases/Locked';
 import { Transit } from '../scenes/phases/Transit';
 import { Opening } from '../scenes/phases/Opening';
+import { WalletNotesProvider } from '../scenes/activity/WalletNotes';
 import { Saved } from '../scenes/phases/Saved';
 import { Welcome } from '../scenes/phases/Welcome';
 import { Picker } from '../scenes/phases/Picker';
@@ -284,17 +285,23 @@ export function Stage({
     case 'wallet':
       content =
         client && snapshot ? (
-          <Canvas
-            scene={state.scene}
-            overlay={state.overlay}
-            client={client}
-            snapshot={snapshot}
-            session={session}
-            stale={stale}
-            backup={backup}
-            view={view}
-            arrival={arrival}
-          />
+          <WalletNotesProvider
+            wallet={snapshot.wallet}
+            activity={snapshot.activity}
+            open={client.openPaymentNotes}
+          >
+            <Canvas
+              scene={state.scene}
+              overlay={state.overlay}
+              client={client}
+              snapshot={snapshot}
+              session={session}
+              stale={stale}
+              backup={backup}
+              view={view}
+              arrival={arrival}
+            />
+          </WalletNotesProvider>
         ) : null;
       break;
   }

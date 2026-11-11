@@ -450,6 +450,7 @@ const mockRuntime = {
   setAppBackgrounded: jest.fn(),
 };
 const mockStorage = {
+  openPaymentNotes: jest.fn(),
   volume: { read: (): Buffer | null => null },
   databaseFactory: jest.fn(),
   close: jest.fn(),
@@ -477,6 +478,21 @@ describe('opening a device wallet', () => {
     transport,
     relayUrl: '',
     relayToken: '',
+  });
+
+  test('private notes stay on the device client side of the payment runtime', async () => {
+    const client = await openDeviceWallet(
+      profile({ host: '127.0.0.1', port: 60001, tls: false }),
+    );
+    try {
+      expect(client.openPaymentNotes).toBe(mockStorage.openPaymentNotes);
+      const { createPortableRuntime } = require('@beignet/portable-engine');
+      expect(createPortableRuntime.mock.calls.at(-1)[0]).not.toHaveProperty(
+        'openPaymentNotes',
+      );
+    } finally {
+      await client.close();
+    }
   });
 
   test('the open Android wallet receives background and foreground state until it closes', async () => {
