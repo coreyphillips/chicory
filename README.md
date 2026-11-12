@@ -9,7 +9,7 @@ A Lightning-first wallet for iOS and Android, running the Beignet engine on the 
 
 The app's design, from its product rules to its motion, is specified in [REDESIGN.md](REDESIGN.md).
 
-App version 0.7.18 (Android `versionCode` 31). The version shown in Settings comes from `package.json`; `android/app/build.gradle` and the Xcode `MARKETING_VERSION` are kept in step with it.
+App version 0.7.19 (Android `versionCode` 32). The version shown in Settings comes from `package.json`; `android/app/build.gradle` and the Xcode `MARKETING_VERSION` are kept in step with it.
 
 ## What the phone adds
 
@@ -223,6 +223,8 @@ Chicory 0.7.16 (build 29) uses Beignet 0.38.4, portable engine commit `5c42817`,
 Chicory 0.7.17 (build 30) matches the desktop launcher icon and aligns the private note pencil in payment details. The [GitHub release](https://github.com/coreyphillips/chicory/releases/tag/v0.7.17) includes the signed arm64 Android APK and its SHA-256 checksum.
 
 Chicory 0.7.18 (build 31) upgrades the mobile app to React Native 0.88.1. The [GitHub release](https://github.com/coreyphillips/chicory/releases/tag/v0.7.18) includes the signed arm64 Android APK and its SHA-256 checksum.
+
+Chicory 0.7.19 (build 32) takes a Porch link as a primary node, on portable engine commit `34f0e2c` and wallet-core commit `ee6e404`; the engine stays Beignet 0.38.4. The link was checked on an Android emulator and an iOS simulator against a relay on loopback. A `wss://` relay with a publicly trusted certificate has not been run on a device. See [Porch links](docs/PORCH.md). The [GitHub release](https://github.com/coreyphillips/chicory/releases/tag/v0.7.19) includes the signed arm64 Android APK and its SHA-256 checksum.
 
 The React Native 0.87.1 to 0.88.1 upgrade was tested on November 11, 2026. On Android 17 (API 37), installing the arm64 release over the published 0.7.16 APK preserved the existing wallet and its hidden-balance setting. Both warm and cold Bitcoin links opened with the requested amount. On an iOS 27.0 simulator, an in-place upgrade reopened an encrypted regtest wallet and its existing invoice history, and delivered cold Bitcoin and warm Lightning links to JavaScript. The unsigned arm64 iPhone release also built with its iOS 17.5 minimum unchanged. All 3,995 Jest tests and TypeScript passed. No physical phone was used.
 
