@@ -61,14 +61,14 @@ It does not change what the notice in Settings says about the phone. The relay s
 
 Both native bindings were run against such a wallet: Chicory 0.7.18's fixture, an app image built with Beignet 0.39.0 in a bridged container, n0's public relay, regtest. A direct path would have won had one been offered, so every path sample had to read `relay`, on the phone and on the node.
 
-| | Android emulator | iOS simulator |
-| --- | --- | --- |
-| Path samples after connecting, each side | 55 of 55 relay | 57 of 57 relay |
-| Payments both ways: at first, after a phone engine restart, after a primary restart | completed | completed |
-| Round trip the node measured | 45 to 48 ms | 44 to 49 ms |
-| Link back after the primary started again | 12.7 s | 12.6 s |
-| Channel usable again, with no action on the phone | 16.8 s | 16.3 s |
-| Path samples after that restart, each side | 37 of 37 relay | 38 of 38 relay |
+|                                                                                     | Android emulator | iOS simulator  |
+| ----------------------------------------------------------------------------------- | ---------------- | -------------- |
+| Path samples after connecting, each side                                            | 55 of 55 relay   | 57 of 57 relay |
+| Payments both ways: at first, after a phone engine restart, after a primary restart | completed        | completed      |
+| Round trip the node measured                                                        | 45 to 48 ms      | 44 to 49 ms    |
+| Link back after the primary started again                                           | 12.7 s           | 12.6 s         |
+| Channel usable again, with no action on the phone                                   | 16.8 s           | 16.3 s         |
+| Path samples after that restart, each side                                          | 37 of 37 relay   | 38 of 38 relay |
 
 A relay-only node watches for about twelve seconds after each start before it accepts connections on the link, which is the wait in the fourth row. The phone's reconnect schedule covers it.
 
