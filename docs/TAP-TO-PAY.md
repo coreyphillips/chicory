@@ -71,6 +71,24 @@ With the payment scanner open, the app takes the tag itself (`NfcAdapter` reader
 | Listening, the mark, and the one-request rule           | `src/components/Scanner.tsx`                               |
 | The guard against the same tap arriving again as a link | `src/services/links.ts`                                    |
 
+### iPhone: a tag read from the scanner's control
+
+iOS opens an app for a tag only through a universal link, never for `lightning:` or `bitcoin:`, so on an iPhone a tap starts inside the app. The payment scanner has a `contactless` control beside the paste.
+
+- Pressing it raises Core NFC's sheet (`NFCNDEFReaderSession`) for one tag, with one line of the scan's own on it. Core NFC reads the tag's message to its end and hands over its records, and the first tag ends the session.
+- The sheet is the system's, raised at the app's asking, so it is raised inside `duringSystemPrompt` and the scan stays in view behind it. The camera rests while the sheet is up. What the sheet read is held until the app is in front again.
+- The sheet comes down after 20 seconds without a tag. iOS would hold it for 60, and the app lock counts 30 seconds behind a prompt as time away.
+- A sheet closed by hand, or left to run out, is no refusal. A tag that cannot be paid is refused on the control, by the rules the Android scanner keeps: every record is looked at, one request is taken, two different ones are refused.
+- The control is absent where tags cannot be read: the simulator, an iPad, and a build signed without the entitlement, where it goes at the first press.
+
+Signing: the app carries `com.apple.developer.nfc.readersession.formats` holding `TAG` (`ios/chicory/chicory.entitlements`), and `NFCReaderUsageDescription` in its `Info.plist`. NFC Tag Reading has to be turned on once for the `com.chicory` App ID, in the developer portal or through Xcode's Signing & Capabilities. A free personal team cannot be given it, so such a build leaves the entitlement out with `CODE_SIGN_ENTITLEMENTS=` on the `xcodebuild` line, and has every other part of the app.
+
+| What                                          | Where                                                        |
+| --------------------------------------------- | ------------------------------------------------------------ |
+| The iPhone reader                             | `ios/chicory/NfcReaderModule.swift`, `NfcReaderModule.m`     |
+| Its entitlement and the words iOS asks for    | `ios/chicory/chicory.entitlements`, `ios/chicory/Info.plist` |
+| The control, the sheet's line and the landing | `src/components/Scanner.tsx`, `src/design/copy/scan.ts`      |
+
 ## Trust
 
 A tag is unauthenticated, as a QR sticker is, and unlike a sticker it cannot be seen. Something hidden near a till could present a request of its own. The defence is the one a link has: the review shows the amount, and the hold commits it. That is why a tap never pays by itself.

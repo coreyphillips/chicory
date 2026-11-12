@@ -21,6 +21,8 @@
 		C2E4F6A8B0D1C3E5F7A9B1D3 /* ProcessModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F8B0D2C4E6A8F0B2D4C6E8A0 /* ProcessModule.m */; };
 		EF23ACBD56897123049567A1 /* QrImageModule.m in Sources */ = {isa = PBXBuildFile; fileRef = EF23ACBD56897123049567A2 /* QrImageModule.m */; };
 		D52F95E42868AE9D6E1A6738 /* IrohModule.m in Sources */ = {isa = PBXBuildFile; fileRef = B7CF183814AC886BCAD50B13 /* IrohModule.m */; };
+		4E7A1C9D2B6F4A83917C5D01 /* NfcReaderModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7A1C9E2B6F4A83917C5D01 /* NfcReaderModule.swift */; };
+		4E7A1C9D2B6F4A83917C5D02 /* NfcReaderModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 4E7A1C9E2B6F4A83917C5D02 /* NfcReaderModule.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -42,6 +44,9 @@
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F8B0D2C4E6A8F0B2D4C6E8A0 /* ProcessModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = chicory/ProcessModule.m; sourceTree = "<group>"; };
 		EF23ACBD56897123049567A2 /* QrImageModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = chicory/QrImageModule.m; sourceTree = "<group>"; };
+		4E7A1C9E2B6F4A83917C5D01 /* NfcReaderModule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = chicory/NfcReaderModule.swift; sourceTree = "<group>"; };
+		4E7A1C9E2B6F4A83917C5D02 /* NfcReaderModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = chicory/NfcReaderModule.m; sourceTree = "<group>"; };
+		4E7A1C9E2B6F4A83917C5D03 /* chicory.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = chicory.entitlements; path = chicory/chicory.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -73,6 +78,9 @@
 				EF23ACBD56897123049567A2 /* QrImageModule.m */,
 				3A91C5E27D4F4B0E9A6C1D21 /* PaykitDiscoveryModule.swift */,
 				3A91C5E37D4F4B0E9A6C1D21 /* PaykitDiscoveryModule.m */,
+				4E7A1C9E2B6F4A83917C5D01 /* NfcReaderModule.swift */,
+				4E7A1C9E2B6F4A83917C5D02 /* NfcReaderModule.m */,
+				4E7A1C9E2B6F4A83917C5D03 /* chicory.entitlements */,
 			);
 			name = chicory;
 			sourceTree = "<group>";
@@ -287,6 +295,8 @@
 				EF23ACBD56897123049567A1 /* QrImageModule.m in Sources */,
 				9C2E7F4A1B8D4E6FA3B5C701 /* PaykitDiscoveryModule.swift in Sources */,
 				9C2E7F4A1B8D4E6FA3B5C702 /* PaykitDiscoveryModule.m in Sources */,
+				4E7A1C9D2B6F4A83917C5D01 /* NfcReaderModule.swift in Sources */,
+				4E7A1C9D2B6F4A83917C5D02 /* NfcReaderModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -299,6 +309,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = chicory/chicory.entitlements;
 				CURRENT_PROJECT_VERSION = 32;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = chicory/Info.plist;
@@ -329,6 +340,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = chicory/chicory.entitlements;
 				CURRENT_PROJECT_VERSION = 32;
 				INFOPLIST_FILE = chicory/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.5;

@@ -228,3 +228,137 @@ describe('the reader the payment scanner listens with on Android', () => {
     expect(KOTLIN_CODE).not.toMatch(/lightning|bitcoin|toUri\(/i);
   });
 });
+
+const SWIFT = read('ios', 'chicory', 'NfcReaderModule.swift');
+/** The Swift without its comments. */
+const SWIFT_CODE = SWIFT.replace(/\/\*[\s\S]*?\*\//g, '').replace(
+  /^\s*\/\/.*$/gm,
+  '',
+);
+const EXTERNS = read('ios', 'chicory', 'NfcReaderModule.m');
+const PLIST = read('ios', 'chicory', 'Info.plist');
+const ENTITLEMENTS = read('ios', 'chicory', 'chicory.entitlements');
+const PROJECT = read('ios', 'chicory.xcodeproj', 'project.pbxproj');
+
+/** The string an Info.plist key holds, or undefined. */
+const plistString = (key: string) =>
+  PLIST.match(new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`))?.[1];
+
+describe('the reader the payment scanner asks on an iPhone', () => {
+  test('says what NFC is for, in words that name Chicory', () => {
+    // Without this line iOS ends the app the moment a read is asked for.
+    expect(plistString('NFCReaderUsageDescription')).toBe(
+      'Chicory uses NFC only to read a payment request from a payment terminal. Nothing is stored or sent.',
+    );
+  });
+
+  test('is not required of the phone', () => {
+    const required =
+      /<key>UIRequiredDeviceCapabilities<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(
+        PLIST,
+      )?.[1] ?? '';
+    expect(required).toContain('<string>arm64</string>');
+    expect(required).not.toMatch(/nfc/i);
+  });
+
+  test('is entitled to read tags, in the one format the store accepts', () => {
+    const formats =
+      /<key>com\.apple\.developer\.nfc\.readersession\.formats<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(
+        ENTITLEMENTS,
+      )?.[1] ?? '';
+    // NDEF beside TAG is refused at upload (ITMS-90778). TAG covers it.
+    expect(
+      [...formats.matchAll(/<string>([^<]*)<\/string>/g)].map(m => m[1]),
+    ).toEqual(['TAG']);
+    // And nothing else is asked for.
+    expect(ENTITLEMENTS.match(/<key>/g)).toHaveLength(1);
+  });
+
+  test('is signed with that entitlement in both configurations, and no team is committed', () => {
+    expect(
+      PROJECT.match(
+        /CODE_SIGN_ENTITLEMENTS = chicory\/chicory\.entitlements;/g,
+      ),
+    ).toHaveLength(2);
+    expect(PROJECT).not.toMatch(/DEVELOPMENT_TEAM\s*=\s*\w/);
+    expect(PROJECT).not.toContain('PROVISIONING_PROFILE');
+  });
+
+  test('is compiled into the app: both sources are in the project', () => {
+    for (const file of ['NfcReaderModule.swift', 'NfcReaderModule.m']) {
+      expect(PROJECT).toContain(
+        `/* ${file} in Sources */ = {isa = PBXBuildFile;`,
+      );
+      expect(PROJECT).toContain(`path = chicory/${file};`);
+    }
+    expect(PROJECT).toContain('path = chicory/chicory.entitlements;');
+  });
+
+  test('goes by the name the seam asks for, and answers the calls it makes', () => {
+    expect(SWIFT_CODE).toContain('@objc(ChicoryNfc)');
+    expect(EXTERNS).toContain('RCT_EXTERN_MODULE(ChicoryNfc, NSObject)');
+    const exported = [...EXTERNS.matchAll(/RCT_EXTERN_METHOD\((\w+):/g)].map(
+      match => match[1],
+    );
+    expect(exported.sort()).toEqual(['cancel', 'read', 'status']);
+    for (const method of exported)
+      expect(SWIFT_CODE).toMatch(new RegExp(`@objc func ${method}\\(`));
+    // The same calls the Android reader answers.
+    const android = [
+      ...KOTLIN_CODE.matchAll(/@ReactMethod\s+fun\s+(\w+)\s*\(/g),
+    ].map(match => match[1]);
+    expect(android.sort()).toEqual(exported);
+  });
+
+  test('ends a read only with a code the seam knows', () => {
+    const used = new Set(
+      [...SWIFT_CODE.matchAll(/"(TAP_[A-Z_]+)"/g)].map(match => match[1]),
+    );
+    const known = seamCodes();
+    for (const code of used) expect(known).toContain(code);
+    // A build signed without the entitlement says so, and the seam then
+    // answers that the phone cannot read.
+    expect(used).toContain('TAP_UNAVAILABLE');
+    expect(SWIFT_CODE).toContain('readerErrorSecurityViolation');
+  });
+
+  test('lets Core NFC read the tag, whole, and never speaks to it', () => {
+    expect(SWIFT_CODE).toContain('NFCNDEFReaderSession(');
+    expect(SWIFT_CODE).toContain('didDetectNDEFs');
+    for (const lower of [
+      'NFCTagReaderSession',
+      'sendCommand',
+      'NFCISO7816',
+      'readNDEF',
+    ])
+      expect(SWIFT_CODE).not.toContain(lower);
+  });
+
+  test('keeps its session until it ends, since the session will not', () => {
+    // A session holds its delegate weakly. Left unheld it is gone before
+    // the sheet is, and the read never answers.
+    expect(SWIFT_CODE).toMatch(/private var session: NFCNDEFReaderSession\?/);
+    expect(SWIFT_CODE).toContain('self.session = session');
+  });
+
+  test('takes its sheet down at the deadline the seam keeps', () => {
+    const native = Number(
+      /deadlineSeconds: TimeInterval = (\d+)/.exec(SWIFT_CODE)?.[1],
+    );
+    const seam = Number(
+      /TAP_DEADLINE_MS = ([\d_]+)/.exec(SEAM)?.[1].replace(/_/g, ''),
+    );
+    expect(native).toBeGreaterThan(0);
+    expect(native * 1000).toBe(seam);
+  });
+
+  test('holds no words: the line on its sheet comes from the scan', () => {
+    expect(SWIFT_CODE).toContain('session.alertMessage = prompt');
+    expect(SWIFT_CODE.match(/alertMessage/g)).toHaveLength(1);
+    expect(read('src', 'components', 'Scanner.tsx')).toContain(
+      'reader.read(copy.scan.tapPrompt)',
+    );
+    // What a record says is src/services/ndef.ts's to decide.
+    expect(SWIFT_CODE).not.toMatch(/lightning|bitcoin/i);
+  });
+});

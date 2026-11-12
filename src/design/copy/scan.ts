@@ -54,4 +54,11 @@ export const scan = {
   tapNoRequest: 'That tag holds no payment request.',
   tapSeveral: 'That tag holds more than one payment request.',
   tapUnreadable: 'Could not read that tag.',
+  /** An iPhone reads a tag only when asked: the control that asks. */
+  tapRead: 'Read a payment terminal',
+  /**
+   * The one line on the sheet iOS raises for a tag. The system draws the
+   * sheet and requires the line, as it does a permission prompt's.
+   */
+  tapPrompt: 'Hold your iPhone near the payment terminal.',
 };

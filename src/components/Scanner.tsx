@@ -88,7 +88,10 @@ import { HIT_SLOP, space } from '../theme';
  * above the controls: cream while it listens, steam and a way to the NFC
  * settings while NFC is off, and absent on a phone with no NFC. A request
  * read that way is taken as a pasted one is, never as the camera's, and a
- * tag that cannot be paid is refused on the mark.
+ * tag that cannot be paid is refused on the mark. An iPhone reads a tag only
+ * when asked, so there the same glyph is a control beside the paste: it
+ * raises the system's sheet for one tag, inside `duringSystemPrompt`, and is
+ * absent where tags cannot be read.
  *
  * Settings asks it for other codes: a primary node's address, or the Bitcoin
  * address the wallet empties to. Each brings its check (`validate`), which
@@ -1043,7 +1046,7 @@ export function Scanner({
       mounted.current = false;
     };
   }, []);
-  const manual = useRef<'photo' | 'clipboard' | null>(null);
+  const manual = useRef<'photo' | 'clipboard' | 'tap' | null>(null);
   const [picking, setPicking] = useState(false);
   // On Android the picker result can arrive before the wallet resumes. Hold it
   // only in this scanner until the active screen (including its lock) commits.
@@ -1058,6 +1061,13 @@ export function Scanner({
   const [tap, setTap] = useState<TapStatus>('missing');
   const [tapRefused, setTapRefused] = useState({ count: 0, reason: '' });
   const tapQuiet = useRef<Refused | null>(null);
+  const tapButton = useRef<React.ComponentRef<typeof View>>(null);
+  // What the iPhone's sheet came back with. The app is not in front again
+  // until a moment after the sheet goes, so it is held here until then, as a
+  // chosen image is.
+  const [tapResult, setTapResult] = useState<TapRecord[] | TapCode | null>(
+    null,
+  );
 
   const caught = useSharedValue(0);
   const sage = useSharedValue(0);
@@ -1322,10 +1332,11 @@ export function Scanner({
    * A tag was held to the phone: its records, or why it gave none. One
    * request that can be paid is taken as a pasted one is. A tag with a
    * message and nothing to pay in it is refused on the mark, the same tag
-   * at most once in `REFUSAL_QUIET_MS`. While a paste or a chosen image is
-   * being read, a tag is passed over.
+   * at most once in `REFUSAL_QUIET_MS` unless it was `asked` for, as each
+   * read on an iPhone is. While a paste or a chosen image is being read, a
+   * tag is passed over.
    */
-  function tapped(result: TapRecord[] | TapCode) {
+  function tapped(result: TapRecord[] | TapCode, asked = false) {
     if (!mounted.current || claimed.current || manual.current) return;
     let reason: string;
     let key: string;
@@ -1347,7 +1358,7 @@ export function Scanner({
       key = uris.join('\n');
     }
     const now = Date.now();
-    if (!shouldRefuse(tapQuiet.current, key, now)) return;
+    if (!asked && !shouldRefuse(tapQuiet.current, key, now)) return;
     tapQuiet.current = { value: key, at: now };
     refuseInput(reason, 'tap');
   }
@@ -1406,6 +1417,57 @@ export function Scanner({
     reader?.openSettings().catch(() => {});
   };
 
+  // An iPhone reads a tag only when asked, under a sheet of the system's
+  // own. The sheet is one the app raised, so the privacy cover leaves the
+  // scan in place behind it. The camera rests while the sheet is up: it is
+  // not what is being read, and the two need not share the phone.
+  async function readTap() {
+    if (!reader || claimed.current || manual.current) return;
+    manual.current = 'tap';
+    setPicking(true);
+    try {
+      const records = await duringSystemPrompt(() =>
+        reader.read(copy.scan.tapPrompt),
+      );
+      if (mounted.current) setTapResult(records);
+    } catch (error) {
+      if (mounted.current) setTapResult(tapCode(error));
+    }
+  }
+
+  useEffect(() => {
+    if (tapResult === null || !foreground || manual.current !== 'tap') return;
+    manual.current = null;
+    setTapResult(null);
+    setPicking(false);
+    if (tapResult === 'TAP_FAILED') {
+      // The sheet never came up, or went from under the read. A phone that
+      // can no longer read loses the control; one that still can is told the
+      // read failed.
+      reader?.status().then(
+        status => {
+          if (!mounted.current) return;
+          setTap(status);
+          if (status === 'ready') refuseInput(copy.scan.tapUnreadable, 'tap');
+        },
+        () => mounted.current && setTap('missing'),
+      );
+    } else {
+      // A sheet closed by hand, or left to run out, is no refusal.
+      onTap.current(tapResult, true);
+    }
+    if (!claimed.current && tapButton.current)
+      AccessibilityInfo.sendAccessibilityEvent(tapButton.current, 'focus');
+  }, [tapResult, foreground, reader]);
+
+  // A sheet still up as the scan closes comes down with it.
+  useEffect(() => {
+    if (!reader || reader.mode !== 'prompted') return;
+    return () => {
+      reader.cancel().catch(() => {});
+    };
+  }, [reader]);
+
   const openSettings = () => {
     Linking.openSettings().catch(() => {});
   };
@@ -1451,6 +1513,21 @@ export function Scanner({
               buttonRef={photoButton}
               reduced={reduced}
               refused={imageRefused}
+            />
+          </Whisper>
+        ) : null}
+        {reader?.mode === 'prompted' && tap === 'ready' ? (
+          <Whisper
+            enabled={!!tapRefused.reason}
+            label={tapRefused.reason || copy.scan.tapRead}
+          >
+            <GlyphButton
+              glyph="contactless"
+              label={copy.scan.tapRead}
+              onPress={readTap}
+              buttonRef={tapButton}
+              reduced={reduced}
+              refused={tapRefused}
             />
           </Whisper>
         ) : null}

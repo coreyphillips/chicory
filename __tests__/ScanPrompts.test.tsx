@@ -13,10 +13,12 @@ import { ReceiveRequestDetails } from '../src/components/ReceiveRequestDetails';
 import { Scanner } from '../src/components/Scanner';
 import { copy } from '../src/design/copy';
 import { PROMPT_SETTLE_MS, systemPromptOpen } from '../src/stage/systemPrompt';
+import { setTapReader } from '../src/services/tapReader';
 import type { WalletAdapter } from '../src/services/wallet';
 import { requestOf } from '../test-support/fixtures';
 import { mount } from '../test-support/guard';
 import { componentName, find } from '../test-support/query';
+import { fakeTapReader } from '../test-support/tap';
 
 /**
  * The system prompts Scan and a payment's detail raise (REDESIGN.md 2.3):
@@ -96,6 +98,27 @@ describe('a prompt the scan raises', () => {
     await settle();
     expect(systemPromptOpen()).toBe(false);
     await act(async () => tree.unmount());
+  });
+
+  test("an iPhone's tag sheet is raised inside a system prompt", async () => {
+    // The sheet is the system's, raised at the app's asking, so the scan
+    // stays in view behind it as it does behind the paste prompt.
+    const reader = fakeTapReader('prompted');
+    setTapReader(reader);
+    const tree = await mount(scanner());
+    expect(systemPromptOpen()).toBe(false);
+    await act(async () => {
+      // Not awaited: the read waits on the sheet.
+      find(tree, copy.scan.tapRead)!.props.onPress();
+    });
+    expect(systemPromptOpen()).toBe(true);
+    await act(async () => reader.fail('TAP_CANCELLED'));
+    // The app turns active again a little after the sheet has gone.
+    expect(systemPromptOpen()).toBe(true);
+    await settle();
+    expect(systemPromptOpen()).toBe(false);
+    await act(async () => tree.unmount());
+    setTapReader(null);
   });
 
   test('iOS asks for a camera never asked for inside a system prompt, and mounts it once allowed', async () => {

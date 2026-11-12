@@ -105,9 +105,33 @@ function nfc(answer: FakeTapReader['answer'] = 'ready'): FakeTapReader {
   return reader;
 }
 
+/** An iPhone, which reads a tag only when asked, under the system's sheet. */
+function iphone(answer: FakeTapReader['answer'] = 'ready'): FakeTapReader {
+  const reader = fakeTapReader('prompted', answer);
+  setTapReader(reader);
+  return reader;
+}
+
 /** A tag is held to the phone. */
 async function hold(reader: FakeTapReader, records: TapRecord[]) {
   await act(async () => reader.tag(records));
+}
+
+/** The app turns `state`, as iOS reports it. */
+async function appTurns(state: 'active' | 'inactive' | 'background') {
+  const changed = jest
+    .mocked(AppState.addEventListener)
+    .mock.calls.filter(([event]) => event === 'change')
+    .map(([, handler]) => handler);
+  await act(async () => changed.forEach(handler => handler(state)));
+}
+
+/** Presses the iPhone's tap control, which raises the sheet and waits. */
+async function ask(tree: ReactTestRenderer) {
+  await act(async () => {
+    // Not awaited: the read waits on the sheet.
+    find(tree, copy.scan.tapRead)!.props.onPress();
+  });
 }
 
 /** Every host node the tree draws labelled `label`. */
@@ -221,6 +245,44 @@ const GUARDED: GuardedState[] = [
       mockCamera = false;
       nfc();
       return mount(scanner());
+    },
+    data,
+  },
+  {
+    name: 'the scanner on an iPhone that reads tags',
+    render: () => {
+      iphone();
+      return mount(scanner());
+    },
+    data,
+  },
+  {
+    name: 'the scanner on an iPhone with its sheet up',
+    render: () => {
+      iphone();
+      return after(scanner(), ask);
+    },
+    data,
+  },
+  {
+    name: 'the scanner on an iPhone with a tag it cannot pay',
+    render: () => {
+      const reader = iphone();
+      return after(scanner(), async tree => {
+        await ask(tree);
+        await hold(reader, WEB_TAG);
+      });
+    },
+    data,
+  },
+  {
+    name: 'the scanner on an iPhone with a tapped request it can pay',
+    render: () => {
+      const reader = iphone();
+      return after(scanner(), async tree => {
+        await ask(tree);
+        await hold(reader, [uriRecord(`bitcoin:?lightning=${INVOICE}`)]);
+      });
     },
     data,
   },
@@ -735,5 +797,186 @@ describe('the same tag offered again as a link', () => {
     });
     await act(async () => tree.unmount());
     expect(await linked(PAYABLE)).toHaveBeenCalledWith(PAYABLE);
+  });
+});
+
+describe('on an iPhone', () => {
+  test('the tap is a control beside the paste, and nothing is read until it is pressed', async () => {
+    const reader = iphone();
+    const tree = await mount(scanner());
+    expect(reader.asked).toMatchObject({ status: 1, read: 0 });
+    expect(pressableLabels(tree)).toEqual(
+      new Set([
+        copy.scan.paste,
+        copy.scan.chooseImage,
+        copy.scan.tapRead,
+        copy.scan.close,
+      ]),
+    );
+    // The listening mark is Android's: an iPhone is not listening.
+    expect(labelled(tree, copy.scan.tapReady)).toHaveLength(0);
+    expect(visibleText(tree)).toEqual([]);
+    await act(async () => tree.unmount());
+  });
+
+  test('the control is absent where tags cannot be read, and for a Settings field', async () => {
+    iphone('missing');
+    const tree = await mount(scanner());
+    expect(find(tree, copy.scan.tapRead)).toBeUndefined();
+    await act(async () => tree.unmount());
+
+    const reader = iphone();
+    const field = await mount(
+      scanner({ purpose: 'address', validate: value => value }),
+    );
+    expect(find(field, copy.scan.tapRead)).toBeUndefined();
+    expect(reader.asked.status).toBe(0);
+    await act(async () => field.unmount());
+  });
+
+  test("pressing it raises the system's sheet with the scan's own line, and rests the camera", async () => {
+    const reader = iphone();
+    const tick = jest.spyOn(haptics, 'tick');
+    const tree = await mount(scanner());
+    expect(cameras(tree)).toHaveLength(1);
+    await ask(tree);
+    expect(tick).toHaveBeenCalledTimes(1);
+    expect(reader.asked.read).toBe(1);
+    expect(reader.prompt).toBe(copy.scan.tapPrompt);
+    expect(cameras(tree)).toHaveLength(0);
+    // A second press while the sheet is up asks for nothing more.
+    await ask(tree);
+    expect(reader.asked.read).toBe(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('a request read under the sheet goes to Send once, as a tap', async () => {
+    const reader = iphone();
+    const thud = jest.spyOn(haptics, 'thud');
+    const onDetected = jest.fn();
+    const tree = await mount(scanner({ onDetected }));
+    await ask(tree);
+    await hold(reader, [uriRecord(`lightning:${CAPITALS}`)]);
+    expect(onDetected).toHaveBeenCalledTimes(1);
+    expect(onDetected).toHaveBeenCalledWith(CAPITALS, 'tap');
+    expect(thud).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('what the sheet read waits for the app to be in front again', async () => {
+    const reader = iphone();
+    const onDetected = jest.fn();
+    const tree = await mount(scanner({ onDetected }));
+    await ask(tree);
+    // The sheet takes the app out of the front while it is up.
+    await appTurns('inactive');
+    await hold(reader, [uriRecord(PAYABLE)]);
+    expect(onDetected).not.toHaveBeenCalled();
+    await appTurns('active');
+    expect(onDetected).toHaveBeenCalledTimes(1);
+    expect(onDetected).toHaveBeenCalledWith(PAYABLE, 'tap');
+    await act(async () => tree.unmount());
+  });
+
+  test.each(['TAP_CANCELLED', 'TAP_TIMEOUT'] as const)(
+    'a sheet that ends with %s is no refusal: the same scan comes back',
+    async code => {
+      const reader = iphone();
+      const error = jest.spyOn(haptics, 'error');
+      const said = jest.spyOn(Announce, 'announce');
+      const onDetected = jest.fn();
+      const tree = await mount(scanner({ onDetected }));
+      said.mockClear();
+      await ask(tree);
+      await act(async () => reader.fail(code));
+      expect(error).not.toHaveBeenCalled();
+      expect(said).not.toHaveBeenCalled();
+      expect(cameras(tree)).toHaveLength(1);
+      const [button] = labelled(tree, copy.scan.tapRead);
+      expect(button.props.accessibilityValue?.text).toBeUndefined();
+      // And the control asks again.
+      await ask(tree);
+      expect(reader.asked.read).toBe(2);
+      await hold(reader, [uriRecord(PAYABLE)]);
+      expect(onDetected).toHaveBeenCalledWith(PAYABLE, 'tap');
+      await act(async () => tree.unmount());
+    },
+  );
+
+  test.each<[string, TapRecord[], string | null]>([
+    ['a web link', WEB_TAG, copy.scan.tapNoRequest],
+    [
+      'an LNURL',
+      [uriRecord(`lightning:${LNURL}`)],
+      refusal(LNURL, copy.scan.tapNoRequest),
+    ],
+    [
+      'two different requests',
+      [uriRecord(PAYABLE), uriRecord(`lightning:${INVOICE}`)],
+      copy.scan.tapSeveral,
+    ],
+  ])(
+    'a tag that cannot be paid is refused on the control: %s',
+    async (_, records, why) => {
+      const reader = iphone();
+      const error = jest.spyOn(haptics, 'error');
+      const said = jest.spyOn(Announce, 'announce');
+      const onDetected = jest.fn();
+      const tree = await mount(scanner({ onDetected }));
+      await ask(tree);
+      await hold(reader, records);
+      expect(onDetected).not.toHaveBeenCalled();
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(said).toHaveBeenCalledWith(why);
+      const [button] = labelled(tree, copy.scan.tapRead);
+      expect(button.props.accessibilityValue).toEqual({ text: why });
+      expect(whispers(tree)).toContainEqual({ label: why, on: true });
+      expect(cameras(tree)).toHaveLength(1);
+      // Each read is asked for, so the same tag read again is refused again.
+      await ask(tree);
+      await hold(reader, records);
+      expect(error).toHaveBeenCalledTimes(2);
+      await act(async () => tree.unmount());
+    },
+  );
+
+  test('a read that fails on a phone that can still read is refused as unread', async () => {
+    const reader = iphone();
+    const said = jest.spyOn(Announce, 'announce');
+    const tree = await mount(scanner());
+    await ask(tree);
+    await act(async () => reader.fail('TAP_FAILED'));
+    expect(said).toHaveBeenCalledWith(copy.scan.tapUnreadable);
+    expect(find(tree, copy.scan.tapRead)).toBeDefined();
+    expect(cameras(tree)).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('a read that fails in a build with no right to read tags takes the control away', async () => {
+    const reader = iphone();
+    const error = jest.spyOn(haptics, 'error');
+    const tree = await mount(scanner());
+    await ask(tree);
+    reader.answer = 'missing';
+    await act(async () => reader.fail('TAP_FAILED'));
+    expect(find(tree, copy.scan.tapRead)).toBeUndefined();
+    expect(error).not.toHaveBeenCalled();
+    expect(cameras(tree)).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('the sheet owns the scan while it is up, and comes down with it', async () => {
+    const reader = iphone();
+    const onDetected = jest.fn();
+    const tree = await mount(scanner({ onDetected }));
+    await ask(tree);
+    // A paste asked for under the sheet is not read.
+    jest.mocked(Clipboard.getString).mockClear();
+    await press(tree, copy.scan.paste);
+    expect(Clipboard.getString).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+    expect(reader.asked.cancel).toBe(1);
+    await hold(reader, [uriRecord(PAYABLE)]);
+    expect(onDetected).not.toHaveBeenCalled();
   });
 });
