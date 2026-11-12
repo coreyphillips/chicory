@@ -1027,6 +1027,41 @@ test('the primary QR scanner accepts an Iroh address and saves its optional onio
   await act(async () => tree.unmount());
 });
 
+test('the primary QR scanner accepts a Porch link, says who sees what, and saves it with no fallback', async () => {
+  // coreyphillips/beignet#1980.
+  const key = '02' + 'a'.repeat(64);
+  const uri = `${key}@wss://porch.example/v1/p/${'a'.repeat(32)}`;
+  const adapter = client();
+  const tree = await render(base, adapter);
+  await openPrimary(tree);
+  await act(async () => press(tree, 'Change primary node').props.onPress());
+  expect(text(tree)).not.toContain('A Porch link reaches the node');
+  await act(async () => press(tree, 'Scan primary node QR').props.onPress());
+  const scanner = tree.root.findByType(Scanner);
+  expect(scanner.props.validate(uri)).toBe(uri);
+  // A public relay over plain WebSocket, and a link with no route id, are not links.
+  expect(() =>
+    scanner.props.validate(uri.replace('wss://', 'ws://')),
+  ).toThrow();
+  expect(() =>
+    scanner.props.validate(`${key}@wss://porch.example/v1/p/`),
+  ).toThrow();
+  await act(async () => scanner.props.onDetected(uri));
+  expect(field(tree, 'Node address').props.value).toBe(uri);
+  expect(text(tree)).toContain(
+    "The relay can see your phone's IP address and when you connect, not what is sent.",
+  );
+  expect(text(tree)).not.toContain('Iroh is experimental');
+  expect(
+    tree.root.findAll(
+      node => node.props.accessibilityLabel === 'Optional Tor fallback URI',
+    ),
+  ).toEqual([]);
+  await act(async () => press(tree, 'Save primary node').props.onPress());
+  expect(adapter.updatePrimary).toHaveBeenCalledWith(uri);
+  await act(async () => tree.unmount());
+});
+
 describe('adding a ranked primary (coreyphillips/beignet#1924)', () => {
   const PK2 = `03${'7'.repeat(64)}`;
   const ranked: WalletSnapshot = {
@@ -1087,6 +1122,27 @@ describe('adding a ranked primary (coreyphillips/beignet#1924)', () => {
     const tree = await render(ranked, adapter);
     await addNode(tree);
     expect(text(tree)).toContain('has not connected to it yet');
+    await act(async () => tree.unmount());
+  });
+
+  test('a Porch link is added by its link alone, under a note of who sees what (coreyphillips/beignet#1980)', async () => {
+    const link = `${PK2}@wss://porch.example/v1/p/${'a'.repeat(32)}`;
+    const adapter = rankedClient(true);
+    const tree = await render(ranked, adapter);
+    await openRow(tree, 'Primary nodes');
+    await act(async () => press(tree, 'Add a primary node').props.onPress());
+    expect(text(tree)).not.toContain('A Porch link reaches the node');
+    await act(async () => {
+      field(tree, 'Node address').props.onChangeText(link);
+    });
+    expect(text(tree)).toContain('A Porch link reaches the node through a relay');
+    expect(
+      tree.root.findAll(
+        node => node.props.accessibilityLabel === 'Optional Tor fallback URI',
+      ),
+    ).toEqual([]);
+    await act(async () => press(tree, 'Save primary node').props.onPress());
+    expect(adapter.addPrimary).toHaveBeenCalledWith({ uri: link });
     await act(async () => tree.unmount());
   });
 

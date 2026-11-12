@@ -3,10 +3,12 @@ import {
   fillOf,
   fillTargetShown,
   hostLabel,
+  looksLikePorchLink,
   moved,
   restingOffset,
   shiftOf,
   slotAt,
+  porchLinkParts,
 } from '../primariesModel';
 
 /**
@@ -62,6 +64,47 @@ describe('the name a node is listed under', () => {
         `${key}@iroh:${'8e'.repeat(32)}?relay=https%3A%2F%2Fuse1-1.relay.n0.iroh.link.%2F`,
       ),
     ).toBe('iroh:8e8e8e…8e8e8e');
+  });
+  it('names a Porch node by its relay, without the route (coreyphillips/beignet#1980)', () => {
+    const route = 'abcdefghijklmnopqrstuvwxyz234567';
+    expect(hostLabel(`${key}@wss://porch.example/v1/p/${route}`)).toBe(
+      'wss://porch.example',
+    );
+    expect(hostLabel(` ${key}@wss://Porch.Example:8443/v1/p/${route} `)).toBe(
+      'wss://porch.example:8443',
+    );
+    expect(hostLabel(`${key}@ws://127.0.0.1:2114/v1/p/${route}`)).toBe(
+      'ws://127.0.0.1:2114',
+    );
+    expect(hostLabel(`${key}@wss://porch.example/v1/p/${route}`)).not.toContain(
+      route,
+    );
+  });
+  it('reads the parts of a Porch link, and nothing out of another address', () => {
+    const route = 'abcdefghijklmnopqrstuvwxyz234567';
+    expect(porchLinkParts(` ${key}@wss://porch.example:8443/v1/p/${route}`)).toEqual({
+      key,
+      relay: 'wss://porch.example:8443',
+      path: '/v1/p/',
+      route,
+    });
+    for (const other of [
+      `${key}@umbrel.local:9735`,
+      `${key}@iroh:${'8e'.repeat(32)}`,
+      `${key}@wss://porch.example`,
+      `${key}@wss://porch.example/v1/p/`,
+      `${key}@wss://porch.example/v1/p/${route}?x=1`,
+      `${key}@wss://porch.example/v1/p/${route}/more`,
+      `wss://porch.example/v1/p/${route}`,
+    ])
+      expect(porchLinkParts(other)).toBeNull();
+  });
+  it('knows a Porch link while it is still being typed', () => {
+    expect(looksLikePorchLink(`${key}@wss://`)).toBe(true);
+    expect(looksLikePorchLink(`${key}@WS://127.0.0.1`)).toBe(true);
+    expect(looksLikePorchLink(`${key}@iroh:${'8e'.repeat(32)}`)).toBe(false);
+    expect(looksLikePorchLink(`${key}@umbrel.local:9735`)).toBe(false);
+    expect(looksLikePorchLink('')).toBe(false);
   });
   it('draws anything else as it is', () => {
     expect(hostLabel('ws://relay.example')).toBe('ws://relay.example');
