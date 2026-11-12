@@ -12,13 +12,15 @@ import { useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
 import { steady } from '../../motion/steady';
 import { springs } from '../../motion/tokens';
+import { controlOpacity } from '../../scenes/home/motion';
 
 /**
  * The hand-over from Home's action circle to the scene it opens (REDESIGN.md
  * 7, T1 and T2). The tapped circle travels to where the scene draws its own
- * 88pt control and grows into it, whole all the way, and fades only once it
- * has landed, under the control that has come up over it in the same place,
- * so the two read as one element and never as two circles.
+ * 88pt control and grows into it, whole all the way, and stays whole once
+ * it has landed while the control comes up over it in the same place,
+ * going only once the control is whole, so the two read as one element and
+ * never as two circles.
  *
  * `x` and `y` are that control's centre in window points: the bottom centre
  * of the slot (`launchLanding` in stage/layout) until the scene measures its
@@ -26,8 +28,8 @@ import { springs } from '../../motion/tokens';
  * its way, to 1 once the control has taken over: Home starts it as the
  * circle arrives on the control (`landedAt`), and the canvas only makes
  * sure it comes, and turns it back to 0 as the scene leaves, `leaving`
- * from then until the next scene opens. Whichever of the two is drawn on
- * top fades and the other stays whole under it (`handoverOpacity` in
+ * while it does. Whichever of the two is drawn on top fades and the other
+ * stays whole under it (`handoverOpacity` and `controlOpacity` in
  * scenes/home/motion): the control coming in over the circle, and the
  * circle coming back over the control.
  */
@@ -51,6 +53,14 @@ export const FADES_AS_ONE = { needsOffscreenAlphaCompositing: true } as const;
 
 const LaunchContext = createContext<Launch | null>(null);
 
+/**
+ * Whether the scene a control is drawn in is going, as its `Launched` says.
+ * The control reads its own scene's rather than the canvas's `leaving`,
+ * which is still set as the next scene first draws, before the canvas has
+ * heard that it opened.
+ */
+const SceneLeaving = createContext(false);
+
 export const LaunchProvider = LaunchContext.Provider;
 
 /** The canvas's hand-over, or null off the canvas. */
@@ -70,9 +80,9 @@ export const WATCH_FRAMES = 45;
  * than on the slot's bottom centre, and a `style` for an animated view
  * around it that holds the control unseen until the circle has landed and
  * hands over, so the two are never drawn apart. As the scene leaves, the
- * control stays whole under the circle coming back over it, and goes with
- * the scene. Off the canvas the ref and the layout do nothing and the style
- * shows the control.
+ * control stays whole while the circle comes back over it, and goes under
+ * the circle once it is whole (`controlOpacity`). Off the canvas the ref
+ * and the layout do nothing and the style shows the control.
  *
  * Where the control is read from the window includes whatever still moves
  * it, such as an entrance of the step it is drawn in, so one reading taken
@@ -83,11 +93,12 @@ export const WATCH_FRAMES = 45;
  */
 export function useLaunchLanding() {
   const launch = useLaunch();
+  const leaving = useContext(SceneLeaving);
   const style = useAnimatedStyle(
     () => ({
-      opacity: !launch || launch.leaving.get() ? 1 : launch.handover.get(),
+      opacity: launch ? controlOpacity(launch.handover.get(), leaving) : 1,
     }),
-    [launch],
+    [launch, leaving],
   );
   const ref = useRef<HostInstance>(null);
   // The watch under way, which a later layout or the unmount cuts short.
@@ -135,7 +146,8 @@ export function samePlace(
  * A scene an action circle opens, Send or Receive, which tells the hand-over
  * as it comes and goes: `onOpen` as it opens, before anything else of it
  * runs, and `onLeave` once, as it goes: as it starts `leaving`, while the
- * canvas fades it out where it was, or else as it is taken away.
+ * canvas fades it out where it was, or else as it is taken away. Its
+ * control reads `leaving` from here (`useLaunchLanding`).
  */
 export function Launched({
   onOpen,
@@ -164,5 +176,7 @@ export function Launched({
     left.current = true;
     calls.current.onLeave();
   }, [leaving]);
-  return <>{children}</>;
+  return (
+    <SceneLeaving.Provider value={leaving}>{children}</SceneLeaving.Provider>
+  );
 }

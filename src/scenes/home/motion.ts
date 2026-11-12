@@ -310,7 +310,7 @@ export const HANDBACK = 0.5;
  * comes in over the circle, so the circle stays whole under it and goes
  * only once the control is whole. Coming home, Home is drawn over the
  * scene, so the circle comes back in over the control, whole by HANDBACK,
- * while the control stays whole under it (`useLaunchLanding`). Faded
+ * while the control stays whole under it (`controlOpacity`). Faded
  * together, as they were, what is behind them showed through: the control
  * and its glyph dimmed for a moment each way.
  */
@@ -318,6 +318,23 @@ export function handoverOpacity(handover: number, leaving: boolean): number {
   'worklet';
   if (leaving) return clamp01((1 - handover) / HANDBACK);
   return handover >= 1 ? 0 : 1;
+}
+
+/**
+ * The scene's control's opacity through the same hand-over, `leaving`
+ * whether its own scene is going. Going in, it comes in over the circle as
+ * `handover` runs to 1. As its scene goes, it stays whole while the circle
+ * comes back in over it, and goes under the circle over the rest of the
+ * hand-back, once the circle is whole: one of the two is always whole, and
+ * the control is all but gone before its scene settles back far enough
+ * (`leavePose`) for its edge to show past the circle, which holds still
+ * until the row rises. Kept whole to the end, it did. With no circle coming
+ * back over it, as when the scene goes somewhere other than home, it simply
+ * fades over the rest of the way.
+ */
+export function controlOpacity(handover: number, leaving: boolean): number {
+  'worklet';
+  return clamp01(leaving ? handover / (1 - HANDBACK) : handover);
 }
 
 /**

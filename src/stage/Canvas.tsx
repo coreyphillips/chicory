@@ -307,8 +307,9 @@ export function Canvas({
 
   // The hand-over from the action circle that opens Send or Receive to the
   // scene's own control (REDESIGN.md 7, T1 and T2; `panes/Launch`): the
-  // circle travels whole to where the control is drawn, and fades under it
-  // once it has landed.
+  // circle travels whole to where the control is drawn, and stays whole
+  // once it has landed while the control comes in over it, going once the
+  // control is whole.
   const landingAt = launchLanding(windowWidth, height, insets);
   const launchX = useSharedValue(landingAt.x);
   const launchY = useSharedValue(landingAt.y);
@@ -327,7 +328,7 @@ export function Canvas({
   // Home is not drawn, the hand-over comes by HANDOVER_LATEST all the same,
   // and at once under Reduce Motion, where the circle fades with its row.
   // As the scene goes, the circle comes back up over the control as the
-  // content leaves.
+  // content leaves, `leaving` until that hand-back has run.
   const launchOpen = useCallback(() => {
     launch.x.set(landingAt.x);
     launch.y.set(landingAt.y);
@@ -344,10 +345,18 @@ export function Canvas({
     );
   }, [launch, landingAt.x, landingAt.y, reduced]);
   const launchLeave = useCallback(() => {
-    launch.leaving.set(true);
+    const { leaving } = launch;
+    leaving.set(true);
     launch.handover.set(
       steady(
-        withTiming(0, { duration: durations.exit, easing: curves.standard }),
+        withTiming(
+          0,
+          { duration: durations.exit, easing: curves.standard },
+          done => {
+            'worklet';
+            if (done) leaving.set(false);
+          },
+        ),
       ),
     );
   }, [launch]);

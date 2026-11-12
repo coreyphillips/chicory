@@ -24,6 +24,7 @@ import {
   MINI_IN_BAND,
   MINI_IN_ROW,
   circleOpacity,
+  controlOpacity,
   figureShown,
   glyphHandoff,
   glyphScale,
@@ -1003,22 +1004,30 @@ describe('the circle becomes the control it lands on', () => {
       seen.push(flatStyle(useLaunchLanding().style).opacity);
       return null;
     }
+    const noop = () => {};
+    // `going` is whether the control's own scene is going, as its
+    // `Launched` says; `flagged` is the canvas's `leaving`, which is still
+    // set as the next scene first draws.
     function Launching({
       handover,
-      leaving = false,
+      going = false,
+      flagged = going,
     }: {
       handover: number;
-      leaving?: boolean;
+      going?: boolean;
+      flagged?: boolean;
     }) {
       const launch = React.useState<Launch>(() => ({
         x: made(201),
         y: made(764),
         handover: made(handover),
-        leaving: made(leaving),
+        leaving: made(flagged),
       }))[0];
       return (
         <LaunchProvider value={launch}>
-          <Control />
+          <Launched onOpen={noop} onLeave={noop} leaving={going}>
+            <Control />
+          </Launched>
         </LaunchProvider>
       );
     }
@@ -1026,17 +1035,22 @@ describe('the circle becomes the control it lands on', () => {
       <Launching handover={0} />,
       <Launching handover={0.5} />,
       <Launching handover={1} />,
-      <Launching handover={0.5} leaving />,
-      <Launching handover={0} leaving />,
+      <Launching handover={0} flagged />,
+      <Launching handover={0.75} going />,
+      <Launching handover={1 - HANDBACK} going />,
+      <Launching handover={(1 - HANDBACK) / 2} going />,
+      <Launching handover={0} going />,
       <Control />,
     ]) {
       const tree = await mount(element);
       await act(async () => tree.unmount());
     }
-    // On its way, coming in over the circle, handed over; whole under the
-    // circle coming back over it as the scene goes, which fades it itself;
-    // and off the canvas.
-    expect(seen).toEqual([0, 0.5, 1, 1, 1, 1]);
+    // On its way, coming in over the circle, handed over. A scene opening
+    // just after one has gone, the canvas still flagged as leaving, is
+    // first drawn unseen all the same (review of #140: it was drawn whole).
+    // As its own scene goes, it stays whole until the circle is whole over
+    // it, then goes under it. Off the canvas it shows.
+    expect(seen).toEqual([0, 0.5, 1, 0, 1, 1, 0.5, 0, 1]);
   });
 
   test('whichever of the circle and the control is on top fades, the other whole under it', () => {
@@ -1053,6 +1067,20 @@ describe('the circle becomes the control it lands on', () => {
     expect(handoverOpacity(1 - HANDBACK / 2, true)).toBeCloseTo(0.5);
     expect(handoverOpacity(1 - HANDBACK, true)).toBe(1);
     expect(handoverOpacity(0, true)).toBe(1);
+    // The control does the other half: in over the circle going, and whole
+    // under it coming home until the circle is whole, then gone under it.
+    // At every step one of the two is whole, each way.
+    for (let h = 0; h <= 1.0001; h += 0.05) {
+      const at = Math.min(1, h);
+      expect(controlOpacity(at, false)).toBeCloseTo(at);
+      for (const leaving of [false, true]) {
+        expect(
+          Math.max(handoverOpacity(at, leaving), controlOpacity(at, leaving)),
+        ).toBe(1);
+      }
+    }
+    expect(controlOpacity(1 - HANDBACK, true)).toBe(1);
+    expect(controlOpacity(0, true)).toBe(0);
     let before = 0;
     for (let h = 1; h >= -0.0001; h -= 0.05) {
       const now = handoverOpacity(Math.max(0, h), true);
