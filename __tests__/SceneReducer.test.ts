@@ -486,6 +486,22 @@ describe('scanned', () => {
     expect(names(next)).toEqual(['home']);
   });
 
+  test.each(['tap', 'clipboard', 'photo'] as const)(
+    'a request that came by %s opens send unmarked, so it is never paid on its own',
+    source => {
+      const next = run(scanFrom('home'), {
+        type: 'scanned',
+        value: REQUEST,
+        source,
+      });
+      expect(next.overlay).toBeNull();
+      // Only the camera marks a request as scanned, which is the one way
+      // into Auto-pay (REDESIGN.md rule 5).
+      expect(next.scene).toEqual({ name: 'send', prefill: REQUEST, key: 2 });
+      expect(names(next)).toEqual(['home']);
+    },
+  );
+
   test('a scan from send only closes the overlay', () => {
     const scanning = run(openSend(), scanFrom('send'));
     const next = stageReducer(scanning, {

@@ -109,3 +109,122 @@ describe('a tag Android hands to the app', () => {
     }
   });
 });
+
+const KOTLIN = read(
+  'android',
+  'app',
+  'src',
+  'main',
+  'java',
+  'com',
+  'chicory',
+  'NfcReaderModule.kt',
+);
+/** The Kotlin without its comments, which say what it must never do. */
+const KOTLIN_CODE = KOTLIN.replace(/\/\*[\s\S]*?\*\//g, '').replace(
+  /^\s*\/\/.*$/gm,
+  '',
+);
+const SEAM = read('src', 'services', 'tapReader.ts');
+
+/** The codes the seam knows a read to end with. */
+const seamCodes = () =>
+  [...SEAM.matchAll(/'(TAP_[A-Z_]+)'/g)].map(match => match[1]);
+
+describe('the reader the payment scanner listens with on Android', () => {
+  test('may use NFC, on a phone that has it or not', () => {
+    expect(MANIFEST_CODE).toMatch(
+      /<uses-permission\s+android:name="android\.permission\.NFC"\s*\/>/,
+    );
+    // Without this the store would hide the wallet from a phone with no NFC.
+    expect(MANIFEST_CODE).toMatch(
+      /<uses-feature\s+android:name="android\.hardware\.nfc"\s+android:required="false"\s*\/>/,
+    );
+  });
+
+  test('is registered by hand, under the name the seam asks for', () => {
+    expect(
+      read(
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'chicory',
+        'MainApplication.kt',
+      ),
+    ).toContain('add(NfcReaderPackage())');
+    expect(KOTLIN_CODE).toContain('override fun getName() = "ChicoryNfc"');
+    expect(SEAM).toContain('NativeModules.ChicoryNfc');
+  });
+
+  test('answers the calls the seam makes, and no others', () => {
+    const methods = [
+      ...KOTLIN_CODE.matchAll(/@ReactMethod\s+fun\s+(\w+)\s*\(/g),
+    ].map(match => match[1]);
+    expect(methods.sort()).toEqual(['cancel', 'read', 'status']);
+    const asked = /interface NativeTap \{([\s\S]*?)\n\}/.exec(SEAM)?.[1] ?? '';
+    expect(
+      [...asked.matchAll(/^\s*(\w+)\(/gm)].map(match => match[1]).sort(),
+    ).toEqual(methods);
+  });
+
+  test('ends a read only with a code the seam knows', () => {
+    const used = new Set(
+      [...KOTLIN_CODE.matchAll(/"(TAP_[A-Z_]+)"/g)].map(match => match[1]),
+    );
+    expect(used.size).toBeGreaterThan(0);
+    const known = seamCodes();
+    for (const code of used) expect(known).toContain(code);
+    for (const status of ['"missing"', '"off"', '"ready"'])
+      expect(KOTLIN_CODE).toContain(status);
+  });
+
+  test('lets Android read the tag, whole, and never speaks to it', () => {
+    // A terminal counts a tap only once its message is read to the end.
+    // Android does that before it reports a tag, unless told to skip it.
+    expect(KOTLIN_CODE).not.toContain('SKIP_NDEF_CHECK');
+    expect(KOTLIN_CODE).toContain('cachedNdefMessage');
+    for (const call of ['.connect(', '.transceive(', 'IsoDep', 'ndefMessage'])
+      expect(KOTLIN_CODE).not.toContain(call);
+    // The phone's own sound would come before the app knows what it read.
+    expect(KOTLIN_CODE).toContain('FLAG_READER_NO_PLATFORM_SOUNDS');
+  });
+
+  test('asks Android not to offer the same tag again, where Android can be asked', () => {
+    // NfcAdapter.ignore is API 26, and the app runs on 24.
+    const guarded =
+      /if \([^)]*Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.O\) \{[\s\S]*?\.ignore\(/;
+    expect(KOTLIN_CODE).toMatch(guarded);
+    expect(KOTLIN_CODE.match(/\.ignore\(/g)).toHaveLength(1);
+  });
+
+  test('gives the radio back when the read is called off or its host goes', () => {
+    expect(KOTLIN_CODE.match(/disableReaderMode\(/g)).toHaveLength(1);
+    for (const hook of ['fun cancel(', 'fun onHostDestroy(', 'fun invalidate('])
+      expect(KOTLIN_CODE).toContain(hook);
+    // The activity is not part of it: its onCreate is pinned by the privacy
+    // cover's own test, and it leaves NFC to the module.
+    expect(
+      read(
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'chicory',
+        'MainActivity.kt',
+      ),
+    ).not.toMatch(/nfc/i);
+  });
+
+  test('passes records on as bytes, and reads nothing into them', () => {
+    expect(KOTLIN_CODE).toContain('Base64.NO_WRAP');
+    for (const field of ['"tnf"', '"type"', '"payload"'])
+      expect(KOTLIN_CODE).toContain(field);
+    // What a record says is src/services/ndef.ts's to decide.
+    expect(KOTLIN_CODE).not.toMatch(/lightning|bitcoin|toUri\(/i);
+  });
+});

@@ -13,6 +13,7 @@ import {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
+import { TapMark } from '../../src/components/Scanner';
 import { copy } from '../../src/design/copy';
 import { palette } from '../../src/design/palette';
 import { Bloom } from '../../src/glyphs/Bloom';
@@ -455,6 +456,32 @@ const holds: Shot[] = [
   })),
 ];
 
+// The scanner's tap mark (docs/TAP-TO-PAY.md), drawn on its own since the
+// scanner itself would ask for the camera.
+
+const tapMark = (over: Partial<React.ComponentProps<typeof TapMark>> = {}) => (
+  <TapMark
+    off={false}
+    reduced={false}
+    refused={{ count: 0, reason: '' }}
+    onSettings={noop}
+    {...over}
+  />
+);
+
+const taps: Shot[] = [
+  glyph('tap mark, listening', () => tapMark()),
+  glyph('tap mark, NFC off', () => tapMark({ off: true })),
+  changing('tap mark, a tag refused', () => [
+    tapMark(),
+    tapMark({ refused: { count: 1, reason: copy.scan.tapNoRequest } }),
+  ]),
+  touched('tap mark, asked why it refused', () => ({
+    view: tapMark({ refused: { count: 1, reason: copy.scan.tapNoRequest } }),
+    steps: [drive => drive.whisper(copy.scan.tapNoRequest)],
+  })),
+];
+
 // The comet.
 
 const comet = (color: string) => <Comet size={88} stroke={4} color={color} />;
@@ -568,6 +595,7 @@ export const GLYPHS: Shot[] = [
   ...rings,
   ...chips,
   ...holds,
+  ...taps,
   ...comets,
   ...expiries,
   ...codes,

@@ -139,7 +139,7 @@ describe('from the app', () => {
     });
   });
 
-  test.each(['photo', 'clipboard'])(
+  test.each(['photo', 'clipboard', 'tap'])(
     'a %s from Home lands in Send as a manual prefill',
     async source => {
       await press(tree, 'Scan a payment request');

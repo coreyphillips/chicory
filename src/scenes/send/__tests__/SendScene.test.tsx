@@ -158,7 +158,7 @@ describe.each(['home', 'send'])('Auto-pay from the %s scanner', origin => {
   beforeEach(() => setAutoPayPreference({ on: true, share: 100 }));
   afterEach(() => setAutoPayPreference(AUTO_PAY_OFF));
 
-  test.each(['photo', 'clipboard', 'camera'])(
+  test.each(['photo', 'clipboard', 'tap', 'camera'])(
     'routes a %s invoice according to its source',
     async source => {
       const invoice =

@@ -46,4 +46,12 @@ export const scan = {
   clipboardEmpty: 'The clipboard is empty.',
   clipboardUnreadable: 'Could not read the clipboard.',
   close: 'Close',
+  /** A payment terminal's request, read over NFC (docs/TAP-TO-PAY.md). */
+  tapReady: 'Hold the phone to a payment terminal to read its request.',
+  tapOff: 'NFC is off.',
+  tapOffHint:
+    'Opens NFC settings. With NFC on, a payment terminal can be read by holding the phone to it.',
+  tapNoRequest: 'That tag holds no payment request.',
+  tapSeveral: 'That tag holds more than one payment request.',
+  tapUnreadable: 'Could not read that tag.',
 };

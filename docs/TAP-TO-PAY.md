@@ -50,6 +50,27 @@ To try this lane without a tag or a radio, on an emulator or a phone:
 adb shell am start -a android.nfc.action.NDEF_DISCOVERED -d "lightning:LNBC..." com.chicory
 ```
 
+### Android: a tag held to the open scanner
+
+With the payment scanner open, the app takes the tag itself (`NfcAdapter` reader mode). This is the lane for a phone with a second wallet installed, since no chooser comes up, for a tag whose request is not its first record, and for a camera that is switched off.
+
+- The scanner listens for as long as it is open and in front, whether or not the camera can be used. It says so with the `contactless` mark above its controls: cream while it listens, steam with NFC switched off, when the mark opens the NFC settings, and absent on a phone with no NFC.
+- Android has read the tag's message to its end before the app hears of the tag. The app takes that message and never asks Android to skip the read (`FLAG_READER_SKIP_NDEF_CHECK` is never set).
+- Every record is looked at, not only the first. One request is taken. The same request written twice, or once bare and once inside a link, is one request. Two different requests are refused, since nothing says which was meant.
+- A tag with a message and nothing to pay in it is refused on the mark, the same tag at most once in 1.5 seconds. A tag with no message at all, such as a bank card kept in the phone's case, is passed over in silence.
+- A request taken this way reaches Send as a `tap`: a prefill to review and hold, as a pasted one is. Only the camera can reach Auto-pay.
+- While the scanner listens the radio is the app's alone: Android offers a tag to no other app, and the phone's own card payments are off. The radio is given back as the scanner closes or the app leaves the front.
+- As the scanner closes on a request, the phone may still be on the terminal. The reader asks Android to pass over that tag until it has been away for 1.5 seconds (API 26 and later), and the link lane drops a link equal to a request taken by tap in the last 5 seconds, so one tap opens one Send.
+- NFC switched off from the quick settings shade while the scanner is open is noticed the next time the app comes to the front, not at once.
+
+| What                                                    | Where                                                      |
+| ------------------------------------------------------- | ---------------------------------------------------------- |
+| What a tag's records say                                | `src/services/ndef.ts`                                     |
+| The seam over the native reader, and its stand-in       | `src/services/tapReader.ts`, `test-support/tap.ts`         |
+| The Android reader                                      | `android/app/src/main/java/com/chicory/NfcReaderModule.kt` |
+| Listening, the mark, and the one-request rule           | `src/components/Scanner.tsx`                               |
+| The guard against the same tap arriving again as a link | `src/services/links.ts`                                    |
+
 ## Trust
 
 A tag is unauthenticated, as a QR sticker is, and unlike a sticker it cannot be seen. Something hidden near a till could present a request of its own. The defence is the one a link has: the review shows the amount, and the hold commits it. That is why a tap never pays by itself.
