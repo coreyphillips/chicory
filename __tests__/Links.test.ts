@@ -68,3 +68,53 @@ describe('the launch link', () => {
     listen.mockRestore();
   });
 });
+
+describe('a request read from an NFC tag', () => {
+  // Android hands a tapped tag's URI record to Linking as it hands a link
+  // (docs/TAP-TO-PAY.md), with the scheme in lower case whatever the tag
+  // wrote and the rest as written.
+  test.each([
+    [
+      'a till presenting lightning: and its invoice in capitals',
+      'lightning:LNBC1INVOICE',
+      'LNBC1INVOICE',
+    ],
+    [
+      'the BIP 321 form',
+      'bitcoin:?lightning=LNBC1INVOICE',
+      'bitcoin:?lightning=LNBC1INVOICE',
+    ],
+    [
+      'the BIP 321 form with its field name in capitals',
+      'bitcoin:?LIGHTNING=LNBC1INVOICE',
+      'bitcoin:?LIGHTNING=LNBC1INVOICE',
+    ],
+  ])('reaches Send as a link does: %s', async (_, url, request) => {
+    const initial = jest
+      .spyOn(Linking, 'getInitialURL')
+      .mockResolvedValue(null);
+    let deliver: (event: { url: string }) => void = () => {};
+    const listen = jest.spyOn(Linking, 'addEventListener').mockImplementation(((
+      _type: string,
+      handler: typeof deliver,
+    ) => {
+      deliver = handler;
+      return { remove: jest.fn() };
+    }) as never);
+    const onRequest = jest.fn();
+    const Probe = () => {
+      usePaymentLinks(true, onRequest);
+      return null;
+    };
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(React.createElement(Probe));
+    });
+    act(() => deliver({ url }));
+    expect(onRequest).toHaveBeenCalledTimes(1);
+    expect(onRequest).toHaveBeenCalledWith(request);
+    await act(async () => tree.unmount());
+    initial.mockRestore();
+    listen.mockRestore();
+  });
+});

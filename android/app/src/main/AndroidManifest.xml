@@ -44,6 +44,21 @@
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="lightning" />
         </intent-filter>
+        <!--
+          A payment request read from an NFC tag, such as a payment terminal
+          presents, arrives as the same link and opens the same review. It
+          never prepares or sends a payment on its own. See docs/TAP-TO-PAY.md.
+        -->
+        <intent-filter>
+            <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <data android:scheme="lightning" />
+        </intent-filter>
+        <intent-filter>
+            <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <data android:scheme="bitcoin" />
+        </intent-filter>
       </activity>
     </application>
 </manifest>
