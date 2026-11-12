@@ -66,7 +66,7 @@ import {
   veilOpacity,
 } from '../../stage/layout';
 import type { BuildBeats, ControlLook } from '../../stage/layout';
-import { useLaunch } from '../../stage/panes/Launch';
+import { FADES_AS_ONE, useLaunch } from '../../stage/panes/Launch';
 import type { Launch as Landing } from '../../stage/panes/Launch';
 import type { Panes } from '../../stage/panes/Pane';
 import { usePaneActive } from '../../stage/panes/Pane';
@@ -622,7 +622,7 @@ export function HomeScreen({
               }}
             >
               <View ref={sendRest.ref} collapsable={false}>
-                <Reanimated.View style={sendLaunch}>
+                <Reanimated.View style={sendLaunch} {...FADES_AS_ONE}>
                   <ActionCircle
                     glyph="send"
                     size={HOME.circle}
@@ -667,7 +667,7 @@ export function HomeScreen({
               }}
             >
               <View ref={receiveRest.ref} collapsable={false}>
-                <Reanimated.View style={receiveLaunch}>
+                <Reanimated.View style={receiveLaunch} {...FADES_AS_ONE}>
                   <ActionCircle
                     glyph="receive"
                     size={HOME.circle}
@@ -764,9 +764,10 @@ function useLaunchStyle(
     const drop = measured ? landing.y.get() - from.y : undefined;
     const pose = launchPose(away, tapped, launching, toCentre, drop, size);
     const handover = landing ? landing.handover.get() : undefined;
+    const leaving = landing ? landing.leaving.get() : false;
     return {
       opacity:
-        circleOpacity(away, tapped, launching, handover) *
+        circleOpacity(away, tapped, launching, handover, leaving) *
         veilOpacity(veil ? veil.get() : 1),
       transform: [
         { translateX: pose.translateX },

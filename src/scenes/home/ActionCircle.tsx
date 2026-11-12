@@ -1,5 +1,5 @@
-import React, { useCallback, useRef } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 import type { HostInstance } from 'react-native';
 import Reanimated, {
   useAnimatedStyle,
@@ -20,7 +20,13 @@ import { shake, springs } from '../../motion/tokens';
 import { useMotionPrefs } from '../../motion/useMotionPrefs';
 import { PRIMARY_CONTROL } from '../../stage/layout';
 import type { ControlLook } from '../../stage/layout';
-import { REFUSED, glyphScale, tintTiming } from './motion';
+import {
+  REFUSED,
+  glyphHandoff,
+  glyphScale,
+  ownInk,
+  tintTiming,
+} from './motion';
 
 /** A point in the window, where the scan reveal grows from. */
 export type Point = { x: number; y: number };
@@ -51,7 +57,9 @@ export interface Morph {
  * Given `morph`, the circle takes on the look of the control it becomes as
  * it travels to it: that control's fill and ring fade in over its own, and
  * its glyph turns to that control's colour and size, so it lands looking
- * like what it hands over to rather than popping into it.
+ * like what it hands over to rather than popping into it. Coming home it
+ * turns back the same way, and keeps that look drawn, unseen, once it is
+ * back, so nothing in it is taken down or drawn anew as it lands.
  */
 export function ActionCircle({
   glyph,
@@ -87,6 +95,16 @@ export function ActionCircle({
   const press = useSharedValue(1);
   const nudge = useSharedValue(0);
   const tint = useSharedValue(0);
+  // Where the circle is on its way to the control: the canvas's while it
+  // travels, and home otherwise, so its glyph's styles always read a real
+  // value and are on its views from the first frame.
+  const resting = useSharedValue(0);
+  // The look of the control it last became, kept once it is home again, so
+  // the glyph it travelled with stays drawn, unseen, rather than being
+  // taken down as it lands.
+  const [kept, setKept] = useState<ControlLook | null>(morph?.look ?? null);
+  if (morph && morph.look !== kept) setKept(morph.look);
+  const look = morph?.look ?? kept;
 
   // Where the circle is, in the window. Read when it is laid out and again
   // as a finger lands, so a reveal grows from where the circle is now.
@@ -132,32 +150,47 @@ export function ActionCircle({
   }));
   const refused = useAnimatedStyle(() => ({ opacity: tint.get() }));
   const glyphSize = size === 76 ? 30 : 24;
-  const toward = morph?.toward;
-  const to = morph?.look.glyph ?? glyphSize;
-  const scale = morph?.look.scale ?? 1;
+  const toward = morph?.toward ?? resting;
+  const to = look?.glyph ?? glyphSize;
+  const scale = look?.scale ?? 1;
   const becoming = useAnimatedStyle(
-    () => ({ opacity: toward ? toward.get() : 0 }),
+    () => ({ opacity: toward.get() }),
     [toward],
   );
-  const growing = useAnimatedStyle(
-    () => ({
-      transform: [
-        {
-          scale: toward
-            ? glyphScale(toward.get(), glyphSize, size, to, scale)
-            : 1,
-        },
-      ],
-    }),
-    [toward, glyphSize, size, to, scale],
+  // The circle's own ink under the control's goes over the last of the way
+  // (`ownInk`), so the glyph that lands is the control's alone.
+  const inkUnder = useAnimatedStyle(
+    () => ({ opacity: ownInk(toward.get()) }),
+    [toward],
   );
 
-  // On the way the glyph is the control's own: drawn at the size it lands
-  // at, with the control's stroke, and shrunk inside the circle as it sets
-  // out (`glyphScale`). So its line is the control's for its size all the
-  // way, and the one it hands over to is its twin (REDESIGN.md 4, stroke
-  // width by size). Nothing is enlarged, which on a device draws a soft,
-  // heavy line, and no stroke is animated, which a device does not draw.
+  // The circle draws two glyphs, one over the other, the same size on
+  // screen at every step (`glyphScale`). Its own, drawn at its size with
+  // its stroke, is the one seen at home. On the way the control's own takes
+  // over (`glyphHandoff`): drawn at the size it lands at, with the
+  // control's stroke, and shrunk inside the circle as it sets out, so its
+  // line is the control's for its size all the way, and the one it hands
+  // over to is its twin (REDESIGN.md 4, stroke width by size). No stroke is
+  // animated, which a device does not draw, and neither glyph is ever drawn
+  // anew or taken down on the way, so nothing swaps as the circle lands.
+  // Each is held in a view of its own that is never flattened, its scale on
+  // it from the first frame.
+  const homeGlyph = useAnimatedStyle(() => {
+    const m = toward.get();
+    return {
+      opacity: glyphHandoff(m).home,
+      transform: [
+        { scale: glyphScale(m, glyphSize, size, to, scale, glyphSize) },
+      ],
+    };
+  }, [toward, glyphSize, size, to, scale]);
+  const travelGlyph = useAnimatedStyle(() => {
+    const m = toward.get();
+    return {
+      opacity: glyphHandoff(m).travel,
+      transform: [{ scale: glyphScale(m, glyphSize, size, to, scale) }],
+    };
+  }, [toward, glyphSize, size, to, scale]);
   const landed = to * scale;
   const line = strokeFor(to);
 
@@ -201,7 +234,7 @@ export function ActionCircle({
           pointerEvents="none"
           style={[styles.refused, { borderRadius: size / 2 }, refused]}
         />
-        {morph ? (
+        {look ? (
           // The control's disc and ring, in its own points shrunk to this
           // circle's, over the circle's own, so the growth carries it to
           // the control's size exactly.
@@ -211,31 +244,39 @@ export function ActionCircle({
               styles.becoming,
               {
                 borderRadius: size / 2,
-                backgroundColor: morph.look.fill,
-                borderColor: morph.look.ring,
-                borderWidth: (morph.look.ringWidth * size) / PRIMARY_CONTROL,
+                backgroundColor: look.fill,
+                borderColor: look.ring,
+                borderWidth: (look.ringWidth * size) / PRIMARY_CONTROL,
               },
               becoming,
             ]}
           />
         ) : null}
-        <Reanimated.View style={morph ? growing : undefined}>
-          {morph ? (
-            <Glyph name={glyph} size={landed} color={ink} strokeWidth={line} />
-          ) : (
-            <Glyph name={glyph} size={glyphSize} color={ink} />
-          )}
-          {morph ? (
-            <Reanimated.View style={[styles.over, becoming]}>
-              <Glyph
-                name={glyph}
-                size={landed}
-                color={morph.look.ink}
-                strokeWidth={line}
-              />
-            </Reanimated.View>
-          ) : null}
+        <Reanimated.View collapsable={false} style={homeGlyph}>
+          <Glyph name={glyph} size={glyphSize} color={ink} />
         </Reanimated.View>
+        {look ? (
+          <View pointerEvents="none" style={styles.centred}>
+            <Reanimated.View collapsable={false} style={travelGlyph}>
+              <Reanimated.View style={inkUnder}>
+                <Glyph
+                  name={glyph}
+                  size={landed}
+                  color={ink}
+                  strokeWidth={line}
+                />
+              </Reanimated.View>
+              <Reanimated.View style={[styles.over, becoming]}>
+                <Glyph
+                  name={glyph}
+                  size={landed}
+                  color={look.ink}
+                  strokeWidth={line}
+                />
+              </Reanimated.View>
+            </Reanimated.View>
+          </View>
+        ) : null}
       </Pressable>
     </Reanimated.View>
   );
@@ -264,4 +305,10 @@ const styles = StyleSheet.create({
     bottom: -StyleSheet.hairlineWidth,
   },
   over: StyleSheet.absoluteFill,
+  // The control's glyph, centred where the circle's own is.
+  centred: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

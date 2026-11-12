@@ -307,27 +307,32 @@ export function Canvas({
 
   // The hand-over from the action circle that opens Send or Receive to the
   // scene's own control (REDESIGN.md 7, T1 and T2; `panes/Launch`): the
-  // circle travels whole to where the control is drawn, and fades under it
-  // once it has landed.
+  // circle travels whole to where the control is drawn, and stays whole
+  // once it has landed while the control comes in over it, going once the
+  // control is whole.
   const landingAt = launchLanding(windowWidth, height, insets);
   const launchX = useSharedValue(landingAt.x);
   const launchY = useSharedValue(landingAt.y);
   const handover = useSharedValue(0);
+  const handingBack = useSharedValue(false);
   // Kept whole from the first draw, so every region reads the same values.
   const [launch] = useState<Launch>(() => ({
     x: launchX,
     y: launchY,
     handover,
+    leaving: handingBack,
   }));
   // As Send or Receive opens, the circle starts over at the slot's bottom
   // centre. Home hands it over once it is on the scene's control, whenever
   // the move gets it there (`landedAt`); in case it never travels, as when
   // Home is not drawn, the hand-over comes by HANDOVER_LATEST all the same,
   // and at once under Reduce Motion, where the circle fades with its row.
-  // As the scene goes, it comes back up as the content leaves.
+  // As the scene goes, the circle comes back up over the control as the
+  // content leaves, `leaving` until that hand-back has run.
   const launchOpen = useCallback(() => {
     launch.x.set(landingAt.x);
     launch.y.set(landingAt.y);
+    launch.leaving.set(false);
     launch.handover.set(reduced ? 1 : 0);
     if (reduced) return;
     launch.handover.set(
@@ -339,15 +344,22 @@ export function Canvas({
       ),
     );
   }, [launch, landingAt.x, landingAt.y, reduced]);
-  const launchLeave = useCallback(
-    () =>
-      launch.handover.set(
-        steady(
-          withTiming(0, { duration: durations.exit, easing: curves.standard }),
+  const launchLeave = useCallback(() => {
+    const { leaving } = launch;
+    leaving.set(true);
+    launch.handover.set(
+      steady(
+        withTiming(
+          0,
+          { duration: durations.exit, easing: curves.standard },
+          done => {
+            'worklet';
+            if (done) leaving.set(false);
+          },
         ),
       ),
-    [launch],
-  );
+    );
+  }, [launch]);
 
   // The sheet rises from past the bottom edge on its beat, and drops away
   // as the canvas leaves.

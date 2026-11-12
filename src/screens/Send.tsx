@@ -110,7 +110,7 @@ import {
   subscribeHeld,
 } from '../stage/heldRequests';
 import type { HeldOutcome } from '../stage/heldRequests';
-import { useLaunchLanding } from '../stage/panes/Launch';
+import { FADES_AS_ONE, useLaunchLanding } from '../stage/panes/Launch';
 import { usePaneActive } from '../stage/panes/Pane';
 import { useFlashTint, useHoldTint } from '../stage/StageContext';
 import { duringSystemPrompt } from '../stage/systemPrompt';
@@ -2107,7 +2107,7 @@ export function SendScreen({
             onLayout={launchLanding.onLayout}
             collapsable={false}
           >
-            <Reanimated.View style={launchLanding.style}>
+            <Reanimated.View style={launchLanding.style} {...FADES_AS_ONE}>
               <CircleControl
                 accessibilityLabel={copy.send.review}
                 accessibilityHint={
