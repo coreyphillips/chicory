@@ -8,4 +8,11 @@ android {
             manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
     }
+    // Replaces the network security config a dependency ships, for this build
+    // type alone, so a fixture can reach its helper over loopback.
+    sourceSets {
+        offlineReceiveTest {
+            res.srcDirs += ["../../native-tests/android-qualification-res"]
+        }
+    }
 }

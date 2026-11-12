@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Qualification builds only. rustls-platform-verifier ships a resource of this
+     name that refuses plain HTTP by default, and a network security config
+     outranks usesCleartextTraffic, so without this file a fixture cannot reach
+     its helper on the forwarded loopback port. This one allows plain HTTP to
+     loopback and nowhere else. The verifier's own list of revocation hosts is
+     left out: no fixture makes a paykit lookup. -->
+<network-security-config>
+  <base-config cleartextTrafficPermitted="false" />
+  <domain-config cleartextTrafficPermitted="true">
+    <domain includeSubdomains="false">127.0.0.1</domain>
+    <domain includeSubdomains="false">localhost</domain>
+  </domain-config>
+</network-security-config>
