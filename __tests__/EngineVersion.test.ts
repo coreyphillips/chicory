@@ -31,6 +31,8 @@ test('the installed engine reports the verified upstream release', async () => {
     // Ranked primaries and the channel send (coreyphillips/beignet#1924).
     expect(config.primariesAvailable).toBe(true);
     expect(config.channelSendAvailable).toBe(true);
+    // A Porch link as a primary node (coreyphillips/beignet#1980).
+    expect(config.porchPrimaryAvailable).toBe(true);
   } finally {
     await runtime.close();
   }

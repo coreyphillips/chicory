@@ -160,6 +160,30 @@ describe('a node address', () => {
     expect(Clipboard.setString).toHaveBeenCalledWith(URI);
   });
 
+  test('a Porch link breaks after its relay and inside its route id, and draws every character', () => {
+    // coreyphillips/beignet#1980: the address is a URL, too long for one piece.
+    const route = 'abcdefghijklmnopqrstuvwxyz234567';
+    const link = `${KEY}@wss://my-porch.example:8443/v1/p/${route}`;
+    const shown = nodeAddressText(link);
+    const pieces = shown.split(/[ \u200B]/);
+    expect(pieces.slice(0, 17).join('')).toBe(`${KEY}@`);
+    expect(pieces.slice(17).map(piece => piece.replace(/\u2060/g, ''))).toEqual(
+      [
+        'wss://my-porch.example:8443',
+        '/v1/p/abcdefgh',
+        'ijklmnop',
+        'qrstuvwx',
+        'yz234567',
+      ],
+    );
+    // No line breaks after a slash or the hyphen inside a piece.
+    expect(shown).toContain(
+      `@${BREAK}wss:/${JOIN}/${JOIN}my-${JOIN}porch.example:8443${BREAK}/${JOIN}v1/${JOIN}p/${JOIN}abcdefgh${BREAK}`,
+    );
+    expect(shown.replace(/[ \u200B\u2060]/g, '')).toBe(link);
+    expect(widestPiece(shown)).toBe('wss://my-porch.example:8443'.length);
+  });
+
   test('keeps a hyphenated host whole, as one piece', () => {
     // A line may break after a hyphen, so "…@my-" over "node.example".
     expect(nodeAddressText(`${KEY}@my-node.example:9735`)).toBe(

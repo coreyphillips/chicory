@@ -292,4 +292,8 @@ See [FFOR validation](FFOR-VALIDATION.md) for simulator and funded regtest evide
 
 An experimental Iroh URI or QR from Beignet Umbrel can be used as the primary node in Settings > Primary node, with an optional same-key Tor fallback. The native bindings require a rebuilt app and raise the iOS minimum to 17.5. See [Iroh setup and validation](docs/IROH.md) for privacy details, dependency pins, the isolated simulator payment check, and remaining device qualification.
 
+## Porch link as a primary node
+
+A node hosted behind a Porch relay (Beignet 0.39.0 and later) hands out a link of the form `<node key>@wss://<relay>/v1/p/<route id>`. It can be pasted or scanned as a primary node in Settings. It requires Native networking and takes no Tor fallback. The relay sees the phone's IP address and when it connects, not what is sent, and the node does not see the phone's IP address. See [Porch links](docs/PORCH.md) for what the app accepts, who sees what, the emulator and simulator check, and what is still to be run on a device.
+
 Send max and drain were qualified on a physical Pixel 10 Pro XL using release builds of the side app. A real JIT-funded max payment reached zero and survived restart; a reviewed channel close plus loose-coin sweep confirmed as one Activity row with both transaction IDs, while a later receipt stayed in the wallet. See [qualification evidence and the isolated fixture](docs/SEND-MAX-VALIDATION.md) for amounts, dependency pins, device coverage and the two issues found during the run.

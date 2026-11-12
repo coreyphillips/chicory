@@ -19,8 +19,14 @@ async function run(report: (message: string) => void) {
     return id;
   };
   const settings = await (await fetch(host + '/config')).json();
-  if (settings.network !== 'regtest' || !settings.primaryUri.includes('@iroh:'))
-    throw Error('Iroh regtest only');
+  // The helper decides the kind of primary: an Iroh address
+  // (iroh-primary.cjs, iroh-relay-only-primary.cjs) or a Porch link through a
+  // relay on this computer's loopback (porch-primary.cjs).
+  if (
+    settings.network !== 'regtest' ||
+    !/@(iroh:|ws:\/\/127\.0\.0\.1:)/.test(settings.primaryUri)
+  )
+    throw Error('Iroh or loopback Porch regtest only');
   let client = await openDeviceWallet(settings);
   let wallets = await client.listWallets();
   const wallet =
@@ -45,7 +51,11 @@ async function run(report: (message: string) => void) {
     method: 'POST',
     body: JSON.stringify({ ...(await request('/info')), nativeEndpointId }),
   });
-  report('Native Iroh wallet ready');
+  report(
+    settings.primaryUri.includes('@iroh:')
+      ? 'Native Iroh wallet ready'
+      : 'Native Porch wallet ready',
+  );
   while (true) {
     const command = await (await fetch(host + '/next')).json();
     if (!command.id) continue;

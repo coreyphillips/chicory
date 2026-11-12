@@ -162,17 +162,40 @@ function primaryHosts(lfbw: unknown) {
     .map(entry => ({
       host: uriHost(entry.uri),
       fallback: uriHost(entry.fallbackUri),
+      porch: isPorchUri(entry.uri),
     }))
     .filter(entry => entry.host || entry.fallback);
 }
 
-/** The host of a `pubkey@host:port` node URI, or an empty string. */
-function uriHost(uri: unknown): string {
+/**
+ * What the address of a Porch link starts with (coreyphillips/beignet#1980):
+ * the WebSocket URL of the relay the node waits at. The relay's host is the
+ * one the phone dials.
+ */
+const PORCH_ADDRESS = /^wss?:\/\/(\[[^\]]*\]|[^/:?#]*)/i;
+
+/** The address of a `pubkey@address` node URI, or an empty string. */
+function uriAddress(uri: unknown): string {
   if (typeof uri !== 'string') return '';
   const at = uri.indexOf('@');
-  if (at < 0) return '';
-  const hostPort = uri.slice(at + 1);
+  return at < 0 ? '' : uri.slice(at + 1).trim();
+}
+
+/** Whether a node URI is a Porch link. */
+function isPorchUri(uri: unknown): boolean {
+  return PORCH_ADDRESS.test(uriAddress(uri));
+}
+
+/**
+ * The host of a `pubkey@host:port` node URI, or an empty string. An Iroh
+ * node has no host (`iroh`), and a Porch link's is its relay's.
+ */
+function uriHost(uri: unknown): string {
+  const hostPort = uriAddress(uri);
+  if (!hostPort) return '';
   if (/^iroh:/i.test(hostPort)) return 'iroh';
+  const porch = PORCH_ADDRESS.exec(hostPort);
+  if (porch) return porch[1].toLowerCase();
   const colon = hostPort.lastIndexOf(':');
   return (colon > 0 ? hostPort.slice(0, colon) : hostPort).trim();
 }
@@ -256,7 +279,9 @@ export async function openDeviceWallet(
       }
     }
     const profileHost = uriHost(settings.primaryUri);
-    if (!primaries.length) primaries = [{ host: profileHost, fallback: '' }];
+    const profilePorch = isPorchUri(settings.primaryUri);
+    if (!primaries.length)
+      primaries = [{ host: profileHost, fallback: '', porch: profilePorch }];
     if (
       settings.transport === 'relay' &&
       (primaries.some(p => p.host === 'iroh' || p.fallback === 'iroh') ||
@@ -264,6 +289,16 @@ export async function openDeviceWallet(
     ) {
       throw new Error(
         'Iroh requires Native networking. Select Native in Network settings before opening this wallet.',
+      );
+    }
+    // Relay networking carries the engine's sockets to one fixed upstream, so
+    // it cannot reach the relay a Porch link names.
+    if (
+      settings.transport === 'relay' &&
+      (primaries.some(p => p.porch) || profilePorch)
+    ) {
+      throw new Error(
+        'A Porch link requires Native networking. Select Native in Network settings before opening this wallet.',
       );
     }
     preferences.profiles[settings.network] = settings;

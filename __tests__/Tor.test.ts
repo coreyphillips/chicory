@@ -612,6 +612,8 @@ describe('opening a device wallet', () => {
     );
   const tcpPrimary = `${'ab'.repeat(33)}@127.0.0.1:9735`;
   const irohPrimary = `${'cd'.repeat(33)}@iroh:${'ef'.repeat(32)}`;
+  // A Porch link (coreyphillips/beignet#1980): the node waits at a relay.
+  const porchPrimary = `${'cd'.repeat(33)}@wss://porch.example/v1/p/${'a'.repeat(32)}`;
 
   // Tor starts at most once per module, and the module is loaded afresh per
   // test, so each shape of list is its own test.
@@ -619,6 +621,9 @@ describe('opening a device wallet', () => {
     ['a TCP primary ranked above an onion one', [{ uri: tcpPrimary }, { uri: onionPrimary }], 1, false],
     ['an Iroh primary with an onion fallback ranked second', [{ uri: tcpPrimary }, { uri: irohPrimary, fallbackUri: `${'cd'.repeat(33)}@${ONION}:9735` }], 1, true],
     ['two clearnet primaries', [{ uri: tcpPrimary }, { uri: `${'cd'.repeat(33)}@10.0.0.2:9735` }], 0, false],
+    // The relay is a clearnet host, with or without a port in its URL.
+    ['a Porch primary', [{ uri: porchPrimary }], 0, false],
+    ['a Porch primary whose relay names a port', [{ uri: porchPrimary.replace('porch.example', 'porch.example:8443') }, { uri: tcpPrimary }], 0, false],
   ] as const)(
     'with several primaries Tor warms when any of them, or any fallback, is an onion: %s (coreyphillips/beignet#1924)',
     async (_name, entries, starts, iroh) => {
@@ -657,6 +662,66 @@ describe('opening a device wallet', () => {
         }),
       ).rejects.toThrow('Select Native in Network settings');
       expect(mockStorage.close).toHaveBeenCalled();
+    } finally {
+      mockStorage.volume.read = read;
+    }
+  });
+
+  test.each([
+    ['ranked below another node', () => rankedRegistry([{ uri: tcpPrimary }, { uri: porchPrimary }])],
+    ['as a wallet\'s only primary', () => registry(porchPrimary)],
+    ['through a local relay', () => registry(`${'cd'.repeat(33)}@ws://127.0.0.1:2114/v1/p/${'a'.repeat(32)}`)],
+  ])(
+    'a Porch primary refuses Relay networking and releases storage: %s (coreyphillips/beignet#1980)',
+    async (_name, stored) => {
+      const read = mockStorage.volume.read;
+      mockStorage.volume.read = (() => stored()) as unknown as typeof read;
+      try {
+        await expect(
+          openDeviceWallet({
+            ...profile({ host: '127.0.0.1', port: 60001, tls: false }, 'relay'),
+            relayUrl: 'wss://relay.example',
+            relayToken: 'x'.repeat(32),
+          }),
+        ).rejects.toThrow(
+          'A Porch link requires Native networking. Select Native in Network settings before opening this wallet.',
+        );
+        expect(
+          require('@beignet/portable-engine').createPortableRuntime,
+        ).not.toHaveBeenCalled();
+        expect(mockStorage.close).toHaveBeenCalled();
+      } finally {
+        mockStorage.volume.read = read;
+      }
+    },
+  );
+
+  test('a Porch link as the profile\'s primary refuses Relay networking too', async () => {
+    await expect(
+      openDeviceWallet({
+        ...profile({ host: '127.0.0.1', port: 60001, tls: false }, 'relay'),
+        primaryUri: porchPrimary,
+        relayUrl: 'wss://relay.example',
+        relayToken: 'x'.repeat(32),
+      }),
+    ).rejects.toThrow('A Porch link requires Native networking');
+    expect(mockStorage.close).toHaveBeenCalled();
+  });
+
+  test('a clearnet primary on Relay networking is not mistaken for a Porch link', async () => {
+    const read = mockStorage.volume.read;
+    mockStorage.volume.read = (() =>
+      registry(tcpPrimary)) as unknown as typeof read;
+    try {
+      await openDeviceWallet({
+        ...profile({ host: '127.0.0.1', port: 60001, tls: false }, 'relay'),
+        primaryUri: tcpPrimary,
+        relayUrl: 'wss://relay.example',
+        relayToken: 'x'.repeat(32),
+      });
+      expect(
+        require('@beignet/portable-engine').createPortableRuntime,
+      ).toHaveBeenCalledTimes(1);
     } finally {
       mockStorage.volume.read = read;
     }
@@ -918,6 +983,22 @@ describe('opening a device wallet', () => {
         expect(RnTor.startTorIfNotRunning).not.toHaveBeenCalled();
       });
 
+      test('a Porch node is added at once, without starting Tor', async () => {
+        answering();
+        const client = await openDeviceWallet({
+          ...profile({ host: '127.0.0.1', port: 60001, tls: false }),
+          primaryUri: `${'ab'.repeat(33)}@127.0.0.1:9735`,
+        });
+        client.selectWallet('w1');
+        await client
+          .addPrimary({
+            uri: `03${'cd'.repeat(32)}@wss://porch.example/v1/p/${'a'.repeat(32)}`,
+          })
+          .catch(() => {});
+        expect(engineRequests()).toContain(ADD);
+        expect(RnTor.startTorIfNotRunning).not.toHaveBeenCalled();
+      });
+
       test('an Iroh node with an onion fallback is added at once and warms Tor', async () => {
         answering();
         const client = await openDeviceWallet({
@@ -956,6 +1037,10 @@ describe('opening a device wallet', () => {
     test.each([
       ['a clearnet primary', `${'ab'.repeat(33)}@127.0.0.1:9735`],
       ['an Iroh primary', `${'ab'.repeat(33)}@iroh:${'cd'.repeat(32)}`],
+      [
+        'a Porch primary',
+        `${'ab'.repeat(33)}@wss://porch.example/v1/p/${'a'.repeat(32)}`,
+      ],
     ])('%s starts the engine at once', async (_, primaryUri) => {
       const client = await openDeviceWallet({
         ...profile({ host: '127.0.0.1', port: 60001, tls: false }),
