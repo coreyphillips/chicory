@@ -28,7 +28,7 @@ Square is reported to be moving from `lightning:<BOLT11>` to the BIP 321 form `b
 
 An invoice in capitals carries the same warning by tap as by its QR, so its hold is 1000ms.
 
-Not paid: LNURL, a Lightning address and a BOLT12 offer. A tag that carries one is refused as a scanned code is.
+Not paid: LNURL, a Lightning address and a BOLT12 offer. A tag that carries one is refused: the open scanner refuses it as it refuses such a code, and from any other screen Send opens with it marked as one that cannot be paid, as it does for such a link.
 
 ## How the phone reads it
 
@@ -49,6 +49,8 @@ To try this lane without a tag or a radio, on an emulator or a phone:
 ```sh
 adb shell am start -a android.nfc.action.NDEF_DISCOVERED -d "lightning:LNBC..." com.chicory
 ```
+
+Write the scheme in lower case there. Android's NFC service lower-cases a tag's scheme before it looks for an app, and `adb` does not, so `BITCOIN:` typed by hand finds no app while the same tag would. The rest of the request can be in capitals: `bitcoin:?LIGHTNING=LNBC...` is what the service makes of a tag that says `BITCOIN:?LIGHTNING=LNBC...`.
 
 ### Android: a tag held to the open scanner
 
@@ -103,9 +105,25 @@ A tag is unauthenticated, as a QR sticker is, and unlike a sticker it cannot be 
 
 A read sends nothing from the wallet, and no request is logged.
 
+## Checked so far
+
+Recorded November 12, 2026. No radio took part in any of it, since an emulator and a simulator have none.
+
+- **Android, the system lane.** On an Android 17 emulator with the release build, `am start -a android.nfc.action.NDEF_DISCOVERED` opened Send on the invoice, its amount locked, for `lightning:LNBC...` from a cold start, and for `bitcoin:?lightning=lnbc...`, `bitcoin:?LIGHTNING=LNBC...` and `lightning:LNBC...` with the app behind the launcher and in front. The same request sent again while Send was open left one Send. `lightning:LNURL1...` opened Send with the request marked as one that cannot be paid. The drop while a payment is in flight is held by Jest alone: the emulator's wallet has nothing to send.
+- **Android, the scanner.** On that emulator, which has no NFC, the payment scanner opened with no tap mark. Listening itself is held by Jest against a stand-in reader.
+- **iPhone.** The Release build signed with the tag reading entitlement built for the iOS 27 simulator, installed and opened to Home. A simulator cannot read tags, so the control is absent there, and the sheet has not been seen.
+- **The test till.** Its unit tests pass, and on the emulator it shows its message, beginning `C1 01 00 00 00 8C 55 00` for its sample request.
+- **The mark.** The gallery draws it listening, with NFC off, refusing a tag and saying why.
+
 ## Not yet confirmed
 
-Nobody has yet tapped Chicory on a Register. At the first visit, with the Register taking bitcoin:
+Nobody has yet held Chicory to a tag of any kind. Before a Register, with the test till on an Android phone:
+
+1. Tap it with an iPhone, from the scanner's control. This settles whether Core NFC reads a tag a phone emulates, whether the till shows the read reaching the end, and how the camera and the sheet behave together.
+2. Tap it with a second Android phone, from Home and with the scanner open. Note how many taps the till counts for one hold, and that closing the scanner with the phones still together opens no second Send.
+3. Present a real invoice of 400 to 500 characters in capitals, and the BIP 321 form.
+
+Nobody has yet tapped Chicory on a Register either. At the first visit, with the Register taking bitcoin:
 
 1. Pay by tap from an Android phone and from an iPhone. Record the phones, their OS versions and what happened.
 2. Compare the invoice in the review with the one in the Register's QR, and note whether the Register shows the payment.
