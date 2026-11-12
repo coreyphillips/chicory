@@ -3,6 +3,8 @@
  * an NFC tag, such as a payment terminal presents, reaches Send as a link
  * does. These read the native sources as text, since no Jest run has a radio.
  */
+import { parsePayment } from '@beignet/wallet-core';
+
 import { fs, path, ROOT } from '../test-support/node';
 
 const read = (...parts: string[]) =>
@@ -360,5 +362,97 @@ describe('the reader the payment scanner asks on an iPhone', () => {
     );
     // What a record says is src/services/ndef.ts's to decide.
     expect(SWIFT_CODE).not.toMatch(/lightning|bitcoin/i);
+  });
+});
+
+const TILL = ['native-tests', 'tap-till'];
+const TILL_TAG = read(
+  ...TILL,
+  'app',
+  'src',
+  'main',
+  'java',
+  'com',
+  'chicory',
+  'taptill',
+  'Type4Tag.kt',
+);
+
+describe('the test till that stands in for a terminal', () => {
+  test('is no part of the wallet: its own project and its own application', () => {
+    // The wallet's build names one project, and nothing in it reaches the till.
+    const settings = read('android', 'settings.gradle');
+    expect(settings.match(/^include\b.*$/gm)).toEqual(["include ':app'"]);
+    for (const build of [
+      settings,
+      read('android', 'build.gradle'),
+      read('android', 'app', 'build.gradle'),
+    ])
+      expect(build).not.toMatch(/tap-till|taptill/);
+    expect(read(...TILL, 'settings.gradle')).toContain(
+      "rootProject.name = 'tap-till'",
+    );
+    const app = read(...TILL, 'app', 'build.gradle');
+    expect(app).toContain("applicationId 'com.chicory.taptill'");
+    expect(app).not.toMatch(/applicationId 'com\.chicory'/);
+  });
+
+  test('cannot reach a network and answers only to the NFC service', () => {
+    const manifest = read(...TILL, 'app', 'src', 'main', 'AndroidManifest.xml');
+    expect(
+      [...manifest.matchAll(/<uses-permission android:name="([^"]+)"/g)].map(
+        match => match[1],
+      ),
+    ).toEqual(['android.permission.NFC']);
+    expect(manifest).toContain(
+      'android:permission="android.permission.BIND_NFC_SERVICE"',
+    );
+  });
+
+  test('presents the tag the doc describes', () => {
+    const service = read(
+      ...TILL,
+      'app',
+      'src',
+      'main',
+      'res',
+      'xml',
+      'apdu_service.xml',
+    );
+    // The NDEF application, and no other.
+    expect(
+      [...service.matchAll(/<aid-filter android:name="([^"]+)"/g)].map(
+        match => match[1],
+      ),
+    ).toEqual(['D2760000850101']);
+    const doc = read('docs', 'TAP-TO-PAY.md');
+    for (const said of ['D2760000850101', 'E103', 'E104', 'C1'])
+      expect(doc).toContain(said);
+    expect(TILL_TAG).toContain(
+      'bytes(0xD2, 0x76, 0x00, 0x00, 0x85, 0x01, 0x01)',
+    );
+    expect(TILL_TAG).toContain('CC_FILE_ID = bytes(0xE1, 0x03)');
+    expect(TILL_TAG).toContain('NDEF_FILE_ID = bytes(0xE1, 0x04)');
+    expect(TILL_TAG).toContain('const val MAX_READ = 0xFF');
+  });
+
+  test('presents by default an invoice the wallet reads and nobody is paid by', () => {
+    const sample = /const val SAMPLE = "([^"]+)"/.exec(
+      read(
+        ...TILL,
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'chicory',
+        'taptill',
+        'TillService.kt',
+      ),
+    )?.[1];
+    expect(sample).toMatch(/^lightning:LNBC[0-9A-Z]+$/);
+    const parsed = parsePayment(sample!);
+    expect(parsed.kind).toBe('bolt11');
+    expect(parsed).toMatchObject({ network: 'mainnet', amountSats: 24425 });
   });
 });

@@ -89,6 +89,14 @@ Signing: the app carries `com.apple.developer.nfc.readersession.formats` holding
 | Its entitlement and the words iOS asks for    | `ios/chicory/chicory.entitlements`, `ios/chicory/Info.plist` |
 | The control, the sheet's line and the landing | `src/components/Scanner.tsx`, `src/design/copy/scan.ts`      |
 
+## Trying it without a terminal
+
+`native-tests/tap-till` is a stand-in for a terminal: a separate Android app that turns a phone into the tag described above, with the same application, the same 255 byte read cap, a read-only file and one long-format URI record holding whatever request it is given, capitals included. It shows the first bytes it presents, to set against `C1 01 00 00 ...`, and it counts the taps that began and the ones read to the end of the file, which is what a Register is said to wait for.
+
+It is built with the wallet's Gradle wrapper and is never part of the wallet's build. It needs a real phone with NFC, as the paying phone does. See [its README](../native-tests/tap-till/README.md) for the build line and the requests worth presenting.
+
+A writable tag (an NTAG216 sticker holds a real invoice) written with a `lightning:` or `bitcoin:` URI record does for the refusals: an LNURL, a web link, two different requests, an expired invoice, one for another network.
+
 ## Trust
 
 A tag is unauthenticated, as a QR sticker is, and unlike a sticker it cannot be seen. Something hidden near a till could present a request of its own. The defence is the one a link has: the review shows the amount, and the hold commits it. That is why a tap never pays by itself.

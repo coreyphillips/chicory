@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Tap till</string>
+    <string name="service">A payment request, presented as an NFC tag</string>
+    <string name="request">Request to present</string>
+    <string name="present">Present</string>
+    <string name="bytes">The message a reader is given</string>
+    <string name="readers">What readers have done</string>
+    <string name="message">%1$d bytes, at most 255 to a read\nReads the file needs: %3$d or more\n%2$s …</string>
+    <string name="counts">Taps begun: %1$d\nRead to the end: %2$d\nLast tap: %3$s</string>
+    <string name="none">none yet</string>
+    <string name="ready">Presenting. Keep this screen on and hold the paying phone to the back of this one.</string>
+    <string name="no_nfc">This phone has no NFC, so it cannot be a till.</string>
+    <string name="nfc_off">NFC is switched off. Switch it on in the phone\'s settings.</string>
+    <string name="no_hce">This phone cannot act as a tag (no host card emulation).</string>
+</resources>
