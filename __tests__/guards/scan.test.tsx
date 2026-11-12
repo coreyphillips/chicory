@@ -844,6 +844,16 @@ describe('what a code is', () => {
     expect(refusal(`lightning:${INVOICE}`)).toBeNull();
   });
 
+  test('a Lightning link is let through however much of it is in capitals', () => {
+    // BIP 321 reads a field's name in any case, and a till or a dense QR may
+    // write the whole request in capitals.
+    const capitals = INVOICE.toUpperCase();
+    expect(refusal(`lightning:${capitals}`)).toBeNull();
+    expect(refusal(`bitcoin:?lightning=${capitals}`)).toBeNull();
+    expect(refusal(`bitcoin:?LIGHTNING=${capitals}`)).toBeNull();
+    expect(refusal(`BITCOIN:?LIGHTNING=${capitals}`)).toBeNull();
+  });
+
   test('one the parser cannot read, or reads and refuses, is not', () => {
     expect(refusal(UNPAYABLE)).toMatch(/^That code is not a payment request\./);
     expect(refusal(LNURL)).toBe(
