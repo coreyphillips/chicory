@@ -194,12 +194,16 @@ describe('the reader the payment scanner listens with on Android', () => {
     expect(KOTLIN_CODE).toContain('FLAG_READER_NO_PLATFORM_SOUNDS');
   });
 
-  test('asks Android not to offer the same tag again, where Android can be asked', () => {
-    // NfcAdapter.ignore is API 26, and the app runs on 24.
-    const guarded =
-      /if \([^)]*Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.O\) \{[\s\S]*?\.ignore\(/;
-    expect(KOTLIN_CODE).toMatch(guarded);
+  test('asks Android not to offer the same tag again, on every Android the app runs on', () => {
     expect(KOTLIN_CODE.match(/\.ignore\(/g)).toHaveLength(1);
+    // NfcAdapter.ignore came with API 24, which is the oldest the app takes,
+    // so no version stands between a tag and the ask. A phone left out of it
+    // would have only the link lane's memory of the tap to fall back on.
+    expect(KOTLIN_CODE).not.toMatch(/SDK_INT|VERSION_CODES/);
+    const oldest = Number(
+      /minSdkVersion = (\d+)/.exec(read('android', 'build.gradle'))?.[1],
+    );
+    expect(oldest).toBeGreaterThanOrEqual(24);
   });
 
   test('gives the radio back when the read is called off or its host goes', () => {

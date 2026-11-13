@@ -4,7 +4,6 @@ import android.app.Activity
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.Ndef
-import android.os.Build
 import android.util.Base64
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.Arguments
@@ -126,7 +125,8 @@ class NfcReaderModule(private val context: ReactApplicationContext) :
     /** Called on a binder thread, with the tag's message already read by Android. */
     private fun discovered(tag: Tag) {
         val adapter = adapter()
-        if (adapter != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        // NfcAdapter.ignore has been there since API 24, the oldest Android this app runs on.
+        if (adapter != null) {
             try {
                 adapter.ignore(tag, SAME_TAG_QUIET_MS, null, null)
             } catch (_: Exception) {
