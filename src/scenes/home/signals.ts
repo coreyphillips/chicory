@@ -3,6 +3,7 @@ import { SAFETY_CODE, announceSafety, heardSince } from '../../motion/speech';
 import type { SafetyKind } from '../../motion/speech';
 import { recordDiagnostic } from '../../services/diagnosticLog';
 import { useStage } from '../../stage/StageContext';
+import { PRIMARY_WAIT_MS } from '../send/model';
 
 /**
  * Where one safety state's signal stands after a step: whether the state
@@ -122,6 +123,21 @@ export const LIVE_OVERDUE_MS = 15_000;
 export function useOpening(stale: boolean, connecting: boolean): boolean {
   const overdue = useOverdue(stale && connecting, LIVE_OVERDUE_MS);
   return stale && connecting && !overdue;
+}
+
+/**
+ * Whether a primary that is away can be expected back shortly: it has not
+ * been seen away, with the wallet up, for PRIMARY_WAIT_MS. While the wallet
+ * is still opening nothing has been seen of it yet, so it is expected then
+ * too. The canvas keeps the count for as long as the wallet is drawn, so a
+ * primary that has been away all afternoon is not waited for by a Send
+ * opened now.
+ */
+export function usePrimaryExpected(
+  connected: boolean,
+  coming: boolean,
+): boolean {
+  return !useOverdue(!connected && !coming, PRIMARY_WAIT_MS);
 }
 
 /**

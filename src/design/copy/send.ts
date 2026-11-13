@@ -38,6 +38,8 @@ export const send = {
   pubkyPays: (pubky: string, rail: string, destination: string) =>
     `Pubky ${pubky}. Pays the ${rail} destination its homeserver lists: ${destination}. Chicory cannot verify it is theirs.`,
   preparing: 'Preparing the payment.',
+  /** The review waits, busy, for a primary that is away and expected back. */
+  awaitingPrimary: 'Waiting for a primary node to reconnect.',
   /** Settings > Auto-pay sent a scanned code without a hold. */
   autoPaying: (value: number) => `Paying ${sats(value)} automatically.`,
   sendSats: (value: number) => `Send ${sats(value)}`,

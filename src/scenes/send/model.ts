@@ -743,3 +743,20 @@ export const HOME_AFTER_MS = 2200;
  * is recorded whenever it comes.
  */
 export const SEND_GRACE_MS = 8_000;
+
+/**
+ * How long a primary that is away is given to come back. The wallet
+ * reconnects by itself as it opens or returns to the front, and a review
+ * asked for in those seconds waits for it, busy, rather than be refused: a
+ * payer at a till should not be told to try again for a wait that short. It
+ * is longer than a reconnect that is going well. Past it the review is
+ * refused for the primary being away, as it was at once before.
+ */
+export const PRIMARY_WAIT_MS = 20_000;
+
+/** How often a review that waits for the primary is asked for again. */
+export const PRIMARY_RETRY_MS = 2_000;
+
+/** Whether the engine refused because no primary is connected. */
+export const primaryAway = (error: unknown) =>
+  errorCode(error) === 'PRIMARY_DOWN';
