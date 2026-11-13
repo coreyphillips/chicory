@@ -28,13 +28,38 @@ export function normalizePaymentLink(url: string | null | undefined) {
   return value.replace(/^lightning:/i, '');
 }
 
+/**
+ * How long a request the scanner read from a tag is remembered, so the same
+ * tap is not taken twice.
+ */
+export const TAP_ECHO_MS = 5000;
+
+let tapped: { request: string; at: number } | null = null;
+
+/**
+ * The scanner has just read `request` from an NFC tag. While the scanner is
+ * open the radio is the app's alone. As it closes, Android may find the tag
+ * still there and offer it as a link (docs/TAP-TO-PAY.md), which would open a
+ * second Send over the one the tap opened. The scanner's reader asks Android
+ * not to. This is for a phone that offers it anyway.
+ */
+export function tookByTap(request: string) {
+  tapped = { request: request.toLowerCase(), at: Date.now() };
+}
+
+/** Whether `request` is the one a tap brought a moment ago. */
+function echoesTap(request: string): boolean {
+  if (!tapped || Date.now() - tapped.at >= TAP_ECHO_MS) return false;
+  return tapped.request === request.toLowerCase();
+}
+
 export function usePaymentLinks(ready: boolean, onRequest: (value: string) => void) {
   useEffect(() => {
     if (!ready) return;
     let active = true;
     const handle = (url: string | null | undefined) => {
       const request = normalizePaymentLink(url);
-      if (active && request) onRequest(request);
+      if (active && request && !echoesTap(request)) onRequest(request);
     };
     if (!initialConsumed) {
       initialConsumed = true;

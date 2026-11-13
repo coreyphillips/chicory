@@ -13,8 +13,12 @@ export type Point = { x: number; y: number };
  */
 export type ScanPurpose = 'payment' | 'primary' | 'address';
 
-/** Only the live camera may hand a payment to Auto-pay. */
-export type ScanSource = 'camera' | 'clipboard' | 'photo';
+/**
+ * How a scan's code arrived. Only the live camera may hand a payment to
+ * Auto-pay: a request read from an NFC tag is reviewed and held, as a pasted
+ * one and a chosen image's are.
+ */
+export type ScanSource = 'camera' | 'clipboard' | 'photo' | 'tap';
 
 /**
  * Where a scanned code goes: a new Send from home, the Send already open,

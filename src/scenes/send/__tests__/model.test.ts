@@ -177,6 +177,22 @@ describe('a request as it is entered', () => {
     expect(requestRefusal('   ')).toBeNull();
   });
 
+  test('is taken however much of a Lightning link is in capitals', () => {
+    // BIP 321 reads a field's name in any case, and a till or a dense QR
+    // may write the whole request in capitals.
+    const capitals = INVOICE.toUpperCase();
+    for (const request of [
+      `bitcoin:?lightning=${capitals}`,
+      `bitcoin:?LIGHTNING=${capitals}`,
+      `BITCOIN:?LIGHTNING=${capitals}`,
+      `BITCOIN:${ADDRESS.toUpperCase()}?LIGHTNING=${capitals}`,
+    ]) {
+      expect(requestRefusal(request)).toBeNull();
+      expect(fixedAmount(request)).toBe(24_425);
+      expect(reviewOpensLive(request)).toBe(true);
+    }
+  });
+
   test('holds the review back until it can be paid and has an amount', () => {
     expect(reviewWaiting('', false, 0)).toBe(copy.send.reviewWaits);
     expect(reviewWaiting('  ', false, 500)).toBe(copy.send.reviewWaits);

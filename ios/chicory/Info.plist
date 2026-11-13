@@ -51,6 +51,8 @@
 	<string>Chicory uses the camera only to read a payment request code. Nothing is recorded, stored or sent.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Chicory can ask for Face ID before opening your wallet or revealing your recovery phrase.</string>
+	<key>NFCReaderUsageDescription</key>
+	<string>Chicory uses NFC only to read a payment request from a payment terminal. Nothing is stored or sent.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
 	<key>RCTNewArchEnabled</key>

@@ -49,9 +49,14 @@ import { riseIn, sceneOut } from '../motion/presets';
 import { steady } from '../motion/steady';
 import { curves, durations, overlap, shake, springs } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
-import { normalizePaymentLink } from '../services/links';
+import { normalizePaymentLink, tookByTap } from '../services/links';
+import { paymentUris } from '../services/ndef';
+import type { TapRecord } from '../services/ndef';
+import { tapCode, tapReader } from '../services/tapReader';
+import type { TapCode, TapStatus } from '../services/tapReader';
 import { useAppActive } from '../scenes/home/useAppActive';
 import { pubkyOf } from '../scenes/send/pubky';
+import { sameRequest } from '../scenes/send/sameRequest';
 import { STATUS_ROW } from '../stage/layout';
 import type { ScanPurpose, ScanSource } from '../stage/scene';
 import { duringSystemPrompt } from '../stage/systemPrompt';
@@ -76,6 +81,17 @@ import { HIT_SLOP, space } from '../theme';
  * A scanned code is handed to Send exactly as a pasted one is, and only once
  * the payment parser can read it as something to pay. Nothing is paid from
  * here, and no frame or image leaves the device.
+ *
+ * A payment scan also reads a payment terminal held to the phone, where the
+ * phone can (docs/TAP-TO-PAY.md). Android listens for as long as the scan is
+ * open and in front, camera or no camera, and says so with `contactless`
+ * above the controls: cream while it listens, steam and a way to the NFC
+ * settings while NFC is off, and absent on a phone with no NFC. A request
+ * read that way is taken as a pasted one is, never as the camera's, and a
+ * tag that cannot be paid is refused on the mark. An iPhone reads a tag only
+ * when asked, so there the same glyph is a control beside the paste: it
+ * raises the system's sheet for one tag, inside `duringSystemPrompt`, and is
+ * absent where tags cannot be read.
  *
  * Settings asks it for other codes: a primary node's address, or the Bitcoin
  * address the wallet empties to. Each brings its check (`validate`), which
@@ -180,31 +196,63 @@ const EXIT = { duration: durations.exit, easing: curves.exit };
  * can. A code the parser reads but refuses, such as an LNURL, is refused here
  * too, with the parser's own reason after ours.
  */
-export function refusal(value: string): string | null {
+export function refusal(
+  value: string,
+  invalid: string = copy.scan.invalid,
+): string | null {
   const parsed = parsePayment(value);
-  if (parsed.kind === 'empty') return copy.scan.invalid;
+  if (parsed.kind === 'empty') return invalid;
   if (parsed.kind === 'invalid') {
     // A pubky is taken on a payment scan: Send looks up where it is paid.
     if (pubkyOf(value)) return null;
-    return [copy.scan.invalid, parsed.message].filter(Boolean).join(' ');
+    return [invalid, parsed.message].filter(Boolean).join(' ');
   }
   return null;
 }
 
-/** Keep only the distinct payable codes in the selected image. */
-function paymentFromImage(
-  codes: string[],
-): { value: string } | { reason: string } {
-  const distinct = [...new Set(codes.map(code => code.trim()).filter(Boolean))];
-  let value: string | undefined;
-  let reason: string = copy.scan.noImageCode;
-  for (const code of distinct) {
-    const invalid = refusal(code);
+/**
+ * What is said of a set of codes with nothing in it, with one that cannot
+ * be paid, and with more than one request.
+ */
+interface SetWords {
+  none: string;
+  invalid: string;
+  several: string;
+}
+
+const IMAGE_WORDS: SetWords = {
+  none: copy.scan.noImageCode,
+  invalid: copy.scan.invalid,
+  several: copy.scan.severalImageCodes,
+};
+
+const TAP_WORDS: SetWords = {
+  none: copy.scan.tapNoRequest,
+  invalid: copy.scan.tapNoRequest,
+  several: copy.scan.tapSeveral,
+};
+
+/** One request to pay, or why there is none. */
+type OneRequest = { value: string } | { reason: string };
+
+/**
+ * The one request among `codes`, a chosen image's or a tag's. A request
+ * written twice, in two spellings or once alone and once inside a link that
+ * carries it, is one request (`sameRequest`), and the first spelling is
+ * kept. Each is held to every one kept before it, so the order they come in
+ * decides nothing. Two that differ in whom or how much they pay are refused,
+ * since nothing says which was meant.
+ */
+function onePayable(codes: string[], words: SetWords): OneRequest {
+  const kept: string[] = [];
+  let reason = words.none;
+  for (const code of new Set(codes.map(each => each.trim()).filter(Boolean))) {
+    const invalid = refusal(code, words.invalid);
     if (invalid) reason = invalid;
-    else if (value) return { reason: copy.scan.severalImageCodes };
-    else value = code;
+    else if (kept.every(other => sameRequest(code, other))) kept.push(code);
+    else return { reason: words.several };
   }
-  return value ? { value } : { reason };
+  return kept.length ? { value: kept[0] } : { reason };
 }
 
 /**
@@ -709,6 +757,36 @@ const Reticle = memo(function ReticleMarks({
 Reticle.displayName = 'Reticle';
 
 /**
+ * What a control shows each time it is turned down, which `count` counts: a
+ * radish ring that fades and a shake, or under Reduce Motion the ring held a
+ * while and no shake.
+ */
+function useRefusalCue(count: number, reduced: boolean) {
+  const nudge = useSharedValue(0);
+  const ring = useSharedValue(0);
+  useEffect(() => {
+    if (!count) return;
+    if (reduced) {
+      ring.set(
+        withSequence(
+          withTiming(1, { ...FADE, duration: durations.tick }),
+          withDelay(TINT_MS, withTiming(0, FADE), ReduceMotion.Never),
+        ),
+      );
+      return;
+    }
+    ring.set(
+      withSequence(
+        withTiming(1, { duration: durations.tick }),
+        withTiming(0, { duration: durations.draw }),
+      ),
+    );
+    nudge.set(shake());
+  }, [count, reduced, ring, nudge]);
+  return { nudge, ring };
+}
+
+/**
  * A round glyph control. `refused` counts the times its action was turned
  * down, each one a radish ring and a shake (a held tint under Reduce Motion),
  * and says why in its value.
@@ -729,28 +807,7 @@ function GlyphButton({
   buttonRef?: React.Ref<React.ComponentRef<typeof View>>;
 }) {
   const press = useSharedValue(1);
-  const nudge = useSharedValue(0);
-  const ring = useSharedValue(0);
-  const count = refused?.count ?? 0;
-  useEffect(() => {
-    if (!count) return;
-    if (reduced) {
-      ring.set(
-        withSequence(
-          withTiming(1, { ...FADE, duration: durations.tick }),
-          withDelay(TINT_MS, withTiming(0, FADE), ReduceMotion.Never),
-        ),
-      );
-      return;
-    }
-    ring.set(
-      withSequence(
-        withTiming(1, { duration: durations.tick }),
-        withTiming(0, { duration: durations.draw }),
-      ),
-    );
-    nudge.set(shake());
-  }, [count, reduced, ring, nudge]);
+  const { nudge, ring } = useRefusalCue(refused?.count ?? 0, reduced);
   const style = useAnimatedStyle(() => ({
     transform: [{ translateX: nudge.get() }, { scale: press.get() }],
   }));
@@ -782,6 +839,82 @@ function GlyphButton({
         />
       </Pressable>
     </Reanimated.View>
+  );
+}
+
+/** The tap mark's disc: smaller than a control, since it is read, not used. */
+const TAP_MARK = 40;
+
+/**
+ * The phone reads a payment terminal held to it (docs/TAP-TO-PAY.md):
+ * `contactless`, cream while it listens. With NFC switched off it is steam
+ * and a button that opens the NFC settings. A tag that cannot be paid is
+ * refused here as a control's action is, and a long press whispers what the
+ * mark means, or why the last tag was refused (REDESIGN.md rule 3).
+ */
+export function TapMark({
+  off,
+  reduced,
+  refused,
+  onSettings,
+}: {
+  /** NFC is switched off, so the mark is the way to switch it on. */
+  off: boolean;
+  reduced: boolean;
+  refused: { count: number; reason: string };
+  onSettings: () => void;
+}) {
+  const { nudge, ring } = useRefusalCue(refused.count, reduced);
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateX: nudge.get() }],
+  }));
+  const ringStyle = useAnimatedStyle(() => ({ opacity: ring.get() }));
+  const label = off ? copy.scan.tapOff : copy.scan.tapReady;
+  const drawn = (
+    <>
+      <Glyph
+        name="contactless"
+        size={20}
+        color={off ? palette.steam : palette.cream}
+      />
+      <Reanimated.View
+        pointerEvents="none"
+        style={[styles.tapRing, ringStyle]}
+      />
+    </>
+  );
+  return (
+    <Whisper label={(!off && refused.reason) || label}>
+      <Reanimated.View style={style}>
+        {off ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            accessibilityHint={copy.scan.tapOffHint}
+            hitSlop={HIT_SLOP}
+            onPress={() => {
+              haptics.tick();
+              onSettings();
+            }}
+            style={styles.tapMark}
+          >
+            {drawn}
+          </Pressable>
+        ) : (
+          <View
+            accessible
+            accessibilityRole="image"
+            accessibilityLabel={label}
+            accessibilityValue={
+              refused.reason ? { text: refused.reason } : undefined
+            }
+            style={styles.tapMark}
+          >
+            {drawn}
+          </View>
+        )}
+      </Reanimated.View>
+    </Whisper>
   );
 }
 
@@ -914,13 +1047,28 @@ export function Scanner({
       mounted.current = false;
     };
   }, []);
-  const manual = useRef<'photo' | 'clipboard' | null>(null);
+  const manual = useRef<'photo' | 'clipboard' | 'tap' | null>(null);
   const [picking, setPicking] = useState(false);
   // On Android the picker result can arrive before the wallet resumes. Hold it
   // only in this scanner until the active screen (including its lock) commits.
   const [imageResult, setImageResult] = useState<
-    ReturnType<typeof paymentFromImage> | 'cancelled' | null
+    OneRequest | 'cancelled' | null
   >(null);
+
+  // A payment scan reads a payment terminal held to the phone as well. What
+  // the phone's NFC can do is not known until it answers, and a scan for
+  // anything else never asks.
+  const reader = purpose === 'payment' ? tapReader() : null;
+  const [tap, setTap] = useState<TapStatus>('missing');
+  const [tapRefused, setTapRefused] = useState({ count: 0, reason: '' });
+  const tapQuiet = useRef<Refused | null>(null);
+  const tapButton = useRef<React.ComponentRef<typeof View>>(null);
+  // What the iPhone's sheet came back with. The app is not in front again
+  // until a moment after the sheet goes, so it is held here until then, as a
+  // chosen image is.
+  const [tapResult, setTapResult] = useState<TapRecord[] | TapCode | null>(
+    null,
+  );
 
   const caught = useSharedValue(0);
   const sage = useSharedValue(0);
@@ -1038,10 +1186,12 @@ export function Scanner({
       announce(
         !validate && pubkyOf(value) ? copy.scan.pubkyDetected : words.detected,
       );
-      onDetected(
-        validate ? validate(value) : normalizePaymentLink(value) || value,
-        source,
-      );
+      const request = validate
+        ? validate(value)
+        : normalizePaymentLink(value) || value;
+      // Android may offer the same tag again as a link once the scan closes.
+      if (source === 'tap') tookByTap(request);
+      onDetected(request, source);
     },
     [caught, sage, reduced, pinch, onDetected, validate, words],
   );
@@ -1095,10 +1245,15 @@ export function Scanner({
     flash(loud);
   }
 
-  function refuseInput(reason: string, source: 'clipboard' | 'photo') {
+  function refuseInput(reason: string, source: 'clipboard' | 'photo' | 'tap') {
     haptics.error();
     announce(reason);
-    const setRefused = source === 'photo' ? setImageRefused : setPasteRefused;
+    const setRefused =
+      source === 'photo'
+        ? setImageRefused
+        : source === 'tap'
+        ? setTapRefused
+        : setPasteRefused;
     setRefused(last => ({ count: last.count + 1, reason }));
   }
 
@@ -1134,7 +1289,9 @@ export function Scanner({
         'ChicoryQrImage',
       ).pick();
       if (mounted.current)
-        setImageResult(codes === null ? 'cancelled' : paymentFromImage(codes));
+        setImageResult(
+          codes === null ? 'cancelled' : onePayable(codes, IMAGE_WORDS),
+        );
     } catch {
       if (mounted.current)
         setImageResult({ reason: copy.scan.unreadableImage });
@@ -1157,6 +1314,161 @@ export function Scanner({
       AccessibilityInfo.sendAccessibilityEvent(photoButton.current, 'focus');
   }, [imageResult, foreground, take]);
 
+  // What the phone's NFC can do is asked as the scan opens and each time the
+  // app comes back to the front, which is how someone returns from switching
+  // it on.
+  useEffect(() => {
+    if (!reader || !foreground) return;
+    let active = true;
+    reader.status().then(
+      status => active && setTap(status),
+      () => active && setTap('missing'),
+    );
+    return () => {
+      active = false;
+    };
+  }, [reader, foreground]);
+
+  /**
+   * A tag was held to the phone: its records, or why it gave none. One
+   * request that can be paid is taken as a pasted one is. A tag with a
+   * message and nothing to pay in it is refused on the mark, the same tag
+   * at most once in `REFUSAL_QUIET_MS` unless it was `asked` for, as each
+   * read on an iPhone is. While a paste or a chosen image is being read, a
+   * tag is passed over.
+   */
+  function tapped(result: TapRecord[] | TapCode, asked = false) {
+    if (!mounted.current || claimed.current || manual.current) return;
+    let reason: string;
+    let key: string;
+    if (typeof result === 'string') {
+      // A tag with no message at all is a bank card or a pass that happened
+      // to be near, as one kept in a phone's case always is. Nobody offered
+      // it as a payment, so nothing is said of it.
+      if (result !== 'TAP_TOO_LARGE') return;
+      reason = copy.scan.tapUnreadable;
+      key = result;
+    } else {
+      const uris = paymentUris(result);
+      const found = onePayable(uris, TAP_WORDS);
+      if ('value' in found) {
+        take(found.value, 'tap');
+        return;
+      }
+      reason = found.reason;
+      key = uris.join('\n');
+    }
+    const now = Date.now();
+    if (!asked && !shouldRefuse(tapQuiet.current, key, now)) return;
+    tapQuiet.current = { value: key, at: now };
+    refuseInput(reason, 'tap');
+  }
+
+  // The reader hands a tag to the scanner as it stands now, not as it stood
+  // when the listening began, so the radio is not given up and taken again
+  // each time the scanner draws.
+  const onTap = useRef(tapped);
+  useLayoutEffect(() => {
+    onTap.current = tapped;
+  });
+
+  // Android reads whatever is held to the phone for as long as the scan is
+  // open and in front, whether or not there is a camera: a camera that is
+  // off is when a tap matters most. The radio stays the app's between tags,
+  // so one that was refused is not offered to another app behind the scan.
+  useEffect(() => {
+    if (!reader || reader.mode !== 'ambient') return;
+    if (tap !== 'ready' || !foreground) return;
+    let active = true;
+    const listen = () => {
+      reader.read('').then(
+        records => {
+          if (!active) return;
+          onTap.current(records);
+          listen();
+        },
+        error => {
+          if (!active) return;
+          const code = tapCode(error);
+          if (code === 'TAP_CANCELLED') return;
+          if (code !== 'TAP_FAILED') {
+            onTap.current(code);
+            listen();
+            return;
+          }
+          // The radio went from under the read, as when NFC is switched
+          // off with the scan open. What became of it is asked again, and a
+          // reader that still says it is ready has just shown that it is
+          // not, so it is left alone until the app next comes to the front.
+          reader.status().then(
+            status => active && setTap(status === 'ready' ? 'missing' : status),
+            () => active && setTap('missing'),
+          );
+        },
+      );
+    };
+    listen();
+    return () => {
+      active = false;
+      reader.cancel().catch(() => {});
+    };
+  }, [reader, tap, foreground]);
+
+  const openTapSettings = () => {
+    reader?.openSettings().catch(() => {});
+  };
+
+  // An iPhone reads a tag only when asked, under a sheet of the system's
+  // own. The sheet is one the app raised, so the privacy cover leaves the
+  // scan in place behind it. The camera rests while the sheet is up: it is
+  // not what is being read, and the two need not share the phone.
+  async function readTap() {
+    if (!reader || claimed.current || manual.current) return;
+    manual.current = 'tap';
+    setPicking(true);
+    try {
+      const records = await duringSystemPrompt(() =>
+        reader.read(copy.scan.tapPrompt),
+      );
+      if (mounted.current) setTapResult(records);
+    } catch (error) {
+      if (mounted.current) setTapResult(tapCode(error));
+    }
+  }
+
+  useEffect(() => {
+    if (tapResult === null || !foreground || manual.current !== 'tap') return;
+    manual.current = null;
+    setTapResult(null);
+    setPicking(false);
+    if (tapResult === 'TAP_FAILED') {
+      // The sheet never came up, or went from under the read. A phone that
+      // can no longer read loses the control; one that still can is told the
+      // read failed.
+      reader?.status().then(
+        status => {
+          if (!mounted.current) return;
+          setTap(status);
+          if (status === 'ready') refuseInput(copy.scan.tapUnreadable, 'tap');
+        },
+        () => mounted.current && setTap('missing'),
+      );
+    } else {
+      // A sheet closed by hand, or left to run out, is no refusal.
+      onTap.current(tapResult, true);
+    }
+    if (!claimed.current && tapButton.current)
+      AccessibilityInfo.sendAccessibilityEvent(tapButton.current, 'focus');
+  }, [tapResult, foreground, reader]);
+
+  // A sheet still up as the scan closes comes down with it.
+  useEffect(() => {
+    if (!reader || reader.mode !== 'prompted') return;
+    return () => {
+      reader.cancel().catch(() => {});
+    };
+  }, [reader]);
+
   const openSettings = () => {
     Linking.openSettings().catch(() => {});
   };
@@ -1170,44 +1482,71 @@ export function Scanner({
     <Reanimated.View
       entering={riseIn(overlap.rise, FLY_DELAY)}
       exiting={sceneOut()}
-      style={[styles.controls, access === 'denied' && styles.compactControls]}
+      style={styles.foot}
     >
-      <GlyphButton
-        glyph="clipboard"
-        label={copy.scan.paste}
-        onPress={paste}
-        reduced={reduced}
-        refused={pasteRefused}
-      />
-      {purpose === 'payment' ? (
-        <Whisper
-          enabled={!!imageRefused.reason}
-          label={imageRefused.reason || copy.scan.chooseImage}
-        >
-          <GlyphButton
-            glyph="photo"
-            label={copy.scan.chooseImage}
-            onPress={chooseImage}
-            buttonRef={photoButton}
-            reduced={reduced}
-            refused={imageRefused}
-          />
-        </Whisper>
-      ) : null}
-      {access === 'denied' ? (
-        <GlyphButton
-          glyph="cog"
-          label={copy.scan.openSettings}
-          onPress={openSettings}
+      {reader?.mode === 'ambient' && tap !== 'missing' ? (
+        <TapMark
+          off={tap === 'off'}
           reduced={reduced}
+          refused={tapRefused}
+          onSettings={openTapSettings}
         />
       ) : null}
-      <GlyphButton
-        glyph="close"
-        label={copy.scan.close}
-        onPress={onCancel}
-        reduced={reduced}
-      />
+      <View
+        style={[styles.controls, access === 'denied' && styles.compactControls]}
+      >
+        <GlyphButton
+          glyph="clipboard"
+          label={copy.scan.paste}
+          onPress={paste}
+          reduced={reduced}
+          refused={pasteRefused}
+        />
+        {purpose === 'payment' ? (
+          <Whisper
+            enabled={!!imageRefused.reason}
+            label={imageRefused.reason || copy.scan.chooseImage}
+          >
+            <GlyphButton
+              glyph="photo"
+              label={copy.scan.chooseImage}
+              onPress={chooseImage}
+              buttonRef={photoButton}
+              reduced={reduced}
+              refused={imageRefused}
+            />
+          </Whisper>
+        ) : null}
+        {reader?.mode === 'prompted' && tap === 'ready' ? (
+          <Whisper
+            enabled={!!tapRefused.reason}
+            label={tapRefused.reason || copy.scan.tapRead}
+          >
+            <GlyphButton
+              glyph="contactless"
+              label={copy.scan.tapRead}
+              onPress={readTap}
+              buttonRef={tapButton}
+              reduced={reduced}
+              refused={tapRefused}
+            />
+          </Whisper>
+        ) : null}
+        {access === 'denied' ? (
+          <GlyphButton
+            glyph="cog"
+            label={copy.scan.openSettings}
+            onPress={openSettings}
+            reduced={reduced}
+          />
+        ) : null}
+        <GlyphButton
+          glyph="close"
+          label={copy.scan.close}
+          onPress={onCancel}
+          reduced={reduced}
+        />
+      </View>
     </Reanimated.View>
   );
 
@@ -1293,6 +1632,8 @@ const styles = StyleSheet.create({
   },
   corner: { position: 'absolute', width: ARM, height: ARM },
   flask: { position: 'absolute', left: space.xl },
+  // The tap mark, where there is one, over the row of controls.
+  foot: { alignItems: 'center', gap: space.lg },
   controls: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -1310,6 +1651,20 @@ const styles = StyleSheet.create({
   ring: {
     ...StyleSheet.absoluteFill,
     borderRadius: CONTROL / 2,
+    borderWidth: 2,
+    borderColor: palette.radish,
+  },
+  tapMark: {
+    width: TAP_MARK,
+    height: TAP_MARK,
+    borderRadius: TAP_MARK / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.cocoa,
+  },
+  tapRing: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: TAP_MARK / 2,
     borderWidth: 2,
     borderColor: palette.radish,
   },

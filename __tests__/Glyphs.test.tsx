@@ -86,6 +86,7 @@ test('the set is the one REDESIGN.md section 4 names', () => {
     'unlock',
     'haptics',
     'autoPay',
+    'contactless',
   ];
   expect([...NAMES].sort()).toEqual(
     [...kept, ...renamed, ...settingsOnly, ...added].sort(),

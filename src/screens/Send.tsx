@@ -56,6 +56,7 @@ import { CircleControl } from '../scenes/send/Controls';
 import { FailureMark } from '../scenes/send/FailureMark';
 import { FeeSlider } from '../scenes/send/FeeSlider';
 import { GlyphButton } from '../scenes/send/GlyphButton';
+import { sameRequest } from '../scenes/send/sameRequest';
 import {
   BROADCAST_POLL_MS,
   BROADCAST_WATCH_MS,
@@ -126,6 +127,13 @@ export interface SendHandle {
    * read it, which is the only way a request may pay itself (Auto-pay).
    */
   receive: (code: string, scanned?: boolean) => void;
+  /**
+   * Whether this Send already has `incoming` in hand: it is the request
+   * being composed or reviewed, and nothing has come of it yet. A link for
+   * it then changes nothing. Once a payment has an outcome, or the request
+   * has been refused, the same link is a new ask and gets a fresh Send.
+   */
+  holds: (incoming: string) => boolean;
 }
 
 /**
@@ -1689,6 +1697,11 @@ export function SendScreen({
     receive: (code: string, byCamera?: boolean) => {
       accept(code, byCamera);
     },
+    holds: (incoming: string) =>
+      !result &&
+      !failure &&
+      request.trim() !== '' &&
+      sameRequest(request, incoming),
   }));
 
   if (scanning) {

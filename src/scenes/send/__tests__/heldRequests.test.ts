@@ -66,6 +66,8 @@ test('reads the payment hash of an invoice, bare or inside a Bitcoin link', () =
   expect(paymentHashOf(bare)).toBe(hash);
   expect(paymentHashOf(`lightning:${bare.toUpperCase()}`)).toBe(hash);
   expect(paymentHashOf(`bitcoin:bcrt1qaddress?lightning=${bare}`)).toBe(hash);
+  // All in capitals, as BIP 321 allows and a till may present it.
+  expect(paymentHashOf(`BITCOIN:?LIGHTNING=${bare.toUpperCase()}`)).toBe(hash);
   expect(paymentHashOf('bcrt1qaddress')).toBeNull();
   expect(paymentHashOf('lnbc-request')).toBeNull();
   expect(paymentHashOf('')).toBeNull();
@@ -387,6 +389,13 @@ test('an invoice is one request bare, with its scheme, or inside a Bitcoin link'
   clearHeldRequests();
   holdRequest(bare, { status: 'completed' });
   expect(heldRequest(unified)).toEqual({ status: 'completed' });
+  // A Lightning-only link whose field name is in capitals carries it too.
+  expect(heldRequest(`bitcoin:?LIGHTNING=${bare.toUpperCase()}`)).toEqual({
+    status: 'completed',
+  });
+  expect(heldRequest(`BITCOIN:?LIGHTNING=${bare.toUpperCase()}`)).toEqual({
+    status: 'completed',
+  });
 });
 
 test('a Bitcoin request is its address and amount, whatever its label or order', () => {

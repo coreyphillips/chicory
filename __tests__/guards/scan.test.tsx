@@ -153,6 +153,8 @@ const LNURL =
 
 /** The Bitcoin address Settings > Empty wallet sends everything to. */
 const ADDRESS = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
+/** Another, the BIP 173 example. */
+const OTHER_ADDRESS = 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4';
 
 /**
  * A Settings field's own check, as Empty wallet's is: a Bitcoin address,
@@ -844,6 +846,16 @@ describe('what a code is', () => {
     expect(refusal(`lightning:${INVOICE}`)).toBeNull();
   });
 
+  test('a Lightning link is let through however much of it is in capitals', () => {
+    // BIP 321 reads a field's name in any case, and a till or a dense QR may
+    // write the whole request in capitals.
+    const capitals = INVOICE.toUpperCase();
+    expect(refusal(`lightning:${capitals}`)).toBeNull();
+    expect(refusal(`bitcoin:?lightning=${capitals}`)).toBeNull();
+    expect(refusal(`bitcoin:?LIGHTNING=${capitals}`)).toBeNull();
+    expect(refusal(`BITCOIN:?LIGHTNING=${capitals}`)).toBeNull();
+  });
+
   test('one the parser cannot read, or reads and refuses, is not', () => {
     expect(refusal(UNPAYABLE)).toMatch(/^That code is not a payment request\./);
     expect(refusal(LNURL)).toBe(
@@ -925,6 +937,26 @@ describe('reading a code', () => {
     [[UNPAYABLE, INVOICE], INVOICE, null],
     [[], null, copy.scan.noImageCode],
     [[PAYABLE, INVOICE], null, copy.scan.severalImageCodes],
+    // One request in two spellings is one request, and the first is kept.
+    [[INVOICE, `lightning:${INVOICE.toUpperCase()}`], INVOICE, null],
+    // Two addresses are two requests, whatever else the codes share: an
+    // invoice, or a lightning= the parser cannot read and passes over.
+    [
+      [
+        `bitcoin:${ADDRESS}?lightning=${INVOICE}`,
+        `bitcoin:${OTHER_ADDRESS}?lightning=${INVOICE}`,
+      ],
+      null,
+      copy.scan.severalImageCodes,
+    ],
+    [
+      [
+        `bitcoin:${ADDRESS}?lightning=broken`,
+        `bitcoin:${OTHER_ADDRESS}?lightning=broken`,
+      ],
+      null,
+      copy.scan.severalImageCodes,
+    ],
     [[LNURL], null, refusal(LNURL)],
     [null, null, null],
   ] as const)(

@@ -356,7 +356,7 @@ describe('never paid on its own, whatever the share', () => {
     await act(async () => tree.unmount());
   });
 
-  test.each(['photo', 'clipboard'])(
+  test.each(['photo', 'clipboard', 'tap'])(
     'a standalone scanner %s prefill waits for review and confirmation',
     async source => {
       const wallet = client();

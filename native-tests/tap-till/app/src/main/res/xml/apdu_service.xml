@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The NDEF application of an NFC Forum Type 4 tag. The screen need not be unlocked, as a till's is not. -->
+<host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/service"
+    android:requireDeviceUnlock="false">
+    <aid-group
+        android:category="other"
+        android:description="@string/service">
+        <aid-filter android:name="D2760000850101" />
+    </aid-group>
+</host-apdu-service>

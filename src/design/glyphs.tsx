@@ -279,6 +279,14 @@ export const GLYPHS = {
     },
     { id: 'bolt', d: 'M12.4 6.6 7.6 13.2h3.6l-.6 4.2 4.8-6.6h-3.6z' },
   ],
+  // Three waves leaving a point: the mark a payment terminal wears where a
+  // phone is held to it, for a request read over NFC.
+  contactless: [
+    {
+      id: 'contactless',
+      d: 'M8.5 9.5a3.5 3.5 0 0 1 0 5M11 7a7 7 0 0 1 0 10M13.4 4.6a10.5 10.5 0 0 1 0 14.8',
+    },
+  ],
   // Two columns of three dots: the handle a ranked primary node is dragged
   // by in Settings.
   grip: [

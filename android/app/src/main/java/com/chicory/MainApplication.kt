@@ -19,6 +19,7 @@ class MainApplication : Application(), ReactApplication {
           add(ProcessPackage())
           add(QrImagePackage())
           add(PaykitDiscoveryPackage())
+          add(NfcReaderPackage())
         },
     )
   }
