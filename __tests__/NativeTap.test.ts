@@ -159,6 +159,36 @@ describe('a tag Android hands to the app', () => {
     expect(ACTIVITY_CODE.match(/setData\(null\)/g)).toHaveLength(1);
   });
 
+  test('is read by an app still running when a new activity is made for it', () => {
+    // Back at Home closes the activity on Android 7 to 11 and leaves the app
+    // running. The tag that comes next makes a new activity, and a running
+    // app is told only of an intent handed to an activity it already has. So
+    // the app reads the launch URL once for each time it is mounted
+    // (src/services/links.ts), which holds only while React Native mounts it
+    // once for each activity: stopped as one is destroyed, started as the
+    // next is made.
+    const delegate = read(
+      'node_modules',
+      'react-native',
+      'ReactAndroid',
+      'src',
+      'main',
+      'java',
+      'com',
+      'facebook',
+      'react',
+      'ReactDelegate.kt',
+    );
+    expect(delegate).toMatch(/public fun onHostDestroy\(\) \{\s*unloadApp\(\)/);
+    expect(delegate).toMatch(
+      /public fun unloadApp\(\) \{[\s\S]*?reactSurface\?\.stop\(\)/,
+    );
+    const links = read('src', 'services', 'links.ts');
+    expect(links).toMatch(
+      /Platform\.OS === 'android' \? consumedHere\.current : initialConsumed/,
+    );
+  });
+
   test('needs a guarded alias once the app targets Android 17', () => {
     // From API 37 an app that targets it is sent NFC intents only on a
     // component guarded by DISPATCH_NFC_MESSAGE. The main activity cannot

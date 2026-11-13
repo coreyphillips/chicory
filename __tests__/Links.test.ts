@@ -1,5 +1,5 @@
 import React from 'react';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import { act, create } from 'react-test-renderer';
 import { normalizePaymentLink, usePaymentLinks } from '../src/services/links';
 
@@ -66,6 +66,88 @@ describe('the launch link', () => {
     await act(async () => tree.unmount());
     initial.mockRestore();
     listen.mockRestore();
+  });
+});
+
+describe('the launch link of an app that outlives its activity', () => {
+  // On Android 7 to 11, Back at Home closes the activity and leaves the app
+  // running. The tap or link that comes next makes a new activity, and the
+  // running app is told of nothing: the request is that activity's launch
+  // URL. React Native mounts the app again for it (docs/TAP-TO-PAY.md).
+  const Probe = ({ ready, to }: { ready: boolean; to: jest.Mock }) => {
+    usePaymentLinks(ready, to);
+    return null;
+  };
+  const mount = async (to: jest.Mock) => {
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(React.createElement(Probe, { ready: true, to }));
+    });
+    return tree;
+  };
+
+  // React Native's Jest setup makes Linking's methods mocks already, which
+  // keep their calls from one test to the next.
+  beforeEach(() => jest.mocked(Linking.getInitialURL).mockClear());
+  afterEach(() => jest.restoreAllMocks());
+
+  test('is read by each mount on Android, and once while the app stays mounted', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    jest
+      .spyOn(Linking, 'addEventListener')
+      .mockReturnValue({ remove: jest.fn() } as never);
+    const initial = jest
+      .spyOn(Linking, 'getInitialURL')
+      .mockResolvedValue('lightning:LNBC-FIRST');
+    const onRequest = jest.fn();
+    const first = await mount(onRequest);
+    expect(onRequest).toHaveBeenCalledTimes(1);
+    expect(onRequest).toHaveBeenLastCalledWith('LNBC-FIRST');
+    // A network switch or a wallet change does not read it again.
+    await act(async () => {
+      first.update(React.createElement(Probe, { ready: false, to: onRequest }));
+    });
+    await act(async () => {
+      first.update(React.createElement(Probe, { ready: true, to: onRequest }));
+    });
+    expect(initial).toHaveBeenCalledTimes(1);
+    expect(onRequest).toHaveBeenCalledTimes(1);
+
+    // Back closes the activity, and the app with it. A tap makes another.
+    await act(async () => first.unmount());
+    initial.mockResolvedValue('bitcoin:?LIGHTNING=LNBC-SECOND');
+    const second = await mount(onRequest);
+    expect(initial).toHaveBeenCalledTimes(2);
+    expect(onRequest).toHaveBeenCalledTimes(2);
+    expect(onRequest).toHaveBeenLastCalledWith(
+      'bitcoin:?LIGHTNING=LNBC-SECOND',
+    );
+
+    // An activity opened from the launcher holds no request.
+    await act(async () => second.unmount());
+    initial.mockResolvedValue(null);
+    const third = await mount(onRequest);
+    expect(initial).toHaveBeenCalledTimes(3);
+    expect(onRequest).toHaveBeenCalledTimes(2);
+    await act(async () => third.unmount());
+  });
+
+  test('is read once for the process on an iPhone, which keeps the URL it was launched with', async () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
+    jest
+      .spyOn(Linking, 'addEventListener')
+      .mockReturnValue({ remove: jest.fn() } as never);
+    const initial = jest
+      .spyOn(Linking, 'getInitialURL')
+      .mockResolvedValue('lightning:lnbc-launch');
+    const onRequest = jest.fn();
+    // The suite above has read it for this process already.
+    const first = await mount(onRequest);
+    await act(async () => first.unmount());
+    const second = await mount(onRequest);
+    expect(initial).not.toHaveBeenCalled();
+    expect(onRequest).not.toHaveBeenCalled();
+    await act(async () => second.unmount());
   });
 });
 
