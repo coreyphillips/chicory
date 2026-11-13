@@ -18,6 +18,34 @@ const MAIN_ACTIVITY =
     MANIFEST_CODE,
   )?.[0];
 
+/** The activity, without its comments. */
+const ACTIVITY_CODE = read(
+  'android',
+  'app',
+  'src',
+  'main',
+  'java',
+  'com',
+  'chicory',
+  'MainActivity.kt',
+)
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^\s*\/\/.*$/gm, '');
+
+/** The body of the function that begins `head`. */
+function bodyOf(code: string, head: string): string {
+  const at = code.indexOf(head);
+  expect(at).toBeGreaterThan(-1);
+  const open = code.indexOf('{', at);
+  let depth = 0;
+  for (let i = open; i < code.length; i += 1) {
+    if (code[i] === '{') depth += 1;
+    if (code[i] === '}') depth -= 1;
+    if (depth === 0) return code.slice(open + 1, i);
+  }
+  throw new Error(`No end to ${head}`);
+}
+
 /** Each intent filter that answers an NDEF tag, as the manifest writes it. */
 const ndefFilters = () =>
   [...MANIFEST_CODE.matchAll(/<intent-filter>[\s\S]*?<\/intent-filter>/g)]
@@ -57,10 +85,9 @@ describe('a tag Android hands to the app', () => {
   });
 
   test('is forwarded to Linking by React Native itself', () => {
-    // The app adds no code for this lane: React Native reads an NDEF intent
-    // that carries a URI as it reads a VIEW intent, at launch and while
-    // running. If an upgrade drops either, a tag opens the app and nothing
-    // else happens.
+    // React Native reads an NDEF intent that carries a URI as it reads a
+    // VIEW intent, at launch and while running. If an upgrade drops either,
+    // a tag opens the app and nothing else happens.
     const reactAndroid = [
       'node_modules',
       'react-native',
@@ -80,19 +107,56 @@ describe('a tag Android hands to the app', () => {
         'NfcAdapter.ACTION_NDEF_DISCOVERED == action',
       );
     }
-    // And the activity leaves new intents to React Native.
+  });
+
+  test('is the request Send opens on after Android took the app back, and no older one', () => {
+    // Android takes a waiting app's process back freely and keeps its
+    // activity on record. A tag held to the phone after that builds the
+    // activity again with the intent it was FIRST made for, and hands over
+    // the new one before JavaScript is up. React Native tells only a running
+    // app of a new intent, and at launch reads the one the activity holds.
+    // Left alone, that tap opened the app on Home, or on the request before
+    // it. Seen on an Android 17 emulator (docs/TAP-TO-PAY.md).
+    const reactAndroid = [
+      'node_modules',
+      'react-native',
+      'ReactAndroid',
+      'src',
+      'main',
+      'java',
+      'com',
+      'facebook',
+      'react',
+    ];
     expect(
-      read(
-        'android',
-        'app',
-        'src',
-        'main',
-        'java',
-        'com',
-        'chicory',
-        'MainActivity.kt',
-      ),
-    ).not.toContain('onNewIntent');
+      read(...reactAndroid, 'modules', 'intent', 'IntentModule.kt'),
+    ).toContain('val intent = currentActivity.intent');
+    expect(read(...reactAndroid, 'runtime', 'ReactHostImpl.kt')).toMatch(
+      /override fun onNewIntent\(intent: Intent\) \{\s*val currentContext = currentReactContext\s*if \(currentContext != null\) \{/,
+    );
+
+    // So the activity keeps the newest intent as its own.
+    const fresh = bodyOf(
+      ACTIVITY_CODE,
+      'override fun onNewIntent(intent: Intent)',
+    );
+    expect(fresh).toMatch(
+      /^\s*super\.onNewIntent\(intent\)\s*setIntent\(intent\)\s*$/,
+    );
+
+    // And one built again, from saved state or from the recents list, forgets
+    // the request it was first made for: opening the app must never open
+    // Send on a request already dealt with.
+    const rebuilt = bodyOf(
+      ACTIVITY_CODE,
+      'override fun onPostCreate(savedInstanceState: Bundle?)',
+    );
+    expect(rebuilt).toContain('Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY');
+    expect(rebuilt).toMatch(
+      /if \(savedInstanceState != null \|\| fromRecents\) \{\s*setIntent\(Intent\(intent\)\.setData\(null\)\)\s*\}/,
+    );
+    // A first launch, by a tag or a link, keeps its request to be read once.
+    expect(ACTIVITY_CODE.match(/setData\(null\)/g)).toHaveLength(1);
   });
 
   test('needs a guarded alias once the app targets Android 17', () => {
