@@ -36,6 +36,7 @@ import { ScanReveal } from '../../../stage/layers/ScanReveal';
 import {
   StageProvider,
   newestFirst,
+  openLink,
   useStageStore,
 } from '../../../stage/StageContext';
 import type { StageStore } from '../../../stage/StageContext';
@@ -428,6 +429,93 @@ test('an unknown outcome holds honey on the ground, and a failure flashes radish
   expect(stage.tint.read().flash).toEqual({ tint: 'radish', key: before + 1 });
   expect(stage.tint.read().held).toBeNull();
   await act(async () => tree.unmount());
+});
+
+describe('a link for the request the Send in front is already on', () => {
+  // A phone that drifts out of a terminal's field and back reads its tag
+  // again, and Android hands each read over as a link (docs/TAP-TO-PAY.md).
+  const tapped = priced('link-again');
+
+  test('leaves that Send as it is, before and during its review', async () => {
+    jest.spyOn(client, 'prepareSend').mockResolvedValue(quote);
+    const tree = await mount(<OnCanvas />);
+    await act(async () => openLink(stage, tapped));
+    const key = stage.state.scene.key;
+    expect(stage.state.scene).toMatchObject({ name: 'send', prefill: tapped });
+    // Read again, as it was written and as a dense code would write it.
+    await act(async () => openLink(stage, tapped));
+    await act(async () => openLink(stage, tapped.toUpperCase()));
+    expect(stage.state.scene).toMatchObject({ name: 'send', key });
+    // The review is under way: the hold it shows is not taken away.
+    await press(tree, copy.send.review);
+    expect(find(tree, copy.send.edit)).toBeDefined();
+    await act(async () => openLink(stage, tapped));
+    expect(stage.state.scene).toMatchObject({ name: 'send', key });
+    expect(find(tree, copy.send.edit)).toBeDefined();
+    expect(client.prepareSend).toHaveBeenCalledTimes(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('still opens a fresh Send for any other request', async () => {
+    const tree = await mount(<OnCanvas />);
+    await act(async () => openLink(stage, tapped));
+    const key = stage.state.scene.key;
+    const other = pricedElsewhere('link-again');
+    await act(async () => openLink(stage, other));
+    expect(stage.state.scene).toMatchObject({ name: 'send', prefill: other });
+    expect(stage.state.scene.key).not.toBe(key);
+    await act(async () => tree.unmount());
+  });
+
+  test('opens a fresh Send once the request showing has been changed', async () => {
+    const tree = await mount(<OnCanvas />);
+    await act(async () => stage.actions.openSend());
+    await act(async () => {
+      field(tree, copy.send.request).props.onChangeText(
+        pricedElsewhere('typed'),
+      );
+    });
+    const key = stage.state.scene.key;
+    // What this Send was opened with is not asked: what it shows now is.
+    await act(async () => openLink(stage, pricedElsewhere('typed')));
+    expect(stage.state.scene.key).toBe(key);
+    await act(async () => openLink(stage, tapped));
+    expect(stage.state.scene).toMatchObject({ name: 'send', prefill: tapped });
+    expect(stage.state.scene.key).not.toBe(key);
+    await act(async () => tree.unmount());
+  });
+
+  test('is a new ask once the payment has failed', async () => {
+    jest.spyOn(client, 'prepareSend').mockResolvedValue(quote);
+    jest.spyOn(client, 'send').mockResolvedValue({
+      id: 'p-link-failed',
+      status: 'failed',
+      amountSats: 4200,
+      feeSats: 0,
+      message: 'No route.',
+    });
+    const tree = await mount(<OnCanvas />);
+    await act(async () => openLink(stage, tapped));
+    const key = stage.state.scene.key;
+    await press(tree, copy.send.review);
+    await activate(tree, copy.send.sendSats(4200));
+    // Tapping the terminal again is how a payer tries again.
+    await act(async () => openLink(stage, tapped));
+    expect(stage.state.scene).toMatchObject({ name: 'send', prefill: tapped });
+    expect(stage.state.scene.key).not.toBe(key);
+    await act(async () => tree.unmount());
+  });
+
+  test('is nothing to a scene that is not Send', async () => {
+    const tree = await mount(<OnCanvas />);
+    await act(async () => openLink(stage, tapped));
+    await act(async () => stage.actions.home());
+    expect(stage.state.scene.name).toBe('home');
+    expect(newestFirst(stage.responders.link)).toEqual([]);
+    await act(async () => openLink(stage, tapped));
+    expect(stage.state.scene).toMatchObject({ name: 'send', prefill: tapped });
+    await act(async () => tree.unmount());
+  });
 });
 
 test('a payment that does not answer lets the stage go after its grace, and its request comes back held', async () => {

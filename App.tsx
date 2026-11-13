@@ -21,7 +21,11 @@ import { usePaymentLinks } from './src/services/links';
 import { derivePhase, phaseInput } from './src/stage/phase';
 import { tabOf } from './src/stage/scene';
 import { Stage } from './src/stage/Stage';
-import { StageProvider, useStageStore } from './src/stage/StageContext';
+import {
+  openLink,
+  StageProvider,
+  useStageStore,
+} from './src/stage/StageContext';
 
 function WalletApp() {
   useReducedMotion();
@@ -37,7 +41,7 @@ function WalletApp() {
     loadAutoPayPreference();
   }, []);
   const stage = useStageStore();
-  const { dispatch } = stage;
+  const { dispatch, responders } = stage;
   // The session moves the wallet itself, a close, a switch or a wallet
   // created, and every such move outranks whatever scene is showing.
   const onTab = useCallback(
@@ -60,8 +64,8 @@ function WalletApp() {
 
   /** A tapped bitcoin:/lightning: link goes to the reviewed send flow, never straight to a payment. */
   const onLink = useCallback(
-    (request: string) => dispatch({ type: 'link', request }),
-    [dispatch],
+    (request: string) => openLink({ dispatch, responders }, request),
+    [dispatch, responders],
   );
   usePaymentLinks(!!session.walletId && !!session.snapshot, onLink);
 

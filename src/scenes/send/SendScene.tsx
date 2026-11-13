@@ -12,6 +12,7 @@ import { usePaneActive } from '../../stage/panes/Pane';
 import { SceneSlot } from '../../stage/panes/SceneSlot';
 import {
   useIsCurrentScene,
+  useResponder,
   useSceneBack,
   useStage,
 } from '../../stage/StageContext';
@@ -55,7 +56,7 @@ export function SendScene({
   /** The camera read `prefill` from home. */
   scanned?: boolean;
 }) {
-  const { actions, state, dispatch, felt } = useStage();
+  const { actions, state, dispatch, felt, responders } = useStage();
   const insets = useSafeAreaInsets();
   const screen = useRef<SendHandle>(null);
   const current = useIsCurrentScene(sceneKey);
@@ -95,6 +96,17 @@ export function SendScene({
     current && armed,
   );
   useSceneBack(() => screen.current?.back() ?? false, usePaneActive());
+  // A link for the request this Send is already on changes nothing here: a
+  // tag read a second time must not start the review over
+  // (docs/TAP-TO-PAY.md).
+  useResponder(
+    responders.link,
+    useCallback(
+      (request: string) => screen.current?.holds(request) ?? false,
+      [],
+    ),
+    current,
+  );
 
   // Send opens no payment's detail itself, so a held payment opens by way
   // of Activity, which does. Back from its detail then returns to the

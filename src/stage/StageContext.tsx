@@ -108,11 +108,32 @@ export interface Responders {
    * field that asked, goes.
    */
   scan: Set<Responder<ScanReceiver>>;
+  /**
+   * Whether the Send in front already has a request a link brings, so that
+   * a link for it, as a tag read a second time is, leaves it as it is.
+   */
+  link: Set<Responder<(request: string) => boolean>>;
 }
 
 /** A registry's answers, newest first. */
 export function newestFirst<T>(registry: Set<Responder<T>>): T[] {
   return [...registry].reverse().map(entry => entry.current);
+}
+
+/**
+ * A payment link from outside the canvas, a tag Android read among them
+ * (docs/TAP-TO-PAY.md). The Send in front is asked first. One that already
+ * has this request keeps its review, and a hold under way, as it is: a phone
+ * that drifts out of a terminal's field and back reads its tag again, and
+ * that is no new request. Any other link opens a fresh Send, as the reducer
+ * has it.
+ */
+export function openLink(
+  stage: Pick<StageStore, 'dispatch' | 'responders'>,
+  request: string,
+) {
+  if (newestFirst(stage.responders.link).some(holds => holds(request))) return;
+  stage.dispatch({ type: 'link', request });
 }
 
 /** A G3 tint a scene holds for as long as its state lasts (REDESIGN.md 3.2). */
@@ -249,6 +270,7 @@ export function useStageStore(): StageStore {
     sceneBack: new Set(),
     phaseBack: new Set(),
     scan: new Set(),
+    link: new Set(),
   }));
   const [tint] = useState(tintChannel);
   const [felt] = useState(feltStates);
