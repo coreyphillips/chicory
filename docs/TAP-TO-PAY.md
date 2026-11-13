@@ -55,6 +55,18 @@ adb shell am start -a android.nfc.action.NDEF_DISCOVERED -d "lightning:LNBC..." 
 
 Write the scheme in lower case there. Android's NFC service lower-cases a tag's scheme before it looks for an app, and `adb` does not, so `BITCOIN:` typed by hand finds no app while the same tag would. The rest of the request can be in capitals: `bitcoin:?LIGHTNING=LNBC...` is what the service makes of a tag that says `BITCOIN:?LIGHTNING=LNBC...`.
 
+### After the tap: a wallet that is still coming up
+
+A tap often finds the app closed. What the payer then meets, in order:
+
+1. If the app lock is on, the lock. Nothing is started and no request is read until it opens.
+2. Send, with the request filled in, as soon as the wallet's saved page is up. That is before the engine has started: in one cold start of the release build on an emulator the page was drawn 2.1 seconds after launch, the engine was up at 7.2 seconds and its first live read landed at 7.3. On a first run with nothing saved, Send comes once the engine has made its first read.
+3. The review is asked for by the payer, never by the tap. Asked for while the wallet is still opening, it waits, busy, for the first live read and is made as that lands (REDESIGN.md 6, cached launch). If that read is 15 seconds overdue the balance is called old and Send asks for a refresh.
+4. The engine reconnects to its primary by itself, a moment after it is up. A review the engine refuses because the primary is not yet back waits as well, busy, and is asked for again every 2 seconds until the primary is back or 20 seconds have gone by (REDESIGN.md 6, Engine errors). Only then does the payer see that the primary needs to reconnect. A primary that has been away longer than that with the wallet up is not waited for.
+5. Then the review, and the hold.
+
+Nothing is paid by any of these waits, and Send can be left during them.
+
 ### Android: a tag held to the open scanner
 
 With the payment scanner open, the app takes the tag itself (`NfcAdapter` reader mode). This is the lane for a phone with a second wallet installed, since no chooser comes up, for a tag whose request is not its first record, and for a camera that is switched off.

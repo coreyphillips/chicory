@@ -41,7 +41,7 @@ import {
 } from '../../../stage/StageContext';
 import type { StageStore } from '../../../stage/StageContext';
 import { activityOf, hex } from '../../../../test-support/fixtures';
-import { SEND_GRACE_MS } from '../model';
+import { PRIMARY_RETRY_MS, PRIMARY_WAIT_MS, SEND_GRACE_MS } from '../model';
 import { mount } from '../../../../test-support/guard';
 import { activate, field, find, press } from '../../../../test-support/query';
 import { MASK } from '../../../theme';
@@ -72,6 +72,22 @@ let snapshot: WalletSnapshot;
 let history: Activity[] | null = null;
 /** Whether the canvas is drawn with an old balance. */
 let stale = false;
+/** Whether the canvas is drawn with its primary away. */
+let primaryGone = false;
+/** The wallet as the canvas is drawn with it. */
+const asDrawn = (): WalletSnapshot => ({
+  ...snapshot,
+  ...(history ? { activity: history } : {}),
+  ...(primaryGone
+    ? {
+        primary: { ...snapshot.primary, connected: false },
+        primaries: snapshot.primaries?.map(primary => ({
+          ...primary,
+          connected: false,
+        })),
+      }
+    : {}),
+});
 const client = new DemoWalletClient();
 const quote: SendReview = {
   id: 'review-scene',
@@ -100,7 +116,7 @@ function OnCanvas() {
           scene={stage.state.scene}
           overlay={stage.state.overlay}
           client={client}
-          snapshot={history ? { ...snapshot, activity: history } : snapshot}
+          snapshot={asDrawn()}
           session={{
             error: '',
             switchError: '',
@@ -139,6 +155,7 @@ afterEach(() => {
   jest.restoreAllMocks();
   history = null;
   stale = false;
+  primaryGone = false;
 });
 
 test('a scan Send starts brings its code back to the same Send', async () => {
@@ -515,6 +532,97 @@ describe('a link for the request the Send in front is already on', () => {
     await act(async () => openLink(stage, tapped));
     expect(stage.state.scene).toMatchObject({ name: 'send', prefill: tapped });
     await act(async () => tree.unmount());
+  });
+});
+
+describe('a review the engine refuses because the primary is away', () => {
+  // The wallet reconnects by itself as it opens or comes back to the front.
+  // The canvas counts how long the primary has been seen away, for as long
+  // as the wallet is drawn, and Send waits only for one just gone.
+  const away = () =>
+    Object.assign(new Error('The primary is away.'), { code: 'PRIMARY_DOWN' });
+  const refusalShown = (tree: ReactTestRenderer) =>
+    tree.root.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.accessibilityLabel === 'The primary is away.',
+    ).length > 0;
+
+  test('waits for a primary just gone, and is made as it returns', async () => {
+    jest.useFakeTimers();
+    try {
+      const prepare = jest
+        .spyOn(client, 'prepareSend')
+        .mockRejectedValueOnce(away())
+        .mockResolvedValue(quote);
+      const tree = await openSend();
+      await act(async () => {
+        field(tree, copy.send.request).props.onChangeText(priced('waited'));
+      });
+      await press(tree, copy.send.review);
+      // The page still shows it connected, as a read a moment old does.
+      expect(prepare).toHaveBeenCalledTimes(1);
+      expect(refusalShown(tree)).toBe(false);
+      expect(find(tree, copy.send.edit)).toBeUndefined();
+      // The wait holds nothing: Send can be left while it lasts.
+      expect(stage.state.busy).toBe(false);
+      await act(async () => jest.advanceTimersByTime(PRIMARY_RETRY_MS));
+      expect(prepare).toHaveBeenCalledTimes(2);
+      expect(find(tree, copy.send.edit)).toBeDefined();
+      await act(async () => tree.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('is refused at once for a primary that has been away a while', async () => {
+    jest.useFakeTimers();
+    try {
+      primaryGone = true;
+      const prepare = jest
+        .spyOn(client, 'prepareSend')
+        .mockRejectedValue(away());
+      const tree = await mount(<OnCanvas />);
+      // Away for as long as it is given, before Send is opened at all.
+      await act(async () => jest.advanceTimersByTime(PRIMARY_WAIT_MS));
+      await act(async () => stage.actions.openSend());
+      await act(async () => {
+        field(tree, copy.send.request).props.onChangeText(priced('refused'));
+      });
+      await press(tree, copy.send.review);
+      expect(prepare).toHaveBeenCalledTimes(1);
+      expect(refusalShown(tree)).toBe(true);
+      await act(async () => jest.advanceTimersByTime(PRIMARY_RETRY_MS * 2));
+      expect(prepare).toHaveBeenCalledTimes(1);
+      await act(async () => tree.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('waits for a primary seen away for less than it is given', async () => {
+    jest.useFakeTimers();
+    try {
+      primaryGone = true;
+      const prepare = jest
+        .spyOn(client, 'prepareSend')
+        .mockRejectedValueOnce(away())
+        .mockResolvedValue(quote);
+      const tree = await mount(<OnCanvas />);
+      await act(async () => jest.advanceTimersByTime(PRIMARY_WAIT_MS / 2));
+      await act(async () => stage.actions.openSend());
+      await act(async () => {
+        field(tree, copy.send.request).props.onChangeText(priced('in-time'));
+      });
+      await press(tree, copy.send.review);
+      expect(refusalShown(tree)).toBe(false);
+      await act(async () => jest.advanceTimersByTime(PRIMARY_RETRY_MS));
+      expect(prepare).toHaveBeenCalledTimes(2);
+      expect(find(tree, copy.send.edit)).toBeDefined();
+      await act(async () => tree.unmount());
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

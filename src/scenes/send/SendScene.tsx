@@ -46,6 +46,7 @@ export function SendScene({
   snapshot,
   stale,
   opening = false,
+  primaryExpected = false,
   session,
   view,
   sceneKey,
@@ -135,6 +136,7 @@ export function SendScene({
               disabled={gated}
               opening={opening}
               primaryConnected={anyPrimaryConnected(snapshot)}
+              primaryExpected={primaryExpected}
               quoteRevision={snapshot.updatedAt}
               balance={snapshot.balance}
               activity={snapshot.activity}

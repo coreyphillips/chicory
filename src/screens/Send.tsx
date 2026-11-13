@@ -61,6 +61,8 @@ import {
   BROADCAST_POLL_MS,
   BROADCAST_WATCH_MS,
   HOME_AFTER_MS,
+  PRIMARY_RETRY_MS,
+  PRIMARY_WAIT_MS,
   REQUOTE_BEAT_MS,
   SEND_GRACE_MS,
   alreadySubmitted,
@@ -76,6 +78,7 @@ import {
   isRatedReview,
   lookupFailure,
   previewReview,
+  primaryAway,
   rateRefusal,
   resultVisual,
   reviewRail,
@@ -269,6 +272,7 @@ export function SendScreen({
   disabled = false,
   opening = false,
   primaryConnected = false,
+  primaryExpected = false,
   quoteRevision,
   onActivity,
   onRefresh,
@@ -306,6 +310,14 @@ export function SendScreen({
   opening?: boolean;
   /** A max is available only while the primary is connected. */
   primaryConnected?: boolean;
+  /**
+   * Set while a primary that is away is expected back shortly: as the wallet
+   * opens or returns to the front, or just after the primary went. A review
+   * the engine refuses for it then waits, busy, and is asked for again until
+   * the primary is back or PRIMARY_WAIT_MS has gone by, when the refusal is
+   * shown as it would have been at once. Nothing is paid by the wait.
+   */
+  primaryExpected?: boolean;
   /** A refreshed snapshot also refreshes the quote's fee and reserve figures. */
   quoteRevision?: number;
   onActivity: () => void;
@@ -392,7 +404,14 @@ export function SendScreen({
   // A replacement request can arrive in the same render as the live read.
   // Invalidate the queued review immediately, before its effect runs.
   const queuedFor = useRef<string | null>(null);
-  const composeBusy = busy || queued;
+  // A review the engine refused because the primary is away, while it is
+  // expected back (`primaryExpected`): it waits, busy, and is asked for
+  // again until it is made, refused for something else, or its wait is up.
+  const [parked, setParked] = useState(false);
+  // The request that waits, and since when.
+  const parkedFor = useRef<{ request: string; since: number } | null>(null);
+  const askAgain = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const composeBusy = busy || queued || parked;
   const [failure, setFailure] = useState<Failure | null>(() =>
     requestRefusal(initialRequest),
   );
@@ -596,7 +615,10 @@ export function SendScreen({
   // still drawn while it fades, and back for them if the stage returns to it.
   useLayoutEffect(() => {
     mounted.current = !leaving;
-    if (leaving) queuedFor.current = null;
+    if (leaving) {
+      queuedFor.current = null;
+      unpark();
+    }
   }, [leaving]);
   // A lookup answered while Send was leaving was dropped. A Send the stage
   // returns to looks the pubky up again, rather than waiting on that answer.
@@ -718,6 +740,19 @@ export function SendScreen({
   const payNow = useRef(pay);
   useLayoutEffect(() => {
     payNow.current = pay;
+  });
+  // A review that waits for the primary is asked for again from a timer,
+  // with the render's own prepare, its request and its gates. A balance gone
+  // too old meanwhile ends the wait and asks for a refresh, as the gated
+  // control would and as a review that waited for the wallet to open does.
+  const askNow = useRef(() => {});
+  useLayoutEffect(() => {
+    askNow.current = () => {
+      if (disabled) {
+        unpark();
+        onRefresh();
+      } else prepare();
+    };
   });
   const availableSats = balance?.availableSats ?? 0;
   useLayoutEffect(() => {
@@ -1008,6 +1043,7 @@ export function SendScreen({
   function accept(code: string, byCamera = false): boolean {
     queuedFor.current = null;
     setQueued(false);
+    unpark();
     // Only a Lightning code the camera read, naming its amount, is reviewed
     // on its own; a paste, a link or typing never is.
     letAutoGo();
@@ -1210,6 +1246,7 @@ export function SendScreen({
    * step it was on.
    */
   function toHeld() {
+    unpark();
     letAutoGo();
     dropQuote();
     setFeeRate(null);
@@ -1387,9 +1424,73 @@ export function SendScreen({
     }
   }
 
+  /**
+   * The wait for the primary is over: the review was made, the request
+   * changed or was held, Send went, or the refusal is to be shown.
+   */
+  function unpark() {
+    if (askAgain.current) {
+      clearTimeout(askAgain.current);
+      graces.current.delete(askAgain.current);
+      askAgain.current = null;
+    }
+    if (!parkedFor.current) return;
+    parkedFor.current = null;
+    setParked(false);
+  }
+
+  /** Asks for the waiting review again in a moment. */
+  function askLater() {
+    const timer = setTimeout(() => {
+      graces.current.delete(timer);
+      if (askAgain.current !== timer) return;
+      askAgain.current = null;
+      if (!mounted.current || !parkedFor.current) return;
+      // Another call is out: this one asks once that is back.
+      if (waitingFor.current) askLater();
+      else askNow.current();
+    }, PRIMARY_RETRY_MS);
+    graces.current.add(timer);
+    askAgain.current = timer;
+  }
+
+  /**
+   * Whether a refusal waits rather than shows: the primary is away, it is
+   * expected back (`primaryExpected`), and this request has not waited
+   * PRIMARY_WAIT_MS for it already. A quote refreshed from its review does
+   * not wait: its refusal lands beside the hold it would have renewed.
+   */
+  function awaitsPrimary(error: unknown, fromReview: boolean): boolean {
+    if (!primaryAway(error) || !primaryExpected || fromReview) return false;
+    const waiting = parkedFor.current;
+    const since = waiting?.request === request ? waiting.since : Date.now();
+    return Date.now() - since < PRIMARY_WAIT_MS;
+  }
+
+  /**
+   * Keeps the review waiting on the primary, busy, to be asked for again.
+   * Auto-pay lets go as it does at a refusal, so nothing pays itself after a
+   * wait: the review that comes is held like any other.
+   */
+  function park() {
+    if (parkedFor.current?.request !== request) {
+      parkedFor.current = { request, since: Date.now() };
+      letAutoGo();
+      say(copy.send.awaitingPrimary);
+      recordDiagnostic({
+        phase: 'ui',
+        code: 'PRIMARY_AWAITED',
+        message: copy.send.awaitingPrimary,
+      });
+    }
+    setParked(true);
+    askLater();
+  }
+
   async function prepare() {
     if (waitingFor.current || unresolved) return;
     if (opening) {
+      unpark();
       queuedFor.current = request;
       setQueued(true);
       return;
@@ -1473,6 +1574,7 @@ export function SendScreen({
         }
       }
       if (!mounted.current) return;
+      unpark();
       adopt(next);
     } catch (e) {
       if (alreadySubmitted(e)) {
@@ -1487,15 +1589,23 @@ export function SendScreen({
         toHeld();
       } else if (!mounted.current) {
         return;
-      } else if (
-        // A refresh refused beside its control keeps the spent quote on
-        // screen, to try again; anything else is fixed back in compose.
-        fail(e, next =>
-          fromReview && next.target !== 'control' ? backToCompose(next) : null,
-        ).target !== 'control'
-      ) {
-        setReview(null);
-        setExpired(false);
+      } else if (awaitsPrimary(e, fromReview)) {
+        // The primary is on its way back: the review waits for it.
+        park();
+      } else {
+        unpark();
+        if (
+          // A refresh refused beside its control keeps the spent quote on
+          // screen, to try again; anything else is fixed back in compose.
+          fail(e, next =>
+            fromReview && next.target !== 'control'
+              ? backToCompose(next)
+              : null,
+          ).target !== 'control'
+        ) {
+          setReview(null);
+          setExpired(false);
+        }
       }
     } finally {
       cancelGrace();
@@ -1719,6 +1829,7 @@ export function SendScreen({
     dropLookup();
     queuedFor.current = null;
     setQueued(false);
+    unpark();
     setMaxFor(null);
     setFeeRate(null);
     dropQuote();
@@ -2126,12 +2237,14 @@ export function SendScreen({
                 accessibilityHint={
                   disabled
                     ? copy.send.stale
-                    : busy || queued
+                    : parked
+                    ? copy.send.awaitingPrimary
+                    : composeBusy
                     ? copy.send.preparing
                     : waiting ?? undefined
                 }
                 onPress={
-                  !live || busy || queued
+                  !live || composeBusy
                     ? undefined
                     : disabled
                     ? onRefresh
@@ -2139,7 +2252,7 @@ export function SendScreen({
                     ? undefined
                     : prepare
                 }
-                busy={busy || queued}
+                busy={composeBusy}
                 stale={disabled}
               />
             </Reanimated.View>

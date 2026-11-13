@@ -40,10 +40,10 @@ import { SheetPane } from '../scenes/activity/SheetPane';
 import { DetailLayer } from '../scenes/detail/DetailLayer';
 import { Backdrop } from '../scenes/home/Backdrop';
 import { HomePane } from '../scenes/home/HomePane';
-import { useOpening } from '../scenes/home/signals';
+import { useOpening, usePrimaryExpected } from '../scenes/home/signals';
 import { rowBack } from '../scenes/home/motion';
 import { StatusRow } from '../scenes/home/StatusRow';
-import { isTestNetwork } from '../scenes/home/visual';
+import { anyPrimaryConnected, isTestNetwork } from '../scenes/home/visual';
 import { ReceiveScene } from '../scenes/receive/ReceiveScene';
 import { SendScene } from '../scenes/send/SendScene';
 import { SettingsLayer } from '../scenes/settings/SettingsLayer';
@@ -184,6 +184,12 @@ export interface RegionProps {
    * old balance yet. Only ever true while `stale` is. Absent, it is false.
    */
   opening?: boolean;
+  /**
+   * A primary that is away is expected back shortly (`usePrimaryExpected`):
+   * Send keeps a review refused for it waiting rather than say so. Absent,
+   * it is false.
+   */
+  primaryExpected?: boolean;
   backup: Backup | null;
   /**
    * A count that goes up with each read that brought money in
@@ -271,7 +277,14 @@ export function Canvas({
   // Counted once for the whole canvas, so every region agrees on when a
   // cached launch's first read is overdue. A return on figures that went
   // old while the app was away waits for its first read the same way.
-  const opening = useOpening(stale, session.connecting || !!session.resuming);
+  const coming = session.connecting || !!session.resuming;
+  const opening = useOpening(stale, coming);
+  // Counted here too, for as long as the wallet is drawn, so a Send opened
+  // now knows a primary that has been away a while from one just gone.
+  const primaryExpected = usePrimaryExpected(
+    anyPrimaryConnected(snapshot),
+    coming,
+  );
   const region: RegionProps = {
     snapshot,
     client,
@@ -279,6 +292,7 @@ export function Canvas({
     view,
     stale,
     opening,
+    primaryExpected,
     backup,
     arrived,
   };
