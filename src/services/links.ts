@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Linking } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Linking, Platform } from 'react-native';
 
 /**
  * `bitcoin:` and `lightning:` links handed to the app by another app, a browser
@@ -17,7 +17,20 @@ const PAYMENT_SCHEME = /^(bitcoin|lightning):/i;
 
 // The URL the app was launched with is one intent. Reading it again after a
 // network switch or a wallet change would reopen Send with a request the user
-// already dealt with, so it is consumed once per process.
+// already dealt with, so it is consumed once.
+//
+// Once for the process on an iPhone, which keeps the URL it was launched
+// with for as long as it runs.
+//
+// Once for each time the app is mounted on Android, where the launch URL is
+// the activity's, and an app can outlive its activity: Back at Home closes
+// the activity on Android 7 to 11 and leaves the app running, and the tap or
+// link that comes next makes a new activity, which the running app is not
+// told of. React Native mounts the app once for each activity, stopping it
+// as one is destroyed, so a mount is a new activity with a launch URL of
+// its own. `MainActivity` sees to it that this is never a request already
+// dealt with: an activity built again from saved state or from the recents
+// list forgets its request (docs/TAP-TO-PAY.md).
 let initialConsumed = false;
 
 export function normalizePaymentLink(url: string | null | undefined) {
@@ -53,7 +66,12 @@ function echoesTap(request: string): boolean {
   return tapped.request === request.toLowerCase();
 }
 
-export function usePaymentLinks(ready: boolean, onRequest: (value: string) => void) {
+export function usePaymentLinks(
+  ready: boolean,
+  onRequest: (value: string) => void,
+) {
+  // Whether this mount of the app has read its launch URL.
+  const consumedHere = useRef(false);
   useEffect(() => {
     if (!ready) return;
     let active = true;
@@ -61,9 +79,14 @@ export function usePaymentLinks(ready: boolean, onRequest: (value: string) => vo
       const request = normalizePaymentLink(url);
       if (active && request && !echoesTap(request)) onRequest(request);
     };
-    if (!initialConsumed) {
+    const consumed =
+      Platform.OS === 'android' ? consumedHere.current : initialConsumed;
+    if (!consumed) {
+      consumedHere.current = true;
       initialConsumed = true;
-      Linking.getInitialURL().then(handle).catch(() => {});
+      Linking.getInitialURL()
+        .then(handle)
+        .catch(() => {});
     }
     const subscription = Linking.addEventListener('url', ({ url }) =>
       handle(url),
