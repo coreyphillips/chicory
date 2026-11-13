@@ -11,11 +11,14 @@ import type {
 } from '@beignet/wallet-core';
 import { copy } from '../../src/design/copy';
 import { LookupError, setPaymentListLookup } from '../../src/services/paykit';
+import { setTapPresenter } from '../../src/services/tapPresenter';
+import type { TapStatus } from '../../src/services/tapReader';
 import type { PaymentListLookup } from '../../src/services/paykit';
 import type { WalletAdapter } from '../../src/services/wallet';
 import type { AutoPay } from '../../src/services/autoPayPreference';
 import { holdRequest } from '../../src/stage/heldRequests';
 import { activityOf, hex, receiptOf } from '../../test-support/fixtures';
+import { fakeTapPresenter } from '../../test-support/tap';
 import {
   ADDRESS,
   FEE_RATES,
@@ -73,7 +76,6 @@ const pubky = (name: string, lookup: PaymentListLookup, steps?: Step[]) =>
   });
 const published = (identifier: string, payload: string) => async () =>
   [{ appId: 'bitkit', identifier, payload }];
-
 
 interface Paying {
   request?: string;
@@ -482,6 +484,12 @@ interface Receiving {
   snapshot?: WalletSnapshot;
   client?: Partial<WalletAdapter>;
   steps?: Step[];
+  /**
+   * What the phone's NFC says of acting as a tag (docs/TAP-TO-PAY.md). Left
+   * out, the phone cannot, as no iPhone can, so a state looks the same on
+   * whatever phone the gallery runs on.
+   */
+  nfc?: TapStatus;
 }
 
 export function receive(
@@ -491,10 +499,11 @@ export function receive(
 ): Shot {
   return wallet(
     `receive, ${name}`,
-    () => ({
-      ...make(),
-      open: [open.receive()],
-    }),
+    () => {
+      const { nfc = 'missing', ...made } = make();
+      setTapPresenter(fakeTapPresenter(nfc));
+      return { ...made, open: [open.receive()] };
+    },
     hold,
   );
 }
@@ -669,6 +678,18 @@ const receives: Shot[] = [
         }),
     },
     steps: TO_REQUEST,
+  })),
+  receive('the request, presented over NFC', () => ({
+    nfc: 'ready',
+    steps: TO_REQUEST,
+  })),
+  receive('the request, with NFC off', () => ({
+    nfc: 'off',
+    steps: TO_REQUEST,
+  })),
+  receive('the request, asked what its tap mark means', () => ({
+    nfc: 'ready',
+    steps: [...TO_REQUEST, drive => drive.whisper(copy.receive.tapPresenting)],
   })),
   receive('the request, lifted', () => ({
     steps: [...TO_REQUEST, press(copy.receive.qr)],

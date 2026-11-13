@@ -7,6 +7,8 @@
     <!-- Read a payment request from a payment terminal held to the phone. Nothing is stored or sent. -->
     <uses-permission android:name="android.permission.NFC" />
     <uses-feature android:name="android.hardware.nfc" android:required="false" />
+    <!-- Present the request Receive shows to a phone held to this one. Optional: without it Receive shows its code alone. -->
+    <uses-feature android:name="android.hardware.nfc.hce" android:required="false" />
     <!-- The biometric app lock is optional; a device without it simply cannot turn it on. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
@@ -63,5 +65,22 @@
             <data android:scheme="bitcoin" />
         </intent-filter>
       </activity>
+      <!--
+        The tag Receive presents its request as, to a phone held to this one.
+        Only Android's NFC service may bind it. It answers a reader only while
+        a request is on screen, and with what that request's code says. See
+        docs/TAP-TO-PAY.md.
+      -->
+      <service
+        android:name=".NfcPresenterService"
+        android:exported="true"
+        android:permission="android.permission.BIND_NFC_SERVICE">
+        <intent-filter>
+            <action android:name="android.nfc.cardemulation.action.HOST_APDU_SERVICE" />
+        </intent-filter>
+        <meta-data
+          android:name="android.nfc.cardemulation.host_apdu_service"
+          android:resource="@xml/apduservice" />
+      </service>
     </application>
 </manifest>
