@@ -144,7 +144,7 @@ xcodebuild -workspace ios/chicory.xcworkspace -scheme chicory \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
 ```
 
-Keep simulator signing enabled: Keychain needs the application entitlement. Device/distribution builds need your Apple signing configuration, with NFC Tag Reading turned on for the `com.chicory` App ID, since the app is signed with the tag reading entitlement (`ios/chicory/chicory.entitlements`). A free personal team cannot be given that capability: add `CODE_SIGN_ENTITLEMENTS=` to the `xcodebuild` line to build without it, and the scanner's tap control is then left out (see [Tap to pay](docs/TAP-TO-PAY.md)). Android requires SDK / Build Tools 37 and NDK 27.1.12297006:
+Keep simulator signing enabled: Keychain needs the application entitlement. Device/distribution builds need your Apple signing configuration, with NFC Tag Reading turned on for the `com.chicory` App ID, since the app is signed with the tag reading entitlement (`ios/chicory/chicory.entitlements`). A free personal team cannot be given that capability: add `CODE_SIGN_ENTITLEMENTS=` to the `xcodebuild` line to build without it. The scanner's tap control still shows in such a build, and goes at its first press, when iOS refuses the read (see [Tap to pay](docs/TAP-TO-PAY.md)). Android requires SDK / Build Tools 37 and NDK 27.1.12297006:
 
 ```sh
 cd android

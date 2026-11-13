@@ -28,7 +28,7 @@ Square is reported to be moving from `lightning:<BOLT11>` to the BIP 321 form `b
 
 An invoice in capitals carries the same warning by tap as by its QR, so its hold is 1000ms.
 
-Not paid: LNURL, a Lightning address and a BOLT12 offer. A tag that carries one is refused: the open scanner refuses it as it refuses such a code, and from any other screen Send opens with it marked as one that cannot be paid, as it does for such a link.
+Not paid: LNURL, a Lightning address and a BOLT12 offer. A tag that carries one is treated as a QR code or a link that carries one is. An LNURL or a Lightning address is refused by the open scanner on its mark, and from any other screen opens Send with it marked as one that cannot be paid. An offer is a request the wallet reads, so from either lane it opens Send, and the review says this version cannot pay it and asks for an invoice.
 
 ## How the phone reads it
 
@@ -41,6 +41,7 @@ With the phone unlocked, Android reads a tag held to it and offers the tag's fir
 - Android lower-cases the scheme before it matches, so `LIGHTNING:` on a tag is taken too.
 - If another wallet claims the same scheme, Android shows its chooser.
 - Android offers only a tag's first record, so that is the one reviewed here.
+- A phone that drifts out of a terminal's field and back reads its tag again, and Android hands over each read. A link for the request the Send in front is composing or reviewing changes nothing, so a review, and a hold under way, stay as they are. Once a payment has an outcome, or the request has been refused, the same tap is a new ask and opens a fresh Send.
 - From Android 16 the system tells the owner the first time a tag opens an app, and lets them switch that off for the app (Settings > Apps > Special app access > Launch via NFC).
 - From Android 17 an app that targets it is sent NFC intents only on a component guarded by `DISPATCH_NFC_MESSAGE`. Chicory targets API 36. `__tests__/NativeTap.test.ts` fails if the target is raised without a guarded alias.
 
@@ -58,11 +59,11 @@ With the payment scanner open, the app takes the tag itself (`NfcAdapter` reader
 
 - The scanner listens for as long as it is open and in front, whether or not the camera can be used. It says so with the `contactless` mark above its controls: cream while it listens, steam with NFC switched off, when the mark opens the NFC settings, and absent on a phone with no NFC.
 - Android has read the tag's message to its end before the app hears of the tag. The app takes that message and never asks Android to skip the read (`FLAG_READER_SKIP_NDEF_CHECK` is never set).
-- Every record is looked at, not only the first. One request is taken. The same request written twice, or once bare and once inside a link, is one request. Two different requests are refused, since nothing says which was meant.
+- Every record is looked at, not only the first. One request is taken. The same request in two spellings is one request, and so is an invoice written alone and again in a link that carries it beside an address. Two that differ in whom or how much they pay are refused, since nothing says which was meant: two addresses beside one invoice are two requests. They are told apart by what the wallet reads in each, never by their text (`src/scenes/send/sameRequest.ts`).
 - A tag with a message and nothing to pay in it is refused on the mark, the same tag at most once in 1.5 seconds. A tag with no message at all, such as a bank card kept in the phone's case, is passed over in silence.
 - A request taken this way reaches Send as a `tap`: a prefill to review and hold, as a pasted one is. Only the camera can reach Auto-pay.
 - While the scanner listens the radio is the app's alone: Android offers a tag to no other app, and the phone's own card payments are off. The radio is given back as the scanner closes or the app leaves the front.
-- As the scanner closes on a request, the phone may still be on the terminal. The reader asks Android to pass over that tag until it has been away for 1.5 seconds (API 26 and later), and the link lane drops a link equal to a request taken by tap in the last 5 seconds, so one tap opens one Send.
+- As the scanner closes on a request, the phone may still be on the terminal. The reader asks Android to pass over that tag until it has been away for 1.5 seconds, and the link lane drops a link equal to a request taken by tap in the last 5 seconds, so one tap opens one Send.
 - NFC switched off from the quick settings shade while the scanner is open is noticed the next time the app comes to the front, not at once.
 
 | What                                                    | Where                                                      |
@@ -81,7 +82,7 @@ iOS opens an app for a tag only through a universal link, never for `lightning:`
 - The sheet is the system's, raised at the app's asking, so it is raised inside `duringSystemPrompt` and the scan stays in view behind it. The camera rests while the sheet is up. What the sheet read is held until the app is in front again.
 - The sheet comes down after 20 seconds without a tag. iOS would hold it for 60, and the app lock counts 30 seconds behind a prompt as time away.
 - A sheet closed by hand, or left to run out, is no refusal. A tag that cannot be paid is refused on the control, by the rules the Android scanner keeps: every record is looked at, one request is taken, two different ones are refused.
-- The control is absent where tags cannot be read: the simulator, an iPad, and a build signed without the entitlement, where it goes at the first press.
+- The control is absent where tags cannot be read: the simulator and an iPad. A build signed without the entitlement shows it until its first press, when iOS refuses the read and the control goes.
 
 Signing: the app carries `com.apple.developer.nfc.readersession.formats` holding `TAG` (`ios/chicory/chicory.entitlements`), and `NFCReaderUsageDescription` in its `Info.plist`. NFC Tag Reading has to be turned on once for the `com.chicory` App ID, in the developer portal or through Xcode's Signing & Capabilities. A free personal team cannot be given it, so such a build leaves the entitlement out with `CODE_SIGN_ENTITLEMENTS=` on the `xcodebuild` line, and has every other part of the app.
 
