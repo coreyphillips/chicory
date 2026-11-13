@@ -28,6 +28,7 @@ import {
   requestFace,
 } from '../scenes/receive/model';
 import type { Refused } from '../scenes/receive/model';
+import { usePresenting } from '../scenes/receive/presenting';
 import { QuoteStep } from '../scenes/receive/QuoteStep';
 import { RequestStep } from '../scenes/receive/RequestStep';
 import { TestNetwork } from '../scenes/receive/tone';
@@ -502,6 +503,14 @@ export function ReceiveScreen({
     if (!shareable || !uri) return;
     Share.share({ message: uri }).catch(refuse);
   }
+  // On Android the request is presented over NFC as well, to a phone held
+  // to this one, for exactly as long as it can be shared and Receive is in
+  // front (docs/TAP-TO-PAY.md). It is what the code says, and it goes when
+  // share and copy do.
+  const tap = usePresenting(
+    shareable && live ? uri : undefined,
+    request?.expiresAt ?? 0,
+  );
   /**
    * Another request, or the rest of this one: a partly paid request starts
    * the next at exactly what is still owed, and keeps its note.
@@ -589,6 +598,8 @@ export function ReceiveScreen({
               onCopy={copyRequest}
               copies={copies}
               onShare={share}
+              tap={tap.presenting}
+              onTapSettings={tap.openSettings}
               onAgain={again}
               onActivity={onActivity}
               focus={focus}
