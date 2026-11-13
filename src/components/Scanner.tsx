@@ -56,7 +56,7 @@ import { tapCode, tapReader } from '../services/tapReader';
 import type { TapCode, TapStatus } from '../services/tapReader';
 import { useAppActive } from '../scenes/home/useAppActive';
 import { pubkyOf } from '../scenes/send/pubky';
-import { requestKey } from '../stage/heldRequests';
+import { sameRequest } from '../scenes/send/sameRequest';
 import { STATUS_ROW } from '../stage/layout';
 import type { ScanPurpose, ScanSource } from '../stage/scene';
 import { duringSystemPrompt } from '../stage/systemPrompt';
@@ -237,21 +237,22 @@ type OneRequest = { value: string } | { reason: string };
 
 /**
  * The one request among `codes`, a chosen image's or a tag's. A request
- * written twice, or once bare and once inside a link, is one request
- * (`requestKey`), and the first spelling is kept. Two different requests are
- * refused, since nothing says which was meant.
+ * written twice, in two spellings or once alone and once inside a link that
+ * carries it, is one request (`sameRequest`), and the first spelling is
+ * kept. Each is held to every one kept before it, so the order they come in
+ * decides nothing. Two that differ in whom or how much they pay are refused,
+ * since nothing says which was meant.
  */
 function onePayable(codes: string[], words: SetWords): OneRequest {
-  let value: string | undefined;
+  const kept: string[] = [];
   let reason = words.none;
   for (const code of new Set(codes.map(each => each.trim()).filter(Boolean))) {
     const invalid = refusal(code, words.invalid);
     if (invalid) reason = invalid;
-    else if (value === undefined) value = code;
-    else if (requestKey(code) !== requestKey(value))
-      return { reason: words.several };
+    else if (kept.every(other => sameRequest(code, other))) kept.push(code);
+    else return { reason: words.several };
   }
-  return value === undefined ? { reason } : { value };
+  return kept.length ? { value: kept[0] } : { reason };
 }
 
 /**

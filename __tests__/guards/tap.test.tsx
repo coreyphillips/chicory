@@ -70,6 +70,13 @@ const CAPITALS = INVOICE.toUpperCase();
 const LNURL =
   'lnurl1dp68gurn8ghj7um9wfmxjcm99e3k7mf0v9cxj0m385ekvcenxc6r2c35xvukxefcv5mkvv34x5ekzd3ev56nyd3hxqurzepexejxxepnxscrvwfnv9nxzcn9xq6xyefhvgcxxcmyxymnserxfq5fns';
 
+/** The BIP 173 example addresses. */
+const ADDRESS = 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4';
+const OTHER_ADDRESS =
+  'bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3';
+/** A BOLT 12 offer, which the wallet reads and this version cannot pay. */
+const OFFER = 'lno1qcp4256ypq';
+
 /** A web link on a sticker: a tag with a message and nothing to pay. */
 const WEB_TAG = [uriRecord('example.com/menu', 4)];
 
@@ -377,6 +384,14 @@ describe('a request read from a tag', () => {
       [uriRecord('example.com/receipt', 4), uriRecord(`lightning:${INVOICE}`)],
       INVOICE,
     ],
+    [
+      'written alone and again beside an address, which only says more of it',
+      [
+        uriRecord(`lightning:${CAPITALS}`),
+        uriRecord(`bitcoin:${ADDRESS}?lightning=${INVOICE}`),
+      ],
+      CAPITALS,
+    ],
   ])('is one request when it is %s', async (_, records, request) => {
     android();
     const reader = nfc();
@@ -385,6 +400,21 @@ describe('a request read from a tag', () => {
     await hold(reader, records);
     expect(onDetected).toHaveBeenCalledTimes(1);
     expect(onDetected).toHaveBeenCalledWith(request, 'tap');
+    await act(async () => tree.unmount());
+  });
+
+  test('that is an offer goes to Send as a scanned offer does, for the review to refuse', async () => {
+    // An offer is a request the parser reads, so the scanner hands it on
+    // from a tag as it does from a code. The review is what says this
+    // version cannot pay one (docs/TAP-TO-PAY.md).
+    android();
+    const reader = nfc();
+    const onDetected = jest.fn();
+    const tree = await mount(scanner({ onDetected }));
+    expect(refusal(OFFER)).toBeNull();
+    await hold(reader, [uriRecord(`lightning:${OFFER}`)]);
+    expect(onDetected).toHaveBeenCalledTimes(1);
+    expect(onDetected).toHaveBeenCalledWith(OFFER, 'tap');
     await act(async () => tree.unmount());
   });
 
@@ -425,6 +455,33 @@ describe('a tag that cannot be paid', () => {
     [
       'two different requests',
       [uriRecord(PAYABLE), uriRecord(`lightning:${INVOICE}`)],
+      copy.scan.tapSeveral,
+    ],
+    [
+      'one invoice beside two addresses',
+      [
+        uriRecord(`bitcoin:${ADDRESS}?lightning=${INVOICE}`),
+        uriRecord(`bitcoin:${OTHER_ADDRESS}?lightning=${INVOICE}`),
+      ],
+      copy.scan.tapSeveral,
+    ],
+    [
+      // The parser passes over a lightning= it cannot read, so nothing but
+      // the two addresses is left to tell these apart.
+      'two addresses beside the same unreadable lightning=',
+      [
+        uriRecord(`bitcoin:${ADDRESS}?lightning=broken`),
+        uriRecord(`bitcoin:${OTHER_ADDRESS}?lightning=broken`),
+      ],
+      copy.scan.tapSeveral,
+    ],
+    [
+      'an invoice alone, then beside two addresses, in whatever order',
+      [
+        uriRecord(`lightning:${INVOICE}`),
+        uriRecord(`bitcoin:${ADDRESS}?lightning=${INVOICE}`),
+        uriRecord(`bitcoin:${OTHER_ADDRESS}?lightning=${INVOICE}`),
+      ],
       copy.scan.tapSeveral,
     ],
   ])(
