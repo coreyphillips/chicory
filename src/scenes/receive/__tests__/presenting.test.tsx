@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppState, Platform, StyleSheet } from 'react-native';
+import { AppState, Platform, Share, StyleSheet } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { act } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
@@ -148,6 +148,27 @@ const sides = (tree: ReactTestRenderer) =>
 const styleOf = (node: ReactTestInstance) =>
   StyleSheet.flatten(node.props.style) ?? {};
 
+/** The row the sides are in: the drawn view round them. */
+function rowOf(side: ReactTestInstance) {
+  for (let up = side.parent; up; up = up.parent) {
+    if (typeof up.type === 'string') return up;
+  }
+  throw new Error('a side with no row');
+}
+
+/** Share is refused, so the refusal's pip shows beside the controls. */
+async function refuseShare(tree: ReactTestRenderer) {
+  jest.spyOn(Share, 'share').mockRejectedValue(new Error('No app to share to'));
+  await press(tree, copy.receive.share);
+  await act(async () => {});
+  const pips = tree.root.findAll(
+    node =>
+      typeof node.type === 'string' && node.props.accessibilityRole === 'alert',
+  );
+  expect(pips).toHaveLength(1);
+  return pips[0];
+}
+
 const URI = requestOf().uri;
 let phone: FakeTapPresenter;
 
@@ -218,6 +239,26 @@ describe('a request on screen', () => {
       expect(styleOf(start)).toMatchObject({ flexGrow, flexShrink, flexBasis });
       await act(async () => tree.unmount());
     }
+  });
+
+  test('and a refusal beside it both keep their width, and a row with no room for both hangs out evenly', async () => {
+    // Share refused while the request is presented: the one way the mark
+    // and a refusal show at once. Below a 376pt window the row cannot hold
+    // both at 48pt with the controls between, so it is centred, to hang out
+    // as far into each margin rather than push the refusal off the end.
+    const tree = await mount(receive(clientOf()));
+    await toRequest(tree);
+    const pip = await refuseShare(tree);
+    const [start, end] = sides(tree);
+    expect(
+      start.findAll(node => node === mark(tree, copy.receive.tapPresenting)),
+    ).toHaveLength(1);
+    expect(end.findAll(node => node === pip)).toHaveLength(1);
+    expect(styleOf(pip).width).toBe(TARGET);
+    expect(styleOf(start).minWidth).toBe(TARGET);
+    expect(styleOf(end).minWidth).toBe(TARGET);
+    expect(styleOf(rowOf(start)).justifyContent).toBe('center');
+    await act(async () => tree.unmount());
   });
 
   test('is still presented while its code is lifted, and copies and shares as before', async () => {
@@ -428,6 +469,25 @@ describe('a phone that cannot act as a tag', () => {
     // Share and copy are where they were.
     expect(find(tree, copy.receive.share)).toBeDefined();
     expect(find(tree, copy.receive.copy)).toBeDefined();
+    await act(async () => tree.unmount());
+  });
+
+  test('keeps a refusal beside the request as wide as its pip, so plus never runs under it on a narrow screen', async () => {
+    // An iPhone with Display Zoom on is 320pt wide, as an Android phone can
+    // be with its display size turned up, and an even split there gives
+    // each side 20pt.
+    phone.answer = 'missing';
+    const tree = await mount(receive(clientOf()));
+    await toRequest(tree);
+    const pip = await refuseShare(tree);
+    const [start, end] = sides(tree);
+    expect(end.findAll(node => node === pip)).toHaveLength(1);
+    expect(styleOf(end).minWidth).toBe(styleOf(pip).width);
+    // The side with nothing in it yields, and both start alike, so the
+    // controls stay centred wherever there is room.
+    expect(styleOf(start).minWidth).toBeUndefined();
+    const { flexGrow, flexShrink, flexBasis } = styleOf(start);
+    expect(styleOf(end)).toMatchObject({ flexGrow, flexShrink, flexBasis });
     await act(async () => tree.unmount());
   });
 

@@ -86,10 +86,12 @@ const LINE = typography.line.fontSize;
  * in the row the amount and the quote keep theirs in, so the thumb stays
  * where it was from step to step; a refusal sits beside them, and across
  * from it, on Android, the mark of a request a phone held to this one reads
- * (`tap`, docs/TAP-TO-PAY.md). The mark goes with share and copy. Its side
- * is never narrower than the mark, so on a screen too narrow to centre
- * share, copy and plus between it and an empty side, they move over to clear
- * it rather than run under it.
+ * (`tap`, docs/TAP-TO-PAY.md). The mark goes with share and copy. A side
+ * is never narrower than what it holds, the mark or the refusal, so on a
+ * screen too narrow to centre the controls between the two sides, they move
+ * over to clear it rather than run under it. With both held and no room for
+ * both, the row hangs out evenly into the margins either side of it, so
+ * nothing runs under anything and the refusal is not pushed off the end.
  */
 export function RequestStep({
   request,
@@ -343,7 +345,7 @@ export function RequestStep({
             </GlyphButton>
           </Reanimated.View>
         </View>
-        <View style={[styles.side, styles.end]}>
+        <View style={[styles.side, styles.end, error && styles.holds]}>
           {error ? (
             <ErrorPip message={error.message} code={error.code} />
           ) : null}
@@ -592,9 +594,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   // The way on at the foot of the step, in the row every step keeps it in.
+  // Centred, so a row too wide for the step, with the mark and a refusal
+  // both held on a narrow screen, hangs out as far on each side rather than
+  // off the end. While it fits, the sides take up the slack and this does
+  // nothing.
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: space.sm,
     minHeight: CONTROL_ROW,
   },
@@ -610,9 +617,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  // A side holding the tap mark gives up none of its width. An even split
-  // falls under 48pt below a 376pt window, where the mark would otherwise
-  // run under share, as it did by 16pt at 320.
+  // A side holding the tap mark or a refusal gives up none of its width.
+  // An even split falls under 48pt below a 376pt window, where either would
+  // otherwise run under the control beside it, as the mark ran under share
+  // and the refusal under plus, each by 16pt at 320.
   holds: { minWidth: TARGET },
   end: { justifyContent: 'flex-end' },
   buttons: {
