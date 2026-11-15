@@ -86,7 +86,10 @@ const LINE = typography.line.fontSize;
  * in the row the amount and the quote keep theirs in, so the thumb stays
  * where it was from step to step; a refusal sits beside them, and across
  * from it, on Android, the mark of a request a phone held to this one reads
- * (`tap`, docs/TAP-TO-PAY.md). The mark goes with share and copy.
+ * (`tap`, docs/TAP-TO-PAY.md). The mark goes with share and copy. Its side
+ * is never narrower than the mark, so on a screen too narrow to centre
+ * share, copy and plus between it and an empty side, they move over to clear
+ * it rather than run under it.
  */
 export function RequestStep({
   request,
@@ -161,6 +164,7 @@ export function RequestStep({
   const listening = face.shareable && !lifted && settled;
   const remainder = remainderSats(request.amountSats, receipt);
   const scattered = face.qr === 'scattered';
+  const presenting = tap !== null && face.shareable && !receipt;
   const status =
     face.qr === 'expired'
       ? copy.receive.expired
@@ -268,8 +272,8 @@ export function RequestStep({
         )}
       </View>
       <Reanimated.View entering={stagger(2)} style={styles.controls}>
-        <View style={styles.side}>
-          {tap && face.shareable && !receipt ? (
+        <View style={[styles.side, presenting && styles.holds]}>
+          {presenting ? (
             <PresentMark
               key={tap}
               off={tap === 'off'}
@@ -594,7 +598,22 @@ const styles = StyleSheet.create({
     gap: space.sm,
     minHeight: CONTROL_ROW,
   },
-  side: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  // The sides split what the controls leave evenly, so share, copy and plus
+  // stay centred wherever there is room. They start from a target rather
+  // than from nothing because Yoga counts a side's minimum as spent before
+  // it splits the rest, which would push the controls off centre at any
+  // width.
+  side: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: TARGET,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  // A side holding the tap mark gives up none of its width. An even split
+  // falls under 48pt below a 376pt window, where the mark would otherwise
+  // run under share, as it did by 16pt at 320.
+  holds: { minWidth: TARGET },
   end: { justifyContent: 'flex-end' },
   buttons: {
     flexDirection: 'row',

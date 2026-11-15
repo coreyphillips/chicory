@@ -1,8 +1,8 @@
 import React from 'react';
-import { AppState, Platform } from 'react-native';
+import { AppState, Platform, StyleSheet } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { act } from 'react-test-renderer';
-import type { ReactTestRenderer } from 'react-test-renderer';
+import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import type {
   ReceiveQuote,
   ReceiveRequest,
@@ -23,6 +23,7 @@ import { enterAmount } from '../../../../test-support/keypad';
 import { find } from '../../../../test-support/query';
 import { fakeTapPresenter } from '../../../../test-support/tap';
 import type { FakeTapPresenter } from '../../../../test-support/tap';
+import { TARGET } from '../controls';
 import { PRESENT_CHECK_MS } from '../presenting';
 
 /**
@@ -137,6 +138,16 @@ const marks = (tree: ReactTestRenderer) =>
     mark(tree, label),
   );
 
+/** The two sides of the controls row, start first, as drawn views. */
+const sides = (tree: ReactTestRenderer) =>
+  tree.root.findAll(
+    node =>
+      typeof node.type === 'string' &&
+      StyleSheet.flatten(node.props.style)?.flexBasis === TARGET,
+  );
+const styleOf = (node: ReactTestInstance) =>
+  StyleSheet.flatten(node.props.style) ?? {};
+
 const URI = requestOf().uri;
 let phone: FakeTapPresenter;
 
@@ -179,6 +190,34 @@ describe('a request on screen', () => {
     expect(drawn.props.onPress).toBeUndefined();
     expect(marks(tree)).toEqual([copy.receive.tapPresenting]);
     await act(async () => tree.unmount());
+  });
+
+  test('keeps its side of the controls as wide as its mark, so share never runs under it on a narrow screen', async () => {
+    // Jest lays nothing out, so this holds the styles that make the room.
+    // The sides split what share, copy and plus leave, evenly so they stay
+    // centred, and below a 376pt window that is under the mark's 48pt.
+    for (const nfc of ['ready', 'off'] as const) {
+      phone = fakeTapPresenter(nfc);
+      setTapPresenter(phone);
+      const tree = await mount(receive(clientOf()));
+      await toRequest(tree);
+      const drawn = mark(
+        tree,
+        nfc === 'ready' ? copy.receive.tapPresenting : copy.receive.tapOff,
+      );
+      const [start, end] = sides(tree);
+      expect(sides(tree)).toHaveLength(2);
+      expect(start.findAll(node => node === drawn)).toHaveLength(1);
+      const width = styleOf(drawn).width;
+      expect(width).toBe(TARGET);
+      expect(styleOf(start).minWidth).toBe(width);
+      // The other side yields, and both start alike, so the split is even
+      // wherever there is room for it.
+      expect(styleOf(end).minWidth).toBeUndefined();
+      const { flexGrow, flexShrink, flexBasis } = styleOf(end);
+      expect(styleOf(start)).toMatchObject({ flexGrow, flexShrink, flexBasis });
+      await act(async () => tree.unmount());
+    }
   });
 
   test('is still presented while its code is lifted, and copies and shares as before', async () => {
