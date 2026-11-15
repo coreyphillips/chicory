@@ -25,7 +25,7 @@ test('the installed engine reports the verified upstream release', async () => {
     runtime.setAppBackgrounded(true);
     runtime.setAppBackgrounded(false);
     const config = await runtime.request({ path: '/api/config' });
-    expect(config.engineVersion).toBe('0.38.4-portable');
+    expect(config.engineVersion).toBe('0.41.0-portable');
     expect(config.offlineReceiveAvailable).toBe(true);
     expect(config.concurrentOfflineReceiveAvailable).toBe(true);
     // Ranked primaries and the channel send (coreyphillips/beignet#1924).
