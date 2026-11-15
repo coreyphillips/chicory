@@ -49,7 +49,7 @@ SSL/TLS encrypts the connection to an Electrum server such as `bitkit.to:9999`. 
 
 ## Networks and default servers
 
-Settings → Network & servers switches between mainnet, testnet, and regtest, and its Edit servers holds what each network uses. Each network has a saved Electrum host, port, TLS setting and default liquidity node. The default node only seeds a wallet created on that network, so Edit servers in an open wallet's Settings leaves it out; that wallet's own node changes under Primary node. First-run setup and the wallet screens still offer it. Mainnet starts with `ssl://bitkit.to:9999`, native transport and the supplied onion liquidity node, which the bundled Tor client reaches without further setup. Regtest starts with `tcp://192.168.50.211:60401`, TLS off, and no primary node: there is no regtest node worth guessing at, and an address that is merely plausible costs a Tor bootstrap on every open for a peer that is not there. Testnet requires both. An upgrade fills in the regtest server only where none was ever saved; a server that was actually typed is never replaced. Relay configuration is saved separately for each network and must forward to that network’s configured server and node.
+Settings → Network & servers switches between mainnet, testnet, and regtest, and its Edit servers holds what each network uses. Each network has a saved Electrum host, port, TLS setting and default liquidity node. The default node only seeds a wallet created on that network, so Edit servers in an open wallet's Settings leaves it out; that wallet's own node changes under Primary node. First-run setup and the wallet screens still offer it. Mainnet starts with `ssl://bitkit.to:9999`, native transport and the supplied liquidity node at its relay-only Iroh link, which needs no Tor. A profile saved by an earlier build keeps the node it was saved with. Regtest starts with `tcp://192.168.50.211:60401`, TLS off, and no primary node: there is no regtest node worth guessing at, and an address that is merely plausible costs a Tor bootstrap on every open for a peer that is not there. Testnet requires both. An upgrade fills in the regtest server only where none was ever saved; a server that was actually typed is never replaced. Relay configuration is saved separately for each network and must forward to that network’s configured server and node.
 
 Device wallets use separate SQLCipher databases, volume files, and encryption keys for each network. Switching waits for the old engine to stop, then opens the selected network’s existing wallet. The storage lease is released whether or not the engine stopped cleanly, and the engine gives up its one-per-process claim on every failure path, because an engine that took either of those down with it used to make every later open, and every later switch, fail until the app was killed. The close is bounded, so a wedged engine cannot hold the wallet open indefinitely. The page appears as soon as the new engine exists, on that network’s own last known figures, while the chain catches up behind it. A switch that fails leaves the phone on the network it was already on and says why. The first visit to a network offers wallet creation and the normal recovery-phrase backup flow. Existing wallet networks are never retagged. The original unnamespaced device vault is inspected once and remains mapped to its actual original chain, including an existing testnet or regtest vault.
 
@@ -73,11 +73,21 @@ Recovery phrases are revealed deliberately and hidden when the app backgrounds. 
 
 ## Wallet setup
 
-Create a wallet from the picker. Mainnet defaults to the requested node:
+Create a wallet from the picker. Mainnet defaults to the requested node, at its relay-only Iroh link:
+
+```
+025501f56b72e7b999443b836ae1bff4c6fff514943d3f6677302a9189949bd99c@iroh:8ec01f040891cb3f9973a1f6139d36c24a4e42b2939186e1508848fc09f8a640?relay=https%3A%2F%2Fuse1-1.relay.n0.iroh.link.%2F
+```
+
+The phone reaches it through n0's public relay `use1-1` and never starts Tor for it. The node keeps the link on the relay, so the link carries no IP address and the phone never learns the node's. The relay sees the phone's IP address and the node's, and Create Wallet says so beside the field. The link names that one relay and the phone looks nothing up, so if the node moves to another relay, a wallet on this link cannot reach it until the link is replaced under Primary nodes. n0 runs its public relays without an uptime guarantee. Iroh needs Native networking: to use Relay networking, give the wallet a node the relay can reach first.
+
+The same node also answers at its onion address, through the bundled Tor client:
 
 ```
 025501f56b72e7b999443b836ae1bff4c6fff514943d3f6677302a9189949bd99c@ulyeemszaigzrvpjcjcby4ehibrvsuqi5sq4dmmew2urk2nse5f7spid.onion:9102
 ```
+
+That was the default before 0.7.21. A wallet created with it keeps it, and so does a network profile saved with it: the new default reaches only an install with no saved profile. Either address can be typed in its place, and the onion address can be set as an Iroh link's Tor fallback under Primary nodes. Both reach the same node key, so a wallet's channels stay when one replaces the other.
 
 This peer is trusted for instant funding. Change it in Settings > Primary node. Existing channels remain; when using a fixed-target relay, update the relay's peer target too. Regtest and testnet require matching data servers and liquidity nodes.
 

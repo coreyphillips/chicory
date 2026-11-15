@@ -87,7 +87,7 @@ export const settings = {
     change: 'Change primary node',
     save: 'Save primary node',
     scan: 'Scan primary node QR',
-    iroh: "Iroh is experimental and requires Native networking. Your primary node and its relay can see your phone's IP address. Use this for a node you control. Tor remains the default.",
+    iroh: "Iroh is experimental and requires Native networking. Your primary node and its relay can see your phone's IP address. To keep it from them, use the node's onion address instead.",
     porch:
       "A Porch link reaches the node through a relay and requires Native networking. The relay can see your phone's IP address and when you connect, not what is sent. The node does not see your IP address.",
     fallback: 'Optional Tor fallback URI',

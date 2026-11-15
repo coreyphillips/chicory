@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import Reanimated from 'react-native-reanimated';
-import { DEFAULT_PRIMARY_URI } from '@beignet/wallet-core';
 import type {
   CreatedWallet,
   HostConfig,
@@ -13,7 +12,10 @@ import { copy } from '../../design/copy';
 import { haptics } from '../../design/haptics';
 import { riseIn, smooth } from '../../motion/presets';
 import { seedSourceNetwork } from '../../embedded/seed';
-import { defaultProfile } from '../../services/networks';
+import {
+  DEFAULT_MAINNET_PRIMARY_URI,
+  defaultProfile,
+} from '../../services/networks';
 import type { NetworkProfile } from '../../services/networks';
 import type { WalletAdapter } from '../../services/wallet';
 import { space } from '../../theme';
@@ -65,7 +67,7 @@ export function CreateWalletScreen({
     profile?.network || 'mainnet',
   );
   const [primary, setPrimary] = useState(
-    profile?.primaryUri ?? DEFAULT_PRIMARY_URI,
+    profile?.primaryUri ?? DEFAULT_MAINNET_PRIMARY_URI,
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -317,6 +319,9 @@ export function CreateWalletScreen({
           }
         />
       </Section>
+      {/@iroh:/i.test(primary) ? (
+        <Note>{copy.settings.primary.iroh}</Note>
+      ) : null}
       {source ? <Note glyph="key">{words.reuses(source)}</Note> : null}
       {test ? (
         <Note glyph="flask">{words.testnet}</Note>

@@ -1,5 +1,7 @@
 import * as Keychain from 'react-native-keychain';
+import { DEFAULT_PRIMARY_URI, parsePrimaryUri } from '@beignet/wallet-core';
 import {
+  DEFAULT_MAINNET_PRIMARY_URI,
   DEFAULT_REGTEST_ELECTRUM,
   defaultPreferences,
   defaultProfile,
@@ -101,4 +103,41 @@ test('a regtest server that was actually typed is never replaced', async () => {
     port: 60001,
     tls: false,
   });
+});
+
+test('a new mainnet profile starts on the relay-only Iroh link of the node the onion address named', () => {
+  const profile = defaultProfile('mainnet');
+  expect(profile.primaryUri).toBe(DEFAULT_MAINNET_PRIMARY_URI);
+  expect(profile.transport).toBe('native');
+  const parsed = parsePrimaryUri(DEFAULT_MAINNET_PRIMARY_URI);
+  // The link reads back unchanged, so a saved wallet stores it as written.
+  expect(parsed.uri).toBe(DEFAULT_MAINNET_PRIMARY_URI);
+  expect(parsed.transport).toEqual({
+    type: 'iroh',
+    endpointId:
+      '8ec01f040891cb3f9973a1f6139d36c24a4e42b2939186e1508848fc09f8a640',
+    relayUrl: 'https://use1-1.relay.n0.iroh.link./',
+  });
+  // Same node, so a wallet on the onion address keeps its channels there.
+  expect(parsed.pubkey).toBe(parsePrimaryUri(DEFAULT_PRIMARY_URI).pubkey);
+  expect(defaultProfile('testnet').primaryUri).toBe('');
+  expect(defaultProfile('regtest').primaryUri).toBe('');
+});
+test.each([
+  ['the onion address an earlier build shipped', DEFAULT_PRIMARY_URI],
+  [
+    'an Iroh link with no relay hint',
+    `${parsePrimaryUri(DEFAULT_PRIMARY_URI).pubkey}@iroh:${'c'.repeat(64)}`,
+  ],
+  ['a node of its own', `03${'b'.repeat(64)}@node.example:9735`],
+])('a saved mainnet profile keeps %s', async (_, primaryUri) => {
+  const stored = defaultPreferences();
+  stored.profiles.mainnet.primaryUri = primaryUri;
+  jest.mocked(Keychain.getGenericPassword).mockResolvedValue({
+    password: JSON.stringify(stored),
+  } as never);
+  jest.mocked(Keychain.setGenericPassword).mockClear();
+  const reopened = await loadNetworkPreferences();
+  expect(reopened.profiles.mainnet.primaryUri).toBe(primaryUri);
+  expect(Keychain.setGenericPassword).not.toHaveBeenCalled();
 });
