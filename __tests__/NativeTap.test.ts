@@ -554,3 +554,279 @@ describe('the test till that stands in for a terminal', () => {
     expect(parsed).toMatchObject({ network: 'mainnet', amountSats: 24425 });
   });
 });
+
+/**
+ * The other half (docs/TAP-TO-PAY.md): Receive presents its request as a tag
+ * on Android, so a phone held to this one reads it. An iPhone app cannot act
+ * as a tag, so there is nothing of it on iOS.
+ */
+describe('the tag Receive presents on Android', () => {
+  const kotlin = (name: string) =>
+    read('android', 'app', 'src', 'main', 'java', 'com', 'chicory', name)
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+  const MODULE = kotlin('NfcPresenterModule.kt');
+  const SERVICE = kotlin('NfcPresenterService.kt');
+  const TAG = kotlin('PresentedTag.kt');
+  const PRESENTER = read('src', 'services', 'tapPresenter.ts');
+  const REGISTRATION = read(
+    'android',
+    'app',
+    'src',
+    'main',
+    'res',
+    'xml',
+    'apduservice.xml',
+  ).replace(/<!--[\s\S]*?-->/g, '');
+  const service = /<service\s[\s\S]*?<\/service>/.exec(MANIFEST_CODE)?.[0];
+
+  test('is served by one service, which only the NFC service may bind', () => {
+    expect(MANIFEST_CODE.match(/<service\s/g)).toHaveLength(1);
+    expect(service).toContain('android:name=".NfcPresenterService"');
+    expect(service).toContain(
+      'android:permission="android.permission.BIND_NFC_SERVICE"',
+    );
+    expect(service).toContain(
+      'android.nfc.cardemulation.action.HOST_APDU_SERVICE',
+    );
+    expect(service).toMatch(
+      /android:name="android\.nfc\.cardemulation\.host_apdu_service"\s+android:resource="@xml\/apduservice"/,
+    );
+    expect(SERVICE).toContain('class NfcPresenterService : HostApduService()');
+  });
+
+  test('asks for no permission of its own, and is not required of the phone', () => {
+    expect(
+      [...MANIFEST_CODE.matchAll(/<uses-permission\s+android:name="([^"]+)"/g)]
+        .map(match => match[1])
+        .sort(),
+    ).toEqual([
+      'android.permission.CAMERA',
+      'android.permission.INTERNET',
+      'android.permission.NFC',
+      'android.permission.USE_BIOMETRIC',
+    ]);
+    // Without this the store would hide the wallet from a phone that cannot
+    // act as a tag.
+    expect(MANIFEST_CODE).toMatch(
+      /<uses-feature\s+android:name="android\.hardware\.nfc\.hce"\s+android:required="false"\s*\/>/,
+    );
+  });
+
+  test('claims nothing a reader looks for until a request is presented', () => {
+    // The manifest registers a private placeholder alone. The NDEF
+    // application every reader asks for would otherwise be the wallet's to
+    // answer with no request on screen, and Android would offer the wallet
+    // beside any other app that acts as a tag.
+    const names = [
+      ...REGISTRATION.matchAll(/<aid-filter\s+android:name="([^"]+)"/g),
+    ].map(match => match[1]);
+    expect(names).toHaveLength(1);
+    expect(names[0]).toMatch(/^F0([0-9A-F]{2}){4,15}$/);
+    expect(REGISTRATION).not.toContain('D2760000850101');
+    expect(REGISTRATION.match(/<aid-group\b/g)).toHaveLength(1);
+    // Never a payment card: the phone's own wallet keeps that category.
+    expect(REGISTRATION).toContain('android:category="other"');
+    expect(REGISTRATION).not.toContain('payment');
+    expect(REGISTRATION).toContain('android:requireDeviceUnlock="true"');
+    // The tag itself refuses the placeholder too.
+    expect(TAG).toContain('NDEF_APPLICATION_NAME = "D2760000850101"');
+  });
+
+  test('ships no words of its own: both descriptions are the name of the app', () => {
+    expect(
+      [...REGISTRATION.matchAll(/android:description="([^"]+)"/g)].map(
+        match => match[1],
+      ),
+    ).toEqual(['@string/app_name', '@string/app_name']);
+    expect(
+      read('android', 'app', 'src', 'main', 'res', 'values', 'strings.xml'),
+    ).not.toMatch(/nfc|tap|tag/i);
+  });
+
+  test('is registered by hand, under the name the seam asks for, on Android alone', () => {
+    expect(
+      read(
+        'android',
+        'app',
+        'src',
+        'main',
+        'java',
+        'com',
+        'chicory',
+        'MainApplication.kt',
+      ),
+    ).toContain('add(NfcPresenterPackage())');
+    expect(MODULE).toContain('override fun getName() = "ChicoryNfcPresenter"');
+    expect(PRESENTER).toContain('NativeModules.ChicoryNfcPresenter');
+    expect(PRESENTER).toMatch(/Platform\.OS === 'android'/);
+    for (const source of [SWIFT, EXTERNS, PROJECT])
+      expect(source).not.toMatch(/Presenter|HostApdu|cardemulation/i);
+    // The entitlement an iPhone would need to act as a tag is not asked for.
+    expect(ENTITLEMENTS).not.toMatch(/hce|card-session|contactless/i);
+  });
+
+  test('answers the calls the seam makes, and no others', () => {
+    const methods = [
+      ...MODULE.matchAll(/@ReactMethod\s+fun\s+(\w+)\s*\(/g),
+    ].map(match => match[1]);
+    expect(methods.sort()).toEqual(['present', 'status', 'withdraw']);
+    const asked =
+      /interface NativePresenter \{([\s\S]*?)\n\}/.exec(PRESENTER)?.[1] ?? '';
+    expect(
+      [...asked.matchAll(/^\s*(\w+)\(/gm)].map(match => match[1]).sort(),
+    ).toEqual(methods);
+    for (const status of ['"missing"', '"off"', '"ready"'])
+      expect(MODULE).toContain(status);
+    expect(MODULE).toContain('FEATURE_NFC_HOST_CARD_EMULATION');
+  });
+
+  test('claims the NDEF application as it presents, and gives it back as it withdraws', () => {
+    const present = bodyOf(MODULE, 'fun present(');
+    expect(MODULE.match(/registerAidsForService\(/g)).toHaveLength(1);
+    expect(present).toContain('registerAidsForService(');
+    expect(present).toContain('PresentedTag.NDEF_APPLICATION_NAME');
+    expect(present).toContain('CardEmulation.CATEGORY_OTHER');
+    // One way to give it back, which the module, a new process and the
+    // service itself all use.
+    expect(`${MODULE}${SERVICE}`.match(/removeAidsForService\(/g)).toHaveLength(
+      1,
+    );
+    const withdrawn = bodyOf(MODULE, 'private fun withdrawNow(');
+    expect(withdrawn).toContain('Presented.clear()');
+    expect(withdrawn).toContain('NfcPresenterService.release(context)');
+    // What is presented goes before the claim does.
+    expect(withdrawn.indexOf('Presented.clear()')).toBeLessThan(
+      withdrawn.indexOf('NfcPresenterService.release(context)'),
+    );
+    // A process that ended while it presented left its claim behind.
+    expect(bodyOf(MODULE, 'init {')).toContain(
+      'NfcPresenterService.release(context)',
+    );
+  });
+
+  test('is the service Android prefers while it presents, so no chooser is shown', () => {
+    expect(MODULE.match(/\.setPreferredService\(/g)).toHaveLength(1);
+    expect(MODULE.match(/\.unsetPreferredService\(/g)).toHaveLength(1);
+    expect(bodyOf(MODULE, 'private fun withdrawNow(')).toContain(
+      'unsetPreferredService(',
+    );
+  });
+
+  test('presents only in front, only a request still in time, and withdraws by itself', () => {
+    const present = bodyOf(MODULE, 'fun present(');
+    expect(present).toContain('LifecycleState.RESUMED');
+    expect(present).toContain('until <= now');
+    expect(present).toContain('PresentedTag.MAX_MESSAGE');
+    // A refusal leaves nothing presented, not the request before it, and
+    // every way out of presenting that is not presenting is a refusal.
+    expect(bodyOf(MODULE, 'private fun refuse(')).toContain('withdrawNow()');
+    expect(present.match(/refuse\(/g)!.length).toBeGreaterThanOrEqual(3);
+    expect(present.match(/promise\.resolve\(/g)).toHaveLength(1);
+    expect(present).toContain('promise.resolve("presented")');
+    // JavaScript may be paused by the time any of these happens.
+    for (const hook of [
+      'override fun onHostPause(',
+      'override fun onHostDestroy(',
+      'override fun invalidate(',
+    ])
+      expect(bodyOf(MODULE, hook)).toContain('withdrawNow()');
+    expect(present).toContain('main.postDelayed(runOut, until - now)');
+    expect(MODULE).toContain('private val runOut = Runnable { withdrawNow() }');
+    // The pause is handled inside the activity's own onPause, where Android
+    // still lets the preference be dropped.
+    expect(bodyOf(MODULE, 'override fun onHostPause(')).not.toContain(
+      'runOnUiThread',
+    );
+  });
+
+  test('says why it is not presenting only with a code the seam knows', () => {
+    const used = new Set(
+      [...MODULE.matchAll(/"(TAP_[A-Z_]+)"/g)].map(match => match[1]),
+    );
+    const known = [...PRESENTER.matchAll(/'(TAP_[A-Z_]+)'/g)].map(
+      match => match[1],
+    );
+    expect(used.size).toBe(5);
+    for (const code of used) expect(known).toContain(code);
+    expect(new Set(known)).toEqual(used);
+  });
+
+  test("writes codes, counts and sizes to the phone's log, and never a request", () => {
+    const lines = `${MODULE}\n${SERVICE}`
+      .split('\n')
+      .filter(line => /\bLog\./.test(line));
+    expect(lines.length).toBeGreaterThanOrEqual(3);
+    const logged = `${MODULE}\n${SERVICE}`.match(
+      /Log\.\w+\(\s*[\s\S]*?\n?\s*\)\n/g,
+    )!;
+    for (const call of logged) {
+      // The bytes are counted and never written out.
+      expect(call).not.toMatch(
+        /\$\{?message|\$bytes|\$\{bytes\}|Base64|String\(/,
+      );
+    }
+    expect(`${MODULE}${SERVICE}${TAG}`).not.toMatch(/Log\.[we]\(|println\(/);
+  });
+
+  test('answers a reader from what is presented now, whatever is registered', () => {
+    const answer = bodyOf(SERVICE, 'override fun processCommandApdu(');
+    expect(answer).toContain('return Presented.answer(command, now)');
+    expect(answer).toContain('System.currentTimeMillis()');
+    // A claim left behind is given back the first time a reader finds it,
+    // unless a request has been presented by the time it would be.
+    expect(answer).toMatch(
+      /post \{\s+if \(!Presented\.any\(System\.currentTimeMillis\(\)\)\) release\(applicationContext\)\s+\}/,
+    );
+    const any = bodyOf(TAG, 'fun any(now: Long)');
+    expect(any).toContain('now >= until');
+    expect(TAG).toMatch(
+      /fun answer\(command: ByteArray, now: Long\): ByteArray =\s+if \(any\(now\)\) tag!!\.answer\(command\) else PresentedTag\.NOT_FOUND/,
+    );
+  });
+
+  test('serves bytes and reads nothing into them', () => {
+    // What a request says is written in src/services/ndef.ts.
+    for (const source of [MODULE, SERVICE, TAG]) {
+      expect(source).not.toMatch(/lightning|bitcoin|NdefMessage|NdefRecord/i);
+    }
+    expect(PRESENTER).toContain('uriMessage(presentedUri(request))');
+    expect(bodyOf(MODULE, 'fun present(')).toContain('Base64.decode(');
+  });
+
+  test('never turns the reader on, which would switch the tag off, and the reader never presents', () => {
+    for (const source of [MODULE, SERVICE, TAG])
+      expect(source).not.toMatch(/ReaderMode|ReaderCallback/);
+    expect(KOTLIN_CODE).not.toMatch(/CardEmulation|HostApdu|Presented/);
+    expect(read('src', 'scenes', 'receive', 'presenting.ts')).not.toMatch(
+      /tapReader\(/,
+    );
+  });
+
+  test('takes no more than the wallet reads, on either side', () => {
+    const cap = (source: string, name: string) =>
+      new RegExp(`${name} = 8 \\* 1024`).test(source);
+    expect(cap(read('src', 'services', 'ndef.ts'), 'MAX_MESSAGE_BYTES')).toBe(
+      true,
+    );
+    expect(cap(KOTLIN_CODE, 'MAX_MESSAGE_BYTES')).toBe(true);
+    expect(cap(TAG, 'MAX_MESSAGE')).toBe(true);
+  });
+
+  test('is read in a unit test as a phone reads a tag, since no emulator has a radio', () => {
+    expect(read('android', 'app', 'build.gradle')).toContain(
+      'testImplementation("junit:junit:4.13.2")',
+    );
+    const tests = read(
+      'android',
+      'app',
+      'src',
+      'test',
+      'java',
+      'com',
+      'chicory',
+      'PresentedTagTest.kt',
+    );
+    expect(tests.match(/@Test fun /g)!.length).toBeGreaterThanOrEqual(12);
+  });
+});

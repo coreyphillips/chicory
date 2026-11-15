@@ -1,6 +1,6 @@
 import { fromBase64 } from '../embedded/base64';
 
-const { TextDecoder } = require('text-encoding');
+const { TextDecoder, TextEncoder } = require('text-encoding');
 
 /**
  * What an NFC tag's records say (docs/TAP-TO-PAY.md).
@@ -14,6 +14,11 @@ const { TextDecoder } = require('text-encoding');
  * or `bitcoin:?lightning=<invoice>`. Nothing else on a tag is read as a
  * request: not a text record, not a web link, and not a smart poster, whose
  * link sits a level down inside a record of its own.
+ *
+ * Receive on Android presents its own request the same way, to a phone held
+ * to this one. The message for that is written here too (`uriMessage`), so
+ * what is read and what is presented are held to one description of a
+ * record, and native code on either side parses nothing.
  */
 export interface TapRecord {
   /** The record's type name format, 0 to 7. */
@@ -114,4 +119,51 @@ export function paymentUris(records: TapRecord[]): string[] {
     if (uri && PAYMENT_SCHEME.test(uri)) found.push(uri);
   }
   return found;
+}
+
+/**
+ * The largest message read from a tag or presented as one. The reader's
+ * native halves hold a tag to it, and so does the tag Receive presents.
+ */
+export const MAX_MESSAGE_BYTES = 8 * 1024;
+
+/**
+ * The link a request is presented as. The tag says what the code says, so a
+ * request is one request however it is taken. A request that is a bare
+ * invoice, as the Lightning only fallback makes one, is given the scheme a
+ * reader matches a tag by.
+ */
+export function presentedUri(request: string): string {
+  const uri = request.trim();
+  return PAYMENT_SCHEME.test(uri) ? uri : `lightning:${uri}`;
+}
+
+/**
+ * A tag's whole message holding `uri` and nothing else: one URI record, the
+ * first and the last, of the well-known type `U`, written out whole after
+ * 0x00 since `lightning:` and `bitcoin:` have no abbreviation. A payload of
+ * up to 255 bytes takes the short record, with a one byte length, and a
+ * longer one the long record, with four, which is what a real invoice needs.
+ *
+ * Null when there is nothing to present, or more than a reader would take.
+ */
+export function uriMessage(uri: string): Uint8Array | null {
+  if (!uri) return null;
+  const written: Uint8Array = new TextEncoder().encode(uri);
+  const length = written.length + 1;
+  const short = length <= 0xff;
+  const size = (short ? 3 : 6) + 1 + length;
+  if (size > MAX_MESSAGE_BYTES) return null;
+  // Message begin and end, and the well-known type name format. A message
+  // within the cap has a length of two bytes at most, so the long record's
+  // first two are zero.
+  const header = short
+    ? [0xd1, 0x01, length]
+    : [0xc1, 0x01, 0x00, 0x00, Math.floor(length / 0x100), length % 0x100];
+  const message = new Uint8Array(size);
+  message.set(header, 0);
+  message[header.length] = RTD_URI;
+  message[header.length + 1] = 0x00;
+  message.set(written, header.length + 2);
+  return message;
 }

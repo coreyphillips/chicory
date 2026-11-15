@@ -4,6 +4,8 @@ Chicory reads a payment request from an NFC tag and carries it into the same rev
 
 The case it is built for is a payment terminal that presents its Lightning request to a tap: Square Register (2nd generation), and open tills such as Numo.
 
+An Android phone also does the terminal's part. While Receive shows a request, the phone presents that request as a tag, so another phone held to it reads the request and lands on the same review and hold. See [Receive presents its request](#receive-presents-its-request).
+
 ## What a terminal presents
 
 Square documents the feature and not the protocol. Its help article says a buyer holds a phone with a Lightning wallet near the NFC reader on the customer display of a Square Register (2nd generation), and that Square Terminal, Square Stand and mobile devices do not take bitcoin by tap.
@@ -106,6 +108,57 @@ Signing: the app carries `com.apple.developer.nfc.readersession.formats` holding
 | Its entitlement and the words iOS asks for    | `ios/chicory/chicory.entitlements`, `ios/chicory/Info.plist` |
 | The control, the sheet's line and the landing | `src/components/Scanner.tsx`, `src/design/copy/scan.ts`      |
 
+## Receive presents its request
+
+While Receive shows a request that can be shared, and the app is in front, an Android phone answers a reader as an NFC tag holding that request. There is no button: presenting follows the code. The payer needs nothing beyond the reading described above.
+
+| Receiving phone | Payer on Android | Payer on iPhone                              |
+| --------------- | ---------------- | -------------------------------------------- |
+| Android         | Yes              | Yes, from the control in the payment scanner |
+| iPhone          | No               | No                                           |
+
+The limit is Apple's. An Android app may act as a tag (host card emulation) with public APIs. An iPhone app may read a tag and may not act as one without Apple's card emulation entitlement, which is granted in the EEA or under a paid agreement. So an iPhone pays by tap and cannot be tapped, and with an iPhone receiving the code stays the way.
+
+### What is presented
+
+- The same string as the code, in one URI record of the well-known type `U`, written whole after `0x00`. A request is one request however it is taken, and rule 6 holds it under the invoice it carries.
+- The request is normally a unified `bitcoin:<address>?amount=...&lightning=<invoice>` link. In the Lightning only fallback the request is a bare invoice, and it goes out as `lightning:<invoice>` so that it carries a scheme a reader matches.
+- A message over 8 KiB, the most the wallet's own reader takes, is not presented.
+- The tag is an NFC Forum Type 4 tag, as a terminal's is: the NDEF application `D2760000850101`, a capability container at `E103` that allows 255 bytes a read, and a read-only NDEF file at `E104`. It answers SELECT and READ BINARY. It refuses a write (`6982`), an instruction it does not know (`6D00`), and anything asked while nothing is presented (`6A82`).
+
+### When it is withdrawn
+
+The tag is there for exactly as long as share and copy are (REDESIGN.md rule 4), and goes the moment:
+
+- the request is paid, expires, or is scattered for a reused address
+- plus replaces it, or Receive is left
+- the app leaves the front or locks
+
+A new request is presented in place of the old one. A reader part way through the old one is refused its next read, so it is never handed part of each.
+
+Native code withdraws by itself as the activity pauses and at the moment the request expires, since JavaScript may be paused by then. A reader is answered from what is presented at that instant, with the clock checked on every command, so a request cannot be read after its screen has gone. Since a pause always withdraws, the request is presented again every time the app comes back to the front.
+
+With no request showing, and with the app closed, the wallet claims nothing a reader looks for. The manifest registers the service for a private placeholder identifier only. The NDEF application is claimed in code as a request is presented (`CardEmulation.registerAidsForService`) and given back as it is withdrawn. A claim left behind by a process that ended while it presented is given back the next time Receive is opened, which is when the presenter is loaded, or the first time a reader finds it, and is answered `6A82` until then. While it presents, the service is the one Android prefers (`setPreferredService`), so a phone with another app that acts as a tag shows no chooser.
+
+### What the receiver sees
+
+`contactless`, cream on a 32pt cocoa disc, in the left of the request's controls row. A long press whispers what it means. With NFC switched off the glyph is steam and the mark is a button that opens the NFC settings. On a phone that cannot act as a tag, which is every iPhone and an Android phone without NFC or card emulation, there is no mark. The phone is asked every 2 seconds whether its NFC is still on, since nothing tells the app when it is switched off from the shade.
+
+### What the two people do
+
+1. The receiver opens Receive and makes a request. The code blooms and the mark appears.
+2. The payer opens the payment scanner, and the two phones are held back to back. On Android the scanner is the dependable way: with the payer on Home both phones are reading and listening at once, and either may take the other for a tag, so a tap from Home may need a second try. An iPhone payer presses the scanner's control.
+3. The payer feels the thud, sees the review and holds.
+4. The receiver sees the arrival it sees today. Nothing tells it that its tag was read.
+
+### How it is built
+
+- `src/services/ndef.ts` writes the message (`uriMessage`, `presentedUri`), beside the code that reads one, and `src/services/tapPresenter.ts` is the seam Receive sees: a status, `present(request, expiresAt)` and `withdraw()`. With no native module, as under Jest and on an iPhone, there is no presenter.
+- `src/scenes/receive/presenting.ts` presents while the request is shareable, the pane is in use and the app is in front, and withdraws otherwise. Receive never turns the reader on, which would switch card emulation off.
+- `NfcPresenterModule.kt` is the native module (`ChicoryNfcPresenter`), `NfcPresenterService.kt` the `HostApduService`, and `PresentedTag.kt` the tag itself, which touches nothing of Android and is read in `PresentedTagTest.kt` as a phone reads a tag. Native code serves bytes and reads nothing into them.
+- The service and its group are described by `@string/app_name`, so no new words are shipped.
+- A phone that says it can present and then does not draws no mark, and Settings > Diagnostics keeps why, by its code: `TAP_TOO_LARGE`, `TAP_OFF`, `TAP_NOT_IN_FRONT`, `TAP_EXPIRED` or `TAP_REFUSED`. The phone's own log says more, under the tag `ChicoryNfc`: when a request is presented and for how long, when it is withdrawn, and how far each reader read (`a reader left after 4 reads, 602 of 602 bytes, to the end`). Both hold codes, counts and sizes, and never a request.
+
 ## Trying it without a terminal
 
 `native-tests/tap-till` is a stand-in for a terminal: a separate Android app that turns a phone into the tag described above, with the same application, the same 255 byte read cap, a read-only file and one long-format URI record holding whatever request it is given, capitals included. It shows the first bytes it presents, to set against `C1 01 00 00 ...`, and it counts the taps that began and the ones read to the end of the file, which is what a Register is said to wait for.
@@ -120,6 +173,8 @@ A tag is unauthenticated, as a QR sticker is, and unlike a sticker it cannot be 
 
 A read sends nothing from the wallet, and no request is logged.
 
+Presenting hands out exactly what the code shows, to a reader within a few centimetres, where the code is open to anyone who can see the screen. A request holds no secret: someone who reads or relays the tag gets a request that pays the receiver. It is presented only while Receive would let it be shared, and no payload is logged.
+
 ## Checked so far
 
 Recorded November 12, 2026. No radio took part in any of it, since an emulator and a simulator have none.
@@ -130,6 +185,14 @@ Recorded November 12, 2026. No radio took part in any of it, since an emulator a
 - **The test till.** Its unit tests pass, and on the emulator it shows its message, beginning `C1 01 00 00 00 8C 55 00` for its sample request.
 - **The mark.** The gallery draws it listening, with NFC off, refusing a tag and saying why.
 
+Recorded November 13, 2026, for the presenting half, again with no radio:
+
+- **The tag.** `./gradlew :app:testDebugUnitTest` reads it in 16 unit tests as a phone reads a Type 4 tag: messages from 1 byte to 8 KiB read back whole in goes of 255, the capability container byte for byte, nothing read before a file is chosen or after the request is withdrawn or has expired, and a new request never mixed with the old one.
+- **The message.** Jest writes a request and reads it back as a phone's NFC stack takes a message apart, then as this wallet reads a tag. A 457 character request begins `C1 01 00 00 01 CA 55 00`, as a Register is reported to write one.
+- **Receive.** Jest drives the screen over a stand-in for the phone: presenting as the request shows, and withdrawing as it is paid, expires, is scattered or replaced, as Receive is left and as the app leaves the front.
+- **Android.** The release build runs on an Android 17 emulator, and Android lists the service under the card emulation action, bound by the NFC service's permission. The registration file packaged in that build names the placeholder identifier alone. That emulator has no NFC, so nothing there read the service's registration or claimed an application. A throwaway entry that called the module there was answered `missing` for its status, `TAP_OFF` for a request and `TAP_TOO_LARGE` for an empty one, each refusal in the phone's log, and a withdrawal that did nothing. The wallet itself opened Receive as before. Asked for a request it showed its refusal mark and made none, so the request step was seen in the gallery only.
+- **The mark.** The gallery, built for Android and run on that emulator, drew the request with its mark in cream while presented and in steam with NFC off, on its disc at the left of the controls. The state that asks what the mark means ran with no error and was not caught in a screenshot.
+
 ## Not yet confirmed
 
 Nobody has yet held Chicory to a tag of any kind. Before a Register, with the test till on an Android phone:
@@ -137,6 +200,16 @@ Nobody has yet held Chicory to a tag of any kind. Before a Register, with the te
 1. Tap it with an iPhone, from the scanner's control. This settles whether Core NFC reads a tag a phone emulates, whether the till shows the read reaching the end, and how the camera and the sheet behave together.
 2. Tap it with a second Android phone, from Home and with the scanner open. Note how many taps the till counts for one hold, and that closing the scanner with the phones still together opens no second Send.
 3. Present a real invoice of 400 to 500 characters in capitals, and the BIP 321 form.
+
+Nobody has yet read a request Receive presents either. With the wallet on an Android phone showing a request:
+
+1. Read it with a general tag reader (NXP TagInfo) and compare its one URI record with the code's string: for an open amount, a fixed amount, a note, an offline request and the Lightning only fallback. Record how long the longest takes to read.
+2. Pay it from a second Android phone with the scanner open, from Home, and from a cold start, and from an iPhone with the scanner's control. Note whether a tap from Home needs a second try.
+3. Try to read it again after each withdrawal: paid, expired, plus pressed, Receive left, the app behind another, the phone locked. A reader should find no tag from Chicory.
+4. With no request showing and with the app closed, check that a reader finds no tag from Chicory and that no chooser appears. Then install another app that acts as a tag and check that none appears while a request is presented.
+5. Check how soon after the code blooms a tap is answered, which is how long Android takes to route the NDEF application to the wallet.
+
+`adb logcat -s ChicoryNfc` follows all of it from a computer: each request presented and withdrawn, and each reader's reads. If the mark does not appear on a phone with NFC on, Settings > Diagnostics names why.
 
 Nobody has yet tapped Chicory on a Register either. At the first visit, with the Register taking bitcoin:
 

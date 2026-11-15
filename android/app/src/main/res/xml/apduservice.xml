@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The tag Receive presents its request as (docs/TAP-TO-PAY.md).
+
+  The one identifier registered here is a private placeholder, which no reader
+  asks for. The NDEF application every reader does ask for is claimed in code
+  only while a request is on screen, and given back as it goes, so with no
+  request showing the wallet answers nothing and Android offers it to no
+  reader. Both descriptions are the app's name, so no new words are shipped.
+-->
+<host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/app_name"
+    android:requireDeviceUnlock="true">
+    <aid-group
+        android:category="other"
+        android:description="@string/app_name">
+        <aid-filter android:name="F0434849434F525901" />
+    </aid-group>
+</host-apdu-service>

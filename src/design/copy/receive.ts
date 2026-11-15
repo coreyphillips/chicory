@@ -72,6 +72,16 @@ export const receive = {
     'You can close your wallet. Payments will appear when you reopen it.',
   expiresIn: (minutes: number) => `Request expires in ${minutes} minutes`,
   nearExpiry: 'This request expires soon.',
+  /**
+   * The request is presented over NFC, where the phone can act as a tag
+   * (docs/TAP-TO-PAY.md). Heard and whispered, never drawn.
+   */
+  tapPresenting: 'A phone held to this one reads this request.',
+  tapOff: 'NFC is off.',
+  tapOffHint:
+    'Opens NFC settings. With NFC on, a phone held to this one reads this request.',
+  /** For the diagnostic log, under the code of why. The code is still shown. */
+  tapNotPresented: 'This request is not presented over NFC.',
   share: 'Share request',
   copy: 'Copy request',
   copied: 'Request copied',

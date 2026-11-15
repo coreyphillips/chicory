@@ -35,9 +35,9 @@ const reaching = holder =>
 module.exports = {
   root: true,
   extends: '@react-native',
-  // What Gradle writes when the test till is built, its test report's
-  // scripts among it.
-  ignorePatterns: ['native-tests/tap-till/**/build/'],
+  // What Gradle writes when the test till is built or the app's unit tests
+  // are run, a test report's scripts among it.
+  ignorePatterns: ['native-tests/tap-till/**/build/', 'android/app/build/'],
   overrides: [
     {
       // The canvas and everything drawn on it show data, never prose: no

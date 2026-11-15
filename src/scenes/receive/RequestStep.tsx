@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Reanimated, {
   cancelAnimation,
   useAnimatedStyle,
@@ -12,6 +12,7 @@ import { RECEIPT_MARK, ReceiveReceipt } from '../../components/ReceiveReceipt';
 import { copy } from '../../design/copy';
 import { Glyph, HISTORY_GLYPH } from '../../design/glyphs';
 import type { GlyphName } from '../../design/glyphs';
+import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { ExpiryRing } from '../../glyphs/ExpiryRing';
 import { inlineAmount } from '../../glyphs/InlineAmount';
@@ -41,6 +42,7 @@ import { useReceiveHost } from './host';
 import { ListeningPing } from './ListeningPing';
 import { Rock } from './loops';
 import type { Refused, RequestFace } from './model';
+import type { Presenting } from './presenting';
 import { useBloom, useTestNetwork } from './tone';
 import { lateAt, remainderSats, requestRails } from './model';
 
@@ -82,7 +84,12 @@ const LINE = typography.line.fontSize;
  *
  * In the scene (`room`) the controls are pinned to the bottom of the step,
  * in the row the amount and the quote keep theirs in, so the thumb stays
- * where it was from step to step; a refusal sits beside them.
+ * where it was from step to step; a refusal sits beside them, and across
+ * from it, on Android, the mark of a request a phone held to this one reads
+ * (`tap`, docs/TAP-TO-PAY.md). The mark goes with share and copy. Its side
+ * is never narrower than the mark, so on a screen too narrow to centre
+ * share, copy and plus between it and an empty side, they move over to clear
+ * it rather than run under it.
  */
 export function RequestStep({
   request,
@@ -100,6 +107,8 @@ export function RequestStep({
   onCopy,
   copies,
   onShare,
+  tap = null,
+  onTapSettings,
   onAgain,
   onActivity,
   focus,
@@ -125,6 +134,13 @@ export function RequestStep({
   /** How many times the request has been copied, for the copy control's check. */
   copies: number;
   onShare: () => void;
+  /**
+   * The request is presented over NFC, or would be with NFC switched on.
+   * Null where the phone cannot act as a tag, as on every iPhone.
+   */
+  tap?: Presenting;
+  /** Opens the NFC settings, from the mark of NFC switched off. */
+  onTapSettings?: () => void;
   onAgain: () => void;
   onActivity: () => void;
   /** Takes what the request now says: the receipt, a safety state, or itself. */
@@ -148,6 +164,7 @@ export function RequestStep({
   const listening = face.shareable && !lifted && settled;
   const remainder = remainderSats(request.amountSats, receipt);
   const scattered = face.qr === 'scattered';
+  const presenting = tap !== null && face.shareable && !receipt;
   const status =
     face.qr === 'expired'
       ? copy.receive.expired
@@ -255,7 +272,15 @@ export function RequestStep({
         )}
       </View>
       <Reanimated.View entering={stagger(2)} style={styles.controls}>
-        <View style={styles.side} />
+        <View style={[styles.side, presenting && styles.holds]}>
+          {presenting ? (
+            <PresentMark
+              key={tap}
+              off={tap === 'off'}
+              onSettings={onTapSettings}
+            />
+          ) : null}
+        </View>
         <View style={styles.buttons}>
           {receipt ? (
             <Reanimated.View
@@ -375,6 +400,63 @@ function Badge({
   );
 }
 
+/**
+ * The request is presented over NFC, so a phone held to this one reads it
+ * (docs/TAP-TO-PAY.md): `contactless` in cream on a 32pt disc, in a place a
+ * finger can hold to hear what it means whispered. It is the scanner's tap
+ * mark seen from the other phone. With NFC switched off it is steam, and a
+ * button that opens the NFC settings. It says nothing on screen, and it goes
+ * as share and copy go, since a request that cannot be shared is not
+ * presented either.
+ */
+function PresentMark({
+  off,
+  onSettings,
+}: {
+  off: boolean;
+  onSettings?: () => void;
+}) {
+  const label = off ? copy.receive.tapOff : copy.receive.tapPresenting;
+  const disc = (
+    <View style={styles.tapDisc}>
+      <Glyph
+        name="contactless"
+        size={18}
+        color={off ? palette.steam : palette.cream}
+      />
+    </View>
+  );
+  return (
+    <Whisper label={label}>
+      <Reanimated.View entering={riseIn(8)} exiting={dissolve()}>
+        {off ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            accessibilityHint={copy.receive.tapOffHint}
+            onPress={() => {
+              haptics.tick();
+              onSettings?.();
+            }}
+            style={styles.tapArea}
+          >
+            {disc}
+          </Pressable>
+        ) : (
+          <View
+            accessible
+            accessibilityRole="image"
+            accessibilityLabel={label}
+            style={styles.tapArea}
+          >
+            {disc}
+          </View>
+        )}
+      </Reanimated.View>
+    </Whisper>
+  );
+}
+
 /** What the request is for, and how it can be paid. */
 function About({
   request,
@@ -487,6 +569,21 @@ const styles = StyleSheet.create({
     minHeight: TARGET,
     paddingHorizontal: space.xs,
   },
+  // The tap mark's disc, in a place big enough to hold or press.
+  tapArea: {
+    width: TARGET,
+    height: TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tapDisc: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.cocoa,
+  },
   // The whole badge answers a long press, not only its glyph.
   whole: {
     alignSelf: 'stretch',
@@ -501,7 +598,22 @@ const styles = StyleSheet.create({
     gap: space.sm,
     minHeight: CONTROL_ROW,
   },
-  side: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  // The sides split what the controls leave evenly, so share, copy and plus
+  // stay centred wherever there is room. They start from a target rather
+  // than from nothing because Yoga counts a side's minimum as spent before
+  // it splits the rest, which would push the controls off centre at any
+  // width.
+  side: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: TARGET,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  // A side holding the tap mark gives up none of its width. An even split
+  // falls under 48pt below a 376pt window, where the mark would otherwise
+  // run under share, as it did by 16pt at 320.
+  holds: { minWidth: TARGET },
   end: { justifyContent: 'flex-end' },
   buttons: {
     flexDirection: 'row',

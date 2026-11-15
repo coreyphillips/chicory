@@ -1,6 +1,13 @@
-import { paymentUris, recordUri } from '../src/services/ndef';
+import { parsePayment } from '@beignet/wallet-core';
+import {
+  MAX_MESSAGE_BYTES,
+  paymentUris,
+  presentedUri,
+  recordUri,
+  uriMessage,
+} from '../src/services/ndef';
 import type { TapRecord } from '../src/services/ndef';
-import { recordOf, uriRecord } from '../test-support/tap';
+import { messageRecords, recordOf, uriRecord } from '../test-support/tap';
 
 /**
  * What a tag's records say (docs/TAP-TO-PAY.md). The phone's NFC stack has
@@ -148,5 +155,133 @@ describe("the payment links among a tag's records", () => {
       uriRecord('lightning:LNBC1INVOICE'),
     ];
     expect(paymentUris(twice)).toHaveLength(2);
+  });
+});
+
+/**
+ * The other way round: the message Receive presents as a tag, so a phone
+ * held to this one reads its request. It is written here and read back as a
+ * phone's NFC stack would take it apart, then as this wallet reads a tag.
+ */
+describe('the message a request is presented as', () => {
+  /** The BIP 173 example address and a real invoice for 24,425 sats. */
+  const ADDRESS = 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4';
+  const INVOICE =
+    'lnbc244250n1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqw53adf';
+  const hex = (bytes: Uint8Array) =>
+    [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join(' ');
+
+  /** What a phone that read the message would hand the scanner. */
+  const readBack = (uri: string) => {
+    const message = uriMessage(uri);
+    expect(message).not.toBeNull();
+    return paymentUris(messageRecords(message!));
+  };
+
+  test.each([
+    [
+      'a unified link, as the code shows it',
+      `bitcoin:${ADDRESS}?amount=0.00024425&lightning=${INVOICE}`,
+    ],
+    ['an invoice behind its scheme', `lightning:${INVOICE}`],
+    [
+      'a link with a note, percent-encoded as the code has it',
+      `bitcoin:${ADDRESS}?amount=0.00024425&message=Caf%C3%A9%20%26%20cr%C3%A8me&lightning=${INVOICE}`,
+    ],
+    [
+      'a link with a funding envelope, about a kilobyte',
+      `bitcoin:${ADDRESS}?amount=0.00024425&lightning=${INVOICE}&bgnq=${'A1b2'.repeat(
+        200,
+      )}`,
+    ],
+    [
+      'text outside ASCII, kept byte for byte',
+      'bitcoin:?message=caf\u00e9\u2615',
+    ],
+  ])('is read back as the same string: %s', (_, uri) => {
+    expect(readBack(uri)).toEqual([uri]);
+  });
+
+  test('is one URI record and nothing else', () => {
+    const records = messageRecords(uriMessage(`lightning:${INVOICE}`)!);
+    expect(records).toHaveLength(1);
+    expect(records[0].tnf).toBe(1);
+    expect(recordUri(records[0])).toBe(`lightning:${INVOICE}`);
+  });
+
+  test('is a short record while its payload fits one byte of length, and a long one past it', () => {
+    // The payload is the identifier byte and the link: 255 bytes at most
+    // for the short record, which leaves the link 254.
+    const short = uriMessage(`lightning:${'q'.repeat(244)}`)!;
+    expect(hex(short.subarray(0, 5))).toBe('d1 01 ff 55 00');
+    expect(short).toHaveLength(3 + 1 + 255);
+    const long = uriMessage(`lightning:${'q'.repeat(245)}`)!;
+    expect(hex(long.subarray(0, 8))).toBe('c1 01 00 00 01 00 55 00');
+    expect(long).toHaveLength(6 + 1 + 256);
+    expect(readBack(`lightning:${'q'.repeat(244)}`)).toHaveLength(1);
+    expect(readBack(`lightning:${'q'.repeat(245)}`)).toHaveLength(1);
+  });
+
+  test('begins as a payment terminal is reported to write one', () => {
+    // docs/TAP-TO-PAY.md: C1 01 00 00 01 CA 55 00, then lightning: in ASCII,
+    // for a 457 character request.
+    const request = `lightning:${'Q'.repeat(447)}`;
+    expect(request).toHaveLength(457);
+    const message = uriMessage(request)!;
+    expect(message).toHaveLength(465);
+    expect(hex(message.subarray(0, 18))).toBe(
+      'c1 01 00 00 01 ca 55 00 6c 69 67 68 74 6e 69 6e 67 3a',
+    );
+  });
+
+  test('is not written for nothing, or for more than a reader takes', () => {
+    expect(uriMessage('')).toBeNull();
+    // Six bytes of header, the type, the identifier, then the link.
+    const most = MAX_MESSAGE_BYTES - 8;
+    expect(uriMessage(`lightning:${'q'.repeat(most - 10)}`)).toHaveLength(
+      MAX_MESSAGE_BYTES,
+    );
+    expect(uriMessage(`lightning:${'q'.repeat(most - 9)}`)).toBeNull();
+    // Counted in bytes, which a note outside ASCII has more of.
+    expect(
+      uriMessage(`bitcoin:?message=${'\u00e9'.repeat(most / 2)}`),
+    ).toBeNull();
+  });
+
+  describe('says what the code says', () => {
+    test('a link is presented as it is', () => {
+      const unified = `bitcoin:${ADDRESS}?amount=0.00024425&lightning=${INVOICE}`;
+      expect(presentedUri(unified)).toBe(unified);
+      expect(presentedUri(`BITCOIN:${ADDRESS.toUpperCase()}`)).toBe(
+        `BITCOIN:${ADDRESS.toUpperCase()}`,
+      );
+      expect(presentedUri(`lightning:${INVOICE}`)).toBe(`lightning:${INVOICE}`);
+    });
+
+    test('a bare invoice, as the Lightning only fallback makes one, is given its scheme', () => {
+      expect(presentedUri(INVOICE)).toBe(`lightning:${INVOICE}`);
+      expect(presentedUri(`  ${INVOICE}\n`)).toBe(`lightning:${INVOICE}`);
+    });
+
+    test.each([
+      [
+        'the unified link',
+        `bitcoin:${ADDRESS}?amount=0.00024425&lightning=${INVOICE}`,
+      ],
+      ['the bare invoice', INVOICE],
+    ])(
+      'and the wallet that reads it finds the same invoice: %s',
+      (_, request) => {
+        const [read] = readBack(presentedUri(request));
+        const parsed = parsePayment(read);
+        const invoice =
+          parsed.kind === 'bolt11'
+            ? parsed.invoice
+            : parsed.kind === 'onchain' && parsed.lightning?.kind === 'bolt11'
+            ? parsed.lightning.invoice
+            : null;
+        expect(invoice).toBe(INVOICE);
+      },
+    );
   });
 });

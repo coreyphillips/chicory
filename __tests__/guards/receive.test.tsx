@@ -14,6 +14,8 @@ import { copy } from '../../src/design/copy';
 import { CopyChip, chipText } from '../../src/glyphs/CopyChip';
 import { QR_SETTLED } from '../../src/glyphs/QrBloom';
 import { ReceiveScreen } from '../../src/screens/Receive';
+import { setTapPresenter } from '../../src/services/tapPresenter';
+import type { TapStatus } from '../../src/services/tapReader';
 import type { WalletAdapter } from '../../src/services/wallet';
 import {
   NOW,
@@ -28,6 +30,7 @@ import { guard, mount } from '../../test-support/guard';
 import type { GuardedState } from '../../test-support/guard';
 import { enterAmount } from '../../test-support/keypad';
 import { field, press } from '../../test-support/query';
+import { fakeTapPresenter } from '../../test-support/tap';
 
 /**
  * Receive under the copy guard (REDESIGN.md rule 1) and the accessibility
@@ -42,6 +45,7 @@ beforeEach(() => {
   jest.useFakeTimers({ now: NOW });
 });
 afterEach(() => {
+  setTapPresenter(null);
   jest.useRealTimers();
 });
 
@@ -201,6 +205,17 @@ function state(
 ): GuardedState {
   return { name, render, data: shown(extra) };
 }
+
+/**
+ * A state on a phone that can act as an NFC tag, as an Android phone can
+ * (docs/TAP-TO-PAY.md): the request is presented, or would be with NFC on.
+ */
+const onAPhoneThatPresents =
+  (nfc: TapStatus, render: GuardedState['render']): GuardedState['render'] =>
+  () => {
+    setTapPresenter(fakeTapPresenter(nfc));
+    return render();
+  };
 
 const receipt = (status: ReceiveStatus, props = {}) =>
   receive(clientOf({ status }), toRequest, props);
@@ -417,6 +432,14 @@ const GUARDED: GuardedState[] = [
 
   // The request.
   state('a request', receive(clientOf(), toRequest)),
+  state(
+    'a request, presented over NFC',
+    onAPhoneThatPresents('ready', receive(clientOf(), toRequest)),
+  ),
+  state(
+    'a request, with NFC off',
+    onAPhoneThatPresents('off', receive(clientOf(), toRequest)),
+  ),
   state(
     'a request, listening',
     receive(clientOf(), [...toRequest, wait(QR_SETTLED)]),
