@@ -1,8 +1,19 @@
 import * as Keychain from 'react-native-keychain';
-import { DEFAULT_PRIMARY_URI } from '@beignet/wallet-core';
 import type { Network } from '@beignet/wallet-core';
 
 export const NETWORKS: Network[] = ['mainnet', 'testnet', 'regtest'];
+/**
+ * The primary node a new mainnet wallet starts with: the Beignet Umbrel node
+ * at its relay-only Iroh link. The phone dials it through the relay the link
+ * names and never starts Tor for it, and the node offers no address of its
+ * own, so the link carries no IP address. The same node also answers at an
+ * onion address, which wallet-core still exports as its DEFAULT_PRIMARY_URI.
+ *
+ * This only seeds a profile that has never been saved. A saved profile, and
+ * every wallet's own primary, keeps the node its owner chose.
+ */
+export const DEFAULT_MAINNET_PRIMARY_URI =
+  '025501f56b72e7b999443b836ae1bff4c6fff514943d3f6677302a9189949bd99c@iroh:8ec01f040891cb3f9973a1f6139d36c24a4e42b2939186e1508848fc09f8a640?relay=https%3A%2F%2Fuse1-1.relay.n0.iroh.link.%2F';
 /**
  * The regtest Electrum this build ships with: plaintext TCP on the local
  * network. Regtest has no public server to fall back on, so a wallet without
@@ -45,9 +56,10 @@ export function defaultProfile(network: Network): NetworkProfile {
     // Only mainnet ships with a primary node. A test network's primary is
     // whichever node the owner is running, and an address that is merely
     // plausible would dial Tor on every open for a peer that is not there.
-    primaryUri: network === 'mainnet' ? DEFAULT_PRIMARY_URI : '',
-    // The supplied mainnet primary is an onion address, which the app's own Tor
-    // client now reaches. A relay is a choice rather than a requirement.
+    primaryUri: network === 'mainnet' ? DEFAULT_MAINNET_PRIMARY_URI : '',
+    // The supplied mainnet primary is an Iroh link, which only Native
+    // networking reaches. A relay is a choice rather than a requirement, and
+    // choosing one means choosing a primary it can reach.
     transport: 'native',
     relayUrl: '',
     relayToken: '',

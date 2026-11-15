@@ -87,3 +87,18 @@ PRIMARY_MANAGER_URL=http://127.0.0.1:3950 PRIMARY_WALLET_ID=<wallet id> \
 ```
 
 The primary is not started on the host on purpose: on a home network the router usually maps a port for the Iroh endpoint, and a relay-only node then switches its link off instead of offering that address.
+
+## The mainnet default, checked on 2026-11-14
+
+From 0.7.21 a new mainnet wallet starts on the Beignet Umbrel node's relay-only Iroh link instead of its onion address (see the README's Wallet setup). Both name the same node key.
+
+Dialled from a Mac with `@number0/iroh` 1.1.0, the way the phone dials it (discovery off, the link's relay hint, ALPN `beignet/bolt8/1`), the link connected 3 times out of 3 in about 125 ms, with a 70 ms round trip. Four seconds in, the only path was the relay.
+
+On an Android 17 emulator, Chicory 0.7.20 with one mainnet wallet and no channel was cold started three times on each address. The table gives the boot report's `primary-connected` mark, in milliseconds from launch:
+
+| Primary | Run 1 | Run 2 | Run 3 | Tor ready |
+| --- | --- | --- | --- | --- |
+| Onion address | not within 60 s | 14,282 | not within 60 s, the dial timed out | 10,353, 3,291, 3,517 |
+| Iroh link | 4,948 | 4,551 | 4,684 | never started |
+
+Diagnostics read `primaryTransport` `iroh-relay` with a 47 ms round trip. The emulator was started with four cores. With the AVD's one core the bundled Tor client panics at start ("Max blocking threads cannot be set to 0"), so an onion primary never connects on a one-core device. This is emulator evidence on a home network. Cellular networks and physical phones are still to do.

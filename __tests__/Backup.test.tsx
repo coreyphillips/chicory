@@ -3,6 +3,9 @@ import { AccessibilityInfo } from 'react-native';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
 import { CreateWalletScreen } from '../src/screens/Settings';
+import { DEFAULT_PRIMARY_URI } from '@beignet/wallet-core';
+import { copy } from '../src/design/copy';
+import { DEFAULT_MAINNET_PRIMARY_URI } from '../src/services/networks';
 import { Bloom, litRings } from '../src/glyphs/Bloom';
 import {
   countWords,
@@ -554,4 +557,41 @@ test('turning a new wallet to mainnet is felt and read out at once', async () =>
   await act(async () => label(tree, 'testnet').props.onPress());
   expect(announced).not.toHaveBeenCalled();
   await act(async () => tree.unmount());
+});
+
+test('a new wallet starts on the Iroh default and says what its relay can see', async () => {
+  const client = {
+    connection: { url: 'embedded:', token: '' },
+    getConfig: jest.fn().mockResolvedValue({ hasDefaultElectrum: true }),
+    createWallet: jest.fn(),
+  } as unknown as WalletAdapter;
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      <CreateWalletScreen
+        client={client}
+        onCreated={jest.fn()}
+        onBusy={jest.fn()}
+      />,
+    );
+  });
+  const notice = () =>
+    tree.root.findAll(
+      item =>
+        typeof item.type === 'string' &&
+        item.props.children === copy.settings.primary.iroh,
+    ).length > 0;
+  expect(field(tree, 'Primary node').props.value).toBe(
+    DEFAULT_MAINNET_PRIMARY_URI,
+  );
+  expect(notice()).toBe(true);
+  // The onion address of the same node reaches it over Tor, which no relay
+  // sees through, so the notice goes.
+  await act(async () => {
+    field(tree, 'Primary node').props.onChangeText(DEFAULT_PRIMARY_URI);
+  });
+  expect(notice()).toBe(false);
+  await act(async () => {
+    tree.unmount();
+  });
 });

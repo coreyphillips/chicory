@@ -15,7 +15,7 @@ import Reanimated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { DEFAULT_PRIMARY_URI, validatePrimaryUri } from '@beignet/wallet-core';
+import { validatePrimaryUri } from '@beignet/wallet-core';
 import type { Network, WalletSnapshot } from '@beignet/wallet-core';
 import { RecoveryPhraseBody } from '../components/RecoveryPhrase';
 import type { PhraseLanding } from '../components/RecoveryPhrase';
@@ -116,7 +116,11 @@ import {
   useAutoPay,
 } from '../services/autoPayPreference';
 import type { WalletAdapter } from '../services/wallet';
-import { NETWORKS, loadNetworkPreferences } from '../services/networks';
+import {
+  DEFAULT_MAINNET_PRIMARY_URI,
+  NETWORKS,
+  loadNetworkPreferences,
+} from '../services/networks';
 import type { NetworkProfile } from '../services/networks';
 import { NetworkSettings } from './NetworkSettings';
 import { useSettingsOutcome } from '../services/settingsOutcome';
@@ -336,13 +340,13 @@ function PrimaryPanel({
     setClosed(true);
   };
   const [primary, setPrimary] = useState(
-    snapshot.primary.uri || DEFAULT_PRIMARY_URI,
+    snapshot.primary.uri || DEFAULT_MAINNET_PRIMARY_URI,
   );
   // The node field follows the wallet it describes: a wallet whose primary is
   // filled in once setup completes, or a different wallet altogether, must not
   // leave the previous address one tap from being saved.
   useEffect(() => {
-    setPrimary(snapshot.primary.uri || DEFAULT_PRIMARY_URI);
+    setPrimary(snapshot.primary.uri || DEFAULT_MAINNET_PRIMARY_URI);
     setFallback(snapshot.primary.fallbackUri || '');
   }, [snapshot.primary.uri, snapshot.primary.fallbackUri]);
   const p = words.primary;

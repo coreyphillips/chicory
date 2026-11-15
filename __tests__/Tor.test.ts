@@ -807,18 +807,18 @@ describe('opening a device wallet', () => {
       jest.useRealTimers();
     });
 
-    test('a new wallet with the default onion primary is created only once a slow Tor bootstrap is done', async () => {
+    test('a new wallet with an onion primary is created only once a slow Tor bootstrap is done', async () => {
       // The engine starts inside the create request and dials the primary.
-      const { DEFAULT_PRIMARY_URI } = require('@beignet/wallet-core');
+      const onionNode = `02${'ab'.repeat(32)}@${ONION}:9735`;
       const client = await openDeviceWallet({
         ...profile({ host: '127.0.0.1', port: 60001, tls: false }),
-        primaryUri: DEFAULT_PRIMARY_URI,
+        primaryUri: onionNode,
       });
       const created = client
         .createWallet({
           name: 'My wallet',
           network: 'regtest',
-          primaryUri: DEFAULT_PRIMARY_URI,
+          primaryUri: onionNode,
         })
         .catch(() => {});
       await jest.advanceTimersByTimeAsync(BOOTSTRAP_MS - 1);
@@ -827,6 +827,27 @@ describe('opening a device wallet', () => {
       await created;
       expect(engineRequests()).toEqual(['/api/wallets']);
       expect(RnTor.startTorIfNotRunning).toHaveBeenCalledTimes(1);
+    });
+
+    test('a new wallet with the default Iroh primary is created at once and never starts Tor', async () => {
+      const {
+        DEFAULT_MAINNET_PRIMARY_URI,
+      } = require('../src/services/networks');
+      const client = await openDeviceWallet({
+        ...profile({ host: '127.0.0.1', port: 60001, tls: false }),
+        primaryUri: DEFAULT_MAINNET_PRIMARY_URI,
+      });
+      const created = client
+        .createWallet({
+          name: 'My wallet',
+          network: 'regtest',
+          primaryUri: DEFAULT_MAINNET_PRIMARY_URI,
+        })
+        .catch(() => {});
+      await jest.advanceTimersByTimeAsync(0);
+      await created;
+      expect(engineRequests()).toEqual(['/api/wallets']);
+      expect(RnTor.startTorIfNotRunning).not.toHaveBeenCalled();
     });
 
     test.each([
