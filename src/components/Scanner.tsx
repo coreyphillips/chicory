@@ -78,17 +78,16 @@ import { HIT_SLOP, space } from '../theme';
  * module was added; without it this degrades to the paste path rather than a
  * blank or broken screen.
  *
- * A scanned code is handed to Send exactly as a pasted one is, and only once
- * the payment parser can read it as something to pay. Nothing is paid from
- * here, and no frame or image leaves the device.
+ * A payment scan hands the request and its source to Send once the payment
+ * parser accepts it. Send applies the user's Auto-pay settings.
  *
  * A payment scan also reads a payment terminal held to the phone, where the
  * phone can (docs/TAP-TO-PAY.md). Android listens for as long as the scan is
  * open and in front, camera or no camera, and says so with `contactless`
  * above the controls: cream while it listens, steam and a way to the NFC
  * settings while NFC is off, and absent on a phone with no NFC. A request
- * read that way is taken as a pasted one is, never as the camera's, and a
- * tag that cannot be paid is refused on the mark. An iPhone reads a tag only
+ * read that way is delivered with its NFC source. A tag that cannot be
+ * paid is refused on the mark. An iPhone reads a tag only
  * when asked, so there the same glyph is a control beside the paste: it
  * raises the system's sheet for one tag, inside `duringSystemPrompt`, and is
  * absent where tags cannot be read.

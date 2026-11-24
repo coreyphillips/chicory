@@ -217,22 +217,24 @@ export const settings = {
     hapticsFailed: 'Could not save the haptics setting.',
     /** Settings > Auto-pay (REDESIGN.md rule 5). */
     autoPay: 'Auto-pay',
-    autoPayLabel: 'Pay scanned Lightning codes without holding',
+    autoPayLabel: 'Auto-pay scanned Lightning invoices',
+    autoPayTap: 'Include tap-to-pay',
+    autoPayTapLabel: 'Include tap-to-pay within the auto-pay limit',
     /** The slider under it while it is on. */
     autoPayLimit: 'Auto-pay limit',
     autoPayLimitHint:
-      'Scanned codes up to this share of your balance pay without a hold.',
+      'Sets the share of your available balance you can spend per automatic payment, including fees.',
     autoPayShare: (share: number) => `${share}%`,
     /** Before the sats the share stands for today. */
     autoPayUpTo: 'Up to',
     /** In their place at 0%. */
-    autoPayNothing: 'Every code waits for your hold',
+    autoPayNothing: 'Every payment waits for your hold',
     autoPayNote:
-      'Scanned Lightning codes up to this share of your balance pay as soon as they are read. Anything more waits for your hold.',
+      'Scanned Lightning invoices pay automatically up to this limit, including fees. Larger payments wait for your hold.',
     /** What a screen reader hears as the slider's value. */
     autoPaySpoken: (share: number, limitSats: number) =>
       share === 0
-        ? '0%. Every code waits for your hold.'
+        ? '0%. Every payment waits for your hold.'
         : `${share}% of your balance, up to ${sats(limitSats)}`,
     autoPayFailed: 'Could not save the auto-pay setting.',
   },

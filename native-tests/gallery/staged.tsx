@@ -105,7 +105,7 @@ export const open = {
   /** Send with a code the camera read from home, as the scan overlay opens it. */
   scanned: (prefill: string): StageAction => ({
     type: 'open',
-    scene: { name: 'send', prefill, scanned: true },
+    scene: { name: 'send', prefill, source: 'camera' },
   }),
   detail: (item: Activity): StageAction => ({
     type: 'open',

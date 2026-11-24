@@ -101,6 +101,7 @@ import {
   Note,
   Row,
   SettingsNetwork,
+  Toggle,
   nodeAddressText,
   testNetwork,
   unbroken,
@@ -111,6 +112,7 @@ import {
 import { duringSystemPrompt } from '../stage/systemPrompt';
 import { usePaneActive } from '../stage/panes/Pane';
 import { useHapticsPreference } from '../services/hapticsPreference';
+import type { AutoPay } from '../services/autoPayPreference';
 import {
   setAutoPayPreference,
   useAutoPay,
@@ -600,7 +602,7 @@ const HapticsRow = memo(function HapticsLine({
  * Settings > Auto-pay (REDESIGN.md rule 5): a switch, off until it is
  * turned on, whose limit opens under it while it is on. Its glyph is the
  * scan frame round a bolt, which closes on the bolt as it turns on. On, the
- * row grows to show the share of the balance a scanned Lightning code may
+ * row grows to show the tap-to-pay opt-in and the share a Lightning invoice may
  * spend and still pay itself: the share in large figures, popping at each
  * detent, the sats it stands for today rolling beside it, the slider in
  * detents of 5%, and what it does. The share is 50% the first time and kept
@@ -626,11 +628,12 @@ const AutoPayRow = memo(function AutoPayLine({
   symbol: boolean;
   stale: boolean;
 }) {
-  const { on, share } = useAutoPay();
+  const { on, share, tapToPay } = useAutoPay();
   const { accent } = useAccent();
   const { reduced } = useMotionPrefs();
   const size = useGlyphSize(ROW_GLYPH);
   const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
   const [error, setError] = useState('');
   // The share under the thumb while it moves, and whether the switch was
   // turned on here: then the thumb grows out to the share, the readout with
@@ -642,16 +645,19 @@ const AutoPayRow = memo(function AutoPayLine({
   const shown = moving ?? share;
   const { frame, onLayout } = useRevealOnOpen(on && turned);
 
-  const save = async (next: { on: boolean; share: number }) => {
+  const save = async (change: Partial<AutoPay>) => {
+    if (saving.current) return false;
+    saving.current = true;
     setBusy(true);
     setError('');
     try {
-      await setAutoPayPreference(next);
+      await setAutoPayPreference(change);
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : words.phone.autoPayFailed);
       return false;
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   };
@@ -669,7 +675,7 @@ const AutoPayRow = memo(function AutoPayLine({
           // Opened, the thumb grows out from 0 to the share it keeps.
           setTurned(next);
           setMoving(next && !reduced ? 0 : null);
-          if (!(await save({ on: next, share }))) setMoving(null);
+          if (!(await save({ on: next }))) setMoving(null);
         }}
       />
       {on ? (
@@ -681,12 +687,22 @@ const AutoPayRow = memo(function AutoPayLine({
             unit={unit}
             symbol={symbol}
             stale={stale}
+            disabled={busy}
             wake={woke}
             onPreview={setMoving}
             onChoose={async next => {
               setMoving(next);
-              await save({ on: true, share: next });
+              await save({ share: next });
               setMoving(null);
+            }}
+          />
+          <Toggle
+            label={words.phone.autoPayTap}
+            accessibilityLabel={words.phone.autoPayTapLabel}
+            value={tapToPay}
+            disabled={busy}
+            onValueChange={async next => {
+              await save({ tapToPay: next });
             }}
           />
         </RowContent>
@@ -710,6 +726,7 @@ function AutoPayLimit({
   unit,
   symbol,
   stale,
+  disabled,
   wake,
   onPreview,
   onChoose,
@@ -720,6 +737,7 @@ function AutoPayLimit({
   unit: Unit;
   symbol: boolean;
   stale: boolean;
+  disabled: boolean;
   wake: boolean;
   onPreview: (share: number) => void;
   onChoose: (share: number) => void;
@@ -779,6 +797,7 @@ function AutoPayLimit({
       </View>
       <ShareSlider
         share={share}
+        disabled={disabled}
         spoken={spoken}
         wake={wake}
         onPreview={onPreview}

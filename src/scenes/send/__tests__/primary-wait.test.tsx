@@ -288,7 +288,7 @@ describe('the wait for the primary ends', () => {
     await press(tree, copy.send.review);
     expect(busy(tree)).toBe(true);
     await act(async () => {
-      ref.current?.receive(OTHER, false);
+      ref.current?.receive(OTHER);
     });
     expect(busy(tree)).toBe(false);
     await asksGoBy(3);
@@ -357,10 +357,10 @@ describe('a primary that is not expected back', () => {
 
 describe('Auto-pay', () => {
   test('pays nothing by itself after a wait: the review that comes is held', async () => {
-    await setAutoPayPreference({ on: true, share: 100 });
+    await setAutoPayPreference({ on: true, share: 100, tapToPay: false });
     const wallet = client(1, async () => quote);
     // The camera read it, so the review is asked for with no press.
-    const tree = await draw(wallet, { scanned: true });
+    const tree = await draw(wallet, { source: 'camera' });
     expect(wallet.prepareSend).toHaveBeenCalledTimes(1);
     expect(busy(tree)).toBe(true);
     await past(PRIMARY_RETRY_MS);

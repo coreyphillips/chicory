@@ -77,11 +77,36 @@ describe('a tag Android hands to the app', () => {
     expect(MANIFEST_CODE).not.toContain('TAG_DISCOVERED');
   });
 
-  test('reaches the one activity, which takes it as a new intent', () => {
+  test('only the NFC dispatcher can launch the terminal payment alias', () => {
     expect(MAIN_ACTIVITY).toContain('android:launchMode="singleTask"');
-    // The launcher and a browser must be able to start the same activity, so
-    // it cannot be closed to everything but the NFC service.
     expect(MAIN_ACTIVITY).not.toContain('android:permission=');
+    const alias = MANIFEST_CODE.match(
+      /<activity-alias\b[^>]*>[\s\S]*?<\/activity-alias>/,
+    )?.[0];
+    expect(alias).toContain('android:name="${applicationId}.NfcPayment"');
+    expect(alias).toContain('android:targetActivity=".MainActivity"');
+    expect(alias).toContain(
+      'android:permission="android.permission.DISPATCH_NFC_MESSAGE"',
+    );
+    expect(alias).not.toContain('android.intent.action.VIEW');
+    for (const filter of ndefFilters()) expect(alias).toContain(filter);
+    expect(MANIFEST_CODE.replace(alias!, '')).not.toContain('NDEF_DISCOVERED');
+  });
+
+  test('only an NFC intent on the protected alias gets the internal tap marker', () => {
+    const payment = bodyOf(
+      ACTIVITY_CODE,
+      'private fun paymentIntent(incoming: Intent)',
+    );
+    expect(payment).toMatch(
+      /if \(!uri\.scheme\.equals\("bitcoin", ignoreCase = true\) && !uri\.scheme\.equals\("lightning", ignoreCase = true\)\) \{\s*return Intent\(incoming\)\.setData\(null\)/,
+    );
+    expect(payment).toMatch(
+      /incoming\.action == NfcAdapter\.ACTION_NDEF_DISCOVERED &&\s*incoming\.component == ComponentName\(this, "\$packageName\.NfcPayment"\)/,
+    );
+    expect(payment).toMatch(
+      /if \(fromTerminal\) Intent\(incoming\)\.setData\(Uri\.parse\("chicory-nfc:\$uri"\)\) else incoming/,
+    );
   });
 
   test('is forwarded to Linking by React Native itself', () => {
@@ -141,7 +166,7 @@ describe('a tag Android hands to the app', () => {
       'override fun onNewIntent(intent: Intent)',
     );
     expect(fresh).toMatch(
-      /^\s*super\.onNewIntent\(intent\)\s*setIntent\(intent\)\s*$/,
+      /^\s*val payment = paymentIntent\(intent\)\s*setIntent\(payment\)\s*super\.onNewIntent\(payment\)\s*$/,
     );
 
     // And one built again, from saved state or from the recents list, forgets
@@ -149,14 +174,12 @@ describe('a tag Android hands to the app', () => {
     // Send on a request already dealt with.
     const rebuilt = bodyOf(
       ACTIVITY_CODE,
-      'override fun onPostCreate(savedInstanceState: Bundle?)',
+      'override fun onCreate(savedInstanceState: Bundle?)',
     );
     expect(rebuilt).toContain('Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY');
     expect(rebuilt).toMatch(
-      /if \(savedInstanceState != null \|\| fromRecents\) \{\s*setIntent\(Intent\(intent\)\.setData\(null\)\)\s*\}/,
+      /if \(savedInstanceState != null \|\| fromRecents\) \{\s*Intent\(intent\)\.setData\(null\)\s*\} else \{\s*paymentIntent\(intent\)\s*\}\s*setIntent\(launch\)\s*super\.onCreate/,
     );
-    // A first launch, by a tag or a link, keeps its request to be read once.
-    expect(ACTIVITY_CODE.match(/setData\(null\)/g)).toHaveLength(1);
   });
 
   test('is read by an app still running when a new activity is made for it', () => {
@@ -304,20 +327,8 @@ describe('the reader the payment scanner listens with on Android', () => {
     expect(KOTLIN_CODE.match(/disableReaderMode\(/g)).toHaveLength(1);
     for (const hook of ['fun cancel(', 'fun onHostDestroy(', 'fun invalidate('])
       expect(KOTLIN_CODE).toContain(hook);
-    // The activity is not part of it: its onCreate is pinned by the privacy
-    // cover's own test, and it leaves NFC to the module.
-    expect(
-      read(
-        'android',
-        'app',
-        'src',
-        'main',
-        'java',
-        'com',
-        'chicory',
-        'MainActivity.kt',
-      ),
-    ).not.toMatch(/nfc/i);
+    // The activity receives dispatch intents. Only the scanner owns the radio.
+    expect(ACTIVITY_CODE).not.toMatch(/enableReaderMode|disableReaderMode/);
   });
 
   test('passes records on as bytes, and reads nothing into them', () => {

@@ -1,4 +1,5 @@
 import React, { createRef } from 'react';
+import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
@@ -38,11 +39,8 @@ import { stepInMs } from '../useLanding';
 jest.mock('../../../design/announce', () => ({ announce: jest.fn() }));
 
 /**
- * Settings > Auto-pay on Send (REDESIGN.md rule 5): a Lightning code the
- * camera read, naming its amount, is reviewed on its own and pays as its
- * review lands when its whole debit is within the share of what can be
- * sent. Anything else is reviewed and held as before, and nothing that came
- * by a link, a paste or typing ever pays itself.
+ * An eligible camera or NFC read pays a fixed Lightning invoice once its
+ * quote lands within the configured share of the spendable balance.
  */
 
 /** 24,425 sats. */
@@ -100,7 +98,17 @@ function client(over: Partial<Record<'prepareSend' | 'send', jest.Mock>> = {}) {
   };
 }
 
+function pendingQuote() {
+  let finish!: (review: SendReview) => void;
+  const pending = new Promise<SendReview>(resolve => {
+    finish = resolve;
+  });
+  return { wallet: client({ prepareSend: jest.fn(() => pending) }), finish };
+}
+
 type Props = Partial<React.ComponentProps<typeof SendScreen>>;
+
+const cameraInvoice: Props = { initialRequest: INVOICE, source: 'camera' };
 
 function screen(wallet: object, props: Props = {}, live = true) {
   return (
@@ -133,7 +141,8 @@ const arrive = () =>
     await new Promise<void>(resolve => setTimeout(resolve, stepInMs() + 50));
   });
 
-const on = (share = 50) => setAutoPayPreference({ on: true, share });
+const on = (share = 50) =>
+  setAutoPayPreference({ on: true, share, tapToPay: false });
 
 beforeEach(async () => {
   forgetSafety();
@@ -150,7 +159,7 @@ afterEach(async () => {
 describe('off, as it is until it is switched on', () => {
   test('a scanned invoice is reviewed only when asked, and paid only when held', async () => {
     const wallet = client();
-    const tree = await draw(wallet, { initialRequest: INVOICE, scanned: true });
+    const tree = await draw(wallet, cameraInvoice);
     expect(wallet.prepareSend).not.toHaveBeenCalled();
     await press(tree, copy.send.review);
     expect(wallet.send).not.toHaveBeenCalled();
@@ -166,7 +175,7 @@ describe('on, at 50%', () => {
 
   test('a scanned invoice within the share is reviewed and paid with no hold', async () => {
     const wallet = client();
-    const tree = await draw(wallet, { initialRequest: INVOICE, scanned: true });
+    const tree = await draw(wallet, cameraInvoice);
     expect(wallet.prepareSend).toHaveBeenCalledTimes(1);
     expect(wallet.prepareSend).toHaveBeenCalledWith({
       request: INVOICE,
@@ -189,7 +198,7 @@ describe('on, at 50%', () => {
     const wallet = client({
       send: jest.fn(() => new Promise<SendResult>(() => {})),
     });
-    const tree = await draw(wallet, { initialRequest: INVOICE, scanned: true });
+    const tree = await draw(wallet, cameraInvoice);
     expect(wallet.send).toHaveBeenCalledTimes(1);
     expect(felt()).not.toContain('impactMedium');
     await arrive();
@@ -201,18 +210,17 @@ describe('on, at 50%', () => {
     const wallet = client();
     const ref = createRef<SendHandle>();
     const tree = await draw(wallet, { ref });
-    await act(async () => ref.current?.receive(INVOICE, true));
+    await act(async () => ref.current?.receive(INVOICE, 'camera'));
     expect(wallet.send).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
   });
 
   test('waits for Send to be in front before it pays', async () => {
     const wallet = client();
-    const props = { initialRequest: INVOICE, scanned: true };
-    const tree = await draw(wallet, props, false);
+    const tree = await draw(wallet, cameraInvoice, false);
     expect(wallet.prepareSend).toHaveBeenCalledTimes(1);
     expect(wallet.send).not.toHaveBeenCalled();
-    await act(async () => tree.update(screen(wallet, props, true)));
+    await act(async () => tree.update(screen(wallet, cameraInvoice, true)));
     expect(wallet.send).toHaveBeenCalledTimes(1);
     await act(async () => tree.unmount());
   });
@@ -225,7 +233,7 @@ describe('on, at 50%', () => {
           quote({ amountSats: 49_990, feeSats: 20, totalSats: 50_010 }),
         ),
     });
-    const tree = await draw(wallet, { initialRequest: INVOICE, scanned: true });
+    const tree = await draw(wallet, cameraInvoice);
     expect(wallet.prepareSend).toHaveBeenCalledTimes(1);
     expect(wallet.send).not.toHaveBeenCalled();
     expect(holds(tree, copy.send.sendSats(49_990))).toHaveLength(1);
@@ -240,7 +248,7 @@ describe('on, at 50%', () => {
         .fn()
         .mockResolvedValue(quote({ warnings: ['The route is costly.'] })),
     });
-    const tree = await draw(wallet, { initialRequest: INVOICE, scanned: true });
+    const tree = await draw(wallet, cameraInvoice);
     expect(wallet.send).not.toHaveBeenCalled();
     expect(holds(tree, HOLD)).toHaveLength(1);
     await act(async () => tree.unmount());
@@ -252,7 +260,7 @@ describe('on, at 50%', () => {
         .fn()
         .mockResolvedValue(quote({ expiresAt: Date.now() - 1 })),
     });
-    const tree = await draw(wallet, { initialRequest: INVOICE, scanned: true });
+    const tree = await draw(wallet, cameraInvoice);
     expect(wallet.send).not.toHaveBeenCalled();
     await act(async () => tree.unmount());
   });
@@ -265,7 +273,7 @@ describe('on, at 50%', () => {
         .mockRejectedValueOnce(refused)
         .mockResolvedValue(quote()),
     });
-    const tree = await draw(wallet, { initialRequest: INVOICE, scanned: true });
+    const tree = await draw(wallet, cameraInvoice);
     expect(wallet.prepareSend).toHaveBeenCalledTimes(1);
     expect(wallet.send).not.toHaveBeenCalled();
     await press(tree, copy.send.review);
@@ -280,7 +288,7 @@ describe('on, at 50%', () => {
         .fn()
         .mockResolvedValue(quote({ warnings: ['The route is costly.'] })),
     });
-    const tree = await draw(wallet, { initialRequest: INVOICE, scanned: true });
+    const tree = await draw(wallet, cameraInvoice);
     await press(tree, copy.send.edit);
     wallet.prepareSend.mockResolvedValue(quote());
     await press(tree, copy.send.review);
@@ -291,7 +299,7 @@ describe('on, at 50%', () => {
   test('a request held already is never prepared or paid', async () => {
     holdRequest(INVOICE, { status: 'pending' });
     const wallet = client();
-    const tree = await draw(wallet, { initialRequest: INVOICE, scanned: true });
+    const tree = await draw(wallet, cameraInvoice);
     expect(wallet.prepareSend).not.toHaveBeenCalled();
     expect(wallet.send).not.toHaveBeenCalled();
     expect(meaning(tree)).toContain(copy.send.onItsWay);
@@ -300,10 +308,9 @@ describe('on, at 50%', () => {
 
   test('a balance too old to spend against pays nothing, even once it is fresh', async () => {
     const wallet = client();
-    const props = { initialRequest: INVOICE, scanned: true };
-    const tree = await draw(wallet, { ...props, disabled: true });
+    const tree = await draw(wallet, { ...cameraInvoice, disabled: true });
     expect(wallet.prepareSend).not.toHaveBeenCalled();
-    await act(async () => tree.update(screen(wallet, props)));
+    await act(async () => tree.update(screen(wallet, cameraInvoice)));
     expect(wallet.prepareSend).not.toHaveBeenCalled();
     expect(wallet.send).not.toHaveBeenCalled();
     await act(async () => tree.unmount());
@@ -311,13 +318,14 @@ describe('on, at 50%', () => {
 
   test('while the wallet opens it waits for the live read, then judges by it', async () => {
     const wallet = client();
-    const props = { initialRequest: INVOICE, scanned: true };
-    const tree = await draw(wallet, { ...props, opening: true });
+    const tree = await draw(wallet, { ...cameraInvoice, opening: true });
     expect(wallet.prepareSend).not.toHaveBeenCalled();
     // The live read finds less than the saved figures said: 24,460 is now
     // over half of what can be sent.
     await act(async () =>
-      tree.update(screen(wallet, { ...props, balance: balance(40_000) })),
+      tree.update(
+        screen(wallet, { ...cameraInvoice, balance: balance(40_000) }),
+      ),
     );
     expect(wallet.prepareSend).toHaveBeenCalledTimes(1);
     expect(wallet.send).not.toHaveBeenCalled();
@@ -329,7 +337,7 @@ describe('on, at 50%', () => {
     const wallet = client();
     const tree = await draw(wallet, {
       initialRequest: INVOICE,
-      scanned: true,
+      source: 'camera',
       balance: undefined,
     });
     expect(wallet.send).not.toHaveBeenCalled();
@@ -356,7 +364,7 @@ describe('never paid on its own, whatever the share', () => {
     await act(async () => tree.unmount());
   });
 
-  test.each(['photo', 'clipboard', 'tap'])(
+  test.each(['photo', 'clipboard'])(
     'a standalone scanner %s prefill waits for review and confirmation',
     async source => {
       const wallet = client();
@@ -386,7 +394,7 @@ describe('never paid on its own, whatever the share', () => {
     const wallet = client();
     const tree = await draw(wallet, {
       initialRequest: OPEN_INVOICE,
-      scanned: true,
+      source: 'camera',
     });
     expect(wallet.prepareSend).not.toHaveBeenCalled();
     await act(async () => tree.unmount());
@@ -396,7 +404,10 @@ describe('never paid on its own, whatever the share', () => {
     const wallet = client({
       prepareSend: jest.fn().mockResolvedValue(quote({ route: 'bitcoin' })),
     });
-    const tree = await draw(wallet, { initialRequest: BITCOIN, scanned: true });
+    const tree = await draw(wallet, {
+      initialRequest: BITCOIN,
+      source: 'camera',
+    });
     expect(wallet.prepareSend).not.toHaveBeenCalled();
     await act(async () => tree.unmount());
   });
@@ -405,9 +416,88 @@ describe('never paid on its own, whatever the share', () => {
     const wallet = client({
       prepareSend: jest.fn().mockResolvedValue(quote({ route: 'bitcoin' })),
     });
-    const tree = await draw(wallet, { initialRequest: INVOICE, scanned: true });
+    const tree = await draw(wallet, cameraInvoice);
     expect(wallet.prepareSend).toHaveBeenCalledTimes(1);
     expect(wallet.send).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+});
+
+describe('tap-to-pay', () => {
+  beforeEach(() =>
+    setAutoPayPreference({ on: true, share: 50, tapToPay: true }),
+  );
+
+  test.each([
+    { available: 48_920, sends: 1 },
+    { available: 48_918, sends: 0 },
+  ])(
+    '24,460 sats including fees with $available spendable produces $sends automatic sends',
+    async ({ available, sends }) => {
+      const wallet = client();
+      const tree = await draw(wallet, {
+        initialScanning: true,
+        balance: balance(available),
+      });
+      await act(async () =>
+        tree.root.findByType(Scanner).props.onDetected(INVOICE, 'tap'),
+      );
+      expect(wallet.prepareSend).toHaveBeenCalledTimes(1);
+      expect(wallet.send).toHaveBeenCalledTimes(sends);
+      if (!sends) expect(holds(tree, HOLD)).toHaveLength(1);
+      await act(async () => tree.unmount());
+    },
+  );
+
+  test('a tap waits for the hold if the owner opts out while the quote is pending', async () => {
+    const { wallet, finish } = pendingQuote();
+    const tree = await draw(wallet, { initialRequest: INVOICE, source: 'tap' });
+    expect(wallet.prepareSend).toHaveBeenCalledTimes(1);
+    await on(50);
+    await act(async () => finish(quote()));
+    expect(wallet.send).not.toHaveBeenCalled();
+    expect(holds(tree, HOLD)).toHaveLength(1);
+    await act(async () => tree.unmount());
+  });
+
+  test('a tap priced in the background pays once the app returns to the foreground', async () => {
+    const previous = AppState.currentState;
+    AppState.currentState = 'active';
+    jest.mocked(AppState.addEventListener).mockClear();
+    const { wallet, finish } = pendingQuote();
+    const tree = await draw(wallet, { initialScanning: true });
+    try {
+      await act(async () =>
+        tree.root.findByType(Scanner).props.onDetected(INVOICE, 'tap'),
+      );
+      expect(wallet.prepareSend).toHaveBeenCalledTimes(1);
+      const changeState = (state: 'background' | 'active') =>
+        act(async () => {
+          AppState.currentState = state;
+          for (const [event, notify] of jest.mocked(AppState.addEventListener)
+            .mock.calls) {
+            if (event === 'change') notify(state);
+          }
+        });
+      await changeState('background');
+      await act(async () => finish(quote()));
+      expect(wallet.send).not.toHaveBeenCalled();
+      await changeState('active');
+      expect(wallet.send).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(async () => tree.unmount());
+      AppState.currentState = previous;
+    }
+  });
+
+  test('turning off Auto-pay also turns off automatic tap payments', async () => {
+    await setAutoPayPreference({ on: false, share: 50, tapToPay: true });
+    const wallet = client();
+    const tree = await draw(wallet, { initialRequest: INVOICE, source: 'tap' });
+    expect(wallet.prepareSend).not.toHaveBeenCalled();
+    await press(tree, copy.send.review);
+    expect(wallet.send).not.toHaveBeenCalled();
+    expect(holds(tree, HOLD)).toHaveLength(1);
     await act(async () => tree.unmount());
   });
 });
@@ -415,7 +505,7 @@ describe('never paid on its own, whatever the share', () => {
 test('at 0% nothing pays itself', async () => {
   await on(0);
   const wallet = client();
-  const tree = await draw(wallet, { initialRequest: INVOICE, scanned: true });
+  const tree = await draw(wallet, cameraInvoice);
   expect(wallet.send).not.toHaveBeenCalled();
   await act(async () => tree.unmount());
 });

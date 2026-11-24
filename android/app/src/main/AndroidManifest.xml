@@ -49,11 +49,13 @@
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="lightning" />
         </intent-filter>
-        <!--
-          A payment request read from an NFC tag, such as a payment terminal
-          presents, arrives as the same link and opens the same review. It
-          never prepares or sends a payment on its own. See docs/TAP-TO-PAY.md.
-        -->
+      </activity>
+      <!-- Only the system NFC dispatcher can deliver a tap eligible for Auto-pay. -->
+      <activity-alias
+        android:name="${applicationId}.NfcPayment"
+        android:targetActivity=".MainActivity"
+        android:permission="android.permission.DISPATCH_NFC_MESSAGE"
+        android:exported="true">
         <intent-filter>
             <action android:name="android.nfc.action.NDEF_DISCOVERED" />
             <category android:name="android.intent.category.DEFAULT" />
@@ -64,7 +66,7 @@
             <category android:name="android.intent.category.DEFAULT" />
             <data android:scheme="bitcoin" />
         </intent-filter>
-      </activity>
+      </activity-alias>
       <!--
         The tag Receive presents its request as, to a phone held to this one.
         Only Android's NFC service may bind it. It answers a reader only while

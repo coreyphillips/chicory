@@ -131,9 +131,10 @@ export function newestFirst<T>(registry: Set<Responder<T>>): T[] {
 export function openLink(
   stage: Pick<StageStore, 'dispatch' | 'responders'>,
   request: string,
+  source?: 'tap',
 ) {
   if (newestFirst(stage.responders.link).some(holds => holds(request))) return;
-  stage.dispatch({ type: 'link', request });
+  stage.dispatch({ type: 'link', request, source });
 }
 
 /** A G3 tint a scene holds for as long as its state lasts (REDESIGN.md 3.2). */

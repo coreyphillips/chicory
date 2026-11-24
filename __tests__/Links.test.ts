@@ -85,6 +85,17 @@ describe('the launch link of an app that outlives its activity', () => {
     });
     return tree;
   };
+  const listenForLinks = () => {
+    let receive: (event: { url: string }) => void;
+    jest.spyOn(Linking, 'addEventListener').mockImplementation(((
+      _type: string,
+      handler: typeof receive,
+    ) => {
+      receive = handler;
+      return { remove: jest.fn() };
+    }) as never);
+    return (url: string) => act(() => receive({ url }));
+  };
 
   // React Native's Jest setup makes Linking's methods mocks already, which
   // keep their calls from one test to the next.
@@ -149,6 +160,65 @@ describe('the launch link of an app that outlives its activity', () => {
     expect(onRequest).not.toHaveBeenCalled();
     await act(async () => second.unmount());
   });
+
+  test('preserves an Android terminal tap on launch and while the wallet is open', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    jest
+      .spyOn(Linking, 'getInitialURL')
+      .mockResolvedValue('chicory-nfc:lightning:LNBC-FIRST');
+    const deliver = listenForLinks();
+    const onRequest = jest.fn();
+    const tree = await mount(onRequest);
+    expect(onRequest).toHaveBeenLastCalledWith('LNBC-FIRST', 'tap');
+    deliver('chicory-nfc:bitcoin:?LIGHTNING=LNBC-SECOND');
+    deliver('chicory-nfc:https://example.test');
+    deliver('chicory-nfc:chicory-nfc:lightning:LNBC-THIRD');
+    deliver('lightning:LNBC-LINK');
+    expect(onRequest.mock.calls).toEqual([
+      ['LNBC-FIRST', 'tap'],
+      ['bitcoin:?LIGHTNING=LNBC-SECOND', 'tap'],
+      ['LNBC-LINK'],
+    ]);
+    jest.replaceProperty(Platform, 'OS', 'ios');
+    deliver('chicory-nfc:lightning:LNBC-FOURTH');
+    expect(onRequest).toHaveBeenCalledTimes(3);
+    await act(async () => tree.unmount());
+  });
+
+  test.each(['a newer intent', 'the wallet locking'])(
+    'drops a pending Android launch tap after %s',
+    async interruption => {
+      jest.replaceProperty(Platform, 'OS', 'android');
+      let finishLaunch!: (url: string) => void;
+      const initial = jest.spyOn(Linking, 'getInitialURL').mockImplementation(
+        () =>
+          new Promise(resolve => {
+            finishLaunch = resolve;
+          }),
+      );
+      const deliver = listenForLinks();
+      const onRequest = jest.fn();
+      const tree = await mount(onRequest);
+      if (interruption === 'a newer intent') {
+        deliver('chicory-nfc:lightning:LNBC-NEW');
+      } else {
+        await act(async () =>
+          tree.update(
+            React.createElement(Probe, { ready: false, to: onRequest }),
+          ),
+        );
+      }
+      await act(async () => finishLaunch('chicory-nfc:lightning:LNBC-OLD'));
+      await act(async () =>
+        tree.update(React.createElement(Probe, { ready: true, to: onRequest })),
+      );
+      expect(initial).toHaveBeenCalledTimes(1);
+      expect(onRequest.mock.calls).toEqual(
+        interruption === 'a newer intent' ? [['LNBC-NEW', 'tap']] : [],
+      );
+      await act(async () => tree.unmount());
+    },
+  );
 });
 
 describe('a request read from an NFC tag', () => {

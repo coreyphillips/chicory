@@ -408,7 +408,7 @@ const settingsShots: Shot[] = [
     ],
   })),
   settings('auto-pay limit at 80%', () => ({
-    autoPay: { on: false, share: 80 },
+    autoPay: { on: false, share: 80, tapToPay: false },
     steps: [
       drive => drive.fire(words.phone.autoPayLabel, 'onValueChange', true),
       wait(1_200),

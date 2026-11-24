@@ -823,6 +823,9 @@ describe('the same tag offered again as a link', () => {
     expect(
       await linked(`bitcoin:?LIGHTNING=${CAPITALS}`),
     ).not.toHaveBeenCalled();
+    expect(
+      await linked(`chicory-nfc:bitcoin:?LIGHTNING=${CAPITALS}`),
+    ).not.toHaveBeenCalled();
     // Another request is a link like any other.
     expect(await linked(PAYABLE)).toHaveBeenCalledWith(PAYABLE);
     // And so is the same one, once the tap is over.

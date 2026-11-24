@@ -143,7 +143,7 @@ beforeEach(() => {
 afterEach(async () => {
   now.mockRestore();
   setPaymentListLookup(null);
-  await setAutoPayPreference({ on: false, share: 50 });
+  await setAutoPayPreference({ on: false, share: 50, tapToPay: false });
 });
 
 describe('a pubky as it enters Send', () => {
@@ -176,7 +176,7 @@ describe('a pubky as it enters Send', () => {
     expect(chip(typed)).toBeDefined();
     await act(async () => typed.unmount());
 
-    const scanned = await draw({}, { initialRequest: KEY, scanned: true });
+    const scanned = await draw({}, { initialRequest: KEY, source: 'camera' });
     expect(lookup).toHaveBeenCalledTimes(2);
     expect(chip(scanned)).toBeDefined();
     expect(alerts(scanned)).toEqual([]);
@@ -307,7 +307,7 @@ describe('a pubky that publishes something to pay', () => {
   });
 
   test('rule 5: with Auto-pay on, a scanned pubky waits for its hold', async () => {
-    await setAutoPayPreference({ on: true, share: 100 });
+    await setAutoPayPreference({ on: true, share: 100, tapToPay: false });
     answers([LIGHTNING]);
     const prepareSend = jest.fn().mockResolvedValue(quote());
     const send = jest.fn();
@@ -315,7 +315,7 @@ describe('a pubky that publishes something to pay', () => {
       { prepareSend, send },
       {
         initialRequest: KEY,
-        scanned: true,
+        source: 'camera',
         balance: {
           availableSats: 1_000_000,
           pendingSats: 0,

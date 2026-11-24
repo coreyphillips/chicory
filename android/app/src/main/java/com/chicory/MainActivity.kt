@@ -1,6 +1,9 @@
 package com.chicory
 
+import android.content.ComponentName
 import android.content.Intent
+import android.net.Uri
+import android.nfc.NfcAdapter
 import android.os.Build
 import android.os.Bundle
 import com.facebook.react.ReactActivity
@@ -16,6 +19,14 @@ class MainActivity : ReactActivity() {
    * card is blank. The person's own screenshots are left alone, as FLAG_SECURE would not.
    */
   override fun onCreate(savedInstanceState: Bundle?) {
+    val fromRecents = intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
+    // Android may recreate the activity with a request already handled.
+    val launch = if (savedInstanceState != null || fromRecents) {
+      Intent(intent).setData(null)
+    } else {
+      paymentIntent(intent)
+    }
+    setIntent(launch)
     super.onCreate(savedInstanceState)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       setRecentsScreenshotEnabled(false)
@@ -23,22 +34,18 @@ class MainActivity : ReactActivity() {
   }
 
   /**
-   * A payment link, or a tag read by the phone, reaches the app as an intent. Once JavaScript is
-   * up, React Native reads the one this activity holds (IntentModule.getInitialURL). Android can
-   * make that the wrong one in two ways, both after it has taken the app's process back while the
-   * app was behind others, which it does freely.
-   *
-   * Android builds the activity again with the intent it was first made for, which the app acted
-   * on long ago. So an activity built from saved state, or from the recents list, forgets the
-   * request in its intent: opening the app again must not open Send on a request already dealt
-   * with.
+   * Linking delivers only a URI. Mark requests delivered through the permission-protected NFC
+   * alias so JavaScript can distinguish a terminal tap from a browser link. The public activity
+   * accepts only the two payment schemes, so no caller can supply the internal marker itself.
    */
-  override fun onPostCreate(savedInstanceState: Bundle?) {
-    super.onPostCreate(savedInstanceState)
-    val fromRecents = intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
-    if (savedInstanceState != null || fromRecents) {
-      setIntent(Intent(intent).setData(null))
+  private fun paymentIntent(incoming: Intent): Intent {
+    val uri = incoming.data ?: return incoming
+    if (!uri.scheme.equals("bitcoin", ignoreCase = true) && !uri.scheme.equals("lightning", ignoreCase = true)) {
+      return Intent(incoming).setData(null)
     }
+    val fromTerminal = incoming.action == NfcAdapter.ACTION_NDEF_DISCOVERED &&
+      incoming.component == ComponentName(this, "$packageName.NfcPayment")
+    return if (fromTerminal) Intent(incoming).setData(Uri.parse("chicory-nfc:$uri")) else incoming
   }
 
   /**
@@ -48,8 +55,9 @@ class MainActivity : ReactActivity() {
    * left a while opened it on Home, or on the request before.
    */
   override fun onNewIntent(intent: Intent) {
-    super.onNewIntent(intent)
-    setIntent(intent)
+    val payment = paymentIntent(intent)
+    setIntent(payment)
+    super.onNewIntent(payment)
   }
 
   /**

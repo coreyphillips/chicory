@@ -560,7 +560,7 @@ export function Canvas({
               {...drawn}
               sceneKey={at.key}
               prefill={at.prefill}
-              scanned={at.scanned === true}
+              source={at.source}
             />
           ) : (
             <ReceiveScene {...drawn} sceneKey={at.key} />

@@ -1,5 +1,5 @@
 import 'react-native-url-polyfill/auto';
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -34,11 +34,11 @@ function WalletApp() {
   useEffect(() => {
     loadHapticsPreference().then(setHapticsEnabled);
   }, []);
-  // Settings > Auto-pay is read as the app opens, so a code scanned before
-  // Settings is ever opened is judged by it. Until it answers it reads as
-  // off, which pays nothing on its own.
+  // A terminal can start the app. Apply the phone's saved preference before
+  // delivering its launch request to Send.
+  const [autoPayLoaded, setAutoPayLoaded] = useState(false);
   useEffect(() => {
-    loadAutoPayPreference();
+    loadAutoPayPreference().then(() => setAutoPayLoaded(true));
   }, []);
   const stage = useStageStore();
   const { dispatch, responders } = stage;
@@ -62,12 +62,19 @@ function WalletApp() {
     paused: lock.checking || lock.locked,
   });
 
-  /** A tapped bitcoin:/lightning: link goes to the reviewed send flow, never straight to a payment. */
   const onLink = useCallback(
-    (request: string) => openLink({ dispatch, responders }, request),
+    (request: string, source?: 'tap') =>
+      openLink({ dispatch, responders }, request, source),
     [dispatch, responders],
   );
-  usePaymentLinks(!!session.walletId && !!session.snapshot, onLink);
+  usePaymentLinks(
+    autoPayLoaded &&
+      !lock.checking &&
+      !lock.locked &&
+      !!session.walletId &&
+      !!session.snapshot,
+    onLink,
+  );
 
   return (
     <StageProvider value={stage}>

@@ -31,6 +31,7 @@ describe('reading what is saved', () => {
     [null, { on: false, share: 50 }],
     ['', { on: false, share: 50 }],
     ['{"on":true,"share":35}', { on: true, share: 35 }],
+    ['{"on":true,"share":35,"tapToPay":"yes"}', { on: true, share: 35 }],
     ['{"on":false,"share":80}', { on: false, share: 80 }],
     ['{"on":"yes","share":35}', { on: false, share: 35 }],
     ['{"on":true,"share":33}', { on: true, share: 35 }],
@@ -42,7 +43,7 @@ describe('reading what is saved', () => {
     ['[]', { on: false, share: 50 }],
     ['null', { on: false, share: 50 }],
   ])('%j reads as %j', (saved, expected) => {
-    expect(parseAutoPay(saved)).toEqual(expected);
+    expect(parseAutoPay(saved)).toEqual({ ...expected, tapToPay: false });
   });
 
   it('snaps a share to its 5% detent within 0 to 100', () => {
@@ -55,52 +56,78 @@ describe('reading what is saved', () => {
 
 describe('the preference every reader shares', () => {
   it('is off until the store answers, and off when nothing is saved', async () => {
-    expect(autoPayNow()).toEqual({ on: false, share: 50 });
+    expect(autoPayNow()).toEqual({ on: false, share: 50, tapToPay: false });
     await expect(loadAutoPayPreference()).resolves.toEqual({
       on: false,
       share: 50,
+      tapToPay: false,
     });
     expect(read).toHaveBeenCalledWith({ service: SERVICE });
   });
 
-  it('takes what is saved once it is read', async () => {
+  it('restores the saved share and tap-to-pay opt-in', async () => {
     read.mockResolvedValueOnce({
       service: SERVICE,
       username: 'beignet-auto-pay',
-      password: '{"on":true,"share":65}',
+      password: '{"on":true,"share":65,"tapToPay":true}',
       storage: 'keychain',
     } as never);
     await loadAutoPayPreference();
-    expect(autoPayNow()).toEqual({ on: true, share: 65 });
+    expect(autoPayNow()).toEqual({ on: true, share: 65, tapToPay: true });
   });
 
   it('reads an unreadable store as off', async () => {
     read.mockRejectedValueOnce(new Error('locked'));
     await loadAutoPayPreference();
-    expect(autoPayNow()).toEqual({ on: false, share: 50 });
+    expect(autoPayNow()).toEqual({ on: false, share: 50, tapToPay: false });
+  });
+
+  it('keeps overlapping tap-to-pay and limit edits in order', async () => {
+    await setAutoPayPreference({ on: true, share: 65, tapToPay: true });
+    write.mockClear();
+    let finishWrite!: (result: Keychain.Result) => void;
+    write.mockReturnValueOnce(
+      new Promise(resolve => {
+        finishWrite = resolve;
+      }),
+    );
+    const optOut = setAutoPayPreference({ tapToPay: false });
+    const limit = setAutoPayPreference({ share: 20 });
+    await Promise.resolve();
+    expect(write).toHaveBeenCalledTimes(1);
+    finishWrite({
+      service: SERVICE,
+      storage: 'keychain' as Keychain.STORAGE_TYPE,
+    });
+    await Promise.all([optOut, limit]);
+    expect(write.mock.calls.map(([, value]) => JSON.parse(value))).toEqual([
+      { on: true, share: 65, tapToPay: false },
+      { on: true, share: 20, tapToPay: false },
+    ]);
+    expect(autoPayNow()).toEqual({ on: true, share: 20, tapToPay: false });
   });
 
   it('saves on this device only, then applies it', async () => {
-    await setAutoPayPreference({ on: true, share: 42 });
+    await setAutoPayPreference({ on: true, share: 42, tapToPay: true });
     expect(write).toHaveBeenCalledWith(
       'beignet-auto-pay',
-      '{"on":true,"share":40}',
+      '{"on":true,"share":40,"tapToPay":true}',
       { service: SERVICE, accessible: 'WhenUnlockedThisDeviceOnly' },
     );
-    expect(autoPayNow()).toEqual({ on: true, share: 40 });
+    expect(autoPayNow()).toEqual({ on: true, share: 40, tapToPay: true });
   });
 
   it('changes nothing when the save fails', async () => {
-    await setAutoPayPreference({ on: true, share: 30 });
+    await setAutoPayPreference({ on: true, share: 30, tapToPay: false });
     write.mockResolvedValueOnce(false);
     await expect(
-      setAutoPayPreference({ on: false, share: 30 }),
+      setAutoPayPreference({ on: false, share: 30, tapToPay: false }),
     ).rejects.toThrow('Could not save the auto-pay setting.');
-    expect(autoPayNow()).toEqual({ on: true, share: 30 });
+    expect(autoPayNow()).toEqual({ on: true, share: 30, tapToPay: false });
     write.mockRejectedValueOnce(new Error('denied'));
-    await expect(setAutoPayPreference({ on: true, share: 90 })).rejects.toThrow(
-      'denied',
-    );
-    expect(autoPayNow()).toEqual({ on: true, share: 30 });
+    await expect(
+      setAutoPayPreference({ on: true, share: 90, tapToPay: true }),
+    ).rejects.toThrow('denied');
+    expect(autoPayNow()).toEqual({ on: true, share: 30, tapToPay: false });
   });
 });
