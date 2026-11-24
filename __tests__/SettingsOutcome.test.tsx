@@ -22,6 +22,7 @@ import { setHapticsEnabled } from '../src/services/haptics';
 import {
   AUTO_PAY_OFF,
   autoPayNow,
+  loadAutoPayPreference,
   setAutoPayPreference,
 } from '../src/services/autoPayPreference';
 import type { WalletAdapter } from '../src/services/wallet';
@@ -545,10 +546,10 @@ describe('haptics', () => {
 describe('auto-pay', () => {
   const AUTO_PAY = 'com.beignet.wallet.auto-pay';
   const words = copy.settings.phone;
-  const toggle = (tree: ReactTestRenderer) =>
+  const toggle = (tree: ReactTestRenderer, label = words.autoPayLabel) =>
     tree.root.findAll(
       node =>
-        node.props.accessibilityLabel === words.autoPayLabel &&
+        node.props.accessibilityLabel === label &&
         typeof node.props.onValueChange === 'function',
     )[0];
   const limit = (tree: ReactTestRenderer) =>
@@ -623,6 +624,7 @@ describe('auto-pay', () => {
     const tree = await rooted(funded, client());
     expect(toggle(tree).props.value).toBe(false);
     expect(limit(tree)).toBeUndefined();
+    expect(toggle(tree, words.autoPayTapLabel)).toBeUndefined();
     expect(text(tree)).toContain(words.autoPay);
     expect(text(tree)).not.toContain(words.autoPayNote);
     await act(async () => tree.unmount());
@@ -631,8 +633,8 @@ describe('auto-pay', () => {
   test('switched on, it is saved at 50% and opens its limit, which says what 50% allows', async () => {
     const tree = await rooted(funded, client());
     await act(async () => toggle(tree).props.onValueChange(true));
-    expect(saved().at(-1)).toEqual({ on: true, share: 50 });
-    expect(autoPayNow()).toEqual({ on: true, share: 50 });
+    expect(saved().at(-1)).toEqual({ on: true, share: 50, tapToPay: false });
+    expect(autoPayNow()).toEqual({ on: true, share: 50, tapToPay: false });
     expect(toggle(tree).props.value).toBe(true);
     expect(limit(tree).props.accessibilityLabel).toBe(words.autoPayLimit);
     expect(limit(tree).props.accessibilityValue).toEqual({
@@ -651,27 +653,65 @@ describe('auto-pay', () => {
     await act(async () => tree.unmount());
   });
 
-  test('a step of the limit is saved, and the share is kept while it is off', async () => {
+  test('remembers the limit and tap-to-pay opt-in when auto-pay is switched off and on', async () => {
     const tree = await rooted(funded, client());
     await act(async () => toggle(tree).props.onValueChange(true));
+    expect(toggle(tree, words.autoPayTapLabel).props.value).toBe(false);
+    await act(async () =>
+      toggle(tree, words.autoPayTapLabel).props.onValueChange(true),
+    );
+    expect(toggle(tree, words.autoPayTapLabel).props.value).toBe(true);
     await step(tree, 'increment');
-    expect(saved().at(-1)).toEqual({ on: true, share: 55 });
+    expect(saved().at(-1)).toEqual({ on: true, share: 55, tapToPay: true });
     expect(text(tree)).toContain(words.autoPayShare(55));
     expect(limit(tree).props.accessibilityValue.now).toBe(55);
     await act(async () => toggle(tree).props.onValueChange(false));
-    expect(saved().at(-1)).toEqual({ on: false, share: 55 });
+    expect(saved().at(-1)).toEqual({ on: false, share: 55, tapToPay: true });
     expect(limit(tree)).toBeUndefined();
+    expect(toggle(tree, words.autoPayTapLabel)).toBeUndefined();
     await act(async () => toggle(tree).props.onValueChange(true));
-    expect(saved().at(-1)).toEqual({ on: true, share: 55 });
+    expect(toggle(tree, words.autoPayTapLabel).props.value).toBe(true);
+    await act(async () =>
+      toggle(tree, words.autoPayTapLabel).props.onValueChange(false),
+    );
+    expect(saved().at(-1)).toEqual({ on: true, share: 55, tapToPay: false });
     expect(limit(tree).props.accessibilityValue.now).toBe(55);
     await act(async () => tree.unmount());
   });
 
+  test('turning on auto-pay during launch preserves the previously saved limit', async () => {
+    const tree = await rooted(funded, client());
+    let finishRead!: (saved: Keychain.UserCredentials) => void;
+    jest.mocked(Keychain.getGenericPassword).mockReturnValueOnce(
+      new Promise(resolve => {
+        finishRead = resolve;
+      }),
+    );
+    const loading = loadAutoPayPreference();
+    let saving!: Promise<void>;
+    await act(async () => {
+      saving = toggle(tree).props.onValueChange(true);
+    });
+    expect(saved()).toEqual([]);
+    await act(async () => {
+      finishRead({
+        service: AUTO_PAY,
+        username: 'beignet-auto-pay',
+        password: '{"on":false,"share":15}',
+        storage: 'keychain' as Keychain.STORAGE_TYPE,
+      });
+      await Promise.all([loading, saving]);
+    });
+    expect(saved()).toEqual([{ on: true, share: 15, tapToPay: false }]);
+    expect(limit(tree).props.accessibilityValue.now).toBe(15);
+    await act(async () => tree.unmount());
+  });
+
   test('at 0% it says every code waits for the hold', async () => {
-    await setAutoPayPreference({ on: true, share: 5 });
+    await setAutoPayPreference({ on: true, share: 5, tapToPay: false });
     const tree = await rooted(funded, client());
     await step(tree, 'decrement');
-    expect(saved().at(-1)).toEqual({ on: true, share: 0 });
+    expect(saved().at(-1)).toEqual({ on: true, share: 0, tapToPay: false });
     expect(text(tree)).toContain(words.autoPayNothing);
     expect(limit(tree).props.accessibilityValue.text).toBe(
       words.autoPaySpoken(0, 0),
@@ -701,7 +741,7 @@ describe('auto-pay', () => {
     jest.mocked(Keychain.setGenericPassword).mockResolvedValueOnce(false);
     await act(async () => toggle(tree).props.onValueChange(true));
     expect(toggle(tree).props.value).toBe(false);
-    expect(autoPayNow()).toEqual({ on: false, share: 50 });
+    expect(autoPayNow()).toEqual({ on: false, share: 50, tapToPay: false });
     expect(text(tree)).toContain(words.autoPayFailed);
     await act(async () => tree.unmount());
   });

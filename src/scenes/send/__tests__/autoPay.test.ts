@@ -117,21 +117,41 @@ describe('autoPays', () => {
     expect(judge({ max: true })).toBe(false);
   });
 
-  it('keeps the hold for any warning but the capitals the code arrived in', () => {
+  it.each([
+    'Long route may be less reliable',
+    'Fees exceed 3% of payment amount',
+    'Low success probability based on historical data',
+  ])('applies the same limit to a route with the advisory "%s"', warning => {
+    expect(judge({ warnings: [warning], totalSats: 50_000 })).toBe(true);
+    expect(judge({ warnings: [warning], totalSats: 50_001 })).toBe(false);
+  });
+
+  it('accepts routing advice alongside the warning for an uppercase invoice', () => {
     expect(
       autoPays({
-        review: review({ warnings: [CASE_FOLDED] }),
+        review: review({
+          warnings: [CASE_FOLDED, 'Long route may be less reliable'],
+        }),
         request: INVOICE.toUpperCase(),
         availableSats: 100_000,
         share: 50,
       }),
     ).toBe(true);
+  });
+
+  it('requires a hold for any unexplained warning', () => {
     // The same words for a code that did not arrive in capitals explain
     // nothing about it.
     expect(judge({ warnings: [CASE_FOLDED] })).toBe(false);
     expect(
       autoPays({
-        review: review({ warnings: [CASE_FOLDED, 'The route is costly.'] }),
+        review: review({
+          warnings: [
+            CASE_FOLDED,
+            'Long route may be less reliable',
+            'This request names the same field twice. The first one was used.',
+          ],
+        }),
         request: INVOICE.toUpperCase(),
         availableSats: 100_000,
         share: 50,

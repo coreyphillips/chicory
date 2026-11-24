@@ -66,6 +66,7 @@ import { useAccent } from './ui';
 export interface ShareSliderProps {
   /** The share the thumb rests on, 0 to 100 in detents: the saved one. */
   share: number;
+  disabled?: boolean;
   /** What a screen reader hears as the value at `share`. */
   spoken: (share: number) => string;
   /**
@@ -157,6 +158,7 @@ function Mark({
  */
 export function ShareSlider({
   share,
+  disabled = false,
   spoken,
   wake = false,
   onPreview,
@@ -164,7 +166,7 @@ export function ShareSlider({
 }: ShareSliderProps) {
   const { reduced } = useMotionPrefs();
   const { accent } = useAccent();
-  const live = usePaneActive();
+  const interactive = usePaneActive() && !disabled;
 
   // The row's width, as it was laid out; 0 until then, when nothing is drawn.
   const width = useSharedValue(0);
@@ -258,7 +260,7 @@ export function ShareSlider({
   const pan = usePanGesture(
     useMemo<PanGestureConfig>(
       () => ({
-        enabled: live,
+        enabled: interactive,
         activeOffsetX: ACROSS,
         failOffsetY: UPRIGHT,
         onBegin: event => {
@@ -327,7 +329,7 @@ export function ShareSlider({
         },
       }),
       [
-        live,
+        interactive,
         reduced,
         position,
         waking,
@@ -350,7 +352,7 @@ export function ShareSlider({
   const tap = useTapGesture(
     useMemo<TapGestureConfig>(
       () => ({
-        enabled: live,
+        enabled: interactive,
         maxDistance: TAP_STRAY,
         onActivate: event => {
           'worklet';
@@ -367,7 +369,7 @@ export function ShareSlider({
         },
       }),
       [
-        live,
+        interactive,
         reduced,
         position,
         waking,
@@ -435,6 +437,7 @@ export function ShareSlider({
         accessible
         accessibilityRole="adjustable"
         accessibilityLabel={copy.settings.phone.autoPayLimit}
+        accessibilityState={{ disabled: !interactive }}
         accessibilityHint={copy.settings.phone.autoPayLimitHint}
         accessibilityValue={{
           min: 0,
@@ -443,7 +446,7 @@ export function ShareSlider({
           text: spoken(share),
         }}
         accessibilityActions={ACTIONS}
-        onAccessibilityAction={live ? step : undefined}
+        onAccessibilityAction={interactive ? step : undefined}
         onLayout={measure}
         style={styles.row}
       >

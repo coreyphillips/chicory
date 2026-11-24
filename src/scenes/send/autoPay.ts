@@ -1,21 +1,28 @@
 import { parsePayment } from '@beignet/wallet-core';
 import type { SendReview } from '@beignet/wallet-core';
+import type { AutoPay } from '../../services/autoPayPreference';
+import type { ScanSource } from '../../stage/scene';
 
 /**
- * Settings > Auto-pay, decided (REDESIGN.md rule 5). A code read by the
- * camera pays as soon as it is priced, with no hold, only when every one of
- * these holds; anything else waits for the hold, as every payment did
- * before. What it never decides is whether a request may be paid at all:
- * `pay` keeps every guard it has, the held set among them, so a code is
- * never paid twice however it arrives.
+ * The route estimate exposes these advisories as text. The fee cap is
+ * already included in the debit we compare with the user's limit.
  */
+const ROUTE_ADVISORIES = new Set([
+  'Long route may be less reliable',
+  'Fees exceed 3% of payment amount',
+  'Low success probability based on historical data',
+]);
 
-/**
- * The one warning a scanned code may carry and still pay itself: it arrived
- * in capitals, as invoice QR codes usually do, and was read back in lower
- * case. It says how the code was printed, not anything about the payment.
- */
-const SCANNED_SHAPE = new Set(['CASE_FOLDED_FROM_QR']);
+/** Checked both when the invoice arrives and when its quote is ready. */
+export function autoPaySource(
+  source: ScanSource | undefined,
+  preference: AutoPay,
+): 'camera' | 'tap' | undefined {
+  if (!preference.on) return;
+  if (source === 'camera' || (source === 'tap' && preference.tapToPay)) {
+    return source;
+  }
+}
 
 function parsed(request: string) {
   try {
@@ -69,7 +76,7 @@ function shapeWords(request: string): Set<string> {
       : [];
   return new Set(
     warnings
-      .filter(warning => SCANNED_SHAPE.has(warning.code))
+      .filter(warning => warning.code === 'CASE_FOLDED_FROM_QR')
       .map(warning => warning.message),
   );
 }
@@ -77,8 +84,8 @@ function shapeWords(request: string): Set<string> {
 /**
  * Whether a priced review pays itself: on Lightning, by the plain route,
  * not a pay-all, its whole debit (the amount and the fee cap) within the
- * share of what can be sent, and with nothing the engine warns about but
- * the code's capitals.
+ * share of what can be sent. Route estimates and an invoice printed in
+ * capitals are eligible. Other warnings require a hold.
  */
 export function autoPays({
   review,
@@ -100,5 +107,7 @@ export function autoPays({
   if (review.totalSats > limit) return false;
   if (review.warnings.length === 0) return true;
   const explained = shapeWords(request);
-  return review.warnings.every(warning => explained.has(warning));
+  return review.warnings.every(
+    warning => ROUTE_ADVISORIES.has(warning) || explained.has(warning),
+  );
 }

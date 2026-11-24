@@ -1,10 +1,10 @@
 # Tap to pay
 
-Chicory reads a payment request from an NFC tag and carries it into the same review and hold as a link. A tap only ever fills in Send. It never pays by itself, and it never qualifies for Auto-pay (REDESIGN.md rule 5).
+A terminal tap opens Send for review and a hold by default. To pay eligible taps automatically, turn on **Settings > This phone > Auto-pay**, choose your limit and enable **Include tap-to-pay**. A fixed-amount Lightning invoice can then pay if its amount plus the maximum routing fee is at or below your limit. The limit applies per payment, regardless of how many hops the route takes.
 
 The case it is built for is a payment terminal that presents its Lightning request to a tap: Square Register (2nd generation), and open tills such as Numo.
 
-An Android phone also does the terminal's part. While Receive shows a request, the phone presents that request as a tag, so another phone held to it reads the request and lands on the same review and hold. See [Receive presents its request](#receive-presents-its-request).
+An Android phone also does the terminal's part. While Receive shows a request, the phone presents that request as a tag, so another phone held to it reads the request and applies the payer's Auto-pay settings. See [Receive presents its request](#receive-presents-its-request).
 
 ## What a terminal presents
 
@@ -28,7 +28,7 @@ Square is reported to be moving from `lightning:<BOLT11>` to the BIP 321 form `b
 | `BITCOIN:?LIGHTNING=LNBC...`                     | the invoice                                 |
 | `bitcoin:<address>?amount=<btc>&lightning=<...>` | a unified request, as a scanned one is read |
 
-An invoice in capitals carries the same warning by tap as by its QR, so its hold is 1000ms.
+An invoice in capitals carries the same warning by tap as by its QR, so a payment that needs manual confirmation has a 1000ms hold.
 
 Not paid: LNURL, a Lightning address and a BOLT12 offer. A tag that carries one is treated as a QR code or a link that carries one is. An LNURL or a Lightning address is refused by the open scanner on its mark, and from any other screen opens Send with it marked as one that cannot be paid. An offer is a request the wallet reads, so from either lane it opens Send, and the review says this version cannot pay it and asks for an invoice.
 
@@ -38,24 +38,17 @@ The app never speaks to the tag itself. Android's NFC service and iOS's Core NFC
 
 ### Android: a tag the system hands over
 
-With the phone unlocked, Android reads a tag held to it and offers the tag's first record to the apps that filter for it. Chicory filters for the `lightning` and `bitcoin` schemes (`NDEF_DISCOVERED` on the main activity), and React Native hands such an intent to `Linking` as it hands a link. So a tap opens Send with the request filled in, from a cold start or with the app open, and is a link in every other way: it is dropped while a payment is in flight or with no wallet open, and a request that is held or already paid lands on its ring or mark (rule 6).
+With the phone unlocked, Android reads a tag held to it and offers the tag's first record to the apps that filter for it. Chicory accepts the `lightning` and `bitcoin` schemes through an activity alias protected by Android's `DISPATCH_NFC_MESSAGE` permission. A tap delivered to that alias opens Send on a cold start or while the app is running. The app preserves its NFC source so Send can apply the tap-to-pay setting. A regular payment link still needs manual confirmation. Requests that arrive during a payment are dropped, and requests already submitted use the same duplicate-payment checks as a camera scan (rule 6).
 
 - Android lower-cases the scheme before it matches, so `LIGHTNING:` on a tag is taken too.
 - If another wallet claims the same scheme, Android shows its chooser.
 - Android offers only a tag's first record, so that is the one reviewed here.
 - A phone that drifts out of a terminal's field and back reads its tag again, and Android hands over each read. A link for the request the Send in front is composing or reviewing changes nothing, so a review, and a hold under way, stay as they are. Once a payment has an outcome, or the request has been refused, the same tap is a new ask and opens a fresh Send.
-- Android takes back the process of an app left behind others, and keeps its activity on record. A tap after that builds the activity again with the intent it was first made for and hands over the new one before JavaScript is up, where React Native reads only the first. So `MainActivity` keeps the newest intent as its own (`onNewIntent`), and an activity built again from saved state or from the recents list forgets the request it was first made for (`onPostCreate`). Without the first, such a tap opened the app on Home, or on the request before it. Without the second, opening the app again could open Send on a request already dealt with. Both hold for a link as for a tap.
+- Android can reclaim a background process and later recreate its activity with the original launch intent. In `onCreate`, Chicory drops the old request when restoring saved state or opening from Recents. In `onNewIntent`, it keeps the newly delivered intent so React Native can read the current request even if JavaScript is still starting.
 - An app can outlive its activity. On Android 7 to 11, Back at Home closes the activity and leaves the app running, where from Android 12 it leaves the activity in place. The tap or link that comes next makes a new activity, and a running app is told only of an intent handed to an activity it already has. So on Android the launch request is read once for each time the app is mounted, not once for the process (`src/services/links.ts`): React Native mounts the app once for each activity, and the two rules above see to it that an activity's request is never one already dealt with. Before this such a tap was dropped, and a second was taken.
 - From Android 16 the system tells the owner the first time a tag opens an app, and lets them switch that off for the app (Settings > Apps > Special app access > Launch via NFC).
-- From Android 17 an app that targets it is sent NFC intents only on a component guarded by `DISPATCH_NFC_MESSAGE`. Chicory targets API 36. `__tests__/NativeTap.test.ts` fails if the target is raised without a guarded alias.
 
-To try this lane without a tag or a radio, on an emulator or a phone:
-
-```sh
-adb shell am start -a android.nfc.action.NDEF_DISCOVERED -d "lightning:LNBC..." com.chicory
-```
-
-Write the scheme in lower case there. Android's NFC service lower-cases a tag's scheme before it looks for an app, and `adb` does not, so `BITCOIN:` typed by hand finds no app while the same tag would. The rest of the request can be in capitals: `bitcoin:?LIGHTNING=LNBC...` is what the service makes of a tag that says `BITCOIN:?LIGHTNING=LNBC...`.
+To test the NFC path, use a payment tag or the [test till](#trying-it-without-a-terminal). The system NFC service holds the permission to deliver a terminal tap.
 
 ### After the tap: a wallet that is still coming up
 
@@ -63,11 +56,9 @@ A tap often finds the app closed. What the payer then meets, in order:
 
 1. If the app lock is on, the lock. Nothing is started and no request is read until it opens.
 2. Send, with the request filled in, as soon as the wallet's saved page is up. That is before the engine has started: in one cold start of the release build on an emulator the page was drawn 2.1 seconds after launch, the engine was up at 7.2 seconds and its first live read landed at 7.3. On a first run with nothing saved, Send comes once the engine has made its first read.
-3. The review is asked for by the payer, never by the tap. Asked for while the wallet is still opening, it waits, busy, for the first live read and is made as that lands (REDESIGN.md 6, cached launch). If that read is 15 seconds overdue the balance is called old and Send asks for a refresh.
+3. Send requests a review automatically for an eligible tap when both switches are on. Otherwise, the payer requests the review. Asked for while the wallet is still opening, it waits, busy, for the first live read and is made as that lands (REDESIGN.md 6, cached launch). If that read is 15 seconds overdue the balance is called old and Send asks for a refresh.
 4. The engine reconnects to its primary by itself, a moment after it is up. A review the engine refuses because the primary is not yet back waits as well, busy, and is asked for again every 2 seconds until the primary is back or 20 seconds have gone by (REDESIGN.md 6, Engine errors). Only then does the payer see that the primary needs to reconnect. A primary that has been away longer than that with the wallet up is not waited for.
-5. Then the review, and the hold.
-
-Nothing is paid by any of these waits, and Send can be left during them.
+5. Once the live review is ready, Send checks the Auto-pay settings and limit. Payments over the limit and reviews that had to retry after a primary disconnect wait for a hold.
 
 ### Android: a tag held to the open scanner
 
@@ -77,7 +68,7 @@ With the payment scanner open, the app takes the tag itself (`NfcAdapter` reader
 - Android has read the tag's message to its end before the app hears of the tag. The app takes that message and never asks Android to skip the read (`FLAG_READER_SKIP_NDEF_CHECK` is never set).
 - Every record is looked at, not only the first. One request is taken. The same request in two spellings is one request, and so is an invoice written alone and again in a link that carries it beside an address. Two that differ in whom or how much they pay are refused, since nothing says which was meant: two addresses beside one invoice are two requests. They are told apart by what the wallet reads in each, never by their text (`src/scenes/send/sameRequest.ts`).
 - A tag with a message and nothing to pay in it is refused on the mark, the same tag at most once in 1.5 seconds. A tag with no message at all, such as a bank card kept in the phone's case, is passed over in silence.
-- A request taken this way reaches Send as a `tap`: a prefill to review and hold, as a pasted one is. Only the camera can reach Auto-pay.
+- A request read this way reaches Send with its NFC source. **Include tap-to-pay** controls whether it can use Auto-pay.
 - While the scanner listens the radio is the app's alone: Android offers a tag to no other app, and the phone's own card payments are off. The radio is given back as the scanner closes or the app leaves the front.
 - As the scanner closes on a request, the phone may still be on the terminal. The reader asks Android to pass over that tag until it has been away for 1.5 seconds, and the link lane drops a link equal to a request taken by tap in the last 5 seconds, so one tap opens one Send.
 - NFC switched off from the quick settings shade while the scanner is open is noticed the next time the app comes to the front, not at once.
@@ -148,7 +139,7 @@ With no request showing, and with the app closed, the wallet claims nothing a re
 
 1. The receiver opens Receive and makes a request. The code blooms and the mark appears.
 2. The payer opens the payment scanner, and the two phones are held back to back. On Android the scanner is the dependable way: with the payer on Home both phones are reading and listening at once, and either may take the other for a tag, so a tap from Home may need a second try. An iPhone payer presses the scanner's control.
-3. The payer feels the thud, sees the review and holds.
+3. The payer reviews the payment and holds to send, or sees it pay automatically if it qualifies for their settings.
 4. The receiver sees the arrival it sees today. Nothing tells it that its tag was read.
 
 ### How it is built
@@ -169,7 +160,7 @@ A writable tag (an NTAG216 sticker holds a real invoice) written with a `lightni
 
 ## Trust
 
-A tag is unauthenticated, as a QR sticker is, and unlike a sticker it cannot be seen. Something hidden near a till could present a request of its own. The defence is the one a link has: the review shows the amount, and the hold commits it. That is why a tap never pays by itself.
+An NFC read identifies how the invoice reached the wallet. The tag itself can be placed by anyone. The default hold lets you inspect the amount and recipient before sending. With tap-to-pay enabled for Auto-pay, tapping a tag can authorize its invoice up to your per-payment limit.
 
 A read sends nothing from the wallet, and no request is logged.
 

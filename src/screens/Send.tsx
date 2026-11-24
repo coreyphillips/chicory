@@ -44,11 +44,16 @@ import {
 import { announceSafety } from '../motion/speech';
 import { durations, overlap } from '../motion/tokens';
 import { useMotionPrefs } from '../motion/useMotionPrefs';
+import { useAppActive } from '../scenes/home/useAppActive';
 import { AmountReadout } from '../scenes/keypad/AmountReadout';
 import { digitsOnly, grouped } from '../scenes/keypad/keys';
 import type { AmountTone } from '../scenes/keypad/keys';
 import { Amount } from '../scenes/send/Amount';
-import { autoPayCandidate, autoPays } from '../scenes/send/autoPay';
+import {
+  autoPayCandidate,
+  autoPaySource,
+  autoPays,
+} from '../scenes/send/autoPay';
 import { ARRIVE_MS, watchCentre } from '../scenes/send/arrival';
 import type { Arrival, Origin as Centre } from '../scenes/send/arrival';
 import { Commit } from '../scenes/send/Commit';
@@ -116,6 +121,7 @@ import {
 import type { HeldOutcome } from '../stage/heldRequests';
 import { FADES_AS_ONE, useLaunchLanding } from '../stage/panes/Launch';
 import { usePaneActive } from '../stage/panes/Pane';
+import type { ScanSource } from '../stage/scene';
 import { useFlashTint, useHoldTint } from '../stage/StageContext';
 import { duringSystemPrompt } from '../stage/systemPrompt';
 import { MASK, space, statusLabel, type as typography } from '../theme';
@@ -125,11 +131,8 @@ import type { Unit } from '../theme';
 export interface SendHandle {
   /** Android back: a step back inside Send, or false for the stage's own. */
   back: () => boolean;
-  /**
-   * A code the scan overlay read for this Send. `scanned` says the camera
-   * read it, which is the only way a request may pay itself (Auto-pay).
-   */
-  receive: (code: string, scanned?: boolean) => void;
+  /** Delivers a code and the source that read it to this Send. */
+  receive: (code: string, source?: ScanSource) => void;
   /**
    * Whether this Send already has `incoming` in hand: it is the request
    * being composed or reviewed, and nothing has come of it yet. A link for
@@ -268,7 +271,7 @@ function quoteExpired(): () => void {
 export function SendScreen({
   client,
   initialRequest = '',
-  scanned = false,
+  source,
   disabled = false,
   opening = false,
   primaryConnected = false,
@@ -292,14 +295,9 @@ export function SendScreen({
   ref,
 }: {
   client: WalletAdapter;
-  /**
-   * Prefilled by a scanned code or a bitcoin:/lightning: link. Never sent
-   * without a review, and only ever sent without a hold when the camera read
-   * it (`scanned`) and Settings > Auto-pay allows it (`autoPays`).
-   */
+  /** Prefilled by a scan, a terminal tap or a payment link. */
   initialRequest?: string;
-  /** `initialRequest` was read by the camera, not brought by a link. */
-  scanned?: boolean;
+  source?: ScanSource;
   /** Set when the wallet's balance is too old to spend against. */
   disabled?: boolean;
   /**
@@ -352,6 +350,7 @@ export function SendScreen({
   ref?: Ref<SendHandle>;
 }) {
   const live = usePaneActive();
+  const foreground = useAppActive();
   const launchLanding = useLaunchLanding();
   const [request, setRequest] = useState(initialRequest);
   // A request that arrived whole shows as a chip; one being typed as text,
@@ -441,14 +440,13 @@ export function SendScreen({
   // no timer should take it away.
   const [stayed, setStayed] = useState(false);
   const reader = useScreenReader();
-  // Settings > Auto-pay (REDESIGN.md rule 5): the request a camera scan
-  // brought while it was on, which is reviewed on its own and pays as its
-  // review lands, when the review is within the share of the balance it
-  // allows (`autoPays`). It is used once, and anything that changes the
-  // request, takes the step elsewhere or refuses it lets it go.
-  const autoFor = useRef<string | null>(null);
-  // Whether that review asked to be reviewed already.
-  const autoAsked = useRef(false);
+  // Keep the source with the request so a change in settings while it is
+  // priced applies before payment. Each read can authorize one payment.
+  const autoFor = useRef<{
+    request: string;
+    source: 'camera' | 'tap';
+    reviewRequested: boolean;
+  } | null>(null);
   // The payment going out was committed by Auto-pay, so the hold plays its
   // complete for the payer.
   const [autoPaid, setAutoPaid] = useState(false);
@@ -598,8 +596,8 @@ export function SendScreen({
     entered.current = accept;
   });
   useEffect(() => {
-    if (initialRequest) entered.current(initialRequest, scanned);
-  }, [initialRequest, scanned]);
+    if (initialRequest) entered.current(initialRequest, source);
+  }, [initialRequest, source]);
   // The stage is told busy by the handlers that send, as a request goes out
   // (`goingOut` below), and let go as its answer comes back or its grace
   // runs out, whichever is first, and as Send goes, whatever is still in
@@ -721,14 +719,15 @@ export function SendScreen({
   // spend against lets it go, so nothing pays itself later on figures that
   // were not shown when it was read.
   useEffect(() => {
-    if (autoFor.current === null) return;
-    if (autoFor.current !== request || disabled || leaving || held) {
+    const armed = autoFor.current;
+    if (!armed) return;
+    if (armed.request !== request || disabled || leaving || held) {
       letAutoGo();
       return;
     }
-    if (autoAsked.current || !collapsed || review || result) return;
+    if (armed.reviewRequested || !collapsed || review || result) return;
     if (composeBusy || failure || waitingFor.current) return;
-    autoAsked.current = true;
+    armed.reviewRequested = true;
     prepare();
   });
 
@@ -758,16 +757,25 @@ export function SendScreen({
   useLayoutEffect(() => {
     const armed = autoFor.current;
     if (armed === null || !review || spent) return;
-    if (armed !== request || expired || disabled || opening || leaving) {
+    if (armed.request !== request || expired || disabled || opening || leaving) {
       letAutoGo();
       return;
     }
-    if (!live || waitingFor.current || preview !== null || quoting.current) {
+    if (
+      !live ||
+      !foreground ||
+      waitingFor.current ||
+      preview !== null ||
+      quoting.current
+    ) {
       return;
     }
     letAutoGo();
-    const { on, share } = autoPayNow();
-    if (!on || !autoPays({ review, request, availableSats, share })) {
+    const preference = autoPayNow();
+    if (
+      !autoPaySource(armed.source, preference) ||
+      !autoPays({ review, request, availableSats, share: preference.share })
+    ) {
       return;
     }
     setAutoPaid(true);
@@ -782,6 +790,7 @@ export function SendScreen({
     opening,
     leaving,
     live,
+    foreground,
     preview,
     availableSats,
     say,
@@ -1040,18 +1049,19 @@ export function SendScreen({
    * keyed for it: it stays in the well with a cross (REDESIGN.md 6, Engine
    * errors). Returns whether it was taken.
    */
-  function accept(code: string, byCamera = false): boolean {
+  function accept(code: string, scanSource?: ScanSource): boolean {
     queuedFor.current = null;
     setQueued(false);
     unpark();
-    // Only a Lightning code the camera read, naming its amount, is reviewed
-    // on its own; a paste, a link or typing never is.
     letAutoGo();
     dropLookup();
-    // A pubky is never a candidate: the parser refuses it, and the request
-    // its lookup resolves to is set here, not read by the camera.
-    if (byCamera && autoPayNow().on && autoPayCandidate(code)) {
-      autoFor.current = code;
+    const eligibleSource = autoPaySource(scanSource, autoPayNow());
+    if (eligibleSource && autoPayCandidate(code)) {
+      autoFor.current = {
+        request: code,
+        source: eligibleSource,
+        reviewRequested: false,
+      };
     }
     if (code !== request) {
       setMaxFor(null);
@@ -1153,7 +1163,6 @@ export function SendScreen({
   /** Auto-pay lets go of the request it was armed for, if it was. */
   function letAutoGo() {
     autoFor.current = null;
-    autoAsked.current = false;
   }
 
   /** Typing is done: a request is taken as a chip, or refused in the well. */
@@ -1804,9 +1813,7 @@ export function SendScreen({
       }
       return false;
     },
-    receive: (code: string, byCamera?: boolean) => {
-      accept(code, byCamera);
-    },
+    receive: accept,
     holds: (incoming: string) =>
       !result &&
       !failure &&
@@ -1817,7 +1824,7 @@ export function SendScreen({
   if (scanning) {
     return (
       <Scanner
-        onDetected={(code, source) => accept(code, source === 'camera')}
+        onDetected={accept}
         onCancel={() => setScanning(false)}
         test={test}
       />

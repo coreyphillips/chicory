@@ -321,7 +321,7 @@ const sends: Shot[] = [
     () => ({
       request: INVOICE,
       scanned: true,
-      autoPay: { on: true, share: 50 },
+      autoPay: { on: true, share: 50, tapToPay: false },
       client: {
         prepareSend: async () =>
           reviewOf({ amountSats: 24_425, feeSats: 20, totalSats: 24_445 }),

@@ -421,10 +421,10 @@ const GUARDED: GuardedState[] = [
     // no hold: the review spent under the comet.
     name: 'sending, by Auto-pay',
     render: async () => {
-      await setAutoPayPreference({ on: true, share: 50 });
+      await setAutoPayPreference({ on: true, share: 50, tapToPay: false });
       return draw({
         initialRequest: INVOICE,
-        scanned: true,
+        source: 'camera',
         client: {
           prepareSend: jest.fn().mockResolvedValue(
             quote({ amountSats: 24_425, totalSats: 24_445 }),

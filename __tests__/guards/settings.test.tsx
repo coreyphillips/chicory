@@ -368,7 +368,7 @@ const GUARDED: GuardedState[] = [
   {
     name: 'settings with auto-pay on and its limit open',
     render: async () => {
-      await setAutoPayPreference({ on: true, share: 50 });
+      await setAutoPayPreference({ on: true, share: 50, tapToPay: false });
       return settings(snapshot);
     },
     data: guardData(snapshot),
@@ -376,7 +376,7 @@ const GUARDED: GuardedState[] = [
   {
     name: 'settings with auto-pay at 0%',
     render: async () => {
-      await setAutoPayPreference({ on: true, share: 0 });
+      await setAutoPayPreference({ on: true, share: 0, tapToPay: false });
       return settings(snapshot);
     },
     data: guardData(snapshot),

@@ -5,15 +5,16 @@ import { Linking, Platform } from 'react-native';
  * `bitcoin:` and `lightning:` links handed to the app by another app, a browser
  * or a scanned code elsewhere on the phone.
  *
- * A link only ever *fills in* the send form. It never prepares or sends a
- * payment: the amount and fee still go through the same review the user has to
- * confirm, so an app that can open a URL cannot move money.
+ * An ordinary link only fills in Send. Android also uses Linking for a
+ * payment terminal. MainActivity marks those requests after checking that
+ * Android delivered them to the NFC dispatcher's protected activity alias.
  *
  * Links that arrive before a wallet is open are dropped rather than queued.
  * Holding one across an unlock would mean acting on an intent from a moment the
  * user may not remember, and the sender can simply tap it again.
  */
 const PAYMENT_SCHEME = /^(bitcoin|lightning):/i;
+const ANDROID_NFC_PREFIX = 'chicory-nfc:';
 
 // The URL the app was launched with is one intent. Reading it again after a
 // network switch or a wallet change would reopen Send with a request the user
@@ -68,7 +69,7 @@ function echoesTap(request: string): boolean {
 
 export function usePaymentLinks(
   ready: boolean,
-  onRequest: (value: string) => void,
+  onRequest: (value: string, source?: 'tap') => void,
 ) {
   // Whether this mount of the app has read its launch URL.
   const consumedHere = useRef(false);
@@ -76,21 +77,34 @@ export function usePaymentLinks(
     if (!ready) return;
     let active = true;
     const handle = (url: string | null | undefined) => {
-      const request = normalizePaymentLink(url);
-      if (active && request && !echoesTap(request)) onRequest(request);
+      if (!active || !url) return;
+      const fromTerminal =
+        Platform.OS === 'android' && url.startsWith(ANDROID_NFC_PREFIX);
+      const request = normalizePaymentLink(
+        fromTerminal ? url.slice(ANDROID_NFC_PREFIX.length) : url,
+      );
+      if (!request || echoesTap(request)) return;
+      if (fromTerminal) onRequest(request, 'tap');
+      else onRequest(request);
     };
     const consumed =
       Platform.OS === 'android' ? consumedHere.current : initialConsumed;
+    // A new intent can arrive while Android is still returning the launch
+    // URL. It takes precedence, even if both carry the same terminal tap.
+    let receivedLive = false;
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      receivedLive = true;
+      handle(url);
+    });
     if (!consumed) {
       consumedHere.current = true;
       initialConsumed = true;
       Linking.getInitialURL()
-        .then(handle)
+        .then(url => {
+          if (!receivedLive) handle(url);
+        })
         .catch(() => {});
     }
-    const subscription = Linking.addEventListener('url', ({ url }) =>
-      handle(url),
-    );
     return () => {
       active = false;
       subscription.remove();

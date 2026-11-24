@@ -172,34 +172,79 @@ test('a scan Send starts brings its code back to the same Send', async () => {
   await act(async () => tree.unmount());
 });
 
+const INVOICE =
+  'lnbc244250n1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqw53adf';
+
+function quoteLongRoute() {
+  const prepare = jest.spyOn(client, 'prepareSend').mockResolvedValue({
+    ...quote,
+    amountSats: 24_425,
+    totalSats: 24_445,
+    warnings: ['Long route may be less reliable'],
+  });
+  const send = jest
+    .spyOn(client, 'send')
+    .mockReturnValue(new Promise(() => {}));
+  return { prepare, send };
+}
+
 describe.each(['home', 'send'])('Auto-pay from the %s scanner', origin => {
-  beforeEach(() => setAutoPayPreference({ on: true, share: 100 }));
   afterEach(() => setAutoPayPreference(AUTO_PAY_OFF));
 
-  test.each(['photo', 'clipboard', 'tap', 'camera'])(
-    'routes a %s invoice according to its source',
-    async source => {
-      const invoice =
-        'lnbc244250n1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqw53adf';
-      const prepare = jest
-        .spyOn(client, 'prepareSend')
-        .mockResolvedValue({ ...quote, amountSats: 24_425, totalSats: 24_445 });
-      const send = jest
-        .spyOn(client, 'send')
-        .mockReturnValue(new Promise(() => {}));
+  test.each([
+    { source: 'camera', tapToPay: false, pays: true },
+    { source: 'tap', tapToPay: false, pays: false },
+    { source: 'tap', tapToPay: true, pays: true },
+    { source: 'photo', tapToPay: true, pays: false },
+    { source: 'clipboard', tapToPay: true, pays: false },
+  ])(
+    '$source with tap-to-pay set to $tapToPay automatically pays: $pays',
+    async ({ source, tapToPay, pays }) => {
+      await setAutoPayPreference({ on: true, share: 100, tapToPay });
+      const { prepare, send } = quoteLongRoute();
       const tree =
         origin === 'send' ? await openSend() : await mount(<OnCanvas />);
       if (origin === 'send') await press(tree, copy.send.scan);
       else await act(async () => stage.actions.openScan());
       await act(async () =>
-        tree.root.findByType(ScanReveal).props.onDetected(invoice, source),
+        tree.root.findByType(ScanReveal).props.onDetected(INVOICE, source),
       );
-      if (source === 'camera') {
+      if (pays) {
         expect(prepare).toHaveBeenCalledTimes(1);
         expect(send).toHaveBeenCalledTimes(1);
       } else {
-        expect(request(tree)).toBe(invoice);
+        expect(request(tree)).toBe(INVOICE);
         expect(prepare).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalled();
+      }
+      await act(async () => tree.unmount());
+    },
+  );
+});
+
+describe('Auto-pay for payment requests delivered by Android', () => {
+  afterEach(() => setAutoPayPreference(AUTO_PAY_OFF));
+
+  test.each([
+    { source: 'tap', tapToPay: true, sends: 1 },
+    { source: 'tap', tapToPay: false, sends: 0 },
+    { source: undefined, tapToPay: true, sends: 0 },
+  ] as const)(
+    'source $source with tap-to-pay set to $tapToPay produces $sends automatic sends',
+    async ({ source, tapToPay, sends }) => {
+      await setAutoPayPreference({ on: true, share: 100, tapToPay });
+      const { prepare, send } = quoteLongRoute();
+      const tree = await mount(<OnCanvas />);
+      await act(async () => openLink(stage, INVOICE, source));
+      expect(stage.state.scene).toMatchObject({
+        name: 'send',
+        prefill: INVOICE,
+      });
+      expect(prepare).toHaveBeenCalledTimes(sends);
+      expect(send).toHaveBeenCalledTimes(sends);
+      if (!sends) {
+        await press(tree, copy.send.review);
+        expect(prepare).toHaveBeenCalledTimes(1);
         expect(send).not.toHaveBeenCalled();
       }
       await act(async () => tree.unmount());

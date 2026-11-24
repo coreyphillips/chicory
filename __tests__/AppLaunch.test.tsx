@@ -183,11 +183,11 @@ test('Auto-pay is read as the app opens, before Settings is ever shown', async (
   records.set(AUTO_PAY, JSON.stringify({ on: true, share: 30 }));
   let tree: ReactTestRenderer | undefined;
   try {
-    expect(autoPayNow()).toEqual({ on: false, share: 50 });
+    expect(autoPayNow()).toEqual({ on: false, share: 50, tapToPay: false });
     await act(async () => {
       tree = create(<App />);
     });
-    expect(autoPayNow()).toEqual({ on: true, share: 30 });
+    expect(autoPayNow()).toEqual({ on: true, share: 30, tapToPay: false });
     // Nothing saved reads as off at the next launch.
     await act(async () => tree!.unmount());
     tree = undefined;
@@ -195,7 +195,7 @@ test('Auto-pay is read as the app opens, before Settings is ever shown', async (
     await act(async () => {
       tree = create(<App />);
     });
-    expect(autoPayNow()).toEqual({ on: false, share: 50 });
+    expect(autoPayNow()).toEqual({ on: false, share: 50, tapToPay: false });
   } finally {
     if (tree) await act(async () => tree!.unmount());
     await setAutoPayPreference(AUTO_PAY_OFF);

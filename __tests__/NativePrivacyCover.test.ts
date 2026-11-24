@@ -101,7 +101,7 @@ describe('the Android activity', () => {
       'override fun onCreate(savedInstanceState: Bundle?)',
     );
     expect(create).toMatch(
-      /^\s*super\.onCreate\(savedInstanceState\)\s*if \(Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.TIRAMISU\) \{\s*setRecentsScreenshotEnabled\(false\)\s*\}\s*$/,
+      /super\.onCreate\(savedInstanceState\)\s*if \(Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.TIRAMISU\) \{\s*setRecentsScreenshotEnabled\(false\)\s*\}/,
     );
   });
 

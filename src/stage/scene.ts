@@ -13,11 +13,7 @@ export type Point = { x: number; y: number };
  */
 export type ScanPurpose = 'payment' | 'primary' | 'address';
 
-/**
- * How a scan's code arrived. Only the live camera may hand a payment to
- * Auto-pay: a request read from an NFC tag is reviewed and held, as a pasted
- * one and a chosen image's are.
- */
+/** How a payment or settings scan received its request. */
 export type ScanSource = 'camera' | 'clipboard' | 'photo' | 'tap';
 
 /**
@@ -40,11 +36,8 @@ export type Scene =
   | {
       name: 'send';
       prefill: string;
-      /**
-       * The camera read `prefill`, rather than a link bringing it: the one
-       * way a request may pay itself, when Settings > Auto-pay allows it.
-       */
-      scanned?: true;
+      /** Absent for an ordinary payment link or a manually opened Send. */
+      source?: ScanSource;
       key: number;
     }
   | { name: 'receive'; key: number }
@@ -102,7 +95,7 @@ export type StageAction =
   | { type: 'home' }
   | { type: 'reset' }
   | { type: 'tab'; tab: Tab }
-  | { type: 'link'; request: string }
+  | { type: 'link'; request: string; source?: 'tap' }
   | { type: 'overlay'; overlay: Unkeyed<NonNullable<Overlay>> }
   | { type: 'scanned'; value: string; source: ScanSource }
   | { type: 'busy'; busy: boolean }
@@ -188,18 +181,16 @@ function settle(
 
 /**
  * A fresh Send over home, for a request that came from outside the canvas:
- * a link, or a code the camera read from home (`scanned`).
+ * a link, a terminal tap, or a code scanned from Home.
  */
 function sendOver(
   state: StageState,
   prefill: string,
-  scanned = false,
+  source?: ScanSource,
 ): StageState {
   const key = state.key + 1;
   return settle(state, {
-    scene: scanned
-      ? { name: 'send', prefill, scanned: true, key }
-      : { name: 'send', prefill, key },
+    scene: { name: 'send', prefill, source, key },
     stack: [base(state)],
     overlay: null,
     key,
@@ -290,7 +281,7 @@ export function stageReducer(
     case 'link':
       // A link that lands mid-payment is dropped rather than queued, so it
       // can never take the place of the payment on screen.
-      return state.busy ? state : sendOver(state, action.request);
+      return state.busy ? state : sendOver(state, action.request, action.source);
     case 'overlay':
       if (state.busy || state.overlay) return state;
       return settle(state, {
@@ -304,7 +295,7 @@ export function stageReducer(
       if (state.overlay.target !== 'home') {
         return settle(state, { overlay: null });
       }
-      return sendOver(state, action.value, action.source === 'camera');
+      return sendOver(state, action.value, action.source);
     case 'busy':
       return state.busy === action.busy
         ? state
