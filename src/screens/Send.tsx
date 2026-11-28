@@ -1,4 +1,5 @@
 import React, {
+  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -86,8 +87,9 @@ import {
   primaryAway,
   rateRefusal,
   resultVisual,
-  reviewRail,
+  requestRail,
   requestRefusal,
+  reviewRail,
   shortRequest,
   reviewWaiting,
   reviewWords,
@@ -353,6 +355,11 @@ export function SendScreen({
   const foreground = useAppActive();
   const launchLanding = useLaunchLanding();
   const [request, setRequest] = useState(initialRequest);
+  const payment = useMemo(() => ({ request, client }), [request, client]);
+  const activePayment = useRef(payment);
+  useLayoutEffect(() => {
+    activePayment.current = payment;
+  }, [payment]);
   // A request that arrived whole shows as a chip; one being typed as text,
   // and one the parser refuses stays in the well with its cross, so it never
   // takes the accepted look first.
@@ -362,7 +369,23 @@ export function SendScreen({
   // Without the overlay, the camera is a view inside this screen, so a typed
   // request or amount survives a scan that is cancelled or replaces it.
   const [scanning, setScanning] = useState(initialScanning);
-  const [amount, setAmount] = useState('');
+  const [draft, setDraft] = useState<{
+    amount: string;
+    maxFor: typeof payment | null;
+  }>({ amount: '', maxFor: null });
+  // A digit and Review can arrive before React paints the digit. Update
+  // both the amount and its mode in the keypad handler so Review sees them.
+  const latestDraft = useRef(draft);
+  const changeAmount = useCallback(
+    (amount: string, maxFor: typeof payment | null = null) => {
+      const next = { amount, maxFor };
+      latestDraft.current = next;
+      setDraft(next);
+    },
+    [],
+  );
+  const { amount, maxFor } = draft;
+  const maxSelected = maxFor === payment;
   // A pubky in place of a request (REDESIGN.md 6, Send). While `request` is
   // still the pubky it is being looked up, or its lookup ended in a failure;
   // once an endpoint is chosen `request` is that endpoint's own request, so
@@ -381,8 +404,6 @@ export function SendScreen({
   >(null);
   const currentMaximum =
     maximum?.request === request && maximum.client === client ? maximum : null;
-  const [maxFor, setMaxFor] = useState<string | null>(null);
-  const maxSelected = maxFor === request;
   const [review, setReview] = useState<SendReview | null>(null);
   const [reviewedAt, setReviewedAt] = useState(0);
   const [expired, setExpired] = useState(false);
@@ -402,13 +423,20 @@ export function SendScreen({
   const [queued, setQueued] = useState(false);
   // A replacement request can arrive in the same render as the live read.
   // Invalidate the queued review immediately, before its effect runs.
-  const queuedFor = useRef<string | null>(null);
+  const queuedFor = useRef<{
+    payment: typeof payment;
+    max: boolean;
+  } | null>(null);
   // A review the engine refused because the primary is away, while it is
   // expected back (`primaryExpected`): it waits, busy, and is asked for
   // again until it is made, refused for something else, or its wait is up.
   const [parked, setParked] = useState(false);
   // The request that waits, and since when.
-  const parkedFor = useRef<{ request: string; since: number } | null>(null);
+  const parkedFor = useRef<{
+    payment: typeof payment;
+    max: boolean;
+    since: number;
+  } | null>(null);
   const askAgain = useRef<ReturnType<typeof setTimeout> | null>(null);
   const composeBusy = busy || queued || parked;
   const [failure, setFailure] = useState<Failure | null>(() =>
@@ -480,7 +508,7 @@ export function SendScreen({
       }
     : null;
   const held = known?.status === 'completed' ? known : seen ?? known;
-  const canQuoteMax =
+  const canChooseMax =
     collapsed &&
     fixedSats === null &&
     !disabled &&
@@ -493,6 +521,11 @@ export function SendScreen({
     !leaving &&
     !unresolved &&
     failure?.target !== 'request';
+  // An address max builds channel commitments on the same JS thread as
+  // keypad presses. Only price it when the payer asks for a review.
+  const railHint = useMemo(() => requestRail(request), [request]);
+  const addressMax = railHint === 'chain' || railHint === 'fund';
+  const canQuoteMax = canChooseMax && !addressMax;
   useEffect(() => {
     // Keep the last usable amount visible while refreshing this same wallet
     // and request. Preparing a payment still obtains a fresh review.
@@ -534,9 +567,10 @@ export function SendScreen({
     balance?.totalSats,
   ]);
   useEffect(() => {
-    if (maxFor === request && currentMaximum)
-      setAmount(String(currentMaximum.amountSats));
-  }, [currentMaximum, maxFor, request]);
+    if (latestDraft.current.maxFor === payment && currentMaximum) {
+      changeAmount(String(currentMaximum.amountSats), payment);
+    }
+  }, [changeAmount, currentMaximum, payment]);
   // The request whose held ring is on screen, if one is, for a payment's
   // late answer to follow.
   const watching = useRef('');
@@ -704,10 +738,11 @@ export function SendScreen({
   useEffect(() => {
     if (!queued || opening) return;
     setQueued(false);
-    if (queuedFor.current !== request) return;
+    const pending = queuedFor.current;
     queuedFor.current = null;
+    if (pending?.payment !== payment) return;
     if (disabled) onRefresh();
-    else prepare();
+    else prepare(pending.max);
     // Runs as the wallet opens, with that render's prepare and gate.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queued, opening]);
@@ -747,10 +782,15 @@ export function SendScreen({
   const askNow = useRef(() => {});
   useLayoutEffect(() => {
     askNow.current = () => {
+      const pending = parkedFor.current;
+      if (pending?.payment !== payment) {
+        unpark();
+        return;
+      }
       if (disabled) {
         unpark();
         onRefresh();
-      } else prepare();
+      } else prepare(pending.max);
     };
   });
   const availableSats = balance?.availableSats ?? 0;
@@ -1064,7 +1104,7 @@ export function SendScreen({
       };
     }
     if (code !== request) {
-      setMaxFor(null);
+      changeAmount(latestDraft.current.amount);
       setFeeRate(null);
     }
     dropQuote();
@@ -1196,7 +1236,7 @@ export function SendScreen({
   function reopen() {
     if (route) {
       setRequest(route.entered);
-      setMaxFor(null);
+      changeAmount(latestDraft.current.amount);
       setFeeRate(null);
     }
     dropLookup();
@@ -1310,16 +1350,18 @@ export function SendScreen({
    * the rate chosen for it, if one is. Left out when none is, the engine
    * prices at its own normal.
    */
-  function sendInput(rate: number | null = feeRate): SendInput {
+  function sendInput(
+    rate: number | null = feeRate,
+    max = latestDraft.current.maxFor === payment,
+  ): SendInput {
+    const digits = latestDraft.current.amount;
     return {
       request: request.trim(),
-      ...(maxSelected
+      ...(max
         ? { max: true }
         : {
             amountSats:
-              fixedSats === null && amount.trim()
-                ? parseSats(amount)
-                : undefined,
+              fixedSats === null && digits ? parseSats(digits) : undefined,
           }),
       ...(rate === null ? {} : { feeRate: rate }),
     };
@@ -1332,6 +1374,9 @@ export function SendScreen({
    * nowhere: it is on the slider, stepping.
    */
   function adopt(next: SendReview, quiet = false) {
+    if (next.max && addressMax) {
+      changeAmount(String(next.amountSats), payment);
+    }
     setReview(next);
     setReviewedAt(Date.now());
     setCollapsed(true);
@@ -1472,7 +1517,7 @@ export function SendScreen({
   function awaitsPrimary(error: unknown, fromReview: boolean): boolean {
     if (!primaryAway(error) || !primaryExpected || fromReview) return false;
     const waiting = parkedFor.current;
-    const since = waiting?.request === request ? waiting.since : Date.now();
+    const since = waiting?.payment === payment ? waiting.since : Date.now();
     return Date.now() - since < PRIMARY_WAIT_MS;
   }
 
@@ -1481,9 +1526,9 @@ export function SendScreen({
    * Auto-pay lets go as it does at a refusal, so nothing pays itself after a
    * wait: the review that comes is held like any other.
    */
-  function park() {
-    if (parkedFor.current?.request !== request) {
-      parkedFor.current = { request, since: Date.now() };
+  function park(max: boolean) {
+    if (parkedFor.current?.payment !== payment) {
+      parkedFor.current = { payment, max, since: Date.now() };
       letAutoGo();
       say(copy.send.awaitingPrimary);
       recordDiagnostic({
@@ -1496,11 +1541,12 @@ export function SendScreen({
     askLater();
   }
 
-  async function prepare() {
+  async function prepare(max = latestDraft.current.maxFor === payment) {
     if (waitingFor.current || unresolved) return;
+    if (!max && fixedSats === null && !Number(latestDraft.current.amount)) return;
     if (opening) {
       unpark();
-      queuedFor.current = request;
+      queuedFor.current = { payment, max };
       setQueued(true);
       return;
     }
@@ -1516,11 +1562,13 @@ export function SendScreen({
     const fromReview = review !== null;
     let asking = request;
     const call = goingOut();
+    const current = () =>
+      mounted.current && (!max || activePayment.current === payment);
     // Preparing pays nothing, so a Send left while it waits loses nothing.
     const cancelGrace = grace(call);
     setFailure(null);
     try {
-      const input = sendInput();
+      const input = sendInput(feeRate, max);
       let next: SendReview | null = null;
       try {
         next = await client.prepareSend(input);
@@ -1532,7 +1580,7 @@ export function SendScreen({
         const keyed = Number(input.amountSats ?? 0);
         const sats = fixedSats ?? (keyed > 0 ? keyed : null);
         const others =
-          route && !maxSelected
+          route && !max
             ? fallbacks(route.options, route.at, errorCode(e), sats)
             : [];
         for (const at of others) {
@@ -1563,7 +1611,7 @@ export function SendScreen({
           setRequest(option.request);
           setFeeRate(null);
           if (option.amountSats === null && sats !== null) {
-            setAmount(String(sats));
+            changeAmount(String(sats));
           }
           recordDiagnostic({
             phase: 'ui',
@@ -1582,25 +1630,25 @@ export function SendScreen({
           throw e;
         }
       }
-      if (!mounted.current) return;
+      if (!current()) return;
       unpark();
       adopt(next);
     } catch (e) {
       if (alreadySubmitted(e)) {
         // The engine has a payment for this request out already.
         holdRequest(asking, { status: 'uncertain' });
-        if (!mounted.current) return;
+        if (!current()) return;
         recordDiagnostic({
           phase: 'ui',
           code: errorCode(e),
           message: errorMessage(e),
         });
         toHeld();
-      } else if (!mounted.current) {
+      } else if (!current()) {
         return;
       } else if (awaitsPrimary(e, fromReview)) {
         // The primary is on its way back: the review waits for it.
-        park();
+        park(max);
       } else {
         unpark();
         if (
@@ -1837,7 +1885,7 @@ export function SendScreen({
     queuedFor.current = null;
     setQueued(false);
     unpark();
-    setMaxFor(null);
+    changeAmount(latestDraft.current.amount);
     setFeeRate(null);
     dropQuote();
     setRequest(text);
@@ -2195,8 +2243,7 @@ export function SendScreen({
           onChangeText={
             live
               ? text => {
-                  setAmount(digitsOnly(text));
-                  setMaxFor(null);
+                  changeAmount(digitsOnly(text));
                   if (amountFailure) setFailure(null);
                 }
               : undefined
@@ -2208,7 +2255,17 @@ export function SendScreen({
           shake={amountShakes}
           symbol={symbol}
         >
-          {canQuoteMax && currentMaximum ? (
+          {canChooseMax && addressMax && balance?.totalSats !== 0 ? (
+            <View style={styles.maximum}>
+              <Chip
+                label="100%"
+                accessibilityLabel={copy.send.reviewMax}
+                selected={maxSelected}
+                maxFontSizeMultiplier={LINE_SCALE}
+                onPress={() => prepare(true)}
+              />
+            </View>
+          ) : canQuoteMax && currentMaximum ? (
             <Reanimated.View entering={riseIn()} style={styles.maximum}>
               <Chip
                 label={copy.amount.spoken(currentMaximum.amountSats)}
@@ -2218,8 +2275,7 @@ export function SendScreen({
                 onPress={
                   live && !composeBusy
                     ? () => {
-                        setAmount(String(currentMaximum.amountSats));
-                        setMaxFor(request);
+                        changeAmount(String(currentMaximum.amountSats), payment);
                         setFailure(null);
                       }
                     : undefined
@@ -2257,7 +2313,7 @@ export function SendScreen({
                     ? onRefresh
                     : waiting
                     ? undefined
-                    : prepare
+                    : () => prepare()
                 }
                 busy={composeBusy}
                 stale={disabled}

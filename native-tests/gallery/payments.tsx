@@ -59,6 +59,8 @@ export const AMOUNT_4200 = keyed('4200');
 /** A request the parser refuses as it is entered: an LNURL. */
 const LNURL =
   'LNURL1DP68GURN8GHJ7UM9WFMXJCM99E3K7MF0V9CXJ0M385EKVCENXC6R2C35XVUKXEFCV5MKVV34X5EKZD3EV56NYD3HXQURZEPEXEJXXEPNXSCRVWFNV9NXZCN9XQ6XYEFHVGCXXCMYXYMNSERXFQ5FNS';
+const OPEN_INVOICE =
+  'lnbc1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqlvhfca';
 const P2WPKH = 'btc-bitcoin-p2wpkh';
 const COMMIT: Step = drive => drive.activate(SEND);
 
@@ -194,9 +196,11 @@ const sends: Shot[] = [
   send('empty', () => ({ request: '' })),
   send('a request taken as a chip'),
   send('max amount chip selected', () => ({
+    request: OPEN_INVOICE,
     steps: [press(copy.amount.spoken(198_000))],
   })),
   send('max Lightning review with three bounds', () => ({
+    request: OPEN_INVOICE,
     client: {
       prepareSend: async () =>
         reviewOf({

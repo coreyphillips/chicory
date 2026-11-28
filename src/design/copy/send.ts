@@ -19,6 +19,7 @@ export const send = {
   clipboardEmpty: 'The clipboard is empty.',
   scan: 'Scan a payment request',
   review: 'Review payment',
+  reviewMax: 'Review maximum amount',
   // Why the review waits: there is no request to review, the request
   // cannot be paid, or there is no amount yet.
   reviewWaits: 'Paste or scan a payment request first.',

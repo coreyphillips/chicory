@@ -13,10 +13,16 @@ import { copy } from '../../../design/copy';
 import { Whisper } from '../../../glyphs/Whisper';
 import { AmountReadout } from '../../keypad/AmountReadout';
 import { SendScreen } from '../../../screens/Send';
+import type { SendHandle } from '../../../screens/Send';
 import type { WalletAdapter } from '../../../services/wallet';
 import { clearHeldRequests } from '../../../stage/heldRequests';
 import { amountValue, enterAmount } from '../../../../test-support/keypad';
-import { activate, press } from '../../../../test-support/query';
+import {
+  activate,
+  find,
+  press,
+  visibleText,
+} from '../../../../test-support/query';
 import { copyViolations } from '../../../../test-support/copyGuard';
 import { a11yProblems } from '../../../../test-support/a11y';
 import { Amount } from '../Amount';
@@ -24,6 +30,7 @@ import { FeeSlider } from '../FeeSlider';
 import { reviewFigures, reviewWords, shortRequest } from '../model';
 
 const ADDRESS = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
+const OTHER_ADDRESS = 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4';
 const INVOICE =
   'lnbc1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqlvhfca';
 const maximum: MaxQuote = {
@@ -105,25 +112,105 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-test('the number-only max chip fills the readout, stays plain, and prepares max', async () => {
-  const { tree, client } = await draw();
-  const chip = () => tree.root.findByType(Chip);
-  expect(chip().props.label).toBe('198,000 sats');
-  expect(chip().props.selected).toBe(false);
-  expect(client.prepareSend).not.toHaveBeenCalled();
-  await press(tree, '198,000 sats');
-  expect(amountValue(tree)).toBe('198000');
-  expect(chip().props.selected).toBe(true);
-  expect(tree.root.findByType(AmountReadout).props.tone).toBe('plain');
-  await press(tree, copy.send.review);
+test.each([INVOICE, `bitcoin:${ADDRESS}?lightning=${INVOICE}`])(
+  'the Lightning max chip fills the readout and prepares max for %s',
+  async request => {
+    const { tree, client } = await draw({}, { initialRequest: request });
+    const chip = () => tree.root.findByType(Chip);
+    expect(chip().props.label).toBe('198,000 sats');
+    expect(chip().props.selected).toBe(false);
+    expect(client.prepareSend).not.toHaveBeenCalled();
+    await press(tree, '198,000 sats');
+    expect(amountValue(tree)).toBe('198000');
+    expect(chip().props.selected).toBe(true);
+    expect(tree.root.findByType(AmountReadout).props.tone).toBe('plain');
+    await press(tree, copy.send.review);
+    expect(client.prepareSend).toHaveBeenCalledWith({
+      request,
+      max: true,
+    });
+  },
+);
+
+test.each([ADDRESS, `bitcoin:${ADDRESS}?label=Coffee`])(
+  'keying an amount after a camera scan never requests an onchain quote for %s',
+  async request => {
+    const ref = React.createRef<SendHandle>();
+    const balance = {
+      totalSats: 300_000,
+      availableSats: 300_000,
+      pendingSats: 0,
+      receivableSats: 0,
+    };
+    const { tree, client, update } = await draw(
+      {},
+      { ref, initialRequest: '', balance, quoteRevision: 1 },
+    );
+    await act(async () => ref.current!.receive(request, 'camera'));
+    expect(visibleText(tree)).toContain('100%');
+    expect(find(tree, copy.send.reviewMax)).toBeDefined();
+    expect(copyViolations(tree, { data: [shortRequest(request)] })).toEqual([]);
+    await enterAmount(tree, '42');
+    await update({ quoteRevision: 2 });
+    await press(tree, '0');
+    await press(tree, '0');
+    expect(amountValue(tree)).toBe('4200');
+    expect(client.prepareSend).not.toHaveBeenCalled();
+    expect(client.quoteMax).not.toHaveBeenCalled();
+    const reviewButton = tree.root
+      .findAllByProps({ accessibilityLabel: copy.send.review })
+      .filter(node => typeof node.props.onPress === 'function')
+      .at(-1)!;
+    await act(async () => reviewButton.props.onPress({ nativeEvent: {} }));
+    expect(client.prepareSend).toHaveBeenCalledTimes(1);
+    expect(client.prepareSend).toHaveBeenCalledWith({
+      request,
+      amountSats: 4200,
+    });
+    expect(client.send).not.toHaveBeenCalled();
+  },
+);
+
+test('a digit immediately followed by Review prices the last tap', async () => {
+  const { tree, client } = await draw({}, { initialRequest: ADDRESS });
+  await enterAmount(tree, '420');
+  await act(async () => {
+    find(tree, '0')!.props.onPress();
+    find(tree, copy.send.review)!.props.onPress();
+  });
   expect(client.prepareSend).toHaveBeenCalledWith({
-    request: INVOICE,
-    max: true,
+    request: ADDRESS,
+    amountSats: 4200,
   });
 });
 
-test('the installed wallet core offers address max before home funding confirms', async () => {
+test('immediate Review after backspace uses the edited amount instead of max', async () => {
+  const { tree, client } = await draw();
+  await press(tree, '198,000 sats');
+  await act(async () => {
+    find(tree, copy.keypad.backspace)!.props.onPress();
+    find(tree, copy.send.review)!.props.onPress();
+  });
+  expect(client.prepareSend).toHaveBeenCalledWith({
+    request: INVOICE,
+    amountSats: 19800,
+  });
+});
+
+test('clearing the last digit before Review leaves the keypad open', async () => {
+  const { tree, client } = await draw({}, { initialRequest: ADDRESS });
+  await enterAmount(tree, '1');
+  await act(async () => {
+    find(tree, copy.keypad.backspace)!.props.onPress();
+    find(tree, copy.send.review)!.props.onPress();
+  });
+  expect(amountValue(tree)).toBe('');
+  expect(client.prepareSend).not.toHaveBeenCalled();
+});
+
+test('the installed wallet core reviews address max once on demand before home funding confirms', async () => {
   const primary = DEFAULT_PRIMARY_URI.split('@')[0];
+  const spliceQuotes: number[] = [];
   const core = new EmbeddedWalletClient({
     walletId: 'unconfirmed',
     runtime: {
@@ -154,6 +241,7 @@ test('the installed wallet core offers address max before home funding confirms'
         if (path.endsWith('/channel/splice-quote')) {
           // A splice of 1,158 weight units, priced at the rate asked for.
           const { feeratePerkw } = body as { feeratePerkw: number };
+          spliceQuotes.push(feeratePerkw);
           const feeSats = Math.ceil((1158 * feeratePerkw) / 1000);
           return { feeSats, maxAmountSats: 100000 - feeSats };
         }
@@ -171,15 +259,15 @@ test('the installed wallet core offers address max before home funding confirms'
     },
     { initialRequest: ADDRESS },
   );
-  expect(tree.root.findByType(Chip).props.label).toBe('99,421 sats');
-  await press(tree, '99,421 sats');
-  await press(tree, copy.send.review);
+  expect(spliceQuotes).toEqual([]);
+  await press(tree, copy.send.reviewMax);
   expect(prepareSend).toHaveBeenCalledWith({ request: ADDRESS, max: true });
+  expect(spliceQuotes).toEqual([500]);
   const prepared = await prepareSend.mock.results[0].value;
   expect(prepared.amountSats).toBe(99421);
   expect(prepared.warnings.join(' ')).toContain('funding is unconfirmed');
   // The slider prices the max again at the rate chosen: the fee rises, the
-  // amount gives way, and the chip follows the rate back in compose.
+  // amount gives way, and Edit keeps the amount last reviewed.
   const slider = () => tree.root.findByType(FeeSlider);
   expect(slider().props).toMatchObject({
     rate: 2,
@@ -198,8 +286,15 @@ test('the installed wallet core offers address max before home funding confirms'
   expect(rated).toMatchObject({ feeRate: 8, feeSats: 2316, amountSats: 97684 });
   expect(slider().props).toMatchObject({ rate: 8, feeSats: 2316 });
   await press(tree, copy.send.edit);
-  await act(async () => {});
-  expect(tree.root.findByType(Chip).props.label).toBe('97,684 sats');
+  expect(amountValue(tree)).toBe('97684');
+  expect(spliceQuotes).toEqual([500, 2000]);
+  await enterAmount(tree, '25000');
+  await press(tree, copy.send.review);
+  expect(prepareSend).toHaveBeenLastCalledWith({
+    request: ADDRESS,
+    amountSats: 25000,
+    feeRate: 8,
+  });
 });
 
 test('typing deselects max and continues with the typed amount', async () => {
@@ -217,6 +312,17 @@ test('typing deselects max and continues with the typed amount', async () => {
 test.each([
   { disabled: true },
   { primaryConnected: false },
+  { initialRequest: ADDRESS, disabled: true },
+  { initialRequest: ADDRESS, primaryConnected: false },
+  {
+    initialRequest: ADDRESS,
+    balance: {
+      totalSats: 0,
+      availableSats: 0,
+      pendingSats: 0,
+      receivableSats: 0,
+    },
+  },
   { initialRequest: `bitcoin:${ADDRESS}?amount=0.0001` },
   { initialRequest: '' },
 ])(
@@ -224,27 +330,62 @@ test.each([
   async props => {
     const { tree, client } = await draw({}, props);
     expect(tree.root.findAllByType(Chip)).toHaveLength(0);
+    expect(find(tree, copy.send.reviewMax)).toBeUndefined();
     expect(client.quoteMax).not.toHaveBeenCalled();
   },
 );
 
-test('a slow or empty quote draws no busy chip, and an old answer cannot cross requests', async () => {
+test('a late Lightning max cannot replace the next address max control', async () => {
   let answer!: (quote: MaxQuote) => void;
-  const quoteMax = jest
-    .fn()
-    .mockImplementationOnce(
-      () =>
-        new Promise<MaxQuote>(resolve => {
-          answer = resolve;
-        }),
-    )
-    .mockResolvedValueOnce({ ...maximum, amountSats: 0 });
+  const quoteMax = jest.fn(
+    () =>
+      new Promise<MaxQuote>(resolve => {
+        answer = resolve;
+      }),
+  );
   const { tree, update } = await draw({ quoteMax });
   expect(tree.root.findAllByType(Chip)).toHaveLength(0);
   await update({ initialRequest: ADDRESS });
   await act(async () => answer(maximum));
-  expect(tree.root.findAllByType(Chip)).toHaveLength(0);
+  expect(find(tree, '198,000 sats')).toBeUndefined();
+  expect(find(tree, copy.send.reviewMax)).toBeDefined();
+  expect(quoteMax).toHaveBeenCalledTimes(1);
 });
+
+test.each(['request', 'wallet'])(
+  'an address max review arriving after a change of %s leaves the new draft editable',
+  async changed => {
+    let answer!: (quote: SendReview) => void;
+    const prepareSend = jest.fn(
+      () =>
+        new Promise<SendReview>(resolve => {
+          answer = resolve;
+        }),
+    );
+    const { tree, client, update } = await draw(
+      { prepareSend },
+      { initialRequest: ADDRESS },
+    );
+    await act(async () => {
+      find(tree, copy.send.reviewMax)!.props.onPress();
+    });
+    expect(prepareSend).toHaveBeenCalledWith({ request: ADDRESS, max: true });
+    await update(
+      changed === 'request'
+        ? { initialRequest: OTHER_ADDRESS }
+        : { client: { ...client } },
+    );
+    await act(async () =>
+      answer({ ...review(), destination: ADDRESS, route: 'bitcoin' }),
+    );
+    expect(tree.root.findAllByType(Amount)).toHaveLength(0);
+    expect(amountValue(tree)).toBe('');
+    await enterAmount(tree, '300');
+    expect(amountValue(tree)).toBe('300');
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    expect(client.send).not.toHaveBeenCalled();
+  },
+);
 
 test('a refreshed selected max updates its readout, and disconnect hides the chip', async () => {
   let answer!: (quote: MaxQuote) => void;
@@ -401,18 +542,19 @@ test('address max keeps ordinary review lines and refresh keeps max selected', a
     { prepareSend: jest.fn().mockResolvedValue(addressReview) },
     { initialRequest: ADDRESS },
   );
-  await press(tree, '198,000 sats');
-  await press(tree, copy.send.review);
+  await press(tree, copy.send.reviewMax);
   expect(tree.root.findByType(Amount).props.minimum).toBe(false);
   expect(reviewFigures(addressReview).map(figure => figure.signs)).toEqual([
     '+ ≤',
     '=',
   ]);
   await press(tree, copy.send.edit);
-  expect(tree.root.findByType(Chip).props.selected).toBe(true);
+  expect(amountValue(tree)).toBe('198000');
   await press(tree, copy.send.review);
   expect(client.prepareSend).toHaveBeenLastCalledWith({
     request: ADDRESS,
     max: true,
   });
+  expect(client.prepareSend).toHaveBeenCalledTimes(2);
+  expect(client.send).not.toHaveBeenCalled();
 });
