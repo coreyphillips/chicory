@@ -7,6 +7,7 @@ import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.JavaScriptModule
+import com.facebook.react.bridge.JavaScriptContextHolder
 import com.facebook.react.bridge.JSBundleLoader
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.NativeModule
@@ -15,6 +16,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.common.LifecycleState
+import com.facebook.react.common.JavascriptException
 import com.facebook.react.common.annotations.UnstableReactNativeAPI
 import com.facebook.react.defaults.DefaultComponentsRegistry
 import com.facebook.react.defaults.DefaultReactHostDelegate
@@ -112,6 +114,7 @@ internal class WalletHosts(
     private var engine: ReactHost? = null
     private var generation: Any? = null
     private var endpoint: ChicoryWalletEngine? = null
+    private var walletContext: JavaScriptContextHolder? = null
     private var destroying = false
     private var teardownFailed = false
     private var nextId = 0L
@@ -143,8 +146,8 @@ internal class WalletHosts(
         val token = Any()
         generation = token
         try {
-            val host = newHost(module.context, token) {
-                main.post { if (generation === token) stop("Wallet runtime failed") }
+            val host = newHost(module.context, token) { error ->
+                main.post { if (generation === token) fail("Wallet runtime failed", error) }
             }
             engine = host
             if (module.context.lifecycleState == LifecycleState.RESUMED) {
@@ -152,13 +155,14 @@ internal class WalletHosts(
             }
             main.postDelayed(startupTimeout, 60_000)
             host.start()
-        } catch (_: Exception) {
-            stop("Could not start wallet runtime")
+        } catch (error: Exception) {
+            fail("Could not start wallet runtime", error)
         }
     }
 
     fun ready(token: Any, context: ReactApplicationContext) {
         if (generation !== token || endpoint != null) return
+        walletContext = context.javaScriptContextHolder
         endpoint = context.getJSModule(ChicoryWalletEngine::class.java)
         if (endpoint == null) {
             stop("Wallet runtime has no message handler")
@@ -175,8 +179,8 @@ internal class WalletHosts(
                 val (id, request) = outgoing.removeFirst()
                 target.receive(id, request)
             }
-        } catch (_: Exception) {
-            stop("Could not reach wallet runtime")
+        } catch (error: Exception) {
+            fail("Could not reach wallet runtime", error)
         }
     }
 
@@ -195,6 +199,18 @@ internal class WalletHosts(
         if (owner === module || (token != null && generation === token)) stop("Wallet runtime closed")
     }
 
+    private fun fail(reason: String, error: Exception) {
+        try {
+            val cause = walletFailureCategory(error)
+            owner?.takeUnless { it.invalidated }?.context?.getJSModule(ChicoryWalletEvents::class.java)
+                ?.receive("", """{"type":"log","event":{"phase":"wallet-runtime","message":"$reason ($cause)"}}""")
+        } catch (_: Exception) {
+            // The UI may already be tearing down.
+        } finally {
+            stop(reason)
+        }
+    }
+
     private fun stop(reason: String) {
         main.removeCallbacks(startupTimeout)
         generation = null
@@ -204,12 +220,17 @@ internal class WalletHosts(
         pending.values.forEach { it.reject("WALLET_HOST", reason) }
         pending.clear()
         val previous = engine ?: return
+        val contextHolder = walletContext ?: previous.currentReactContext?.javaScriptContextHolder
+        walletContext = null
         engine = null
         destroying = true
         previous.destroy(reason, null) { destroyed ->
+            // RN 0.88 converts destroy failures to soft exceptions. ReactInstance.destroy
+            // clears this holder only after native modules and the JS runtime are released.
+            val released = contextHolder != null && synchronized(contextHolder) { contextHolder.get() == 0L }
             previous.invalidate()
             main.post {
-                if (destroyed) {
+                if (destroyed && released) {
                     destroying = false
                     owner?.let(::start)
                 } else {
@@ -219,6 +240,25 @@ internal class WalletHosts(
             }
         }
     }
+}
+
+private val jsErrorKinds = listOf("TypeError", "ReferenceError", "RangeError", "SyntaxError")
+private val frameLocation = Regex("[0-9]{1,7}:[0-9]{1,8}")
+
+internal fun walletFailureCategory(error: Exception): String = when (error) {
+    is JavascriptException -> {
+        val stack = error.message.orEmpty()
+        val kind = jsErrorKinds.firstOrNull { stack.startsWith("$it:") } ?: "Error"
+        // RN's JSStackTrace.format separates frames from the message and writes function@line:column.
+        val frame = stack.substringAfterLast(", stack:\n", "").substringBefore('\n').substringAfterLast('@', "")
+        if (frameLocation.matches(frame)) "JavaScript $kind at $frame" else "JavaScript $kind"
+    }
+    is android.database.sqlite.SQLiteException -> "SQLite error"
+    is java.security.GeneralSecurityException, is SecurityException -> "security error"
+    is java.io.IOException -> "I/O error"
+    is IllegalArgumentException -> "invalid argument"
+    is IllegalStateException -> "invalid state"
+    else -> "native exception"
 }
 
 private object AndroidWallet {

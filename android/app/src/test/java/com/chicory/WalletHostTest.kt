@@ -2,9 +2,11 @@ package com.chicory
 
 import android.os.Handler
 import com.facebook.react.ReactHost
+import com.facebook.react.bridge.JavaScriptContextHolder
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.common.LifecycleState
+import com.facebook.react.common.JavascriptException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -15,6 +17,8 @@ class WalletHostTest {
     private val context = mock(ReactApplicationContext::class.java)
     private val owner = newOwner()
     private val endpoint = mock(ChicoryWalletEngine::class.java)
+    private val events = mock(ChicoryWalletEvents::class.java)
+    private val holder = JavaScriptContextHolder(123)
     private val generations = mutableListOf<Any>()
     private lateinit var finishDestroy: (Boolean) -> Unit
     private lateinit var hostFailure: (Exception) -> Unit
@@ -37,7 +41,9 @@ class WalletHostTest {
         }
     }
     init {
+        `when`(context.javaScriptContextHolder).thenReturn(holder)
         `when`(context.getJSModule(ChicoryWalletEngine::class.java)).thenReturn(endpoint)
+        `when`(context.getJSModule(ChicoryWalletEvents::class.java)).thenReturn(events)
     }
 
     private fun newOwner() = mock(WalletHostModule::class.java).also {
@@ -75,11 +81,14 @@ class WalletHostTest {
         router.dispatch(owner, "sign", first)
         val old = generations.single()
         router.ready(old, context)
-        hostFailure(IllegalStateException("fixture"))
+        hostFailure(JavascriptException("TypeError: secret seed and payload, stack:\nprivateMethod@1:223\n"))
+        verify(events).receive("", """{"type":"log","event":{"phase":"wallet-runtime","message":"Wallet runtime failed (JavaScript TypeError at 1:223)"}}""")
+        verifyNoMoreInteractions(events)
         verify(first).reject("WALLET_HOST", "Wallet runtime failed")
         router.dispatch(owner, "status", next)
         assertNull(router.hostFor(owner))
         assertEquals(1, generations.size)
+        holder.clear()
         finishDestroy(true)
         assertEquals(2, generations.size)
         router.ready(old, context)
@@ -93,22 +102,41 @@ class WalletHostTest {
         verify(next).resolve("current")
     }
 
-    @Test fun replacementWaitsForItsInvalidatedOwnerAndNeverStartsAfterFailedTeardown() {
+    @Test fun aSuccessfulDestroyCallbackCannotReplaceAStillLiveNativeRuntime() {
         val first = mock(Promise::class.java)
         val next = mock(Promise::class.java)
         val newOwner = newOwner()
         router.dispatch(owner, "open", first)
+        router.ready(generations.single(), context)
         `when`(owner.invalidated).thenReturn(true)
         router.dispatch(newOwner, "open", next)
         router.invalidate(owner, null)
         assertEquals(1, generations.size)
         verify(first).reject("WALLET_HOST", "Wallet runtime closed")
-        finishDestroy(false)
+        // RN completes its callback successfully even if ReactInstance.destroy() threw.
+        finishDestroy(true)
         verify(next).reject("WALLET_HOST", "Could not close the previous wallet runtime")
         val retry = mock(Promise::class.java)
         router.dispatch(newOwner, "retry", retry)
         verify(retry).reject("WALLET_HOST", "Restart the app to reopen the wallet runtime")
         assertEquals(1, generations.size)
+    }
+
+    @Test fun startupFailureWithoutARecordedContextCannotAuthorizeAReplacement() {
+        val pending = mock(Promise::class.java)
+        router.dispatch(owner, "first", pending)
+        timeout!!.run()
+        val next = mock(Promise::class.java)
+        router.dispatch(owner, "open", next)
+        finishDestroy(true)
+        verify(next).reject("WALLET_HOST", "Could not close the previous wallet runtime")
+        assertEquals(1, generations.size)
+    }
+
+    @Test fun diagnosticsOnlyIncludeKnownErrorKindsAndNumericalBundleLocations() {
+        assertEquals("native exception", walletFailureCategory(Exception("secret token")))
+        assertEquals("I/O error", walletFailureCategory(java.io.IOException("/private/path")))
+        assertEquals("JavaScript Error", walletFailureCategory(JavascriptException("seed, stack:\nsecret@https://host/token\n")))
     }
 
     @Test fun missingBootstrapRejectsQueuedWorkWithoutReplayingIt() {
