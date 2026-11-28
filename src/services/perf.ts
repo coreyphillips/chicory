@@ -10,24 +10,26 @@ import { recordDiagnostic } from './diagnosticLog';
  * when each step of the boot first happened (`markBoot`, and `markEngine`
  * for the engine's own timings), every time the thread was too busy to run
  * a 50ms timer on time (a stall), what the wallet's SQLite did, how the
- * session's reads went, and the taps a moving pane refused. When the window
- * closes it prints five `CHICORY_PERF` lines, which
+ * session's reads went, and the taps a moving pane refused. After sampling
+ * ends it allows two seconds for a participating wallet's SQL counters to
+ * arrive, then prints five `CHICORY_PERF` lines, which
  * `adb logcat -s ReactNativeJS:V | grep CHICORY_PERF` reads off a phone, and
  * writes the same five to the diagnostic log under phase `perf`, so they
  * travel in the report Settings > Diagnostics copies. That page lists only
- * the app's own errors, so they never show as one.
+ * the app's own errors, so they never show as one. A wallet batch delivered
+ * after publication gets a separate line in both logs.
  *
  * Every time in the report is in milliseconds since the report started,
  * before the app's own code had loaded.
  *
  * It costs a timer every 50ms and a clock read per SQLite statement for one
- * minute, and nothing after it. Only index.js starts it, so under Jest every
+ * minute. Only index.js starts it, so under Jest every
  * hook here does nothing: no suite sees its timers or its lines unless the
  * suite starts it on purpose.
  */
 
 /**
- * How long after a cold start the report watches, and when it is written.
+ * How long after a cold start the report watches.
  * This is its one switch: 0 turns it off.
  */
 export const PERF_WINDOW_MS = 60000;
@@ -147,6 +149,12 @@ let listening: { remove: () => void } | null = null;
 
 // Only the main host samples UI stalls. The wallet host forwards boot marks
 // and a batch of SQLite counters during that same reporting window.
+const WALLET_BATCH_MS = 250;
+// Allow the final batch to cross the native bridge even if a wallet operation
+// is in flight at the end of the one-minute sampling window.
+const WALLET_DELIVERY_MS = 2000;
+let walletRequested = false;
+let awaitingWallet = false;
 let remotePerf: ((event: HostEvent) => void) | undefined;
 let batch = emptyRecord().sqlite;
 let flushTimer: ReturnType<typeof setInterval> | undefined;
@@ -154,11 +162,14 @@ let remoteDeadline = 0;
 const forwardedMarks = new Set<string>();
 
 export function getBootPerfDeadline() {
-  return recording ? began + PERF_WINDOW_MS : 0;
+  if (!recording) return 0;
+  walletRequested = true;
+  return began + PERF_WINDOW_MS;
 }
 
 function flushWalletSqlite() {
-  if (batch.statements) remotePerf?.({ type: 'sqlite', tally: batch });
+  if (!batch.statements) return;
+  remotePerf?.({ type: 'sqlite', tally: batch });
   batch = emptyRecord().sqlite;
 }
 
@@ -174,11 +185,17 @@ export function forwardWalletPerf(until: number, send?: typeof remotePerf) {
   flushTimer = setInterval(() => {
     if (Date.now() >= until) forwardWalletPerf(0);
     else flushWalletSqlite();
-  }, 250);
+  }, WALLET_BATCH_MS);
 }
 
 export function includeWalletSqlite(tally: SqliteTally) {
-  if (!recording) return;
+  if (!recording && !awaitingWallet) {
+    // A suspended runtime can outlast the delivery allowance. Its counters
+    // still describe the original window, so keep them as an addendum.
+    if (walletRequested && tally.statements)
+      reportLine(`sqlite late batch ${sqliteText(tally)}`);
+    return;
+  }
   const total = record.sqlite;
   for (const key of [
     'statements',
@@ -266,11 +283,21 @@ function finish() {
   recording = false;
   stop();
   record.ran = Date.now() - began;
+  if (walletRequested) {
+    awaitingWallet = true;
+    setTimeout(publish, WALLET_DELIVERY_MS);
+  } else publish();
+}
+
+function publish() {
+  awaitingWallet = false;
+  for (const line of bootReport(record)) reportLine(line);
+}
+
+function reportLine(line: string) {
   try {
-    for (const line of bootReport(record)) {
-      console.log(`CHICORY_PERF ${line}`);
-      recordDiagnostic({ phase: 'perf', message: fit(line) });
-    }
+    console.log(`CHICORY_PERF ${line}`);
+    recordDiagnostic({ phase: 'perf', message: fit(line) });
   } catch {
     // A report that cannot be written is simply missing.
   }

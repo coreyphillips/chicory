@@ -26,14 +26,18 @@ export { validateDeviceSettings };
 export type { DeviceSettings };
 
 let sequence = 0;
-const listeners = new Map<string, (event: Diagnostic) => void>();
+type WalletListener = {
+  onDiagnostic?: (event: Diagnostic) => void;
+  closing: boolean;
+};
+const listeners = new Map<string, WalletListener>();
 export function receiveWalletEvent(session: string, payload: string) {
   const listener = listeners.get(session);
   if (!listener) return;
   const event = JSON.parse(payload) as HostEvent;
   switch (event.type) {
     case 'diagnostic':
-      return listener(event.event);
+      return listener.onDiagnostic?.(event.event);
     case 'log':
       return appendDiagnostic(event.event);
     case 'boot':
@@ -69,11 +73,16 @@ async function call<T>(message: HostRequest): Promise<T> {
   if (error) {
     if (error.code === 'ENGINE_CLOSED' && 'session' in message) {
       const listener = listeners.get(message.session);
-      listeners.delete(message.session);
-      try {
-        listener?.({ phase: 'wallet-session-closed', message: error.message });
-      } catch {
-        // The caller must still receive the original engine error.
+      if (listener && !listener.closing) {
+        listeners.delete(message.session);
+        try {
+          listener.onDiagnostic?.({
+            phase: 'wallet-session-closed',
+            message: error.message,
+          });
+        } catch {
+          // The caller must still receive the original engine error.
+        }
       }
     }
     throw Object.assign(new Error(error.message), error);
@@ -101,7 +110,8 @@ export async function openDeviceWallet(
 ): Promise<EmbeddedWalletClient & Pick<WalletAdapter, 'openPaymentNotes'>> {
   validateDeviceSettings(settings);
   const session = `${Date.now()}-${++sequence}`;
-  listeners.set(session, onDiagnostic ?? (() => {}));
+  const listener = { onDiagnostic, closing: false };
+  listeners.set(session, listener);
   let subscription: ReturnType<typeof AppState.addEventListener> | undefined;
   let opened = false;
   try {
@@ -131,12 +141,16 @@ export async function openDeviceWallet(
       runtime: {
         request: request => call({ op: 'request', session, request }),
         close: async () => {
-          listeners.delete(session);
+          listener.closing = true;
           try {
             subscription?.remove();
           } finally {
             subscription = undefined;
-            await call({ op: 'close', session });
+            try {
+              await call({ op: 'close', session });
+            } finally {
+              listeners.delete(session);
+            }
           }
         },
       },

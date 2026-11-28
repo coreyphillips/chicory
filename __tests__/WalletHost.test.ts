@@ -1,6 +1,7 @@
 import { handleEngineMessage } from '../src/embedded/walletEngineServer';
 import { openOwnedDeviceWallet } from '../src/embedded/deviceRuntime';
-import { openDeviceWallet } from '../src/embedded/client';
+import { openDeviceWallet, receiveWalletEvent } from '../src/embedded/client';
+import { recentDiagnostics } from '../src/services/diagnosticLog';
 import { walletHost } from '../src/embedded/walletHostNative';
 import { EmbeddedTransportError } from '@beignet/wallet-core';
 import { defaultProfile } from '../src/services/networks';
@@ -153,5 +154,31 @@ test('only a confirmed missing session signals the owner to unlock again', async
     });
   } finally {
     await client.close();
+  }
+});
+
+test('close accepts the final wallet events without reporting a lost session', async () => {
+  const owned = wallet();
+  const closing = gate();
+  owned.close.mockReturnValue(closing.wait);
+  jest.mocked(openOwnedDeviceWallet).mockResolvedValueOnce(owned);
+  const diagnostic = jest.fn();
+  const client = await openDeviceWallet(settings, diagnostic);
+  const notes = client.openPaymentNotes!();
+  const closed = client.close();
+  try {
+    await Promise.resolve();
+    await expect(notes.read('mine')).rejects.toMatchObject({
+      code: 'ENGINE_CLOSED',
+    });
+    const last = jest.mocked(walletHost.dispatch).mock.calls.at(-1)![0];
+    const { session } = JSON.parse(last);
+    const event = { phase: 'shutdown', message: 'Wallet flushed' };
+    receiveWalletEvent(session, JSON.stringify({ type: 'log', event }));
+    expect(recentDiagnostics().at(-1)).toMatchObject(event);
+    expect(diagnostic).not.toHaveBeenCalled();
+  } finally {
+    closing.release();
+    await closed;
   }
 });
