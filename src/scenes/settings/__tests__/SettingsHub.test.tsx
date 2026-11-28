@@ -569,24 +569,12 @@ describe('the card', () => {
   });
 });
 
-/**
- * Shared values that live as long as their component, as on a device: the
- * mock makes a new one each render, which would lose where a fill stood.
- */
-function keepSharedValues() {
-  const made = Reanimated.useSharedValue;
-  jest
-    .spyOn(Reanimated, 'useSharedValue')
-    .mockImplementation(init => React.useState(() => made(init))[0]);
-}
-
 // Last: Reduce Motion, once read, holds while the next screen reads it.
 describe('under Reduce Motion', () => {
   beforeEach(() => {
     jest
       .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
       .mockResolvedValue(true);
-    keepSharedValues();
   });
 
   /** Settings, once it has read the setting. */

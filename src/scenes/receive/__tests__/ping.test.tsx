@@ -103,12 +103,6 @@ describe('the ping round a frame', () => {
 
   test('told to stop mid-flight, it fades out where it is going: its clock runs on under the fade, then rests', async () => {
     jest.useFakeTimers();
-    // Shared values live as long as their component, as on a device, so
-    // the clock is the same one from render to render.
-    const made = Reanimated.useSharedValue;
-    jest
-      .spyOn(Reanimated, 'useSharedValue')
-      .mockImplementation(init => React.useState(() => made(init))[0]);
     const clocks = jest.spyOn(loops, 'useLoop');
     const timings = jest.spyOn(Reanimated, 'withTiming');
     const repeats = jest.spyOn(Reanimated, 'withRepeat');

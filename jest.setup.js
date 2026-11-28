@@ -71,6 +71,21 @@ jest.mock('react-native-worklets', () =>
 );
 // Reanimated's mock: animations land on their final value at once and layout
 // animations are inert, so a suite sees state, never a frame in between.
-jest.mock('react-native-reanimated', () =>
-  require('react-native-reanimated/mock'),
-);
+jest.mock('react-native-reanimated', () => {
+  const mock = require('react-native-reanimated/mock');
+  return {
+    ...mock,
+    // A shared value can change in a layout effect after React rendered.
+    // Read the style against its current values, as the UI runtime would.
+    useAnimatedStyle(update) {
+      const style = {};
+      for (const key of Object.keys(update())) {
+        Object.defineProperty(style, key, {
+          enumerable: true,
+          get: () => update()[key],
+        });
+      }
+      return style;
+    },
+  };
+});

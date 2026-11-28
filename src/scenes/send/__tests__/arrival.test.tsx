@@ -66,11 +66,6 @@ async function placeAt(tree: ReactTestRenderer, at = REST) {
 
 beforeEach(() => {
   jest.useFakeTimers();
-  // Shared values live as long as their component, as on a device.
-  const made = Reanimated.useSharedValue;
-  jest
-    .spyOn(Reanimated, 'useSharedValue')
-    .mockImplementation(init => React.useState(() => made(init))[0]);
 });
 /** Every view measures through one mock, which keeps what a test taught it. */
 const unmeasured = () =>

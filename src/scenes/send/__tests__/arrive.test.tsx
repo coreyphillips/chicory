@@ -1,7 +1,6 @@
 import React from 'react';
 import { AccessibilityInfo, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import * as Reanimated from 'react-native-reanimated';
 import { act, create } from 'react-test-renderer';
 import type { ReactTestRenderer } from 'react-test-renderer';
 import HapticFeedback from 'react-native-haptic-feedback';
@@ -124,11 +123,6 @@ beforeEach(() => {
   jest.useFakeTimers();
   clearHeldRequests();
   jest.mocked(HapticFeedback.trigger).mockClear();
-  // Shared values live as long as their component, as on a device.
-  const made = Reanimated.useSharedValue;
-  jest
-    .spyOn(Reanimated, 'useSharedValue')
-    .mockImplementation(init => React.useState(() => made(init))[0]);
 });
 afterEach(() => {
   jest.restoreAllMocks();
