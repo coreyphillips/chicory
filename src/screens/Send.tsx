@@ -354,12 +354,23 @@ export function SendScreen({
   const live = usePaneActive();
   const foreground = useAppActive();
   const launchLanding = useLaunchLanding();
-  const [request, setRequest] = useState(initialRequest);
-  const payment = useMemo(() => ({ request, client }), [request, client]);
-  const activePayment = useRef(payment);
+  const [recipient, setRecipient] = useState({ text: initialRequest });
+  const request = recipient.text;
+  const latestRecipient = useRef(recipient);
+  // A scan can replace a request in the same batch that its review answers.
+  // Invalidate that review at delivery, including when the text changes back.
+  function changeRequest(text: string) {
+    if (text !== latestRecipient.current.text) {
+      latestRecipient.current = { text };
+      setRecipient(latestRecipient.current);
+    }
+    return latestRecipient.current;
+  }
+  const payment = useMemo(() => ({ recipient, client }), [recipient, client]);
+  const activeClient = useRef(client);
   useLayoutEffect(() => {
-    activePayment.current = payment;
-  }, [payment]);
+    activeClient.current = client;
+  }, [client]);
   // A request that arrived whole shows as a chip; one being typed as text,
   // and one the parser refuses stays in the well with its cross, so it never
   // takes the accepted look first.
@@ -1108,7 +1119,7 @@ export function SendScreen({
       setFeeRate(null);
     }
     dropQuote();
-    setRequest(code);
+    changeRequest(code);
     setScanning(false);
     const refused = requestRefusal(code);
     if (refused) {
@@ -1188,7 +1199,7 @@ export function SendScreen({
         }
         const [first] = options;
         setVia({ pubky: key, entered: text, options, at: 0 });
-        setRequest(first.request);
+        changeRequest(first.request);
         haptics.soft();
         say(pubkyWords(key, first));
         // The identifier names the rail; the payload is never logged.
@@ -1235,7 +1246,7 @@ export function SendScreen({
    */
   function reopen() {
     if (route) {
-      setRequest(route.entered);
+      changeRequest(route.entered);
       changeAmount(latestDraft.current.amount);
       setFeeRate(null);
     }
@@ -1542,8 +1553,14 @@ export function SendScreen({
   }
 
   async function prepare(max = latestDraft.current.maxFor === payment) {
-    if (waitingFor.current || unresolved) return;
-    if (!max && fixedSats === null && !Number(latestDraft.current.amount)) return;
+    if (
+      waitingFor.current ||
+      unresolved ||
+      recipient !== latestRecipient.current
+    )
+      return;
+    if (!max && fixedSats === null && !Number(latestDraft.current.amount))
+      return;
     if (opening) {
       unpark();
       queuedFor.current = { payment, max };
@@ -1561,9 +1578,12 @@ export function SendScreen({
     // A refresh is asked for from a review whose quote ran out.
     const fromReview = review !== null;
     let asking = request;
+    let target = recipient;
     const call = goingOut();
     const current = () =>
-      mounted.current && (!max || activePayment.current === payment);
+      mounted.current &&
+      activeClient.current === client &&
+      latestRecipient.current === target;
     // Preparing pays nothing, so a Send left while it waits loses nothing.
     const cancelGrace = grace(call);
     setFailure(null);
@@ -1584,6 +1604,7 @@ export function SendScreen({
             ? fallbacks(route.options, route.at, errorCode(e), sats)
             : [];
         for (const at of others) {
+          if (!current()) return;
           const option = route!.options[at];
           asking = option.request;
           const heldAlready = heldRequest(option.request, activity) !== null;
@@ -1599,16 +1620,16 @@ export function SendScreen({
               if (!alreadySubmitted(again)) continue;
               // The engine has a payment to this endpoint out: it is held,
               // and the ring that says so is its own.
-              if (mounted.current) {
+              if (current()) {
                 setVia({ ...route!, at });
-                setRequest(option.request);
+                target = changeRequest(option.request);
               }
               throw again;
             }
           }
-          if (!mounted.current) return;
+          if (!current()) return;
           setVia({ ...route!, at });
-          setRequest(option.request);
+          target = changeRequest(option.request);
           setFeeRate(null);
           if (option.amountSats === null && sats !== null) {
             changeAmount(String(sats));
@@ -1888,7 +1909,7 @@ export function SendScreen({
     changeAmount(latestDraft.current.amount);
     setFeeRate(null);
     dropQuote();
-    setRequest(text);
+    changeRequest(text);
     setCollapsed(false);
     setFailure(null);
   }

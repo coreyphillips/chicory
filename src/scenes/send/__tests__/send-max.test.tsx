@@ -387,6 +387,65 @@ test.each(['request', 'wallet'])(
   },
 );
 
+test.each([
+  [false, false],
+  [true, false],
+  [false, true],
+  [true, true],
+])(
+  'a scan cancels a review resolved in the same batch (max=%s, rescanOriginal=%s)',
+  async (max, rescanOriginal) => {
+    const ref = React.createRef<SendHandle>();
+    const currentAddress = rescanOriginal ? ADDRESS : OTHER_ADDRESS;
+    const amountSats = max ? 198000 : 420;
+    const quoted: SendReview = {
+      id: 'address-review',
+      destination: ADDRESS,
+      route: 'bitcoin',
+      amountSats,
+      description: '',
+      feeLabel: 'Network fee',
+      feeSats: 10,
+      totalSats: amountSats + 10,
+      expiresAt: Date.now() + 60000,
+      warnings: [],
+      ...(max ? { max: true } : {}),
+    };
+    let answer!: (quote: SendReview) => void;
+    const prepareSend = jest
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<SendReview>(resolve => {
+            answer = resolve;
+          }),
+      )
+      .mockResolvedValue({ ...quoted, destination: currentAddress });
+    const { tree } = await draw(
+      { prepareSend },
+      { initialRequest: ADDRESS, ref },
+    );
+    const button = max ? copy.send.reviewMax : copy.send.review;
+    if (!max) await enterAmount(tree, '420');
+    await act(async () => {
+      find(tree, button)!.props.onPress();
+    });
+    await act(async () => {
+      ref.current!.receive(OTHER_ADDRESS, 'camera');
+      if (rescanOriginal) ref.current!.receive(ADDRESS, 'camera');
+      answer(quoted);
+    });
+    expect(tree.root.findAllByType(Amount)).toHaveLength(0);
+    expect(amountValue(tree)).toBe(max ? '' : '420');
+    await press(tree, button);
+    expect(prepareSend).toHaveBeenLastCalledWith({
+      request: currentAddress,
+      ...(max ? { max: true } : { amountSats: 420 }),
+    });
+    expect(tree.root.findAllByType(Amount)).toHaveLength(1);
+  },
+);
+
 test('a refreshed selected max updates its readout, and disconnect hides the chip', async () => {
   let answer!: (quote: MaxQuote) => void;
   const quoteMax = jest
