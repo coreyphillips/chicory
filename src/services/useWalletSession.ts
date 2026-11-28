@@ -290,7 +290,7 @@ export function useWalletSession(view: WalletSessionView) {
   snapshotRef.current = snapshot;
   const pollFailures = useRef(0);
   /** The engine call a recovery is waiting on has not settled. */
-  const recovering = useRef(false);
+  const recovering = useRef<object | null>(null);
   /**
    * A read that succeeded and still leaves the staleness gate closed, since
    * the figures it carries are already old, is written down once for each
@@ -344,10 +344,46 @@ export function useWalletSession(view: WalletSessionView) {
    * this the opening wait or a turning retry would stay up for good.
    */
   const standDown = useCallback(() => {
+    recovering.current = null;
     setConnecting(false);
     setSelecting(false);
     setRefreshing(false);
   }, []);
+
+  const clearWalletView = useCallback(() => {
+    setClient(null);
+    setWalletId('');
+    setWallets([]);
+    setSnapshot(null);
+    known.current = null;
+    onCloseSheet();
+  }, [onCloseSheet]);
+
+  const retireLostWallet = useCallback(
+    (device: EmbeddedWalletClient) => {
+      if (!restoreActive.current || ownedDevice.current !== device) return;
+      ownedDevice.current = null;
+      detachedDevice = device;
+      clearWalletView();
+      setDeviceHint(true);
+      setDeviceVisible(false);
+      setNetworkEditor(false);
+      // Lock and erase already invalidated the generation and own its close.
+      if (closingInFlight.current) return;
+      invalidateSession();
+      runtimeStarting.current = null;
+      selectionInFlight.current = null;
+      standDown();
+      setSwitchError('');
+      setError(
+        'The wallet connection closed. Open the wallet and check Activity before sending again.',
+      );
+      // A close removes native subscriptions. The next explicit open waits
+      // for it through detachedDevice, including a close that needs a retry.
+      closeDevice(device).catch(() => {});
+    },
+    [clearWalletView, invalidateSession, standDown],
+  );
 
   /**
    * A successful read of wallet `id`, onto the page and into the cache, kept
@@ -449,7 +485,7 @@ export function useWalletSession(view: WalletSessionView) {
                 : ''
             }`,
           });
-        land(walletId, next, recovering.current);
+        land(walletId, next, !!recovering.current);
       }
     } catch (e) {
       if (generation.current === current) {
@@ -588,7 +624,8 @@ export function useWalletSession(view: WalletSessionView) {
       runtimeStarting.current
     )
       return;
-    recovering.current = true;
+    const token = {};
+    recovering.current = token;
     const current = generation.current;
     const begun = Date.now();
     const ran = () => `${((Date.now() - begun) / 1000).toFixed(1)}s`;
@@ -614,7 +651,7 @@ export function useWalletSession(view: WalletSessionView) {
       await client.startWallet();
       step = 'refreshWallet';
       await client.refreshWallet();
-      recovering.current = false;
+      if (recovering.current === token) recovering.current = null;
       step = 'snapshot';
       if (generation.current === current) await refresh();
       if (overdue)
@@ -630,7 +667,7 @@ export function useWalletSession(view: WalletSessionView) {
       if (generation.current === current) setError(errorMessage(e));
     } finally {
       clearTimeout(deadline);
-      recovering.current = false;
+      if (recovering.current === token) recovering.current = null;
       if (generation.current === current) setRefreshing(false);
     }
   }, [client, walletId, refresh]);
@@ -832,6 +869,7 @@ export function useWalletSession(view: WalletSessionView) {
       });
       let next: EmbeddedWalletClient | undefined;
       let committed = false;
+      let lost = false;
       try {
         if (detachedDevice) {
           // The last wallet is still closing, or its close failed or ran out
@@ -854,10 +892,20 @@ export function useWalletSession(view: WalletSessionView) {
         if (generation.current !== current) return;
         const allowEmpty =
           !options?.walletId && (options?.prepared || options?.allowEmpty);
-        next = await openDeviceWallet(settings, onDeviceDiagnostic, {
-          existingOnly: options?.existingOnly ?? false,
-          ...(allowEmpty ? { allowEmpty: true } : {}),
-        });
+        next = await openDeviceWallet(
+          settings,
+          event => {
+            onDeviceDiagnostic(event);
+            if (event.phase === 'wallet-session-closed') {
+              lost = true;
+              if (next && committed) retireLostWallet(next);
+            }
+          },
+          {
+            existingOnly: options?.existingOnly ?? false,
+            ...(allowEmpty ? { allowEmpty: true } : {}),
+          },
+        );
         let records = await next.listWallets();
         assertWalletNetwork(records, settings.network);
         // Opening the app is meant to end on a wallet page, not on a form. An
@@ -886,6 +934,7 @@ export function useWalletSession(view: WalletSessionView) {
             records = [record];
             createdNow = true;
           } catch (e) {
+            if (lost) throw e;
             creationError = errorMessage(e);
           }
         }
@@ -927,6 +976,10 @@ export function useWalletSession(view: WalletSessionView) {
           await next.close();
           return;
         }
+        if (lost)
+          throw new Error(
+            'The wallet connection closed. Open the wallet again.',
+          );
         setRememberedSession(session);
         setDeviceHint(records.length > 0);
         if (selected) next.selectWallet(selected.id);
@@ -988,7 +1041,7 @@ export function useWalletSession(view: WalletSessionView) {
         if (generation.current === current) setConnecting(false);
       }
     },
-    [onTab, hydrate, land, onDeviceDiagnostic],
+    [onTab, hydrate, land, onDeviceDiagnostic, retireLostWallet],
   );
 
   // The owned runtime must be closed when the app goes away, whether or not a
@@ -1072,6 +1125,8 @@ export function useWalletSession(view: WalletSessionView) {
           backupPending: rememberedSession.backupPending,
           createIfEmpty:
             !options?.restore &&
+            !deviceHint &&
+            !rememberedSession.walletId &&
             canCreateOn(preferences.profiles[rememberedSession.network]),
         });
       } else {
@@ -1097,6 +1152,7 @@ export function useWalletSession(view: WalletSessionView) {
     if (!client || selectionInFlight.current) return;
     setSelecting(true);
     setError('');
+    const current = generation.current;
     let created;
     try {
       created = await client.createWallet({
@@ -1105,10 +1161,13 @@ export function useWalletSession(view: WalletSessionView) {
         primaryUri: activeProfile.primaryUri,
       });
     } catch (e) {
-      setError(errorMessage(e));
-      setSelecting(false);
+      if (generation.current === current) {
+        setError(errorMessage(e));
+        setSelecting(false);
+      }
       return;
     }
+    if (generation.current !== current) return;
     setSelecting(false);
     const record = { ...created };
     delete record.mnemonic;
@@ -1146,12 +1205,7 @@ export function useWalletSession(view: WalletSessionView) {
           await closeDevice(previous);
         }
         if (generation.current !== current) return;
-        setClient(null);
-        setWalletId('');
-        setWallets([]);
-        setSnapshot(null);
-        known.current = null;
-        onCloseSheet();
+        clearWalletView();
         setError('');
         setActiveProfile(profile);
         // The open holds its own latch, and it is where the rest of the wait
@@ -1196,7 +1250,7 @@ export function useWalletSession(view: WalletSessionView) {
         }
       }
     },
-    [client, switching, activeProfile, openDevice, onCloseSheet, standDown],
+    [client, switching, activeProfile, openDevice, clearWalletView, standDown],
   );
 
   const disconnect = useCallback(async () => {
@@ -1234,12 +1288,7 @@ export function useWalletSession(view: WalletSessionView) {
         setDeviceHint(!session.prepared);
       }
       if (generation.current !== current) return;
-      setClient(null);
-      setWalletId('');
-      setWallets([]);
-      setSnapshot(null);
-      known.current = null;
-      onCloseSheet();
+      clearWalletView();
       setError('');
       setDeviceVisible(false);
       setNetworkEditor(false);
@@ -1255,7 +1304,7 @@ export function useWalletSession(view: WalletSessionView) {
     walletId,
     rememberedSession,
     wallets,
-    onCloseSheet,
+    clearWalletView,
     standDown,
   ]);
 
@@ -1288,12 +1337,7 @@ export function useWalletSession(view: WalletSessionView) {
       });
       await closeDevice(client);
       ownedDevice.current = null;
-      setClient(null);
-      setWalletId('');
-      setWallets([]);
-      setSnapshot(null);
-      known.current = null;
-      onCloseSheet();
+      clearWalletView();
       const { clearSeedSource } = await import('../embedded/seed');
       await eraseDeviceWallet();
       await clearSeedSource();
@@ -1317,7 +1361,7 @@ export function useWalletSession(view: WalletSessionView) {
       setClosing(false);
       setErasing(false);
     }
-  }, [client, activeProfile, onCloseSheet, standDown]);
+  }, [client, activeProfile, clearWalletView, standDown]);
 
   const acknowledgeBackup = useCallback(() => {
     if (!rememberedSession) return;

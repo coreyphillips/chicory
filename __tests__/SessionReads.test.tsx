@@ -456,3 +456,113 @@ describe('the primary’s key', () => {
     expect(primaryPubkey(undefined)).toBe('');
   });
 });
+
+test('losing the current wallet host retires its balance and opens the same wallet only on request', async () => {
+  const old = device();
+  const { tree, report } = await open(old);
+  const next = device();
+  const opener = jest
+    .mocked(DeviceWallet.openDeviceWallet)
+    .mockResolvedValueOnce(next);
+  const send = jest.spyOn(next, 'send');
+  try {
+    let finish!: (value: WalletSnapshot) => void;
+    jest.mocked(old.snapshot).mockReturnValueOnce(
+      new Promise(resolve => {
+        finish = resolve;
+      }),
+    );
+    let oldRead!: Promise<void>;
+    await act(async () => {
+      oldRead = session.refresh();
+    });
+    await report(
+      'wallet-session-closed',
+      'Unlock the local wallet before continuing.',
+    );
+    expect(session.client).toBeNull();
+    expect(session.snapshot).toBeNull();
+    expect(session.walletId).toBe('');
+    expect(session.deviceHint).toBe(true);
+    expect(session.error).toMatch(/check Activity/);
+    expect(opener).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await session.openWallet();
+    });
+    expect(session.client).toBe(next);
+    expect(session.walletId).toBe('saved-regtest');
+    expect(opener.mock.calls[1][2]).toEqual({ existingOnly: true });
+    await act(async () => {
+      finish(reading({ balance: { ...reading().balance, totalSats: 123456 } }));
+      await oldRead;
+    });
+    await report('wallet-session-closed', 'Late event for the first wallet.');
+    expect(session.client).toBe(next);
+    expect(session.snapshot?.balance.totalSats).toBe(1000);
+    expect(send).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => tree.unmount());
+  }
+});
+
+test('reopening a lost session cannot create a wallet in place of its missing identity', async () => {
+  const { tree, report } = await open(device());
+  const next = device();
+  jest.mocked(next.listWallets).mockResolvedValue([]);
+  const createWallet = jest.spyOn(next, 'createWallet');
+  jest.mocked(DeviceWallet.openDeviceWallet).mockResolvedValueOnce(next);
+  try {
+    await report(
+      'wallet-session-closed',
+      'Unlock the local wallet before continuing.',
+    );
+    await act(async () => {
+      await expect(session.openWallet()).rejects.toThrow(
+        'saved wallet could not be found',
+      );
+    });
+    expect(createWallet).not.toHaveBeenCalled();
+    expect(session.client).toBeNull();
+    expect(session.rememberedSession?.walletId).toBe('saved-regtest');
+  } finally {
+    await act(async () => tree.unmount());
+  }
+});
+
+test.each(['disconnect', 'eraseDevice'] as const)(
+  'a late closed-host signal cannot take ownership of %s or reopen the device',
+  async action => {
+    const client = device();
+    const { tree, report } = await open(client);
+    const close = jest.spyOn(client, 'close');
+    const opener = jest.mocked(DeviceWallet.openDeviceWallet);
+    let saved!: () => void;
+    jest.mocked(Keychain.setGenericPassword).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          saved = () => resolve({ service: SESSION } as never);
+        }),
+    );
+    try {
+      let pending!: Promise<void>;
+      await act(async () => {
+        pending = session[action]();
+      });
+      await report('wallet-session-closed', 'Host was replaced while closing.');
+      expect(session.closing).toBe(true);
+      expect(close).not.toHaveBeenCalled();
+      await act(async () => {
+        saved();
+        await pending;
+      });
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(opener).toHaveBeenCalledTimes(1);
+      expect(session.client).toBeNull();
+      if (action === 'disconnect')
+        expect(session.rememberedSession?.locked).toBe(true);
+      else expect(session.rememberedSession).toBeNull();
+    } finally {
+      await act(async () => tree.unmount());
+    }
+  },
+);

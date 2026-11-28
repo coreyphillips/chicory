@@ -1,5 +1,8 @@
 import { AppState, Platform } from 'react-native';
-import { EmbeddedWalletClient } from '@beignet/wallet-core';
+import {
+  EmbeddedTransportError,
+  EmbeddedWalletClient,
+} from '@beignet/wallet-core';
 import { appendDiagnostic } from '../services/diagnosticLog';
 import {
   getBootPerfDeadline,
@@ -42,21 +45,39 @@ export function receiveWalletEvent(session: string, payload: string) {
 
 async function call<T>(message: HostRequest): Promise<T> {
   const payload = JSON.stringify(message);
-  let response: string;
+  let reply;
   try {
-    response = await walletHost.dispatch(payload);
+    reply = JSON.parse(await walletHost.dispatch(payload));
+    if (
+      !reply ||
+      typeof reply !== 'object' ||
+      Array.isArray(reply) ||
+      reply.replyLost
+    ) {
+      throw new Error('Invalid wallet reply.');
+    }
   } catch (transportError) {
-    // A lost reply can follow a durable mutation. Let wallet-core classify
-    // that case separately from a failed read, and never replay the command.
-    if (message.op === 'request') throw new Error();
+    // The wallet may already have signed when the reply is lost or unreadable.
+    if (message.op === 'request') throw new EmbeddedTransportError();
     throw new Error(
       transportError instanceof Error
         ? transportError.message
         : 'The wallet runtime is unavailable.',
     );
   }
-  const { value, error } = JSON.parse(response);
-  if (error) throw Object.assign(new Error(error.message), error);
+  const { value, error } = reply;
+  if (error) {
+    if (error.code === 'ENGINE_CLOSED' && 'session' in message) {
+      const listener = listeners.get(message.session);
+      listeners.delete(message.session);
+      try {
+        listener?.({ phase: 'wallet-session-closed', message: error.message });
+      } catch {
+        // The caller must still receive the original engine error.
+      }
+    }
+    throw Object.assign(new Error(error.message), error);
+  }
   return value;
 }
 
@@ -110,15 +131,12 @@ export async function openDeviceWallet(
       runtime: {
         request: request => call({ op: 'request', session, request }),
         close: async () => {
+          listeners.delete(session);
           try {
             subscription?.remove();
           } finally {
             subscription = undefined;
-            try {
-              await call({ op: 'close', session });
-            } finally {
-              listeners.delete(session);
-            }
+            await call({ op: 'close', session });
           }
         },
       },

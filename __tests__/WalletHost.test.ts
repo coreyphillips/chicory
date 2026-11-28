@@ -2,6 +2,7 @@ import { handleEngineMessage } from '../src/embedded/walletEngineServer';
 import { openOwnedDeviceWallet } from '../src/embedded/deviceRuntime';
 import { openDeviceWallet } from '../src/embedded/client';
 import { walletHost } from '../src/embedded/walletHostNative';
+import { EmbeddedTransportError } from '@beignet/wallet-core';
 import { defaultProfile } from '../src/services/networks';
 import type { HostRequest } from '../src/embedded/walletHostProtocol';
 
@@ -86,8 +87,22 @@ test('a lost send reply is uncertain and never causes another submission', async
     ).rejects.toMatchObject({
       code: 'RESULT_UNCERTAIN',
       message: expect.stringContaining('Check Activity'),
+      cause: expect.any(EmbeddedTransportError),
     });
     expect(owned.request).toHaveBeenCalledTimes(1);
+    jest.mocked(walletHost.dispatch).mockResolvedValueOnce('unreadable');
+    await expect(api._request('/api/config', 'GET')).rejects.toMatchObject({
+      code: 'ENGINE_UNAVAILABLE',
+      cause: expect.any(EmbeddedTransportError),
+    });
+    // A committed result with an unencodable field is also a lost reply.
+    owned.request.mockResolvedValueOnce({ fee: BigInt(1) });
+    await expect(
+      api._request(request.path, request.method),
+    ).rejects.toMatchObject({
+      code: 'RESULT_UNCERTAIN',
+      cause: expect.any(EmbeddedTransportError),
+    });
     owned.request.mockRejectedValueOnce(
       Object.assign(new Error('Channel changed'), {
         code: 'QUOTE_EXPIRED',
@@ -100,6 +115,41 @@ test('a lost send reply is uncertain and never causes another submission', async
       code: 'QUOTE_EXPIRED',
       status: 409,
       message: 'Channel changed',
+    });
+  } finally {
+    await client.close();
+  }
+});
+
+test('only a confirmed missing session signals the owner to unlock again', async () => {
+  const owned = wallet();
+  jest.mocked(openOwnedDeviceWallet).mockResolvedValueOnce(owned);
+  const diagnostic = jest.fn();
+  const client = await openDeviceWallet(settings, diagnostic);
+  const send = jest.mocked(walletHost.dispatch);
+  try {
+    send.mockRejectedValueOnce(new Error('Dropped reply'));
+    await expect(client.listWallets()).rejects.toMatchObject({
+      code: 'ENGINE_UNAVAILABLE',
+    });
+    expect(diagnostic).not.toHaveBeenCalled();
+    const closed = JSON.stringify({
+      error: {
+        code: 'ENGINE_CLOSED',
+        message: 'Unlock the local wallet before continuing.',
+      },
+    });
+    send.mockResolvedValueOnce(closed).mockResolvedValueOnce(closed);
+    await expect(client.listWallets()).rejects.toMatchObject({
+      code: 'ENGINE_CLOSED',
+    });
+    await expect(client.listWallets()).rejects.toMatchObject({
+      code: 'ENGINE_CLOSED',
+    });
+    expect(diagnostic).toHaveBeenCalledTimes(1);
+    expect(diagnostic).toHaveBeenCalledWith({
+      phase: 'wallet-session-closed',
+      message: 'Unlock the local wallet before continuing.',
     });
   } finally {
     await client.close();

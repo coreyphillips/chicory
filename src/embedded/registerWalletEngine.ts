@@ -1,6 +1,5 @@
 import { registerCallableModule } from 'react-native';
 import { walletHost } from './walletHostNative';
-import { failure } from './walletHostProtocol';
 
 // Both hosts evaluate the same signed application bundle. Only the wallet host
 // loads the engine, and only the main host mounts the app.
@@ -14,8 +13,9 @@ export function registerWalletEngine(
         let response: string;
         try {
           response = await getHandler()(request);
-        } catch (error) {
-          response = failure(error);
+        } catch {
+          // An uncaught exception may follow an already committed payment.
+          response = JSON.stringify({ replyLost: true });
         }
         walletHost.reply(id, response);
       },

@@ -110,9 +110,13 @@ async function dispatch(message: HostRequest): Promise<unknown> {
 }
 
 export async function handleEngineMessage(payload: string): Promise<string> {
+  let value;
   try {
-    return JSON.stringify({ value: await dispatch(JSON.parse(payload)) });
+    value = await dispatch(JSON.parse(payload));
   } catch (error) {
     return failure(error);
   }
+  // If encoding the result fails, the transport has lost the reply. Only
+  // an exception from dispatch itself can be returned as an engine refusal.
+  return JSON.stringify({ value });
 }
