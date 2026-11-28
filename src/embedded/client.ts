@@ -240,11 +240,13 @@ export async function openDeviceWallet(
     { openEncryptedDeviceStorage },
     { nativeSocketFactory },
     { createNativeIrohEndpoint },
+    { runSpliceOutQuote },
   ] = await Promise.all([
     import('@beignet/portable-engine'),
     import('./storage'),
     import('./network'),
     import('./iroh'),
+    import('./spliceQuote'),
   ]);
   // Steps of the boot report (services/perf): the engine's code evaluated,
   // which on Hermes is a cost of its own, then the vault open, then the
@@ -351,6 +353,7 @@ export async function openDeviceWallet(
     engine = await createPortableRuntime({
       ...runtimeStorage,
       socketFactory,
+      runSpliceOutQuote,
       ...(settings.transport === 'native'
         ? {
             iroh: { factory: createNativeIrohEndpoint, discovery: false },

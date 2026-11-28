@@ -480,6 +480,39 @@ describe('opening a device wallet', () => {
     relayToken: '',
   });
 
+  test('device reviews share an asynchronous quote worker and propagate its errors', async () => {
+    const worklets = require('react-native-worklets');
+    const worker = { name: 'quote test runtime' };
+    const create = jest
+      .spyOn(worklets, 'createWorkletRuntime')
+      .mockReturnValue(worker);
+    const run = jest.spyOn(worklets, 'runOnRuntimeAsync');
+    const client = await openDeviceWallet(
+      profile({ host: '127.0.0.1', port: 60001, tls: false }),
+    );
+    try {
+      const { createPortableRuntime } = require('@beignet/portable-engine');
+      const { runSpliceOutQuote } = createPortableRuntime.mock.calls.at(-1)[0];
+      const {
+        calculateSpliceOutQuote,
+      } = require('@beignet/portable-engine/splice-out-quote');
+      const quote = { maxAmountSats: 289000 };
+      const error = new Error('Quote unavailable');
+      run.mockResolvedValueOnce(quote).mockRejectedValueOnce(error);
+      await expect(runSpliceOutQuote('first')).resolves.toBe(quote);
+      await expect(runSpliceOutQuote('second')).rejects.toBe(error);
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(run.mock.calls).toEqual([
+        [worker, calculateSpliceOutQuote, 'first'],
+        [worker, calculateSpliceOutQuote, 'second'],
+      ]);
+    } finally {
+      create.mockRestore();
+      run.mockRestore();
+      await client.close();
+    }
+  });
+
   test('private notes stay on the device client side of the payment runtime', async () => {
     const client = await openDeviceWallet(
       profile({ host: '127.0.0.1', port: 60001, tls: false }),
