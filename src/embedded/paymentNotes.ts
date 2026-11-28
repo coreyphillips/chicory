@@ -2,7 +2,7 @@ import type { PaymentNoteStore } from '../services/paymentNotes';
 import type { NativeSqliteDatabase } from './sqlite';
 
 /** A separate table in device-volume, covered by its SQLCipher key and erase. */
-export function openPaymentNotes(db: NativeSqliteDatabase): PaymentNoteStore {
+export function openPaymentNotes(db: NativeSqliteDatabase) {
   db.exec(`CREATE TABLE IF NOT EXISTS payment_notes (
     scope TEXT NOT NULL, payment TEXT NOT NULL, note TEXT NOT NULL,
     address TEXT, PRIMARY KEY(scope, payment)
@@ -45,5 +45,5 @@ export function openPaymentNotes(db: NativeSqliteDatabase): PaymentNoteStore {
         for (const [from, to] of moves) update.run(to, scope, from);
       })();
     },
-  };
+  } satisfies PaymentNoteStore;
 }

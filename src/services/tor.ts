@@ -6,6 +6,7 @@
  * The daemon only dials out. This wallet publishes no service and accepts no
  * inbound connection over Tor.
  */
+import { walletHost } from '../embedded/walletHostNative';
 import { Platform } from 'react-native';
 import { recordDiagnostic } from './diagnosticLog';
 import { markBoot } from './perf';
@@ -131,6 +132,9 @@ async function startTor(): Promise<void> {
     timeout_ms: BOOTSTRAP_TIMEOUT_MS,
   };
   launched = true;
+  // A dev reload or a replaced Hermes host can outlive the JS flag while the
+  // process still owns the daemon. Tor's main may only run once per process.
+  if (!walletHost.claimTorStart()) return rejoinTor();
   const result = await tor.startTorIfNotRunning(params);
   if (result.is_success) {
     await removePublishedService(result.onion_address);

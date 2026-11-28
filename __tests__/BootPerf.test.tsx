@@ -73,6 +73,41 @@ const stall = (ms: number) => {
 };
 
 describe('a launch', () => {
+  test('the wallet reports boot marks and batches SQL work without sampling UI stalls twice', () => {
+    const ui = load().perf;
+    const worker = load().perf;
+    ui.startBootPerf();
+    const send = jest.fn(
+      (event: import('../src/embedded/walletHostProtocol').HostEvent) => {
+        if (event.type === 'boot')
+          ui.includeWalletMark(event.name, event.at, event.detail);
+        if (event.type === 'sqlite') ui.includeWalletSqlite(event.tally);
+      },
+    );
+    worker.forwardWalletPerf(ui.getBootPerfDeadline(), send);
+    worker.markBoot('vault-opened');
+    worker.markBoot('vault-opened');
+    worker.noteSqlite('UPDATE gossip_channels SET value = ?', 9, 0, true);
+    worker.noteSqlite('SELECT * FROM gossip_channels', 2, 4);
+    expect(send).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(250);
+    expect(send).toHaveBeenLastCalledWith({
+      type: 'sqlite',
+      tally: expect.objectContaining({
+        statements: 2,
+        commits: 1,
+        ms: 11,
+        gossipRows: 4,
+      }),
+    });
+    expect(listen).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(PERF_WINDOW_MS);
+    worker.noteSqlite('COMMIT', 1);
+    worker.markBoot('late');
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(lines()[0]).toContain('vault-opened');
+  });
+
   test('is written down once the window closes, five lines printed and logged', () => {
     const { perf, log } = load();
     perf.startBootPerf();

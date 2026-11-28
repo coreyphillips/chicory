@@ -1,0 +1,107 @@
+import { handleEngineMessage } from '../src/embedded/walletEngineServer';
+import { openOwnedDeviceWallet } from '../src/embedded/deviceRuntime';
+import { openDeviceWallet } from '../src/embedded/client';
+import { walletHost } from '../src/embedded/walletHostNative';
+import { defaultProfile } from '../src/services/networks';
+import type { HostRequest } from '../src/embedded/walletHostProtocol';
+
+jest.mock('../src/embedded/deviceRuntime', () => ({
+  openOwnedDeviceWallet: jest.fn(),
+}));
+
+const settings = defaultProfile('regtest');
+const open = (session: string): HostRequest => ({
+  op: 'open',
+  session,
+  perfUntil: 0,
+  settings,
+});
+const request = { method: 'POST' as const, path: '/channel/splice-out' };
+const deliver = async (message: HostRequest) =>
+  JSON.parse(await handleEngineMessage(JSON.stringify(message)));
+
+function gate() {
+  let release!: () => void;
+  const wait = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  return { wait, release };
+}
+function wallet() {
+  return {
+    request: jest.fn(),
+    close: jest.fn(),
+    openPaymentNotes: jest.fn(),
+    setAppBackgrounded: jest.fn(),
+  };
+}
+
+test('the vault has one owner across concurrent opens, closes and delayed messages', async () => {
+  const a = wallet();
+  const b = wallet();
+  const closing = gate();
+  jest
+    .mocked(openOwnedDeviceWallet)
+    .mockResolvedValueOnce(a)
+    .mockResolvedValueOnce(b);
+  a.close.mockReturnValue(closing.wait);
+  await expect(deliver(open('first'))).resolves.toEqual({});
+  await expect(deliver(open('second'))).resolves.toMatchObject({
+    error: { message: 'The device wallet is already open.' },
+  });
+  await expect(deliver({ op: 'erase' })).resolves.toHaveProperty('error');
+  const close = deliver({ op: 'close', session: 'first' });
+  const opening = deliver(open('second'));
+  await Promise.resolve();
+  expect(openOwnedDeviceWallet).toHaveBeenCalledTimes(1);
+  closing.release();
+  await Promise.all([close, opening]);
+  await expect(
+    deliver({ op: 'request', session: 'first', request }),
+  ).resolves.toMatchObject({ error: { code: 'ENGINE_CLOSED' } });
+  await deliver({ op: 'close', session: 'first' });
+  b.request.mockResolvedValue({ status: 'pending' });
+  await expect(
+    deliver({ op: 'request', session: 'second', request }),
+  ).resolves.toEqual({ value: { status: 'pending' } });
+  expect(b.close).not.toHaveBeenCalled();
+  await deliver({ op: 'close', session: 'second' });
+});
+
+test('a lost send reply is uncertain and never causes another submission', async () => {
+  const owned = wallet();
+  jest.mocked(openOwnedDeviceWallet).mockResolvedValueOnce(owned);
+  const client = await openDeviceWallet(settings);
+  try {
+    // Drop the reply after the worker already handled the mutation.
+    jest.mocked(walletHost.dispatch).mockImplementationOnce(async payload => {
+      await handleEngineMessage(payload);
+      throw new Error('Wallet host disconnected');
+    });
+    const api = client as unknown as {
+      _request(path: string, method: string): Promise<unknown>;
+    };
+    await expect(
+      api._request(request.path, request.method),
+    ).rejects.toMatchObject({
+      code: 'RESULT_UNCERTAIN',
+      message: expect.stringContaining('Check Activity'),
+    });
+    expect(owned.request).toHaveBeenCalledTimes(1);
+    owned.request.mockRejectedValueOnce(
+      Object.assign(new Error('Channel changed'), {
+        code: 'QUOTE_EXPIRED',
+        status: 409,
+      }),
+    );
+    await expect(
+      api._request(request.path, request.method),
+    ).rejects.toMatchObject({
+      code: 'QUOTE_EXPIRED',
+      status: 409,
+      message: 'Channel changed',
+    });
+  } finally {
+    await client.close();
+  }
+});

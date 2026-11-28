@@ -1,14 +1,12 @@
 import { AppState } from 'react-native';
+import type { HostEvent } from '../embedded/walletHostProtocol';
 import { recordDiagnostic } from './diagnosticLog';
 
 /**
  * Where the first minute of a cold start goes, written down once it is over.
  *
- * The wallet page opens on its cached figures and the engine then boots on
- * the same JavaScript thread, so a launch that looks ready can still drop
- * taps and scrolls for seconds while the engine loads, the vault opens, the
- * network map is imported and the primary's gossip is stored. Nothing on
- * screen says which. This report does. From the top of index.js it notes
+ * The wallet page opens on its cached figures while the wallet host loads
+ * the engine, opens the vault and imports the network map. From index.js it notes
  * when each step of the boot first happened (`markBoot`, and `markEngine`
  * for the engine's own timings), every time the thread was too busy to run
  * a 50ms timer on time (a stall), what the wallet's SQLite did, how the
@@ -147,6 +145,57 @@ let watchingSince = 0;
 let ending: ReturnType<typeof setTimeout> | null = null;
 let listening: { remove: () => void } | null = null;
 
+// Only the main host samples UI stalls. The wallet host forwards boot marks
+// and a batch of SQLite counters during that same reporting window.
+let remotePerf: ((event: HostEvent) => void) | undefined;
+let batch = emptyRecord().sqlite;
+let flushTimer: ReturnType<typeof setInterval> | undefined;
+let remoteDeadline = 0;
+const forwardedMarks = new Set<string>();
+
+export function getBootPerfDeadline() {
+  return recording ? began + PERF_WINDOW_MS : 0;
+}
+
+function flushWalletSqlite() {
+  if (batch.statements) remotePerf?.({ type: 'sqlite', tally: batch });
+  batch = emptyRecord().sqlite;
+}
+
+export function forwardWalletPerf(until: number, send?: typeof remotePerf) {
+  if (flushTimer) clearInterval(flushTimer);
+  flushTimer = undefined;
+  flushWalletSqlite();
+  remotePerf = undefined;
+  remoteDeadline = until;
+  forwardedMarks.clear();
+  if (!send || until <= Date.now()) return;
+  remotePerf = send;
+  flushTimer = setInterval(() => {
+    if (Date.now() >= until) forwardWalletPerf(0);
+    else flushWalletSqlite();
+  }, 250);
+}
+
+export function includeWalletSqlite(tally: SqliteTally) {
+  if (!recording) return;
+  const total = record.sqlite;
+  for (const key of [
+    'statements',
+    'commits',
+    'alone',
+    'ms',
+    'gossipWrites',
+    'gossipRows',
+  ] as const) {
+    total[key] += tally[key];
+  }
+  if (tally.longestMs > total.longestMs) {
+    total.longestMs = tally.longestMs;
+    total.longest = tally.longest;
+  }
+}
+
 /**
  * Starts the report, once per launch. Anything that goes wrong here turns
  * the report off rather than the launch: it is a measurement, never a step
@@ -228,10 +277,15 @@ function finish() {
 }
 
 /** Records when `name` first happened; later ones are the same step again. */
-function mark(name: string, detail: string | undefined, engine: boolean) {
+function mark(
+  name: string,
+  detail: string | undefined,
+  engine: boolean,
+  at = Date.now(),
+) {
   if (!recording || !name || record.marks.has(name)) return;
   record.marks.set(name, {
-    at: Date.now() - began,
+    at: at - began,
     ...(detail ? { detail } : {}),
     ...(engine ? { engine } : {}),
   });
@@ -239,7 +293,18 @@ function mark(name: string, detail: string | undefined, engine: boolean) {
 
 /** A step of the app's boot, the first time it happens. */
 export function markBoot(name: string, detail?: string): void {
+  if (remotePerf && Date.now() < remoteDeadline) {
+    if (!forwardedMarks.has(name)) {
+      forwardedMarks.add(name);
+      remotePerf({ type: 'boot', name, detail, at: Date.now() });
+    }
+    return;
+  }
   mark(name, detail, false);
+}
+
+export function includeWalletMark(name: string, at: number, detail?: string) {
+  mark(name, detail, false, at);
 }
 
 /**
@@ -278,6 +343,10 @@ export function noteSqlite(
   rows = 0,
   outside = false,
 ): void {
+  if (remotePerf && Date.now() < remoteDeadline) {
+    tallySqlite(batch, sql, ms, rows, outside);
+    return;
+  }
   if (!recording) return;
   tallySqlite(record.sqlite, sql, ms, rows, outside);
 }

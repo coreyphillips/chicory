@@ -89,3 +89,14 @@ jest.mock('react-native-reanimated', () => {
     },
   };
 });
+
+// Exercise the same serialized wallet RPC in Jest, with native delivery replaced
+// by a direct call. Module resets also reset the two session endpoints.
+jest.mock('./src/embedded/walletHostNative', () => ({
+  walletHost: {
+    isEngineRuntime: false,
+    dispatch: jest.fn(payload => require('./src/embedded/walletEngineServer').handleEngineMessage(payload)),
+    notify: (session, event) => require('./src/embedded/client').receiveWalletEvent(session, event),
+    claimTorStart: () => true,
+  },
+}));

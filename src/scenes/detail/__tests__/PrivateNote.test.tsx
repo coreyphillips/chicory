@@ -248,3 +248,55 @@ test('an open Activity search follows saves and deletions while the original mem
   await act(async () => tree.update(<Screen item={sent} query="  COFfee " />));
   expect(row()?.item).toBe(sent);
 });
+
+test('a delayed read from the previous wallet cannot replace the current notes', async () => {
+  let finish!: (entries: Map<string, PaymentNote>) => void;
+  jest.spyOn(store, 'read').mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finish = resolve;
+      }),
+  );
+  await mount(sent);
+  await act(async () => tree.update(<Screen item={sent} walletId="second" />));
+  await press(copy.detail.addNote);
+  await type('Second wallet');
+  await press(copy.detail.saveNote);
+  await act(async () =>
+    finish(new Map([[`activity:${sent.id}`, { text: 'First wallet' }]])),
+  );
+  expect(shows(copy.detail.privateValue('Second wallet'))).toBe(true);
+  expect(shows(copy.detail.privateValue('First wallet'))).toBe(false);
+});
+
+test('a pending save deduplicates taps, preserves new typing and allows retry after an async error', async () => {
+  let finish!: () => void;
+  const write = store.save.bind(store);
+  const save = jest.spyOn(store, 'save').mockImplementationOnce(
+    (...args) =>
+      new Promise<void>(resolve => {
+        finish = () => {
+          write(...args);
+          resolve();
+        };
+      }),
+  );
+  await mount(sent);
+  await press(copy.detail.addNote);
+  await type('First edit');
+  await act(async () => {
+    const tap = action(copy.detail.saveNote);
+    tap();
+    tap();
+  });
+  expect(save).toHaveBeenCalledTimes(1);
+  await type('Second edit');
+  await act(async () => finish());
+  expect(tree.root.findByType(TextInput).props.value).toBe('Second edit');
+  save.mockRejectedValueOnce(new Error('closed'));
+  await press(copy.detail.saveNote);
+  expect(shows(copy.detail.noteFailed)).toBe(true);
+  expect(tree.root.findByType(TextInput).props.value).toBe('Second edit');
+  await press(copy.detail.saveNote);
+  expect(shows(copy.detail.privateValue('Second edit'))).toBe(true);
+});

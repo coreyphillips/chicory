@@ -129,6 +129,15 @@ beforeEach(() => {
   sockets().length = 0;
 });
 
+test('a replacement wallet runtime rejoins the native Tor daemon', async () => {
+  const { walletHost } = require('../src/embedded/walletHostNative');
+  jest.spyOn(walletHost, 'claimTorStart').mockReturnValueOnce(false);
+  await ensureTorReady();
+  expect(RnTor.startTorIfNotRunning).not.toHaveBeenCalled();
+  expect(RnTor.getServiceStatus).toHaveBeenCalled();
+  expect(torPhase()).toBe('ready');
+});
+
 test('onion hosts are recognised regardless of case or padding, and clearnet hosts are not', () => {
   expect(isOnionHost(ONION)).toBe(true);
   expect(isOnionHost(` ${ONION.toUpperCase()} `)).toBe(true);
@@ -480,49 +489,24 @@ describe('opening a device wallet', () => {
     relayToken: '',
   });
 
-  test('device reviews share an asynchronous quote worker and propagate its errors', async () => {
-    const worklets = require('react-native-worklets');
-    const worker = { name: 'quote test runtime' };
-    const create = jest
-      .spyOn(worklets, 'createWorkletRuntime')
-      .mockReturnValue(worker);
-    const run = jest.spyOn(worklets, 'runOnRuntimeAsync');
+  test('wallet requests and private notes use the same session on the engine host', async () => {
+    const { walletHost } = require('../src/embedded/walletHostNative');
     const client = await openDeviceWallet(
       profile({ host: '127.0.0.1', port: 60001, tls: false }),
     );
+    const read = jest.fn().mockReturnValue(new Map([['payment', { text: 'coffee' }]]));
+    mockStorage.openPaymentNotes.mockReturnValue({ read });
     try {
+      const store = client.openPaymentNotes!();
+      await expect(store.read('mine')).resolves.toEqual(new Map([['payment', { text: 'coffee' }]]));
+      expect(read).toHaveBeenCalledWith('mine');
+      const calls = walletHost.dispatch.mock.calls.map(([payload]: [string]) => JSON.parse(payload));
+      const open = calls.find((message: {op: string}) => message.op === 'open');
+      expect(calls).toContainEqual({ op: 'readNotes', session: open.session, scope: 'mine' });
       const { createPortableRuntime } = require('@beignet/portable-engine');
-      const { runSpliceOutQuote } = createPortableRuntime.mock.calls.at(-1)[0];
-      const {
-        calculateSpliceOutQuote,
-      } = require('@beignet/portable-engine/splice-out-quote');
-      const quote = { maxAmountSats: 289000 };
-      const error = new Error('Quote unavailable');
-      run.mockResolvedValueOnce(quote).mockRejectedValueOnce(error);
-      await expect(runSpliceOutQuote('first')).resolves.toBe(quote);
-      await expect(runSpliceOutQuote('second')).rejects.toBe(error);
-      expect(create).toHaveBeenCalledTimes(1);
-      expect(run.mock.calls).toEqual([
-        [worker, calculateSpliceOutQuote, 'first'],
-        [worker, calculateSpliceOutQuote, 'second'],
-      ]);
-    } finally {
-      create.mockRestore();
-      run.mockRestore();
+      expect(createPortableRuntime.mock.calls.at(-1)[0]).not.toHaveProperty('openPaymentNotes');
       await client.close();
-    }
-  });
-
-  test('private notes stay on the device client side of the payment runtime', async () => {
-    const client = await openDeviceWallet(
-      profile({ host: '127.0.0.1', port: 60001, tls: false }),
-    );
-    try {
-      expect(client.openPaymentNotes).toBe(mockStorage.openPaymentNotes);
-      const { createPortableRuntime } = require('@beignet/portable-engine');
-      expect(createPortableRuntime.mock.calls.at(-1)[0]).not.toHaveProperty(
-        'openPaymentNotes',
-      );
+      await expect(store.read('mine')).rejects.toMatchObject({ code: 'ENGINE_CLOSED' });
     } finally {
       await client.close();
     }

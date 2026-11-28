@@ -1,17 +1,111 @@
+diff --git a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpEventListener.java b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpEventListener.java
+index 7c1c6ee..90db3e7 100644
+--- a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpEventListener.java
++++ b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpEventListener.java
+@@ -19,5 +19,5 @@ import javax.annotation.Nullable;
+ public class TcpEventListener {
+
+-    private final DeviceEventManagerModule.RCTDeviceEventEmitter rctEvtEmitter;
++    private volatile DeviceEventManagerModule.RCTDeviceEventEmitter rctEvtEmitter;
+
+     public TcpEventListener(final ReactContext reactContext) {
+@@ -25,4 +25,8 @@ public class TcpEventListener {
+     }
+
++    void detach() {
++        rctEvtEmitter = null;
++    }
++
+     public void onConnection(int serverId, int clientId, Socket socket) {
+         onSocketConnection("connection", serverId, clientId, socket);
+@@ -135,5 +139,6 @@ public class TcpEventListener {
+
+     private void sendEvent(String eventName, WritableMap params) {
+-        rctEvtEmitter.emit(eventName, params);
++        DeviceEventManagerModule.RCTDeviceEventEmitter emitter = rctEvtEmitter;
++        if (emitter != null) emitter.emit(eventName, params);
+     }
+ }
 diff --git a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketClient.java b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketClient.java
-index 7511570..d197eb1 100644
+index 7511570..a660f49 100644
 --- a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketClient.java
 +++ b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketClient.java
-@@ -15,6 +15,7 @@ import java.security.GeneralSecurityException;
- import java.util.Arrays;
+@@ -16,4 +16,5 @@ import java.util.Arrays;
  import java.util.concurrent.ExecutorService;
  import java.util.concurrent.Executors;
 +import java.util.concurrent.RejectedExecutionException;
- 
+
  import javax.net.ssl.SSLSocket;
- import javax.net.ssl.SSLSocketFactory;
-@@ -152,23 +153,28 @@ class TcpSocketClient extends TcpSocket {
-      * @param data data to be sent
+@@ -25,5 +26,5 @@ class TcpSocketClient extends TcpSocket {
+     private final TcpEventListener receiverListener;
+     private TcpReceiverTask receiverTask;
+-    private Socket socket;
++    private volatile Socket socket;
+     private boolean closed = true;
+
+@@ -42,11 +43,13 @@ class TcpSocketClient extends TcpSocket {
+     public void connect(Context context, String address, final Integer port, ReadableMap options, Network network, ReadableMap tlsOptions) throws IOException, GeneralSecurityException {
+         if (socket != null) throw new IOException("Already connected");
++        final Socket connection;
+         if (tlsOptions != null) {
+             SSLSocketFactory ssf = getSSLSocketFactory(context, tlsOptions);
+-            socket = ssf.createSocket();
+-            ((SSLSocket) socket).setUseClientMode(true);
++            connection = ssf.createSocket();
++            ((SSLSocket) connection).setUseClientMode(true);
+         } else {
+-            socket = new Socket();
++            connection = new Socket();
+         }
++        installSocket(connection);
+         // Get the addresses
+         final String localAddress = options.hasKey("localAddress") ? options.getString("localAddress") : "0.0.0.0";
+@@ -54,22 +57,31 @@ class TcpSocketClient extends TcpSocket {
+         final InetAddress remoteInetAddress = InetAddress.getByName(address);
+         if (network != null)
+-            network.bindSocket(socket);
++            network.bindSocket(connection);
+         // setReuseAddress
+         if (options.hasKey("reuseAddress")) {
+             boolean reuseAddress = options.getBoolean("reuseAddress");
+-            socket.setReuseAddress(reuseAddress);
++            connection.setReuseAddress(reuseAddress);
+         } else {
+             // Default to true
+-            socket.setReuseAddress(true);
++            connection.setReuseAddress(true);
+         }
+         final int localPort = options.hasKey("localPort") ? options.getInt("localPort") : 0;
+         // bind
+-        socket.bind(new InetSocketAddress(localInetAddress, localPort));
++        connection.bind(new InetSocketAddress(localInetAddress, localPort));
+         final int connectTimeout = options.hasKey("connectTimeout") ? options.getInt("connectTimeout") : 0;
+-        socket.connect(new InetSocketAddress(remoteInetAddress, port), connectTimeout);
+-        if (socket instanceof SSLSocket) ((SSLSocket) socket).startHandshake();
++        connection.connect(new InetSocketAddress(remoteInetAddress, port), connectTimeout);
++        if (connection instanceof SSLSocket) ((SSLSocket) connection).startHandshake();
+         startListening();
+     }
+
++    // Publish the descriptor before a blocking connect. A retired client must never reopen.
++    private synchronized void installSocket(Socket connection) throws IOException {
++        if (listenExecutor.isShutdown()) {
++            connection.close();
++            throw new IOException("Socket is closed");
++        }
++        socket = connection;
++    }
++
+     public void startTLS(Context context, ReadableMap tlsOptions) throws IOException, GeneralSecurityException {
+         if (socket instanceof SSLSocket) return;
+@@ -78,5 +90,5 @@ class TcpSocketClient extends TcpSocket {
+         sslSocket.setUseClientMode(true);
+         sslSocket.startHandshake();
+-        socket = sslSocket;
++        installSocket(sslSocket);
+     }
+
+@@ -153,21 +165,26 @@ class TcpSocketClient extends TcpSocket {
       */
      public void write(final int msgId, final byte[] data) {
 -        writeExecutor.execute(new Runnable() {
@@ -53,11 +147,9 @@ index 7511570..d197eb1 100644
 +            receiverListener.onError(getId(), new IOException("Attempted to write to closed socket"));
 +        }
      }
- 
-     public ReadableMap getPeerCertificate() {
-@@ -180,9 +186,11 @@ class TcpSocketClient extends TcpSocket {
-     }
- 
+
+@@ -181,7 +198,9 @@ class TcpSocketClient extends TcpSocket {
+
      /**
 -     * Shuts down the receiver task, closing the socket.
 +     * Shuts down the receiver task, closing the socket, and releases both executors.
@@ -68,9 +160,7 @@ index 7511570..d197eb1 100644
 +    public synchronized void destroy() {
          try {
              // close the socket
-             if (socket != null && !socket.isClosed()) {
-@@ -193,6 +201,12 @@ class TcpSocketClient extends TcpSocket {
-             }
+@@ -194,4 +213,10 @@ class TcpSocketClient extends TcpSocket {
          } catch (IOException e) {
              receiverListener.onClose(getId(), e);
 +        } finally {
@@ -81,33 +171,118 @@ index 7511570..d197eb1 100644
 +            writeExecutor.shutdown();
          }
      }
- 
 diff --git a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketModule.java b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketModule.java
-index 121edb4..366e6b7 100644
+index 121edb4..d451afc 100644
 --- a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketModule.java
 +++ b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketModule.java
-@@ -88,6 +88,7 @@ public class TcpSocketModule extends ReactContextBaseJavaModule {
-                     tcpEvtListener.onError(cId, new Exception("connect() called twice with the same id."));
+@@ -64,4 +64,20 @@ public class TcpSocketModule extends ReactContextBaseJavaModule {
+     }
+
++    @Override
++    public void invalidate() {
++        if (tcpEvtListener != null) tcpEvtListener.detach();
++        executorService.shutdownNow();
++        // Stop accepting before closing clients. Each React runtime has its own socket map.
++        for (TcpSocket socket : socketMap.values()) {
++            if (socket instanceof TcpSocketServer) ((TcpSocketServer) socket).close();
++        }
++        for (TcpSocket socket : socketMap.values()) {
++            if (socket instanceof TcpSocketClient) ((TcpSocketClient) socket).destroy();
++        }
++        socketMap.clear();
++        pendingTLS.clear();
++        super.invalidate();
++    }
++
+     @Override
+     public @NonNull
+@@ -89,4 +105,5 @@ public class TcpSocketModule extends ReactContextBaseJavaModule {
                      return;
                  }
 +                TcpSocketClient client = null;
                  try {
                      // Get the network interface
-                     final String localAddress = options.hasKey("localAddress") ? options.getString("localAddress") : null;
-@@ -95,13 +96,15 @@ public class TcpSocketModule extends ReactContextBaseJavaModule {
-                     // Get ioT device host to retreive correct network in android concurrent connections
+@@ -96,11 +113,18 @@ public class TcpSocketModule extends ReactContextBaseJavaModule {
                      final String iotDeviceHost = options.hasKey("host") ? options.getString("host") : null;
                      selectNetwork(iface, localAddress, iotDeviceHost);
 -                    TcpSocketClient client = new TcpSocketClient(tcpEvtListener, cId, null);
 +                    client = new TcpSocketClient(tcpEvtListener, cId, null);
                      socketMap.put(cId, client);
++                    if (executorService.isShutdown()) {
++                        client.destroy();
++                        socketMap.remove(cId, client);
++                        return;
++                    }
                      ReadableMap tlsOptions = pendingTLS.get(cId);
                      client.connect(mReactContext, host, port, options, currentNetwork.getNetwork(), tlsOptions);
                      tcpEvtListener.onConnect(cId, client);
                  } catch (Exception e) {
-                     tcpEvtListener.onError(cId, e);
+-                    tcpEvtListener.onError(cId, e);
++                    if (!executorService.isShutdown()) tcpEvtListener.onError(cId, e);
 +                    // After the error, so the close that follows still finds its listeners.
 +                    if (client != null) client.destroy();
                  }
              }
-         });
+@@ -176,4 +200,10 @@ public class TcpSocketModule extends ReactContextBaseJavaModule {
+                     TcpSocketServer server = new TcpSocketServer(mReactContext, socketMap, tcpEvtListener, cId, options);
+                     socketMap.put(cId, server);
++                    if (executorService.isShutdown()) {
++                        server.close();
++                        socketMap.remove(cId, server);
++                        return;
++                    }
++                    server.listen();
+                     tcpEvtListener.onListen(cId, server);
+                 } catch (Exception uhe) {
+diff --git a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketServer.java b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketServer.java
+index 2f13fdf..4301ffc 100644
+--- a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketServer.java
++++ b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketServer.java
+@@ -21,5 +21,5 @@ public final class TcpSocketServer extends TcpSocket {
+     private final ConcurrentHashMap<Integer, TcpSocket> socketClients;
+     private final boolean isTLS;
+-    private ServerSocket serverSocket;
++    private final ServerSocket serverSocket;
+     private int clientSocketIds;
+
+@@ -60,5 +60,4 @@ public final class TcpSocketServer extends TcpSocket {
+         }
+         mReceiverListener = receiverListener;
+-        listen();
+     }
+
+@@ -67,5 +66,9 @@ public final class TcpSocketServer extends TcpSocket {
+     }
+
+-    private void addClient(Socket socket) {
++    private synchronized void addClient(Socket socket) throws IOException {
++        if (serverSocket.isClosed()) {
++            socket.close();
++            return;
++        }
+         int clientId = getClientId();
+         TcpSocketClient socketClient = new TcpSocketClient(mReceiverListener, clientId, socket);
+@@ -88,10 +91,10 @@ public final class TcpSocketServer extends TcpSocket {
+     }
+
+-    private void listen() {
++    void listen() {
+         TcpListenTask tcpListenTask = new TcpListenTask(this, mReceiverListener);
+         listenExecutor.execute(tcpListenTask);
+     }
+
+-    public void close() {
++    public synchronized void close() {
+         try {
+             // close the socket
+@@ -99,8 +102,9 @@ public final class TcpSocketServer extends TcpSocket {
+                 serverSocket.close();
+                 mReceiverListener.onClose(getId(), null);
+-                serverSocket = null;
+             }
+         } catch (IOException e) {
+             mReceiverListener.onClose(getId(), e);
++        } finally {
++            listenExecutor.shutdownNow();
+         }
+     }

@@ -10,6 +10,7 @@ import type {
 import type { WalletAdapter } from './wallet';
 import {
   openDeviceWallet,
+  eraseDeviceWallet,
   loadDevicePreferences as DevicePreferences,
 } from '../embedded/client';
 import type { DeviceSettings } from '../embedded/client';
@@ -1293,11 +1294,8 @@ export function useWalletSession(view: WalletSessionView) {
       setSnapshot(null);
       known.current = null;
       onCloseSheet();
-      const [{ eraseDeviceStorage }, { clearSeedSource }] = await Promise.all([
-        import('../embedded/storage'),
-        import('../embedded/seed'),
-      ]);
-      await eraseDeviceStorage();
+      const { clearSeedSource } = await import('../embedded/seed');
+      await eraseDeviceWallet();
       await clearSeedSource();
       await clearCachedSnapshot();
       await clearOfflineReceiveDrafts();

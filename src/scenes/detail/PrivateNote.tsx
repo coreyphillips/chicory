@@ -24,10 +24,13 @@ export function PrivateNote({
   note: string;
   memo: (withGlyph: boolean) => ReactNode;
   test: boolean;
-  save: (text: string) => void;
+  save: (text: string) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const revision = useRef(0);
+  const pending = useRef<symbol | null>(null);
   const editing = draft !== null;
   const live = usePaneActive();
   const mounted = useRef(false);
@@ -35,6 +38,12 @@ export function PrivateNote({
   const edit = session.current;
   useLayoutEffect(() => {
     mounted.current = live;
+    if (!live) {
+      pending.current = null;
+      setSaving(false);
+      setDraft(null);
+      setFailed(false);
+    }
     return () => {
       session.current = null;
       mounted.current = false;
@@ -46,6 +55,8 @@ export function PrivateNote({
 
   function close() {
     session.current = null;
+    pending.current = null;
+    setSaving(false);
     Keyboard.dismiss();
     setDraft(null);
     setFailed(false);
@@ -54,16 +65,39 @@ export function PrivateNote({
     close();
     return true;
   }, editing && live);
-  function commit() {
-    if (!mounted.current || draft === null || session.current !== edit) return;
+  async function commit() {
+    if (
+      !mounted.current ||
+      !edit ||
+      draft === null ||
+      session.current !== edit ||
+      pending.current
+    )
+      return;
+    const submitted = revision.current;
+    pending.current = edit;
+    setSaving(true);
+    setFailed(false);
     try {
-      save(draft);
+      await save(draft);
+      if (
+        !mounted.current ||
+        session.current !== edit ||
+        revision.current !== submitted
+      )
+        return;
       close();
       announce(draft.trim() ? copy.detail.noteSaved : copy.detail.noteRemoved);
     } catch {
+      if (!mounted.current || session.current !== edit) return;
       setFailed(true);
       haptics.error();
       announce(copy.detail.noteFailed, { assertive: true });
+    } finally {
+      if (mounted.current && pending.current === edit) {
+        pending.current = null;
+        setSaving(false);
+      }
     }
   }
   return (
@@ -82,7 +116,10 @@ export function PrivateNote({
             maxFontSizeMultiplier={1.4}
             value={draft}
             onChangeText={text => {
-              if (session.current === edit) setDraft(text);
+              if (session.current === edit) {
+                revision.current++;
+                setDraft(text);
+              }
             }}
             onKeyPress={({ nativeEvent }) => {
               if (nativeEvent.key === 'Escape') close();
@@ -104,6 +141,8 @@ export function PrivateNote({
               tone="raised"
               glyph="check"
               label={copy.detail.saveNote}
+              busy={saving}
+              disabled={saving}
               onPress={commit}
             />
           </View>

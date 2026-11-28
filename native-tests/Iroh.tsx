@@ -1,14 +1,15 @@
 /** Isolated regtest entry, built only with a separate application identifier. */
 import 'react-native-url-polyfill/auto';
+import { registerWalletEngine } from '../src/embedded/registerWalletEngine';
+import { walletHost } from '../src/embedded/walletHostNative';
 import React, { useEffect, useState } from 'react';
 import { AppRegistry, NativeModules, ScrollView, Text } from 'react-native';
 import { openDeviceWallet } from '../src/embedded/client';
 import { installNativeCrypto } from '../src/embedded/random';
 
 const host = 'http://127.0.0.1:31079';
-async function run(report: (message: string) => void) {
-  installNativeCrypto();
-  let nativeEndpointId = '';
+let nativeEndpointId = '';
+if (walletHost.isEngineRuntime) {
   const native = NativeModules.ChicoryIroh;
   const bind = native.bind.bind(native);
   native.bind = async (...args: unknown[]) => {
@@ -18,6 +19,18 @@ async function run(report: (message: string) => void) {
     nativeEndpointId = id;
     return id;
   };
+}
+registerWalletEngine(
+  () => async payload =>
+    payload === 'fixture-endpoint'
+      ? nativeEndpointId
+      : require('../src/embedded/walletEngineServer').handleEngineMessage(
+          payload,
+        ),
+);
+async function run(report: (message: string) => void) {
+  installNativeCrypto();
+  const endpoint = () => walletHost.dispatch('fixture-endpoint');
   const settings = await (await fetch(host + '/config')).json();
   // The helper decides the kind of primary: an Iroh address
   // (iroh-primary.cjs, iroh-relay-only-primary.cjs) or a Porch link through a
@@ -49,7 +62,10 @@ async function run(report: (message: string) => void) {
     });
   await fetch(host + '/ready', {
     method: 'POST',
-    body: JSON.stringify({ ...(await request('/info')), nativeEndpointId }),
+    body: JSON.stringify({
+      ...(await request('/info')),
+      nativeEndpointId: await endpoint(),
+    }),
   });
   report(
     settings.primaryUri.includes('@iroh:')
@@ -66,7 +82,10 @@ async function run(report: (message: string) => void) {
         client = await openDeviceWallet(settings);
         client.selectWallet(wallet.id);
         await client.startWallet();
-        result = { ...(await request('/info')), nativeEndpointId };
+        result = {
+          ...(await request('/info')),
+          nativeEndpointId: await endpoint(),
+        };
       } else {
         if (
           ![

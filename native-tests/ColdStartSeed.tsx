@@ -5,6 +5,7 @@
  * It does not write a WalletSession marker, export a seed, or replace a wallet.
  */
 import 'react-native-url-polyfill/auto';
+import { registerWalletEngine } from '../src/embedded/registerWalletEngine';
 import React, { useEffect, useState } from 'react';
 import { AppRegistry, Platform, StyleSheet, Text, View } from 'react-native';
 import type { DeviceSettings } from '../src/embedded/client';
@@ -134,4 +135,5 @@ const styles = StyleSheet.create({
   status: { color: '#f2f1e8', fontSize: 18 },
 });
 
+registerWalletEngine();
 AppRegistry.registerComponent('chicory', () => ColdStartSeed);

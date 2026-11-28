@@ -1,5 +1,6 @@
 /** Isolated regtest entry. Never include this entry in a production application bundle. */
 import 'react-native-url-polyfill/auto';
+import { registerWalletEngine } from '../src/embedded/registerWalletEngine';
 import React, { useEffect, useState } from 'react';
 import { AppRegistry, ScrollView, Text, Platform } from 'react-native';
 import { openDeviceWallet } from '../src/embedded/client';
@@ -109,4 +110,5 @@ function OfflineReceive() {
     </ScrollView>
   );
 }
+registerWalletEngine();
 AppRegistry.registerComponent('chicory', () => OfflineReceive);
