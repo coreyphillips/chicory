@@ -5,6 +5,7 @@ import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
 import type { EntryExitAnimationFunction } from 'react-native-reanimated';
 import { copy } from '../../design/copy';
 import { Glyph } from '../../design/glyphs';
+import type { GlyphName } from '../../design/glyphs';
 import { haptics } from '../../design/haptics';
 import { palette } from '../../design/palette';
 import { chipText } from '../../glyphs/chipText';
@@ -16,7 +17,7 @@ import { usePaneActive } from '../../stage/panes/Pane';
 import { HIT_SLOP, radius, space, type as typography } from '../../theme';
 import { FailureMark } from './FailureMark';
 import { GlyphButton } from './GlyphButton';
-import { requestRail, shortRequest } from './model';
+import { shortRequest } from './model';
 import { useBloom } from './tone';
 import type { Failure } from './model';
 
@@ -34,6 +35,7 @@ export interface RequestEntryProps {
   /** What a screen reader calls the request, and how the suites find it. */
   accessibilityLabel: string;
   value: string;
+  rail: GlyphName | null;
   /** Called as the request is typed, as a text field reports text. */
   onChangeText?: (text: string) => void;
   /** The request is taken: it shows as a chip rather than as text. */
@@ -83,6 +85,7 @@ export interface RequestEntryProps {
 export function RequestEntry({
   accessibilityLabel,
   value,
+  rail,
   onChangeText,
   collapsed,
   onExpand,
@@ -106,7 +109,6 @@ export function RequestEntry({
     settled.current = true;
   }, []);
   if (collapsed && value.trim()) {
-    const rail = requestRail(value);
     const shown = shortRequest(value);
     const paid = (
       <>

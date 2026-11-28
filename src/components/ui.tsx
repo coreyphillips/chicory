@@ -289,12 +289,14 @@ export const CHIP_SLOP = {
 
 export function Chip({
   label,
+  accessibilityLabel = label,
   selected,
   onPress,
   disabled,
   maxFontSizeMultiplier,
 }: {
   label: string;
+  accessibilityLabel?: string;
   selected: boolean;
   onPress?: () => void;
   disabled?: boolean;
@@ -303,7 +305,7 @@ export function Chip({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel}
       accessibilityState={{ selected, disabled: !!disabled }}
       disabled={disabled}
       hitSlop={CHIP_SLOP}

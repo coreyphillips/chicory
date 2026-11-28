@@ -1,5 +1,7 @@
 /** Development-only entry. Build with ENTRY_FILE=native-tests/Smoke.tsx and a separate bundle id. */
 import 'react-native-url-polyfill/auto';
+import { registerWalletEngine } from '../src/embedded/registerWalletEngine';
+import { walletHost } from '../src/embedded/walletHostNative';
 import React, { useEffect, useState } from 'react';
 import { AppRegistry, ScrollView, StyleSheet, Text } from 'react-native';
 import { Buffer } from 'buffer';
@@ -21,7 +23,9 @@ const primary =
 function assert(value: unknown, label: string): asserts value {
   if (!value) throw new Error(label);
 }
-async function smoke(report: (message: string) => void) {
+async function probeStorage() {
+  const messages: string[] = [];
+  const report = (line: string) => messages.push(line);
   installNativeCrypto();
   const firstRandom = Buffer.from(secureRandomBytes(32)).toString('hex');
   const secondRandom = Buffer.from(secureRandomBytes(32)).toString('hex');
@@ -103,6 +107,21 @@ async function smoke(report: (message: string) => void) {
     scoped.close();
   }
   report('PASS independent mainnet/testnet/regtest encrypted storage reopen');
+  return messages;
+}
+registerWalletEngine(
+  () => async payload =>
+    payload === 'probe-storage'
+      ? JSON.stringify({ value: await probeStorage() })
+      : require('../src/embedded/walletEngineServer').handleEngineMessage(
+          payload,
+        ),
+);
+async function smoke(report: (message: string) => void) {
+  installNativeCrypto();
+  const probe = JSON.parse(await walletHost.dispatch('probe-storage'));
+  if (probe.error) throw new Error(probe.error.message);
+  for (const line of probe.value) report(line);
   const diagnostic = (event: {
     phase: string;
     message: string;

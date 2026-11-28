@@ -73,6 +73,87 @@ const stall = (ms: number) => {
 };
 
 describe('a launch', () => {
+  test('the wallet reports boot marks and batches SQL work without sampling UI stalls twice', () => {
+    const ui = load().perf;
+    const worker = load().perf;
+    ui.startBootPerf();
+    const send = jest.fn(
+      (event: import('../src/embedded/walletHostProtocol').HostEvent) => {
+        if (event.type === 'boot')
+          ui.includeWalletMark(event.name, event.at, event.detail);
+        if (event.type === 'sqlite') ui.includeWalletSqlite(event.tally);
+      },
+    );
+    worker.forwardWalletPerf(ui.getBootPerfDeadline(), send);
+    worker.markBoot('vault-opened');
+    worker.markBoot('vault-opened');
+    worker.noteSqlite('UPDATE gossip_channels SET value = ?', 9, 0, true);
+    worker.noteSqlite('SELECT * FROM gossip_channels', 2, 4);
+    expect(send).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(250);
+    expect(send).toHaveBeenLastCalledWith({
+      type: 'sqlite',
+      tally: expect.objectContaining({
+        statements: 2,
+        commits: 1,
+        ms: 11,
+        gossipRows: 4,
+      }),
+    });
+    expect(listen).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(PERF_WINDOW_MS + 2000);
+    worker.noteSqlite('COMMIT', 1);
+    worker.markBoot('late');
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(lines()[0]).toContain('vault-opened');
+  });
+
+  test('includes the final partial SQL batch delivered after the one-minute cutoff', () => {
+    const ui = load().perf;
+    const worker = load().perf;
+    ui.startBootPerf();
+    jest.advanceTimersByTime(75);
+    worker.forwardWalletPerf(ui.getBootPerfDeadline(), event => {
+      if (event.type === 'sqlite')
+        setTimeout(() => ui.includeWalletSqlite(event.tally), 40);
+    });
+    jest.advanceTimersByTime(PERF_WINDOW_MS - 76);
+    worker.noteSqlite('COMMIT', 8);
+    jest.advanceTimersByTime(1);
+    expect(lines()).toEqual([]);
+    // Both hosts stopped sampling. Only data counted before the cutoff can
+    // arrive in the report while it waits for the worker's last batch.
+    ui.noteSqlite('INSERT INTO payments VALUES (?)', 20, 0, true);
+    worker.noteSqlite('SELECT * FROM gossip_nodes', 30, 50);
+    ui.noteRefusedTap();
+    jest.advanceTimersByTime(2000);
+    expect(lines()).toHaveLength(5);
+    expect(lines()[2]).toMatch(/sqlite 1 statements 8ms, commits 1/);
+    expect(lines()[3]).toContain('60s watched');
+    expect(lines()[3]).toContain('refused taps 0');
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test('publishes without a wallet reply and identifies counters that arrive later', () => {
+    const { perf, log } = load();
+    const worker = load().perf;
+    perf.startBootPerf();
+    worker.forwardWalletPerf(perf.getBootPerfDeadline(), event => {
+      if (event.type === 'sqlite')
+        setTimeout(() => perf.includeWalletSqlite(event.tally), 3000);
+    });
+    jest.advanceTimersByTime(PERF_WINDOW_MS - 1);
+    worker.noteSqlite('SELECT * FROM gossip_nodes', 4, 3);
+    jest.advanceTimersByTime(2001);
+    expect(lines()).toHaveLength(5);
+    expect(lines()[2]).toBe('sqlite none');
+    jest.advanceTimersByTime(1000);
+    expect(lines()).toHaveLength(6);
+    expect(lines()[5]).toMatch(/^sqlite late batch 1 statements 4ms/);
+    expect(log.recentDiagnostics().at(-1)?.message).toBe(lines()[5]);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   test('is written down once the window closes, five lines printed and logged', () => {
     const { perf, log } = load();
     perf.startBootPerf();

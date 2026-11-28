@@ -1,0 +1,65 @@
+diff --git a/node_modules/react-native-keychain/android/src/main/java/com/oblador/keychain/DataStorePrefsStorage.kt b/node_modules/react-native-keychain/android/src/main/java/com/oblador/keychain/DataStorePrefsStorage.kt
+--- a/node_modules/react-native-keychain/android/src/main/java/com/oblador/keychain/DataStorePrefsStorage.kt
++++ b/node_modules/react-native-keychain/android/src/main/java/com/oblador/keychain/DataStorePrefsStorage.kt
+@@ -2,7 +2,6 @@
+
+ import android.content.Context
+ import android.util.Base64
+-import androidx.datastore.core.DataMigration
+ import androidx.datastore.core.DataStore
+ import androidx.datastore.preferences.SharedPreferencesMigration
+ import androidx.datastore.preferences.core.Preferences
+@@ -21,22 +20,20 @@
+ import kotlinx.coroutines.flow.first
+ import kotlinx.coroutines.runBlocking
+
++// AndroidX requires one active store per file. Its default IO scope and the
++// application context must outlive each independently invalidated React host.
++private val Context.keychainDataStore: DataStore<Preferences> by preferencesDataStore(
++  name = KEYCHAIN_DATA,
++  produceMigrations = { context -> listOf(SharedPreferencesMigration(context, KEYCHAIN_DATA)) },
++)
++
+ class DataStorePrefsStorage(
+   reactContext: ReactApplicationContext,
+   private val coroutineScope: CoroutineScope,
+ ) : PrefsStorageBase {
+
+-  private val Context.prefs: DataStore<Preferences> by preferencesDataStore(
+-    name = KEYCHAIN_DATA,
+-    produceMigrations = ::sharedPreferencesMigration,
+-    scope = coroutineScope,
+-  )
+-  private val prefs: DataStore<Preferences> = reactContext.prefs
++  private val prefs: DataStore<Preferences> = reactContext.applicationContext.keychainDataStore
+   private val prefsData: Preferences get() = callSuspendable { prefs.data.first() }
+-
+-  private fun sharedPreferencesMigration(context: Context): List<DataMigration<Preferences>> {
+-    return listOf(SharedPreferencesMigration(context, KEYCHAIN_DATA))
+-  }
+
+   override fun getEncryptedEntry(service: String): ResultSet? {
+     val bytesForUsername = getBytesForUsername(service)
+diff --git a/node_modules/react-native-keychain/android/src/main/java/com/oblador/keychain/KeychainModule.kt b/node_modules/react-native-keychain/android/src/main/java/com/oblador/keychain/KeychainModule.kt
+--- a/node_modules/react-native-keychain/android/src/main/java/com/oblador/keychain/KeychainModule.kt
++++ b/node_modules/react-native-keychain/android/src/main/java/com/oblador/keychain/KeychainModule.kt
+@@ -130,9 +130,6 @@
+
+   /** Launches a coroutine to perform non-blocking UI operations */
+   private val coroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+-
+-  /** Mutex to prevent concurrent calls to Cipher, which doesn't support multi-threading */
+-  private val mutex = Mutex()
+
+   // endregion
+   // region Initialization
+@@ -649,6 +646,9 @@
+   // endregion
+
+   companion object {
++    // Both React hosts can use the same Android Keystore alias.
++    private val mutex = Mutex()
++
+     // region Constants
+     const val KEYCHAIN_MODULE = "RNKeychainManager"
+     const val FINGERPRINT_SUPPORTED_NAME = "Fingerprint"

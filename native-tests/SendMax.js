@@ -3,13 +3,19 @@ require('react-native-url-polyfill/auto');
 const Keychain = require('react-native-keychain');
 // The public index re-exports getters. Replace their underlying bindings and
 // verify the public import before any wallet or App module can be evaluated.
-const functions = require('../node_modules/@op-engineering/op-sqlite/lib/module/functions');
+const { walletHost } = require('../src/embedded/walletHostNative');
+const functions = walletHost.isEngineRuntime
+  ? require('../node_modules/@op-engineering/op-sqlite/lib/module/functions')
+  : {};
 const { replacements, replaceChecked } = require('./send-max/isolation');
 const wrapped = replacements(Keychain, functions);
 replaceChecked(Keychain, wrapped.keychain);
-replaceChecked(functions, wrapped.sqlite);
-if (require('@op-engineering/op-sqlite').open !== wrapped.sqlite.open)
-  throw new Error('Fixture SQLite binding was not isolated');
+if (walletHost.isEngineRuntime) {
+  replaceChecked(functions, wrapped.sqlite);
+  if (require('@op-engineering/op-sqlite').open !== wrapped.sqlite.open)
+    throw new Error('Fixture SQLite binding was not isolated');
+}
+require('../src/embedded/registerWalletEngine').registerWalletEngine();
 
 const React = require('react');
 const { AppRegistry, Text } = require('react-native');

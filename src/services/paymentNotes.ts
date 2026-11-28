@@ -7,11 +7,11 @@ export interface PaymentNote {
 }
 export type NoteMap = ReadonlyMap<string, PaymentNote>;
 
-/** Synchronous operations on the open device vault. */
+/** The native vault is synchronous in its own runtime. UI callers await its replies. */
 export interface PaymentNoteStore {
-  read(scope: string): NoteMap;
-  save(scope: string, key: string, note: PaymentNote): void;
-  move(scope: string, moves: ReadonlyMap<string, string>): void;
+  read(scope: string): NoteMap | Promise<NoteMap>;
+  save(scope: string, key: string, note: PaymentNote): void | Promise<void>;
+  move(scope: string, moves: ReadonlyMap<string, string>): void | Promise<void>;
 }
 
 export function canAnnotate(item: Activity) {

@@ -18,7 +18,7 @@ const EMPTY_KEYS: ReadonlyMap<string, string> = new Map();
 interface WalletNotes {
   keys: ReadonlyMap<string, string>;
   entries: NoteMap;
-  save?: (item: Activity, text: string) => void;
+  save?: (item: Activity, text: string) => Promise<void>;
 }
 const Context = createContext<WalletNotes>({
   entries: EMPTY,
@@ -38,77 +38,124 @@ export function WalletNotesProvider({
 }>) {
   const keys = useMemo(() => paymentNoteKeys(activity), [activity]);
   const scope = JSON.stringify([wallet.network, wallet.id]);
+  const session = useMemo(
+    () => ({
+      open,
+      scope,
+      entries: EMPTY,
+      store: null as PaymentNoteStore | null,
+    }),
+    [open, scope],
+  );
   const [loaded, setLoaded] = useState<{
-    open: typeof open;
-    scope: string;
-    store: PaymentNoteStore;
+    session: typeof session;
     entries: NoteMap;
   } | null>(null);
-  const current =
-    loaded?.open === open && loaded?.scope === scope ? loaded : null;
+  const current = loaded?.session === session ? loaded : null;
+
+  const latest = useRef<{
+    session: typeof session;
+    keys: typeof keys;
+    activity: typeof activity;
+  } | null>(null);
+  useLayoutEffect(() => {
+    latest.current = { session, keys, activity };
+    return () => {
+      latest.current = null;
+    };
+  }, [session, keys, activity]);
+
+  // Keep edits and raw-to-request moves ordered for each wallet. Returning to
+  // a wallet also waits for its accepted writes before reading it again.
+  const queues = useRef(new Map<string, Promise<void>>());
+  const enqueue = useCallback(
+    (walletScope: string, run: () => Promise<void>) => {
+      const queue = queues.current;
+      const result = (queue.get(walletScope) ?? Promise.resolve()).then(run);
+      const tail = result.catch(() => {});
+      queue.set(walletScope, tail);
+      tail.then(() => {
+        if (queue.get(walletScope) === tail) queue.delete(walletScope);
+      });
+      return result;
+    },
+    [],
+  );
+
+  const publish = useCallback(
+    (entries: NoteMap) => {
+      session.entries = entries;
+      if (latest.current?.session === session) setLoaded({ session, entries });
+    },
+    [session],
+  );
 
   useEffect(() => {
     if (!open) return;
-    try {
+    let active = true;
+    enqueue(scope, async () => {
+      if (!active) return;
       const store = open();
-      setLoaded({ open, scope, store, entries: store.read(scope) });
-    } catch {
-      // History can still be used if the device cannot open the notes table.
-    }
-  }, [open, scope]);
+      const entries = await store.read(scope);
+      if (active) {
+        session.store = store;
+        publish(entries);
+      }
+    }).catch(() => {
+      // History remains accessible when the device cannot read its notes.
+    });
+    return () => {
+      active = false;
+    };
+  }, [enqueue, open, publish, scope, session]);
 
   useEffect(() => {
-    if (!current) return;
-    const moves = noteMoves(activity, current.entries);
-    if (!moves.size) return;
-    try {
-      current.store.move(scope, moves);
-    } catch {
-      // A failed move leaves the original notes intact for the next read.
-      return;
-    }
-    const entries = new Map(current.entries);
-    for (const [from, to] of moves) {
-      entries.set(to, entries.get(from)!);
-      entries.delete(from);
-    }
-    setLoaded({ ...current, entries });
-  }, [activity, current, scope]);
+    if (!current || !noteMoves(activity, current.entries).size) return;
+    enqueue(scope, async () => {
+      const view = latest.current;
+      if (view?.session !== session || !session.store) return;
+      // A queued edit or a newer history snapshot can change the evidence
+      // for a move. Recompute against the last acknowledged entries.
+      const moves = noteMoves(view.activity, session.entries);
+      if (!moves.size) return;
+      await session.store.move(scope, moves);
+      const entries = new Map(session.entries);
+      for (const [from, to] of moves) {
+        entries.set(to, entries.get(from)!);
+        entries.delete(from);
+      }
+      publish(entries);
+    }).catch(() => {
+      // The original notes remain intact after a failed transaction.
+    });
+  }, [activity, current, enqueue, publish, scope, session]);
 
-  // Detail can keep showing its original row after a live read replaced it.
-  // A stale editor must never write a note for that former row.
-  const latest = useRef({ keys, scope, open });
-  useLayoutEffect(() => {
-    latest.current = { keys, scope, open };
-  }, [keys, scope, open]);
   const save = useCallback(
     (item: Activity, text: string) => {
       const key = keys.get(item.id);
-      if (
-        !current ||
-        !key ||
-        latest.current.scope !== scope ||
-        latest.current.open !== open ||
-        latest.current.keys.get(item.id) !== key
-      )
-        throw new Error('Payment note unavailable.');
-      const note = {
-        text: text.trim(),
-        address: item.address ?? current.entries.get(key)?.address,
-      };
-      current.store.save(scope, key, note);
-      setLoaded(previous => {
-        if (previous?.store !== current.store || previous.scope !== scope)
-          return previous;
-        const entries = new Map(previous.entries);
+      return enqueue(scope, async () => {
+        const view = latest.current;
+        if (
+          !key ||
+          !session.store ||
+          view?.session !== session ||
+          view.keys.get(item.id) !== key
+        ) {
+          throw new Error('Payment note unavailable.');
+        }
+        const note = {
+          text: text.trim(),
+          address: item.address ?? session.entries.get(key)?.address,
+        };
+        await session.store.save(scope, key, note);
+        const entries = new Map(session.entries);
         if (note.text) entries.set(key, note);
         else entries.delete(key);
-        return { ...previous, entries };
+        publish(entries);
       });
     },
-    [current, keys, open, scope],
+    [enqueue, keys, publish, scope, session],
   );
-
   const value = useMemo(
     () => ({
       keys,

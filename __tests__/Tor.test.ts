@@ -129,6 +129,15 @@ beforeEach(() => {
   sockets().length = 0;
 });
 
+test('a replacement wallet runtime rejoins the native Tor daemon', async () => {
+  const { walletHost } = require('../src/embedded/walletHostNative');
+  jest.spyOn(walletHost, 'claimTorStart').mockReturnValueOnce(false);
+  await ensureTorReady();
+  expect(RnTor.startTorIfNotRunning).not.toHaveBeenCalled();
+  expect(RnTor.getServiceStatus).toHaveBeenCalled();
+  expect(torPhase()).toBe('ready');
+});
+
 test('onion hosts are recognised regardless of case or padding, and clearnet hosts are not', () => {
   expect(isOnionHost(ONION)).toBe(true);
   expect(isOnionHost(` ${ONION.toUpperCase()} `)).toBe(true);
@@ -480,16 +489,24 @@ describe('opening a device wallet', () => {
     relayToken: '',
   });
 
-  test('private notes stay on the device client side of the payment runtime', async () => {
+  test('wallet requests and private notes use the same session on the engine host', async () => {
+    const { walletHost } = require('../src/embedded/walletHostNative');
     const client = await openDeviceWallet(
       profile({ host: '127.0.0.1', port: 60001, tls: false }),
     );
+    const read = jest.fn().mockReturnValue(new Map([['payment', { text: 'coffee' }]]));
+    mockStorage.openPaymentNotes.mockReturnValue({ read });
     try {
-      expect(client.openPaymentNotes).toBe(mockStorage.openPaymentNotes);
+      const store = client.openPaymentNotes!();
+      await expect(store.read('mine')).resolves.toEqual(new Map([['payment', { text: 'coffee' }]]));
+      expect(read).toHaveBeenCalledWith('mine');
+      const calls = walletHost.dispatch.mock.calls.map(([payload]: [string]) => JSON.parse(payload));
+      const open = calls.find((message: {op: string}) => message.op === 'open');
+      expect(calls).toContainEqual({ op: 'readNotes', session: open.session, scope: 'mine' });
       const { createPortableRuntime } = require('@beignet/portable-engine');
-      expect(createPortableRuntime.mock.calls.at(-1)[0]).not.toHaveProperty(
-        'openPaymentNotes',
-      );
+      expect(createPortableRuntime.mock.calls.at(-1)[0]).not.toHaveProperty('openPaymentNotes');
+      await client.close();
+      await expect(store.read('mine')).rejects.toMatchObject({ code: 'ENGINE_CLOSED' });
     } finally {
       await client.close();
     }

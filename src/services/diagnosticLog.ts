@@ -24,11 +24,22 @@ const MESSAGE_LIMIT = 300;
 const UI_MESSAGE_LIMIT = 1000;
 const entries: DiagnosticEntry[] = [];
 
+type Diagnostic = Pick<DiagnosticEntry, 'phase' | 'message' | 'code'>;
+let sink: ((event: Diagnostic) => void) | undefined;
+export function setDiagnosticSink(send: typeof sink) {
+  sink = send;
+}
+
 export function recordDiagnostic(event: {
   phase: string;
   message: string;
   code?: string;
 }): void {
+  if (sink) return sink(event);
+  appendDiagnostic(event);
+}
+
+export function appendDiagnostic(event: Diagnostic) {
   const limit = event.phase === 'ui' ? UI_MESSAGE_LIMIT : MESSAGE_LIMIT;
   entries.push({
     at: new Date().toISOString(),

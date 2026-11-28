@@ -21,9 +21,9 @@ import { pubkyOf } from './pubky';
 
 type Balance = WalletSnapshot['balance'];
 
-function parsed(request: string) {
+function parsed(request: string, network?: string) {
   try {
-    return parsePayment(request.trim());
+    return parsePayment(request.trim(), { network });
   } catch {
     return null;
   }
@@ -34,8 +34,8 @@ function parsed(request: string) {
  * The same precedence prepareSend applies: the request's own amount, else the
  * amount of the Lightning invoice a Bitcoin link carries.
  */
-export function fixedAmount(request: string): number | null {
-  const payment = parsed(request);
+export function fixedAmount(request: string, network?: string): number | null {
+  const payment = parsed(request, network);
   if (!payment) return null;
   const sats =
     payment.kind === 'bolt11' || payment.kind === 'bolt12'
@@ -55,8 +55,11 @@ export function fixedAmount(request: string): number | null {
  * an envelope and nothing else, and on chain otherwise. A request that does
  * not read as one has no rail yet; the engine has the last word either way.
  */
-export function requestRail(request: string): GlyphName | null {
-  const payment = parsed(request);
+export function requestRail(
+  request: string,
+  network?: string,
+): GlyphName | null {
+  const payment = parsed(request, network);
   if (payment?.kind === 'bolt11' || payment?.kind === 'bolt12') return 'bolt';
   if (payment?.kind !== 'onchain') return null;
   if (payment.lightning) return 'bolt';
@@ -517,14 +520,33 @@ export function reviewOpensLive(request: string): boolean {
 
 export function sendFailure(
   error: unknown,
-  context: { message: string; amountSats: number | null; balance?: Balance },
+  context: {
+    message: string;
+    amountSats: number | null;
+    balance?: Balance;
+    addressMax?: boolean;
+  },
 ): Failure {
   const code = errorCode(error);
+  // A max request supplies no amount. The core rejects a zero splice
+  // maximum as INVALID_AMOUNT, even if a valid amount is on the keypad.
+  if (context.addressMax && code === 'INVALID_AMOUNT') {
+    return failureOf(code, copy.send.noAddressMaximum, 'control', 'radish', [
+      'bang',
+    ]);
+  }
   const failure = (
     target: Failure['target'],
     tone: Failure['tone'],
     glyphs: GlyphName[],
-  ): Failure => failureOf(code, context.message, target, tone, glyphs);
+  ): Failure =>
+    failureOf(
+      code,
+      context.message,
+      context.addressMax && target === 'amount' ? 'control' : target,
+      tone,
+      glyphs,
+    );
   if (REFUSED.has(code) || REFUSED_FAMILY.test(code)) {
     return failure('request', 'radish', ['cross']);
   }

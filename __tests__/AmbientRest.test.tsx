@@ -74,17 +74,6 @@ const restTimers = (waits: jest.SpyInstance) =>
     .filter(([delay]) => delay === AMBIENT_REST_MS)
     .map(([, id]) => id);
 
-/**
- * Shared values that live as long as their component, as on a device: the
- * mock makes a new one each render, which would lose where a clock stood.
- */
-function keepSharedValues() {
-  const made = Reanimated.useSharedValue;
-  jest
-    .spyOn(Reanimated, 'useSharedValue')
-    .mockImplementation(init => React.useState(() => made(init))[0]);
-}
-
 /** Reports whether decoration rests, each time it renders. */
 function Probe({ ambient, seen }: { ambient?: boolean; seen: boolean[] }) {
   seen.push(useAmbientRest(ambient));
@@ -188,7 +177,6 @@ describe('a loop', () => {
 
   test('that decorates eases into its rest pose rather than stopping', async () => {
     // Caught 40% of the way through a cycle as the quiet runs out.
-    keepSharedValues();
     jest.spyOn(Reanimated, 'withRepeat').mockReturnValue(0.4 as never);
     const timings = jest.spyOn(Reanimated, 'withTiming');
     await render(<Loop ambient />);
@@ -328,7 +316,6 @@ describe('what rests', () => {
     expect(swingAt(2)).toBeCloseTo(0);
     expect(swingAt(0.5)).toBeCloseTo(0.5);
     // Each clock caught 30% of the way across a swing as the quiet runs out.
-    keepSharedValues();
     jest.spyOn(Reanimated, 'withRepeat').mockReturnValue(2.3 as never);
     const timings = jest.spyOn(Reanimated, 'withTiming');
     await render(

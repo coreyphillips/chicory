@@ -829,7 +829,7 @@ describe('the amount step', () => {
   });
 
   test("measures its way on again as its row moves, so Home's circle lands where it is", async () => {
-    const made = Reanimated.useSharedValue;
+    const made = Reanimated.makeMutable;
     let launch!: Launch;
     function Launching({ children }: { children: React.ReactNode }) {
       launch = useState<Launch>(() => ({
@@ -1517,6 +1517,10 @@ describe('the celebration', () => {
   };
 
   test("draws no dark track across the code before the code's card has gone", async () => {
+    // Inspect the first frame before the mock completes the delayed fade.
+    jest.spyOn(Reanimated, 'useAnimatedStyle').mockImplementation(
+      jest.requireActual('react-native-reanimated/mock').useAnimatedStyle,
+    );
     // The husk track cut across the cream card for 200ms (P7, 50-c3 t5.37).
     // The card goes once the bands have set off and it has faded.
     expect(QR_CARD_GONE).toBe(QR_TIMING.step * BANDS + QR_TIMING.dissolve);

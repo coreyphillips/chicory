@@ -71,6 +71,32 @@ jest.mock('react-native-worklets', () =>
 );
 // Reanimated's mock: animations land on their final value at once and layout
 // animations are inert, so a suite sees state, never a frame in between.
-jest.mock('react-native-reanimated', () =>
-  require('react-native-reanimated/mock'),
-);
+jest.mock('react-native-reanimated', () => {
+  const mock = require('react-native-reanimated/mock');
+  return {
+    ...mock,
+    // A shared value can change in a layout effect after React rendered.
+    // Read the style against its current values, as the UI runtime would.
+    useAnimatedStyle(update) {
+      const style = {};
+      for (const key of Object.keys(update())) {
+        Object.defineProperty(style, key, {
+          enumerable: true,
+          get: () => update()[key],
+        });
+      }
+      return style;
+    },
+  };
+});
+
+// Exercise the same serialized wallet RPC in Jest, with native delivery replaced
+// by a direct call. Module resets also reset the two session endpoints.
+jest.mock('./src/embedded/walletHostNative', () => ({
+  walletHost: {
+    isEngineRuntime: false,
+    dispatch: jest.fn(payload => require('./src/embedded/walletEngineServer').handleEngineMessage(payload)),
+    notify: (session, event) => require('./src/embedded/client').receiveWalletEvent(session, event),
+    claimTorStart: () => true,
+  },
+}));

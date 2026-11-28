@@ -163,6 +163,29 @@ afterEach(async () => {
 });
 
 describe('a review asked for while the primary is on its way back', () => {
+  test('an address max request keeps max through wallet opening and a primary retry', async () => {
+    const address = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
+    const wallet = client(1, async () => ({
+      ...quote,
+      route: 'bitcoin',
+      max: true,
+      destination: address,
+    }));
+    const props = { initialRequest: address, primaryConnected: true };
+    const tree = await draw(wallet, { ...props, opening: true });
+    await press(tree, copy.send.reviewMax);
+    expect(wallet.prepareSend).not.toHaveBeenCalled();
+    await act(async () => tree.update(screen(wallet, props)));
+    expect(busy(tree)).toBe(true);
+    await past(PRIMARY_RETRY_MS);
+    const input = { request: address, max: true };
+    expect(wallet.prepareSend.mock.calls).toEqual([[input], [input]]);
+    expect(holds(tree, copy.send.sendMax)).toHaveLength(1);
+    expect(wallet.quoteMax).not.toHaveBeenCalled();
+    expect(wallet.send).not.toHaveBeenCalled();
+    await act(async () => tree.unmount());
+  });
+
   test('waits, busy, says so once, and is made as the primary returns', async () => {
     const wallet = client(2, async () => quote);
     const tree = await draw(wallet);

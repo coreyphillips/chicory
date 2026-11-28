@@ -298,14 +298,6 @@ describe('ExpiryRing', () => {
 });
 
 describe('Commit', () => {
-  // Shared values live as long as their component, as on a device, where
-  // the mock makes a new one each render.
-  const made = Reanimated.useSharedValue;
-  beforeEach(() => {
-    jest
-      .spyOn(Reanimated, 'useSharedValue')
-      .mockImplementation(init => React.useState(() => made(init))[0]);
-  });
   afterEach(() => jest.restoreAllMocks());
 
   /** The review's commit, on the canvas, with its quote run out or not. */
@@ -558,6 +550,12 @@ describe('a glyph that moves in parts', () => {
   });
 
   test("an unconfirmed funding's chain slides its halves together", async () => {
+    // Capture the first drawn frame before the effect closes the chain.
+    const styles = jest
+      .spyOn(Reanimated, 'useAnimatedStyle')
+      .mockImplementation(
+        jest.requireActual('react-native-reanimated/mock').useAnimatedStyle,
+      );
     const timing = jest.spyOn(Reanimated, 'withTiming');
     const tree = await mount(
       <FailureMark failure={failureFor('FUNDING_UNCONFIRMED')} />,
@@ -588,6 +586,7 @@ describe('a glyph that moves in parts', () => {
     ]);
     await act(async () => tree.unmount());
     timing.mockRestore();
+    styles.mockRestore();
   });
 });
 

@@ -424,11 +424,6 @@ describe('Send and Receive open from their circle', () => {
   });
 
   test('the tapped circle travels there and grows into the 88pt control, whole until it lands', async () => {
-    // Shared values live as long as their component, as on a device.
-    const made = Reanimated.useSharedValue;
-    jest
-      .spyOn(Reanimated, 'useSharedValue')
-      .mockImplementation(init => React.useState(() => made(init))[0]);
     const REST = { x: 93, y: 384, width: 56, height: 56 };
     const measure = jest.mocked(
       (
@@ -477,7 +472,7 @@ describe('Send and Receive open from their circle', () => {
   });
 
   test("lands on Send's review control and Receive's Continue as each scene measures them", async () => {
-    const made = Reanimated.useSharedValue;
+    const made = Reanimated.makeMutable;
     let launch!: Launch;
     function Launching({ children }: { children: React.ReactNode }) {
       launch = React.useState<Launch>(() => ({
@@ -552,7 +547,7 @@ describe('Send and Receive open from their circle', () => {
     // out, while its row still rose into place, and the circle landed 6pt
     // below it and snapped up at the hand-over.
     jest.useFakeTimers();
-    const made = Reanimated.useSharedValue;
+    const made = Reanimated.makeMutable;
     let launch!: Launch;
     let landing!: ReturnType<typeof useLaunchLanding>;
     function Control() {
@@ -998,7 +993,7 @@ describe('the circle becomes the control it lands on', () => {
   });
 
   test('a scene can hold its control unseen until the circle hands over', async () => {
-    const made = Reanimated.useSharedValue;
+    const made = Reanimated.makeMutable;
     const seen: unknown[] = [];
     function Control() {
       seen.push(flatStyle(useLaunchLanding().style).opacity);
@@ -1108,7 +1103,7 @@ describe('the circle becomes the control it lands on', () => {
   });
 
   test("Send's review and Receive's Continue stay unseen until the circle hands over", async () => {
-    const made = Reanimated.useSharedValue;
+    const made = Reanimated.makeMutable;
     const noop = () => {};
     const none = {} as never;
     const scenes: [string, React.ReactElement][] = [
@@ -1284,11 +1279,6 @@ describe('the scene leaving', () => {
     // The device pass (P14): Send's fading keypad was drawn on the rising
     // sheet's face, and over the growing hero, as a layout exit drew it.
     const faded: ((finished?: boolean) => void)[] = [];
-    // Shared values live as long as their component, as on a device.
-    const made = Reanimated.useSharedValue;
-    jest
-      .spyOn(Reanimated, 'useSharedValue')
-      .mockImplementation(init => React.useState(() => made(init))[0]);
     const timed = Reanimated.withTiming;
     jest
       .spyOn(Reanimated, 'withTiming')

@@ -67,6 +67,7 @@ test('however many loop, they listen for the app going to the background once', 
 });
 
 test('at rest the orbit is square, the moon level and the caret whole', async () => {
+  AppState.currentState = 'background';
   const tree = await mount(
     <>
       <Spin>{still}</Spin>

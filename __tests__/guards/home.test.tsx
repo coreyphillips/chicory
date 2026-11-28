@@ -911,10 +911,6 @@ describe('coming back from Send or Receive', () => {
   // reaction runs as each render lands, with what it read then and at the
   // render before: under the mock a render is the only frame there is.
   beforeEach(() => {
-    const made = Reanimated.useSharedValue;
-    jest
-      .spyOn(Reanimated, 'useSharedValue')
-      .mockImplementation(init => React.useState(() => made(init))[0]);
     jest
       .spyOn(Reanimated, 'useAnimatedReaction')
       .mockImplementation((prepare, react) => {
@@ -1200,12 +1196,6 @@ describe('the pull', () => {
   });
 
   test('keeps its configuration when Home draws again, as each poll does', async () => {
-    // A shared value lives as long as its component, as on a device; the
-    // mock would otherwise make a new one on every render.
-    const made = Reanimated.useSharedValue;
-    jest
-      .spyOn(Reanimated, 'useSharedValue')
-      .mockImplementation(init => React.useState(() => made(init))[0]);
     const live = session();
     const tree = await draw({
       snapshot: snapshotOf({ wallet: MAINNET }),

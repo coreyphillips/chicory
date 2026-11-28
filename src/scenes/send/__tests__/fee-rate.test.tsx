@@ -285,16 +285,12 @@ test("a max review's amount gives way to the fee under the thumb, and its total 
   expect(commit(tree).accessibilityLabel).toBe(copy.send.sendMax);
 });
 
-test("letting go prices the rate: the review is replaced with a fresh quote, and the rate rides a refresh, an edit and the max chip", async () => {
+test('letting go prices the rate and editing keeps it for ordinary and max reviews', async () => {
   const prepareSend = jest
     .fn()
     .mockResolvedValueOnce(quote())
     .mockResolvedValue(requoted());
-  const quoteMax = jest.fn().mockResolvedValue({
-    amountSats: 198_000,
-    keptSats: 0,
-    keptReason: 'none',
-  });
+  const quoteMax = jest.fn();
   const tree = await reviewed(
     { prepareSend, quoteMax },
     { primaryConnected: true },
@@ -314,16 +310,21 @@ test("letting go prices the rate: the review is replaced with a fresh quote, and
   const after = commit(tree);
   expect(after.expiresAt).not.toBe(before.expiresAt);
   expect(after.createdAt).toBeGreaterThanOrEqual(before.createdAt);
-  // Back to compose and reviewed again, the payment is priced as it was,
-  // and the max chip is quoted at that rate too.
   await press(tree, copy.send.edit);
-  expect(quoteMax).toHaveBeenLastCalledWith({ request: ADDRESS, feeRate: 8 });
   await press(tree, copy.send.review);
   expect(prepareSend).toHaveBeenLastCalledWith({
     request: ADDRESS,
     amountSats: 4_200,
     feeRate: 8,
   });
+  await press(tree, copy.send.edit);
+  await press(tree, copy.send.reviewMax);
+  expect(prepareSend).toHaveBeenLastCalledWith({
+    request: ADDRESS,
+    max: true,
+    feeRate: 8,
+  });
+  expect(quoteMax).not.toHaveBeenCalled();
 });
 
 test('the hold cannot send a review the slider has outgrown: it waits, busy, and sends what the engine priced', async () => {

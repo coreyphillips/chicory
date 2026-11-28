@@ -149,6 +149,7 @@ dependencies {
     // The tag Receive presents is read in a unit test as a phone reads one,
     // since no emulator has an NFC radio: ./gradlew :app:testDebugUnitTest
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito:mockito-core:5.20.0")
 }
 
 // Package the dedicated native fixture only when explicitly requested.

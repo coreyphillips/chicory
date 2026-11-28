@@ -48,6 +48,13 @@ describe('a request', () => {
     expect(requestRail('lnbc-typed')).toBeNull();
   });
 
+  test('a wrong-network Lightning fallback neither locks the amount nor selects Lightning', () => {
+    const address = 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080';
+    const request = `bitcoin:${address}?lightning=${INVOICE}`;
+    expect(fixedAmount(request, 'regtest')).toBeNull();
+    expect(requestRail(request, 'regtest')).toBe('chain');
+  });
+
   test('shows where it pays, its prefix whole, grouped and shortened in the middle', () => {
     // As every chip draws a value (`chipText`): grouped from the first
     // character, a link's invoice read "lnbc rt30 …" on Send's chip (P10,
