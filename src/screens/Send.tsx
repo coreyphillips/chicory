@@ -357,19 +357,29 @@ export function SendScreen({
   const [recipient, setRecipient] = useState({ text: initialRequest });
   const request = recipient.text;
   const latestRecipient = useRef(recipient);
+  const pasteReads = useRef(0);
+  // Only pricing can release the stage early when its input is replaced.
+  // A submitted payment keeps its own busy state until its answer or grace.
+  const pendingReview = useRef<(() => void) | null>(null);
   // A scan can replace a request in the same batch that its review answers.
   // Invalidate that review at delivery, including when the text changes back.
-  function changeRequest(text: string) {
+  function changeRequest(text: string, continuingReview?: () => void) {
+    pasteReads.current += 1;
     if (text !== latestRecipient.current.text) {
       latestRecipient.current = { text };
+      if (pendingReview.current !== continuingReview) pendingReview.current?.();
       setRecipient(latestRecipient.current);
+      setReview(null);
+      setExpired(false);
     }
     return latestRecipient.current;
   }
   const payment = useMemo(() => ({ recipient, client }), [recipient, client]);
   const activeClient = useRef(client);
   useLayoutEffect(() => {
+    if (activeClient.current === client) return;
     activeClient.current = client;
+    pendingReview.current?.();
   }, [client]);
   // A request that arrived whole shows as a chip; one being typed as text,
   // and one the parser refuses stays in the well with its cross, so it never
@@ -492,7 +502,10 @@ export function SendScreen({
   // A request that names its amount sets it and locks it, so the amount
   // cannot be changed by accident. What was typed stays for a request that
   // names none.
-  const fixedSats = useMemo(() => fixedAmount(request), [request]);
+  const fixedSats = useMemo(
+    () => fixedAmount(request, network),
+    [request, network],
+  );
   // A request is checked once it is taken, as a chip, rather than letter by
   // letter as it is typed; prepare checks again, so one reviewed straight
   // from the well is held all the same. Read afresh on every render, and
@@ -532,11 +545,14 @@ export function SendScreen({
     !leaving &&
     !unresolved &&
     failure?.target !== 'request';
-  // An address max builds channel commitments on the same JS thread as
-  // keypad presses. Only price it when the payer asks for a review.
-  const railHint = useMemo(() => requestRail(request), [request]);
+  // Building channel commitments for an address max is expensive. Only
+  // price it when the payer asks for a review.
+  const railHint = useMemo(
+    () => requestRail(request, network),
+    [request, network],
+  );
   const addressMax = railHint === 'chain' || railHint === 'fund';
-  const canQuoteMax = canChooseMax && !addressMax;
+  const canQuoteMax = canChooseMax && railHint === 'bolt';
   useEffect(() => {
     // Keep the last usable amount visible while refreshing this same wallet
     // and request. Preparing a payment still obtains a fresh review.
@@ -1282,12 +1298,15 @@ export function SendScreen({
   function fail(
     error: unknown,
     landing?: (next: Failure) => Landing | null,
+    amountSats: number | null = fixedSats ?? (amount ? Number(amount) : null),
+    forAddressMax = false,
   ): Failure {
     return refuse(
       sendFailure(error, {
         message: errorMessage(error),
-        amountSats: fixedSats ?? (amount ? Number(amount) : null),
+        amountSats,
         balance,
+        addressMax: forAddressMax,
       }),
       landing,
     );
@@ -1474,6 +1493,7 @@ export function SendScreen({
             message: errorMessage(e),
             amountSats: fixedSats ?? (amount ? Number(amount) : null),
             balance,
+            addressMax: addressMax && review.max,
           }),
         ),
       );
@@ -1559,8 +1579,12 @@ export function SendScreen({
       recipient !== latestRecipient.current
     )
       return;
-    if (!max && fixedSats === null && !Number(latestDraft.current.amount))
-      return;
+    const requestedSats = max
+      ? null
+      : fixedSats ?? (Number(latestDraft.current.amount) || null);
+    if (!max && requestedSats === null) return;
+    // The reviewed recipient takes precedence over any earlier clipboard read.
+    pasteReads.current += 1;
     if (opening) {
       unpark();
       queuedFor.current = { payment, max };
@@ -1582,10 +1606,18 @@ export function SendScreen({
     const call = goingOut();
     const current = () =>
       mounted.current &&
+      waitingFor.current === call &&
       activeClient.current === client &&
       latestRecipient.current === target;
     // Preparing pays nothing, so a Send left while it waits loses nothing.
     const cancelGrace = grace(call);
+    const finish = () => {
+      if (pendingReview.current !== finish) return;
+      pendingReview.current = null;
+      cancelGrace();
+      cameBack(call);
+    };
+    pendingReview.current = finish;
     setFailure(null);
     try {
       const input = sendInput(feeRate, max);
@@ -1622,14 +1654,14 @@ export function SendScreen({
               // and the ring that says so is its own.
               if (current()) {
                 setVia({ ...route!, at });
-                target = changeRequest(option.request);
+                target = changeRequest(option.request, finish);
               }
               throw again;
             }
           }
           if (!current()) return;
           setVia({ ...route!, at });
-          target = changeRequest(option.request);
+          target = changeRequest(option.request, finish);
           setFeeRate(null);
           if (option.amountSats === null && sats !== null) {
             changeAmount(String(sats));
@@ -1675,10 +1707,14 @@ export function SendScreen({
         if (
           // A refresh refused beside its control keeps the spent quote on
           // screen, to try again; anything else is fixed back in compose.
-          fail(e, next =>
-            fromReview && next.target !== 'control'
-              ? backToCompose(next)
-              : null,
+          fail(
+            e,
+            next =>
+              fromReview && next.target !== 'control'
+                ? backToCompose(next)
+                : null,
+            requestedSats,
+            max && addressMax,
           ).target !== 'control'
         ) {
           setReview(null);
@@ -1686,13 +1722,19 @@ export function SendScreen({
         }
       }
     } finally {
-      cancelGrace();
-      cameBack(call);
+      finish();
     }
   }
 
   async function pay() {
-    if (!review || waitingFor.current || expired || disabled || opening) return;
+    if (
+      !review ||
+      recipient !== latestRecipient.current ||
+      waitingFor.current ||
+      expired ||
+      disabled ||
+      opening
+    ) return;
     // What the sum shows is not yet what the engine priced: the hold waits
     // for the slider's quote, busy, and is held again once the figures are
     // the engine's own.
@@ -1836,7 +1878,21 @@ export function SendScreen({
     land(readout);
   }
 
+  const pasteFromCall = calls.current;
   async function paste(): Promise<boolean> {
+    // A native press from the previous paint can arrive just after Review.
+    if (
+      pasteFromCall !== calls.current ||
+      waitingFor.current ||
+      queuedFor.current ||
+      parkedFor.current ||
+      recipient !== latestRecipient.current
+    ) return false;
+    const read = ++pasteReads.current;
+    const current = () =>
+      mounted.current &&
+      read === pasteReads.current &&
+      activeClient.current === client;
     try {
       // Reading the clipboard can raise the system's paste prompt, which
       // makes the app inactive: marked as a prompt the app asked for, Send
@@ -1845,7 +1901,7 @@ export function SendScreen({
       // cross draws, and its haptic plays, where they are seen and felt.
       const text = await duringSystemPrompt(() => Clipboard.getString());
       await untilInFront();
-      if (!mounted.current) return false;
+      if (!current()) return false;
       const pasted = text?.trim();
       if (!pasted) {
         haptics.error();
@@ -1857,7 +1913,7 @@ export function SendScreen({
       return true;
     } catch (e) {
       await untilInFront();
-      if (!mounted.current) return false;
+      if (!current()) return false;
       fail(e);
       return false;
     }
@@ -2363,6 +2419,7 @@ export function SendScreen({
           <RequestEntry
             accessibilityLabel={copy.send.request}
             value={request}
+            rail={railHint}
             onChangeText={composing && live ? typed : undefined}
             collapsed={!composing || collapsed}
             onExpand={composeBusy ? undefined : review ? edit : reopen}

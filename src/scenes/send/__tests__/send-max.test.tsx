@@ -18,8 +18,11 @@ import type { WalletAdapter } from '../../../services/wallet';
 import { clearHeldRequests } from '../../../stage/heldRequests';
 import { amountValue, enterAmount } from '../../../../test-support/keypad';
 import {
+  ACTIVATE,
   activate,
+  alerts,
   find,
+  holds,
   press,
   visibleText,
 } from '../../../../test-support/query';
@@ -183,6 +186,103 @@ test('a digit immediately followed by Review prices the last tap', async () => {
     amountSats: 4200,
   });
 });
+
+test('replacing the reviewed recipient immediately invalidates its hold', async () => {
+  const ref = React.createRef<SendHandle>();
+  const quoted = {
+    ...review(),
+    destination: ADDRESS,
+    route: 'bitcoin' as const,
+  };
+  const { tree, client } = await draw(
+    { prepareSend: jest.fn().mockResolvedValue(quoted) },
+    { initialRequest: ADDRESS, ref },
+  );
+  await press(tree, copy.send.reviewMax);
+  const [hold] = holds(tree, copy.send.sendMax);
+  expect(hold).toBeDefined();
+  await act(async () => {
+    ref.current!.receive(OTHER_ADDRESS, 'camera');
+    hold.props.onAccessibilityAction(ACTIVATE);
+  });
+  expect(client.send).not.toHaveBeenCalled();
+  expect(visibleText(tree)).toContain(shortRequest(OTHER_ADDRESS));
+  expect(holds(tree, copy.send.sendMax)).toHaveLength(0);
+});
+
+test('a refusal explains the amount Review priced when it follows a digit immediately', async () => {
+  const balance = {
+    totalSats: 1500,
+    availableSats: 200,
+    pendingSats: 1300,
+    receivableSats: 0,
+  };
+  const error = Object.assign(new Error('Insufficient balance'), {
+    code: 'INSUFFICIENT_FUNDS',
+  });
+  const { tree, client } = await draw(
+    { prepareSend: jest.fn().mockRejectedValue(error) },
+    { initialRequest: ADDRESS, balance },
+  );
+  await enterAmount(tree, '420');
+  await act(async () => {
+    find(tree, '0')!.props.onPress();
+    find(tree, copy.send.review)!.props.onPress();
+  });
+  expect(client.prepareSend).toHaveBeenCalledWith({
+    request: ADDRESS,
+    amountSats: 4200,
+  });
+  expect(tree.root.findByType(AmountReadout).props.tone).toBe('over-total');
+});
+
+test('a Bitcoin URI with a Lightning fallback for another network only prices its onchain maximum on request', async () => {
+  const address = 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080';
+  const request = `bitcoin:${address}?lightning=${INVOICE}`;
+  const { tree, client } = await draw(
+    {},
+    { initialRequest: request, network: 'regtest' },
+  );
+  expect(client.quoteMax).not.toHaveBeenCalled();
+  await press(tree, copy.send.reviewMax);
+  expect(client.prepareSend).toHaveBeenCalledWith({ request, max: true });
+});
+
+test.each([
+  [
+    'INVALID_AMOUNT',
+    'Enter an amount greater than zero.',
+    copy.send.noAddressMaximum,
+  ],
+  [
+    'INSUFFICIENT_FUNDS',
+    'The balance cannot cover the fee.',
+    'The balance cannot cover the fee.',
+  ],
+])(
+  'an onchain max refusal (%s) leaves the separately keyed amount alone',
+  async (code, message, explanation) => {
+    const prepareSend = jest
+      .fn()
+      .mockRejectedValueOnce(Object.assign(new Error(message), { code }));
+    const { tree } = await draw({ prepareSend }, { initialRequest: ADDRESS });
+    await enterAmount(tree, '300');
+    await press(tree, copy.send.reviewMax);
+    expect(prepareSend).toHaveBeenCalledWith({ request: ADDRESS, max: true });
+    expect(alerts(tree)).toEqual([explanation]);
+    expect(tree.root.findByType(AmountReadout).props).toMatchObject({
+      value: '300',
+      tone: 'plain',
+      shake: 0,
+    });
+    prepareSend.mockResolvedValueOnce(review());
+    await press(tree, copy.send.review);
+    expect(prepareSend).toHaveBeenLastCalledWith({
+      request: ADDRESS,
+      amountSats: 300,
+    });
+  },
+);
 
 test('immediate Review after backspace uses the edited amount instead of max', async () => {
   const { tree, client } = await draw();
@@ -351,6 +451,80 @@ test('a late Lightning max cannot replace the next address max control', async (
   expect(find(tree, copy.send.reviewMax)).toBeDefined();
   expect(quoteMax).toHaveBeenCalledTimes(1);
 });
+
+test.each([
+  'answers while the replacement is pricing',
+  'fails after the replacement is reviewed',
+])(
+  'a different recipient can type and review immediately when the old quote %s',
+  async timing => {
+    let oldAnswer!: (quote: SendReview) => void;
+    let oldFailure!: (error: Error) => void;
+    let newAnswer!: (quote: SendReview) => void;
+    const prepareSend = jest
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<SendReview>((resolve, reject) => {
+            oldAnswer = resolve;
+            oldFailure = reject;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<SendReview>(resolve => {
+            newAnswer = resolve;
+          }),
+      );
+    const onBusy = jest.fn();
+    const ref = React.createRef<SendHandle>();
+    const { tree, client } = await draw(
+      { prepareSend },
+      { ref, onBusy, initialRequest: ADDRESS },
+    );
+    await act(async () => {
+      find(tree, copy.send.reviewMax)!.props.onPress();
+    });
+    expect(onBusy).toHaveBeenLastCalledWith(true);
+    await act(async () => ref.current!.receive(OTHER_ADDRESS, 'camera'));
+    expect(onBusy).toHaveBeenLastCalledWith(false);
+    await enterAmount(tree, '4200');
+    expect(amountValue(tree)).toBe('4200');
+    await act(async () => {
+      find(tree, copy.send.review)!.props.onPress();
+    });
+    expect(prepareSend).toHaveBeenCalledTimes(2);
+    expect(prepareSend).toHaveBeenLastCalledWith({
+      request: OTHER_ADDRESS,
+      amountSats: 4200,
+    });
+    const replacement: SendReview = {
+      id: 'replacement',
+      route: 'bitcoin',
+      destination: OTHER_ADDRESS,
+      description: '',
+      amountSats: 4200,
+      feeSats: 20,
+      feeLabel: 'Network fee',
+      totalSats: 4220,
+      expiresAt: Date.now() + 60000,
+      warnings: [],
+    };
+    if (timing.startsWith('answers')) {
+      await act(async () => oldAnswer({ ...review(), destination: ADDRESS }));
+      expect(onBusy).toHaveBeenLastCalledWith(true);
+      expect(tree.root.findAllByType(Amount)).toHaveLength(0);
+    }
+    await act(async () => newAnswer(replacement));
+    if (timing.startsWith('fails'))
+      await act(async () => oldFailure(new Error('Old quote expired')));
+    expect(onBusy).toHaveBeenLastCalledWith(false);
+    expect(visibleText(tree)).toContain(shortRequest(OTHER_ADDRESS));
+    expect(alerts(tree)).toEqual([]);
+    await activate(tree, copy.send.sendSats(4200));
+    expect(client.send).toHaveBeenCalledWith(replacement);
+  },
+);
 
 test.each(['request', 'wallet'])(
   'an address max review arriving after a change of %s leaves the new draft editable',

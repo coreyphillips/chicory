@@ -32,6 +32,7 @@ import {
   field,
   find,
   press,
+  visibleText,
 } from '../../../../test-support/query';
 
 jest.mock('../../../design/announce', () => ({ announce: jest.fn() }));
@@ -156,6 +157,72 @@ describe('a paste', () => {
   const state = Object.getOwnPropertyDescriptor(AppState, 'currentState');
   afterEach(() => {
     if (state) Object.defineProperty(AppState, 'currentState', state);
+  });
+
+  test.each(['before', 'after'])(
+    'a clipboard read delivered %s a requested quote cannot change its recipient',
+    async when => {
+      let pasted!: (text: string) => void;
+      jest.mocked(Clipboard.getString).mockReturnValueOnce(
+        new Promise<string>(resolve => {
+          pasted = resolve;
+        }),
+      );
+      let priced!: (value: SendReview) => void;
+      const prepareSend = jest.fn(
+        () =>
+          new Promise<SendReview>(resolve => {
+            priced = resolve;
+          }),
+      );
+      const reviewed = { ...quote, destination: ADDRESS };
+      const send = jest.fn().mockResolvedValue({
+        id: reviewed.id,
+        status: 'completed',
+        amountSats: 4200,
+        feeSats: 20,
+        message: 'Sent.',
+      });
+      const tree = await draw({ prepareSend, send });
+      await act(async () => well(tree)!.props.onChangeText(ADDRESS));
+      await enterAmount(tree, '4200');
+      await act(async () => {
+        find(tree, copy.send.paste)!.props.onPress();
+      });
+      await act(async () => {
+        find(tree, copy.send.review)!.props.onPress();
+      });
+      expect(prepareSend).toHaveBeenCalledWith({
+        request: ADDRESS,
+        amountSats: 4200,
+      });
+      const other = 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4';
+      if (when === 'before') await act(async () => pasted(other));
+      await act(async () => priced(reviewed));
+      if (when === 'after') await act(async () => pasted(other));
+      expect(visibleText(tree)).toContain(shortRequest(ADDRESS));
+      expect(visibleText(tree)).not.toContain(shortRequest(other));
+      await activate(tree, copy.send.sendSats(4200));
+      expect(send).toHaveBeenCalledWith(reviewed);
+      await act(async () => tree.unmount());
+    },
+  );
+
+  test('a paste press delivered in the same batch after Review never reads the clipboard', async () => {
+    const reviewed = { ...quote, destination: ADDRESS };
+    const tree = await draw({
+      prepareSend: jest.fn().mockResolvedValue(reviewed),
+    });
+    await act(async () => well(tree)!.props.onChangeText(ADDRESS));
+    await enterAmount(tree, '4200');
+    jest.mocked(Clipboard.getString).mockClear();
+    await act(async () => {
+      find(tree, copy.send.review)!.props.onPress();
+      find(tree, copy.send.paste)!.props.onPress();
+    });
+    expect(Clipboard.getString).not.toHaveBeenCalled();
+    expect(visibleText(tree)).toContain(shortRequest(ADDRESS));
+    await act(async () => tree.unmount());
   });
 
   test('is read as a prompt the app raised, so Send stays in view behind it', async () => {
