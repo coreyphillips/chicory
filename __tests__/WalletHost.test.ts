@@ -1,7 +1,11 @@
 import { handleEngineMessage } from '../src/embedded/walletEngineServer';
 import { openOwnedDeviceWallet } from '../src/embedded/deviceRuntime';
 import { openDeviceWallet, receiveWalletEvent } from '../src/embedded/client';
-import { recentDiagnostics } from '../src/services/diagnosticLog';
+import {
+  clearDiagnostics,
+  recentDiagnostics,
+  recordDiagnostic,
+} from '../src/services/diagnosticLog';
 import { walletHost } from '../src/embedded/walletHostNative';
 import { EmbeddedTransportError } from '@beignet/wallet-core';
 import { defaultProfile } from '../src/services/networks';
@@ -180,5 +184,74 @@ test('close accepts the final wallet events without reporting a lost session', a
   } finally {
     closing.release();
     await closed;
+  }
+});
+
+test('worker logs reach Diagnostics before open, through close and after lock', async () => {
+  // This test runs the two runtimes in one JS environment. Assert the
+  // notification crosses the host as well as appearing in the UI log.
+  const notify = jest.spyOn(walletHost, 'notify');
+  clearDiagnostics();
+  const owned = wallet();
+  const closing = gate();
+  owned.close.mockReturnValue(closing.wait);
+  jest.mocked(openOwnedDeviceWallet).mockResolvedValueOnce(owned);
+  const diagnostic = jest.fn();
+  const tor = (message: string) => ({ phase: 'tor', message });
+  try {
+    recordDiagnostic(tor('starting'));
+    expect(notify).toHaveBeenCalledWith(
+      '',
+      JSON.stringify({ type: 'log', event: tor('starting') }),
+    );
+    const client = await openDeviceWallet(settings, diagnostic);
+    const oldCallback = jest.mocked(openOwnedDeviceWallet).mock.lastCall![1]!;
+    const closed = client.close();
+    try {
+      await Promise.resolve();
+      recordDiagnostic(tor('connected during close'));
+    } finally {
+      closing.release();
+      await closed;
+    }
+    recordDiagnostic(tor('ready after lock'));
+    const fatal = { phase: 'wallet-runtime', message: 'Runtime stopped' };
+    receiveWalletEvent('', JSON.stringify({ type: 'log', event: fatal }));
+    oldCallback({ phase: 'peer:connect', message: 'Stale wallet' });
+    expect(diagnostic).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(
+      '',
+      JSON.stringify({ type: 'log', event: tor('ready after lock') }),
+    );
+    expect(
+      recentDiagnostics().map(({ phase, message }) => ({ phase, message })),
+    ).toEqual([
+      tor('starting'),
+      tor('connected during close'),
+      tor('ready after lock'),
+      fatal,
+    ]);
+  } finally {
+    notify.mockRestore();
+  }
+});
+
+test('a runtime log channel cannot send wallet callbacks or accept an old session log', async () => {
+  const owned = wallet();
+  jest.mocked(openOwnedDeviceWallet).mockResolvedValueOnce(owned);
+  const diagnostic = jest.fn();
+  const client = await openDeviceWallet(settings, diagnostic);
+  const event = { phase: 'peer:connect', message: 'Peer connected' };
+  try {
+    clearDiagnostics();
+    receiveWalletEvent('', JSON.stringify({ type: 'diagnostic', event }));
+    receiveWalletEvent('stale-session', JSON.stringify({ type: 'log', event }));
+    expect(diagnostic).not.toHaveBeenCalled();
+    expect(recentDiagnostics()).toEqual([]);
+    jest.mocked(openOwnedDeviceWallet).mock.lastCall![1]!(event);
+    expect(diagnostic).toHaveBeenCalledTimes(1);
+    expect(diagnostic).toHaveBeenCalledWith(event);
+  } finally {
+    await client.close();
   }
 });

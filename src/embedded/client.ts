@@ -33,13 +33,15 @@ type WalletListener = {
 const listeners = new Map<string, WalletListener>();
 export function receiveWalletEvent(session: string, payload: string) {
   const listener = listeners.get(session);
-  if (!listener) return;
+  if (!listener && session !== '') return;
   const event = JSON.parse(payload) as HostEvent;
+  // The native host and its worker can log before unlock or after close.
+  // Wallet callbacks and boot measurements belong to a specific session.
+  if (event.type === 'log') return appendDiagnostic(event.event);
+  if (!listener) return;
   switch (event.type) {
     case 'diagnostic':
       return listener.onDiagnostic?.(event.event);
-    case 'log':
-      return appendDiagnostic(event.event);
     case 'boot':
       return includeWalletMark(event.name, event.at, event.detail);
     case 'sqlite':

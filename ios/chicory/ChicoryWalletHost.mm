@@ -27,7 +27,7 @@
 @class WalletRuntimeDelegate;
 
 @interface ChicoryWalletHost : NSObject <RCTBridgeModule, RCTInvalidating>
-- (void)workerFailed:(WalletRuntimeDelegate *)worker;
+- (void)workerFailed:(WalletRuntimeDelegate *)worker reason:(NSString *)reason;
 @end
 
 // Register a distinct native endpoint in each engine. Only that endpoint can
@@ -35,7 +35,25 @@
 @interface WalletRuntimeDelegate : RCTDefaultReactNativeFactoryDelegate
 @property (nonatomic, weak) ChicoryWalletHost *owner;
 @property (nonatomic, strong) ChicoryWalletHost *endpoint;
+- (void)failWithReason:(NSString *)reason;
 @end
+
+// Error messages, paths and function arguments can contain wallet data. Only
+// retain the error category and numeric bundle location for symbolication.
+static NSString *walletJSError(NSString *name, NSArray<NSDictionary *> *stack)
+{
+  NSArray *categories = @[@"TypeError", @"ReferenceError", @"RangeError", @"SyntaxError", @"URIError", @"EvalError"];
+  NSString *category = [categories containsObject:name ?: @""] ? name : @"JavaScript error";
+  for (NSDictionary *frame in stack) {
+    if (![frame isKindOfClass:NSDictionary.class]) continue;
+    NSNumber *line = frame[@"lineNumber"];
+    NSNumber *column = frame[@"column"];
+    if ([line isKindOfClass:NSNumber.class] && [column isKindOfClass:NSNumber.class]) {
+      return [NSString stringWithFormat:@"%@ at bundle %lld:%lld", category, line.longLongValue, column.longLongValue];
+    }
+  }
+  return category;
+}
 
 // ErrorUtils can report directly through ExceptionsManager, bypassing the
 // RCTHost delegate. A failed engine must reject its calls and leave the UI alive.
@@ -49,7 +67,7 @@
 - (void)reportException:(JS::NativeExceptionsManager::ExceptionData &)data
 {
   if (data.isFatal()) {
-    [self reportFatalException:nil stack:nil exceptionId:data.id_()];
+    [self.worker failWithReason:walletJSError(data.name(), data.stack().unsafeRawValue())];
   } else {
     [super reportException:data];
   }
@@ -57,8 +75,7 @@
 
 - (void)reportFatalException:(NSString *)message stack:(NSArray *)stack exceptionId:(double)exceptionId
 {
-  WalletRuntimeDelegate *worker = self.worker;
-  dispatch_async(dispatch_get_main_queue(), ^{ [worker.owner workerFailed:worker]; });
+  [self.worker failWithReason:walletJSError(nil, stack)];
 }
 @end
 
@@ -245,9 +262,11 @@ RCT_EXPORT_METHOD(notify:(NSString *)session event:(NSString *)event)
   }
 }
 
-- (void)workerFailed:(WalletRuntimeDelegate *)worker
+- (void)workerFailed:(WalletRuntimeDelegate *)worker reason:(NSString *)reason
 {
   if (worker == _worker) {
+    NSString *event = RCTJSONStringify(@{@"type": @"log", @"event": @{@"phase": @"wallet-runtime", @"message": reason}}, nil);
+    [self.callableJSModules invokeModule:@"ChicoryWalletEvents" method:@"receive" withArgs:@[@"", event]];
     [self closeWithMessage:@"The wallet engine stopped. Check payment history before trying again."];
   }
 }
@@ -272,7 +291,7 @@ RCT_EXPORT_METHOD(notify:(NSString *)session event:(NSString *)event)
     self->_closed = YES;
     ChicoryWalletHost *owner = self->_owner;
     if (owner && owner->_worker.endpoint == self) {
-      [owner workerFailed:owner->_worker];
+      [owner workerFailed:owner->_worker reason:@"Wallet runtime invalidated."];
     }
     [self closeWithMessage:@"The wallet engine session closed."];
   });
@@ -281,6 +300,17 @@ RCT_EXPORT_METHOD(notify:(NSString *)session event:(NSString *)event)
 
 @implementation WalletRuntimeDelegate {
   BOOL _issuedEndpoint;
+}
+
+- (NSArray<NSString *> *)unstableModulesRequiringMainQueueSetup
+{
+  // Worklets belongs to the UI host. The wallet has no UI modules to preload.
+  return @[];
+}
+
+- (void)failWithReason:(NSString *)reason
+{
+  dispatch_async(dispatch_get_main_queue(), ^{ [self.owner workerFailed:self reason:reason]; });
 }
 
 - (NSArray<id<RCTBridgeModule>> *)extraModulesForBridge:(RCTBridge *)bridge
@@ -293,7 +323,7 @@ RCT_EXPORT_METHOD(notify:(NSString *)session event:(NSString *)event)
       return @[_endpoint];
     }
   }
-  dispatch_async(dispatch_get_main_queue(), ^{ [self.owner workerFailed:self]; });
+  [self failWithReason:@"Unexpected wallet runtime reload."];
   return @[[[ChicoryWalletHost alloc] initWithOwner:nil lifetime:nil]];
 }
 
@@ -316,7 +346,7 @@ RCT_EXPORT_METHOD(notify:(NSString *)session event:(NSString *)event)
 {
   [RCTJavaScriptLoader loadBundleAtURL:url onProgress:progress onComplete:^(NSError *error, RCTSource *source) {
     if (error) {
-      dispatch_async(dispatch_get_main_queue(), ^{ [self.owner workerFailed:self]; });
+      [self failWithReason:@"Wallet JavaScript bundle failed to load."];
       return;
     }
     complete(nil, source);
@@ -328,7 +358,7 @@ RCT_EXPORT_METHOD(notify:(NSString *)session event:(NSString *)event)
         exceptionId:(NSUInteger)exceptionId isFatal:(BOOL)isFatal extraData:(NSDictionary *)extraData
 {
   if (isFatal) {
-    dispatch_async(dispatch_get_main_queue(), ^{ [self.owner workerFailed:self]; });
+    [self failWithReason:walletJSError(name, stack)];
   }
 }
 @end

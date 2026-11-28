@@ -33,6 +33,10 @@ function emit(session: string, event: HostEvent) {
   }
 }
 
+// Tor belongs to the worker and can finish bootstrapping after a wallet closes.
+// Keep its diagnostic sink available throughout this runtime's lifetime.
+setDiagnosticSink(event => emit('', { type: 'log', event }));
+
 async function dispatch(message: HostRequest): Promise<unknown> {
   switch (message.op) {
     case 'preferences':
@@ -49,7 +53,6 @@ async function dispatch(message: HostRequest): Promise<unknown> {
         if (active) throw new Error('The device wallet is already open.');
         const { session } = message;
         const send = (event: HostEvent) => emit(session, event);
-        setDiagnosticSink(event => send({ type: 'log', event }));
         forwardWalletPerf(message.perfUntil, send);
         try {
           const wallet = await openOwnedDeviceWallet(
@@ -61,7 +64,6 @@ async function dispatch(message: HostRequest): Promise<unknown> {
           failedClose = undefined;
         } catch (error) {
           forwardWalletPerf(0);
-          setDiagnosticSink(undefined);
           throw error;
         }
       });
@@ -79,7 +81,6 @@ async function dispatch(message: HostRequest): Promise<unknown> {
           throw error;
         } finally {
           forwardWalletPerf(0);
-          setDiagnosticSink(undefined);
         }
       });
   }
